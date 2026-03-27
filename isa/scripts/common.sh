@@ -32,6 +32,9 @@ get_build_files() {
 
     get_root_theories "$dir" | while IFS= read -r name; do
         local thy_file="$dir/${name}.thy"
+        if [[ ! -f "$thy_file" ]]; then
+            thy_file="$dir/base/${name}.thy"
+        fi
         [[ -f "$thy_file" ]] && echo "$thy_file"
     done
 }

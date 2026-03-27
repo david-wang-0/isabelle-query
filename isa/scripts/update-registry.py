@@ -307,6 +307,8 @@ def main():
     for thy in theories:
         thy_path = ISA_DIR / f"{thy}.thy"
         if not thy_path.exists():
+            thy_path = ISA_DIR / "base" / f"{thy}.thy"
+        if not thy_path.exists():
             continue
         entries = extract_entries(thy_path)
         for e in entries:
