@@ -36,7 +36,7 @@ def parse_theories_from_root(root_path: Path) -> list[str]:
         if re.match(r"theories\b", stripped):
             in_theories = True
             continue
-        if re.match(r"(document_files|sessions|options|description)\b", stripped):
+        if re.match(r"(document_files|document_theories|sessions|options|description)\b", stripped):
             in_theories = False
             continue
         if in_theories and re.match(r"[A-Za-z_][A-Za-z0-9_]*$", stripped):
@@ -300,16 +300,26 @@ def main():
         print(f"ERROR: no ROOT file in {ISA_DIR}", file=sys.stderr)
         sys.exit(1)
 
-    theories = parse_theories_from_root(root_path)
+    # Collect theories from both sessions: base first, then main
+    theory_dirs: list[tuple[str, Path]] = []  # (name, thy_path)
 
-    sections: list[TheorySection] = []
-    total = 0
-    for thy in theories:
+    base_root = ISA_DIR / "base" / "ROOT"
+    if base_root.exists():
+        for thy in parse_theories_from_root(base_root):
+            thy_path = ISA_DIR / "base" / f"{thy}.thy"
+            if thy_path.exists():
+                theory_dirs.append((thy, thy_path))
+
+    for thy in parse_theories_from_root(root_path):
         thy_path = ISA_DIR / f"{thy}.thy"
         if not thy_path.exists():
             thy_path = ISA_DIR / "base" / f"{thy}.thy"
-        if not thy_path.exists():
-            continue
+        if thy_path.exists():
+            theory_dirs.append((thy, thy_path))
+
+    sections: list[TheorySection] = []
+    total = 0
+    for thy, thy_path in theory_dirs:
         entries = extract_entries(thy_path)
         for e in entries:
             e.theory = thy
