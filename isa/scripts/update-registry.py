@@ -55,12 +55,13 @@ class Entry:
     theory: str = ""  # set after extraction
 
 DECL_RE = re.compile(
-    r"^(definition|fun|primrec|lemma|theorem|axiomatization|datatype|type_synonym|record)\s"
+    r"^(definition|fun|primrec|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
 )
 
 TAG_MAP = {
     "definition": "DEF", "fun": "FUN", "primrec": "FUN",
-    "lemma": "LEMMA", "theorem": "THEOREM",
+    "lemma": "LEMMA", "corollary": "LEMMA",
+    "theorem": "THEOREM",
     "axiomatization": "AXIOM",
     "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
 }
@@ -146,8 +147,8 @@ def extract_entries(thy_path: Path) -> list[Entry]:
             entries.append(Entry(tag, name, "\n".join(buf)))
             continue
 
-        # --- Lemmas/theorems ---
-        if keyword in ("lemma", "theorem"):
+        # --- Lemmas/theorems/corollaries ---
+        if keyword in ("lemma", "corollary", "theorem"):
             rest = line[len(keyword):].strip()
             name = _parse_name(rest)
             buf = [f"{tag} {rest}"]
