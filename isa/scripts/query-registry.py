@@ -3,7 +3,7 @@
 
 Usage:
   query-registry.py theory <name>          Show all entries for a theory
-  query-registry.py find <pattern>         Find entries by name (substring match)
+  query-registry.py find <pattern>         Find entries by name (Python regex, case-insensitive)
   query-registry.py show <name>            Show a specific entry (exact name match)
   query-registry.py defs <theory>          List definitions in a theory
   query-registry.py deps <theory>          List upstream theories (from ROOT order)
