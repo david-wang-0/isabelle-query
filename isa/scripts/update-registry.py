@@ -2,10 +2,13 @@
 """Extract definitions, lemmas, theorems from .thy files into a lemma registry.
 
 Captures full multi-line statements (assumes/shows/fixes/where clauses)
-up to the proof keyword.  Produces two files:
+up to the proof keyword, plus the source span (start..end line) of each
+entry, the .thy file's section/subsection structure, and the file's total
+line count.  Produces two files:
 
   registry/registry.md  — full multi-line entries, one section per theory
-  registry/index.md     — compact index: theory table + name→location map
+  registry/index.md     — compact index: theory table, registry locations,
+                          per-theory outline (sections), name→location map
 
 Usage: ./scripts/update-registry.py
 """
@@ -53,6 +56,8 @@ class Entry:
     name: str         # identifier
     text: str         # full formatted text (may be multi-line)
     theory: str = ""  # set after extraction
+    thy_line: int = 0 # 1-indexed start line in the .thy source file
+    thy_end: int = 0  # 1-indexed end line in the .thy source file (heuristic)
 
 DECL_RE = re.compile(
     r"^(definition|fun|primrec|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
@@ -72,6 +77,7 @@ PROOF_RE = re.compile(
 )
 BLANK_RE = re.compile(r"^\s*$")
 TOPLEVEL_RE = re.compile(r"^[a-z]")
+SECTION_RE = re.compile(r"^(section|subsection|subsubsection)\s+\\<open>(.*)")
 
 NAME_RE = re.compile(r"^(\w+)")  # first word after tag
 
@@ -82,8 +88,25 @@ def _parse_name(text_after_tag: str) -> str:
     return m.group(1) if m else "?"
 
 
-def extract_entries(thy_path: Path) -> list[Entry]:
-    lines = thy_path.read_text().splitlines()
+def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
+    """Return [(level, title, line)] for each section header in the .thy file.
+    Section title may be partial if it spans multiple lines; we capture the
+    portion on the header line, which is enough for outline display.
+    """
+    out: list[tuple[str, str, int]] = []
+    for i, line in enumerate(lines, 1):
+        m = SECTION_RE.match(line)
+        if not m:
+            continue
+        level = m.group(1)
+        rest = m.group(2)
+        close_idx = rest.find("\\<close>")
+        title = rest[:close_idx] if close_idx >= 0 else rest
+        out.append((level, title.strip(), i))
+    return out
+
+
+def extract_entries(lines: list[str]) -> list[Entry]:
     entries: list[Entry] = []
     i = 0
 
@@ -96,23 +119,30 @@ def extract_entries(thy_path: Path) -> list[Entry]:
 
         keyword = m.group(1)
         tag = TAG_MAP[keyword]
+        decl_line = i + 1  # 1-indexed source line
+
+        def push(e: Entry) -> None:
+            e.thy_line = decl_line
+            entries.append(e)
 
         # --- Simple one-concept declarations ---
         if keyword in ("datatype", "type_synonym", "record"):
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
-            entries.append(Entry(tag, _parse_name(rest), f"{tag} {rest}"))
+            push(Entry(tag, _parse_name(rest), f"{tag} {rest}"))
             i += 1
             continue
 
         if keyword == "axiomatization":
-            entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION"))
+            push(Entry("AXIOM", "axiomatization", "AXIOMATIZATION"))
             i += 1
             while i < len(lines):
                 ax_line = lines[i].strip()
                 if re.match(r"[a-z_]+\s*:", ax_line):
                     name = ax_line.split(":")[0].strip()
-                    entries.append(Entry("AXIOM", name, f"  AXIOM {ax_line}"))
+                    ax_entry = Entry("AXIOM", name, f"  AXIOM {ax_line}")
+                    ax_entry.thy_line = i + 1
+                    entries.append(ax_entry)
                     i += 1
                 elif ax_line.startswith("and "):
                     i += 1
@@ -144,7 +174,7 @@ def extract_entries(thy_path: Path) -> list[Entry]:
                 i += 1
                 if keyword == "definition" and open_quotes == 0 and '"' in stripped:
                     break
-            entries.append(Entry(tag, name, "\n".join(buf)))
+            push(Entry(tag, name, "\n".join(buf)))
             continue
 
         # --- Lemmas/theorems/corollaries ---
@@ -155,7 +185,7 @@ def extract_entries(thy_path: Path) -> list[Entry]:
             i += 1
 
             if re.search(r'".+"\s*$', rest) and "assumes" not in rest:
-                entries.append(Entry(tag, name, buf[0]))
+                push(Entry(tag, name, buf[0]))
                 continue
 
             while i < len(lines):
@@ -173,12 +203,24 @@ def extract_entries(thy_path: Path) -> list[Entry]:
                 buf.append(f"  {stripped}")
                 i += 1
 
-            entries.append(Entry(tag, name, "\n".join(buf)))
+            push(Entry(tag, name, "\n".join(buf)))
             continue
 
         i += 1
 
     return entries
+
+
+def compute_spans(entries: list[Entry], section_lines: list[int],
+                  total_lines: int) -> None:
+    """Set thy_end on each entry to the line before the next entry-or-section.
+    Last entry runs to end-of-file.  This is a structural span (chunk size),
+    not a strict end-of-proof; good enough for size ranking and navigation.
+    """
+    structural = sorted({e.thy_line for e in entries} | set(section_lines))
+    for e in entries:
+        nxt = [s for s in structural if s > e.thy_line]
+        e.thy_end = (nxt[0] - 1) if nxt else total_lines
 
 # ---------------------------------------------------------------------------
 # Output: registry
@@ -190,6 +232,8 @@ class TheorySection:
     entries: list[Entry]
     start_line: int = 0   # line in registry.md (1-based)
     end_line: int = 0
+    thy_lines: int = 0    # total .thy source line count
+    outline: list[tuple[str, str, int]] = field(default_factory=list)
 
 
 def write_registry(sections: list[TheorySection], path: Path) -> None:
@@ -220,7 +264,14 @@ def write_registry(sections: list[TheorySection], path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def write_index(sections: list[TheorySection], path: Path, total: int) -> None:
-    """Write the compact index file."""
+    """Write the compact index file.
+
+    Sections written:
+      ## Theories       — summary table (theory | src lines | def/lem/thm | exports)
+      ## Registry       — registry.md location of each theory section
+      ## Outlines       — per-theory section structure (level, title, line)
+      ## Names          — sorted name index with src spans
+    """
     with open(path, "w") as f:
         f.write(f"# Lemma Index — NDTHT Formalization\n\n")
         f.write(f"Auto-generated on {date.today()}.  "
@@ -230,15 +281,15 @@ def write_index(sections: list[TheorySection], path: Path, total: int) -> None:
 
         # --- Theory summary table ---
         f.write("## Theories\n\n")
-        f.write("| Theory | Lines | D | L | T | Key Exports |\n")
-        f.write("|--------|------:|--:|--:|--:|-------------|\n")
+        f.write("Source-line counts (`.thy` file size), entry counts, and key exports.\n\n")
+        f.write("| Theory | Src | D | L | T | Key Exports |\n")
+        f.write("|--------|----:|--:|--:|--:|-------------|\n")
 
         for sec in sections:
             defs = [e for e in sec.entries if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
             lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
             thms = [e for e in sec.entries if e.tag == "THEOREM"]
 
-            # Key exports: definitions first, then theorems, then first few lemmas
             key_names: list[str] = []
             for e in defs:
                 if e.name != "?" and e.name not in key_names:
@@ -255,39 +306,54 @@ def write_index(sections: list[TheorySection], path: Path, total: int) -> None:
             if len(key_names) > 6:
                 exports += ", ..."
 
-            lines_str = f"{sec.start_line}-{sec.end_line}"
-            f.write(f"| {sec.theory} | {lines_str} | "
+            f.write(f"| {sec.theory} | {sec.thy_lines} | "
                     f"{len(defs)} | {len(lemmas)} | {len(thms)} | "
                     f"{exports} |\n")
 
-        # --- Name index (sorted) ---
-        f.write("\n## Names\n\n")
-        f.write("Sorted index of all named entries.  "
-                "Format: `name (TAG) — Theory [line]`\n\n")
+        # --- Registry locations (used by `query-registry.py theory <name>`) ---
+        f.write("\n## Registry\n\n")
+        f.write("`Theory: start-end` line range in `registry.md`.\n\n```\n")
+        for sec in sections:
+            f.write(f"{sec.theory}: {sec.start_line}-{sec.end_line}\n")
         f.write("```\n")
 
-        all_entries: list[tuple[str, Entry, TheorySection]] = []
+        # --- Outlines: per-theory section structure ---
+        f.write("\n## Outlines\n\n")
+        f.write("Section/subsection structure of each `.thy` file with source line numbers.\n\n")
         for sec in sections:
-            # Compute per-entry line numbers
+            if not sec.outline:
+                continue
+            f.write(f"### {sec.theory}\n```\n")
+            for level, title, line in sec.outline:
+                if level == "section":
+                    indent, prefix = "", "section"
+                elif level == "subsection":
+                    indent, prefix = "  ", "subsection"
+                else:
+                    indent, prefix = "    ", "subsubsection"
+                f.write(f"{indent}{prefix}: {title} ({line})\n")
+            f.write("```\n\n")
+
+        # --- Name index (sorted) ---
+        f.write("## Names\n\n")
+        f.write("Sorted index of all named entries.  "
+                "Format: `name (TAG) — Theory [reg-line] (src start-end)`\n")
+        f.write("`reg-line` is the line in `registry.md`; `src start-end` is the span "
+                "in the `.thy` source file.\n\n```\n")
+
+        all_entries: list[tuple[int, Entry, TheorySection]] = []
+        for sec in sections:
             lineno = sec.start_line + 2  # skip "## Theory.thy\n```\n"
             for entry in sec.entries:
-                if entry.name != "?" and entry.name != "axiomatization":
-                    all_entries.append((entry.name.lower(), entry, sec))
-                lineno += entry.text.count("\n") + 1
-
-        # Re-compute with actual line tracking
-        all_entries = []
-        for sec in sections:
-            lineno = sec.start_line + 2
-            for entry in sec.entries:
-                if entry.name != "?" and entry.name != "axiomatization":
+                if entry.name not in ("?", "axiomatization"):
                     all_entries.append((lineno, entry, sec))
                 lineno += entry.text.count("\n") + 1
 
         all_entries.sort(key=lambda x: x[1].name.lower())
 
         for lineno, entry, sec in all_entries:
-            f.write(f"{entry.name} ({entry.tag}) — {sec.theory} [{lineno}]\n")
+            span = f" (src {entry.thy_line}-{entry.thy_end})" if entry.thy_line else ""
+            f.write(f"{entry.name} ({entry.tag}) — {sec.theory} [{lineno}]{span}\n")
 
         f.write("```\n")
 
@@ -321,11 +387,17 @@ def main():
     sections: list[TheorySection] = []
     total = 0
     for thy, thy_path in theory_dirs:
-        entries = extract_entries(thy_path)
+        lines = thy_path.read_text().splitlines()
+        entries = extract_entries(lines)
+        outline = extract_sections(lines)
+        compute_spans(entries, [s[2] for s in outline], len(lines))
+
         for e in entries:
             e.theory = thy
         total += len(entries)
-        sections.append(TheorySection(thy, entries))
+
+        sec = TheorySection(thy, entries, thy_lines=len(lines), outline=outline)
+        sections.append(sec)
 
     REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
 
