@@ -16,6 +16,8 @@ Commands:
   find <pattern> [flags]        Find entries by name (regex, case-insensitive)
   show <name> [flags]           Show a specific entry (exact name, falls back
                                 to substring)
+  callers <name> [flags]        Find proof-body usages (not prose/text blocks)
+  dead                          List entries with zero callers
 
 Verbosity / search-mode flags (apply to find and show):
   default       First match: header + statement + first proof line
@@ -65,15 +67,8 @@ Examples:
   query-registry.py --file ../Universal_Turing_Machine/UTM.thy outline UTM
 
 Future / TODO features (to keep us from re-reading large theories):
-  - uses <name> / users <name>: lemma-level forward/reverse usage graph,
-    extracted from `using X`, `[OF X]`, `unfolding X_def`, `rule X` mentions
-    in proof bodies.  Largest single-feature win for "if I move X, who breaks?"
-    questions; cost is moderate (one regex pass over .thy files at query
-    time, additive on the existing ~60ms parse).
-  - rdeps-lemma <name>: same as `users`, but with the closure (everything
-    reachable backward).  Falls out of `users` once it exists.
-  - unused [theory]: lemmas with zero callers anywhere in the project.
-    Catches dead helpers.  Falls out of `users`.
+  - rdeps-lemma <name>: transitive closure of `callers` (everything
+    reachable backward).  Falls out of `callers` once it exists.
   - signatures <theory>: like `theory <name>` but only the first line of
     each entry (signature/header) — saves output budget when scanning a
     big theory.  Could be a flag to `theory` rather than its own command.
@@ -937,6 +932,160 @@ def cmd_outline(sections: list[TheorySection], theory: str,
             print(f"        {e.tag:<8} {e.name}  ({e.thy_line}-{e.thy_end}, {size} lines)")
 
 
+def _find_callers(sections: list[TheorySection], name: str,
+                   ) -> list[tuple[str, int, str]]:
+    """Find proof-body usages of *name* across all .thy files.
+
+    Returns a list of (theory_name, line_no, line_text) triples, filtering
+    out:
+      - The definition site itself (same theory, within the entry's span).
+      - Lines inside ``text \\<open>...\\<close>`` blocks (prose, not proof).
+      - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
+        ``@{term name}`` where the *only* occurrence of *name* on the line
+        is inside an antiquotation.
+    """
+    import re
+    word_re = re.compile(r'\b' + re.escape(name) + r'\b')
+    # Antiquotation pattern: @{text/thm/term/const "?name"?}
+    antiq_re = re.compile(
+        r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
+
+    # Build a set of (theory, line_range) for definition sites to skip.
+    def_sites: dict[str, set[range]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name == name and e.thy_line > 0:
+                def_sites.setdefault(sec.theory, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+
+    # Build text-block ranges per theory (to skip prose).
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        ranges = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        # Also skip per-entry preambles (text blocks immediately above entries).
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+
+    results: list[tuple[str, int, str]] = []
+    for sec in sections:
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_ranges = def_sites.get(sec.theory, set())
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if not word_re.search(line):
+                continue
+            # Skip definition site.
+            if any(line_no in r for r in d_ranges):
+                continue
+            # Skip text blocks.
+            if any(line_no in r for r in t_ranges):
+                continue
+            # Skip if the only occurrences are inside antiquotations.
+            stripped = antiq_re.sub('', line)
+            if not word_re.search(stripped):
+                continue
+            results.append((sec.theory, line_no, line.rstrip()))
+    return results
+
+
+def cmd_callers(sections: list[TheorySection], name: str,
+                flags: 'CmdFlags') -> None:
+    """Print proof-body usages of a lemma/definition."""
+    hits = _find_callers(sections, name)
+    if flags.mode == "count":
+        print(f"{len(hits)} caller(s) of {name}")
+        return
+    if not hits:
+        print(f"No callers found for '{name}'.")
+        return
+    print(f"{len(hits)} caller(s) of {name}:\n")
+    for theory, line_no, text in hits:
+        print(f"  {theory}:{line_no}:  {text.strip()}")
+
+
+def cmd_dead(sections: list[TheorySection]) -> None:
+    """List all entries with zero callers in proof bodies (single-pass)."""
+    import re
+
+    # Collect all candidate names.
+    all_entries: list[tuple[str, Entry]] = []
+    name_set: set[str] = set()
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF"):
+                all_entries.append((sec.theory, e))
+                name_set.add(e.name)
+
+    if not all_entries:
+        print("No entries found.")
+        return
+
+    # Build definition-site ranges and text-block ranges per theory.
+    def_sites: dict[str, dict[str, set[range]]] = {}
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        site_map: dict[str, set[range]] = {}
+        for e in sec.entries:
+            if e.name in name_set and e.thy_line > 0:
+                site_map.setdefault(e.name, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+        def_sites[sec.theory] = site_map
+        ranges = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+
+    # Antiquotation pattern.
+    antiq_re = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
+
+    # Single pass: for each line, check which names appear.
+    has_callers: set[str] = set()
+    for sec in sections:
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_map = def_sites.get(sec.theory, {})
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            # Skip text blocks.
+            if any(line_no in r for r in t_ranges):
+                continue
+            # Strip antiquotations for the name check.
+            stripped = antiq_re.sub('', line)
+            for name in name_set - has_callers:
+                if name not in stripped:
+                    continue  # fast substring pre-check
+                # Confirm word boundary.
+                if not re.search(r'\b' + re.escape(name) + r'\b', stripped):
+                    continue
+                # Skip definition site.
+                d_ranges = d_map.get(name, set())
+                if any(line_no in r for r in d_ranges):
+                    continue
+                has_callers.add(name)
+
+    dead = [(thy, e) for thy, e in all_entries if e.name not in has_callers]
+
+    if not dead:
+        print("No dead entries found.")
+        return
+    print(f"{len(dead)} dead entries (zero callers):\n")
+    print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
+    for theory, e in dead:
+        size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
+        print(f"{e.tag:<8}  {e.name:<42}  {theory}  ({e.thy_line}-{e.thy_end}, {size} lines)")
+
+
 def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
     n = 20
     theory_filter: str | None = None
@@ -1090,6 +1239,10 @@ def main():
         cmd_outline(sections, positional[0], flags)
     elif cmd == "largest":
         cmd_largest(sections, positional)
+    elif cmd == "callers" and len(positional) >= 1:
+        cmd_callers(sections, positional[0], flags)
+    elif cmd == "dead":
+        cmd_dead(sections)
     else:
         print(__doc__)
         sys.exit(1)
