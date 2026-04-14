@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-r"""Query the lemma index — computed live from .thy files on every invocation.
+r"""Query the theory index — computed live from .thy files on every invocation.
 
-No serialized registry; all commands re-parse the theory tree (~60ms for the
-full ~90 theories).  This means results are always in sync with the current
-.thy source — no `make registry` step.
+All commands re-parse the theory tree (~60ms for the full ~90 theories).
+This means results are always in sync with the current .thy source.
 
 Commands:
   summary                       Theory summary table (sizes, defs/lemmas/thms,
@@ -53,18 +52,18 @@ Source selection:
                     theories (e.g. --file ../Universal_Turing_Machine/UTM.thy).
 
 Examples:
-  query-registry.py summary
-  query-registry.py theory MultiTapeNTM
-  query-registry.py outline SimFaithfulness
-  query-registry.py largest 10 SimFaithfulness
-  query-registry.py find threshold                       # name search
-  query-registry.py find threshold --with-comments       # also search prose
-  query-registry.py find threshold --with-comments -U 4  # wider context
-  query-registry.py show sim_faithful_one_step           # default with roadmap
-  query-registry.py show sim_faithful_one_step --comments-only
-  query-registry.py show sim_faithful_one_step --no-comments
-  query-registry.py show sim_faithful_one_step -V        # full source
-  query-registry.py --file ../Universal_Turing_Machine/UTM.thy outline UTM
+  scripts/query summary
+  scripts/query theory MultiTapeNTM
+  scripts/query outline SimFaithfulness
+  scripts/query largest 10 SimFaithfulness
+  scripts/query find threshold                       # name search
+  scripts/query find threshold --with-comments       # also search prose
+  scripts/query find threshold --with-comments -U 4  # wider context
+  scripts/query show sim_faithful_one_step           # default with roadmap
+  scripts/query show sim_faithful_one_step --comments-only
+  scripts/query show sim_faithful_one_step --no-comments
+  scripts/query show sim_faithful_one_step -V        # full source
+  scripts/query --file ../Universal_Turing_Machine/UTM.thy outline UTM
 
 Future / TODO features (to keep us from re-reading large theories):
   - rdeps-lemma <name>: transitive closure of `callers` (everything
@@ -81,7 +80,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ISA_DIR = Path(__file__).resolve().parent.parent
+ISA_DIR = Path(__file__).resolve().parent.parent / "isa"
 
 # ---------------------------------------------------------------------------
 # Parsing — walks ROOT files and extracts entries from .thy sources
@@ -416,7 +415,7 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
                          outline=outline, text_blocks=text_blocks)
 
 
-def load_registry() -> list[TheorySection]:
+def load_index() -> list[TheorySection]:
     """Walk both ROOT files (base + main), parse all .thy files."""
     sections: list[TheorySection] = []
     seen: set[str] = set()
@@ -705,7 +704,7 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
 
 def cmd_summary(sections: list[TheorySection]) -> None:
     total = sum(len(s.entries) for s in sections)
-    print(f"# Lemma Index — NDTHT Formalization\n")
+    print(f"# Theory Index — NDTHT Formalization\n")
     print(f"{total} entries across {len(sections)} theories  "
           f"(parsed live from .thy files)\n")
     print("## Theories\n")
@@ -1221,7 +1220,7 @@ def main():
     if flags.file:
         sections = load_single_file(flags.file)
     else:
-        sections = load_registry()
+        sections = load_index()
 
     if cmd == "summary":
         cmd_summary(sections)
