@@ -17,7 +17,9 @@ Commands:
                                 to substring)
   callers <name> [flags]        Find proof-body usages (not prose/text blocks)
   uses <name> [flags]           Show what entries this entry's proof references
-  dead [flags]                   List entries with zero callers
+  dead [flags]                   List entries with zero callers.
+                                  -r: cascade (include entries whose
+                                  callers are all dead)
 
 Verbosity / search-mode flags (apply to find and show):
   default       First match: header + statement + first proof line
@@ -80,6 +82,9 @@ Examples:
   scripts/query uses sim_faithful_one_step           # direct dependencies
   scripts/query uses -r sim_faithful_one_step        # transitive deps
   scripts/query dead --by-theory                     # dead entries grouped
+  scripts/query dead -r                              # cascade dead analysis
+  scripts/query dead -r --by-theory                  # cascade grouped by theory
+  scripts/query dead -r -c                           # cascade count + line total
 
 Future / TODO features (to keep us from re-reading large theories):
   - signatures <theory>: like `theory <name>` but only the first line of
@@ -1242,53 +1247,115 @@ def cmd_uses(sections: list[TheorySection], name: str,
             print(f"  {uname}")
 
 
-def cmd_dead(sections: list[TheorySection], flags: 'CmdFlags') -> None:
-    """List all entries with zero callers in proof bodies."""
-    graph = _build_call_graph(sections)
+def _compute_dead(graph: CallGraph) -> set[str]:
+    """Entries with zero callers (directly dead)."""
+    return {n for n in graph.all_names if not graph.callers.get(n, set())}
 
-    dead: list[tuple[str, Entry]] = []
-    for sec in sections:
-        for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
-                if not graph.callers.get(e.name, set()):
-                    dead.append((sec.theory, e))
 
-    if not dead:
+def _compute_dead_recursive(graph: CallGraph) -> dict[str, int]:
+    """Fixed-point cascade: an entry is dead if all its callers are dead.
+
+    Returns {name: depth} where depth 0 = directly dead (zero callers),
+    depth 1 = became dead when depth-0 entries are removed, etc.
+    """
+    dead: dict[str, int] = {n: 0 for n in _compute_dead(graph)}
+    changed = True
+    depth = 1
+    while changed:
+        changed = False
+        for name in graph.all_names - set(dead):
+            callers = graph.callers.get(name, set())
+            if callers and callers <= set(dead):
+                dead[name] = depth
+                changed = True
+        depth += 1
+    return dead
+
+
+def _render_dead(sections: list[TheorySection],
+                 dead_entries: list[tuple[str, Entry, int]],
+                 flags: 'CmdFlags', recursive: bool) -> None:
+    """Shared rendering for dead and dead -r."""
+    if not dead_entries:
         print("No dead entries found.")
         return
 
+    label = "transitively dead" if recursive else "dead"
+    total = len(dead_entries)
+
     if flags.mode == "count":
-        print(f"{len(dead)} dead entries (zero callers)")
+        if recursive:
+            direct = sum(1 for _, _, d in dead_entries if d == 0)
+            cascade = total - direct
+            total_lines = sum(
+                e.thy_end - e.thy_line + 1 for _, e, _ in dead_entries
+                if e.thy_line > 0)
+            print(f"{total} {label} entries "
+                  f"({direct} direct + {cascade} cascading, "
+                  f"{total_lines} source lines)")
+        else:
+            print(f"{total} dead entries (zero callers)")
         return
 
     if flags.by_theory:
-        # Group by theory, sorted by count descending.
         from collections import Counter
-        theory_entries: dict[str, list[Entry]] = {}
-        for theory, e in dead:
-            theory_entries.setdefault(theory, []).append(e)
+        theory_entries: dict[str, list[tuple[Entry, int]]] = {}
+        for theory, e, depth in dead_entries:
+            theory_entries.setdefault(theory, []).append((e, depth))
         counts = Counter({t: len(es) for t, es in theory_entries.items()})
         total_lines = sum(
             e.thy_end - e.thy_line + 1 for es in theory_entries.values()
-            for e in es if e.thy_line > 0)
-        print(f"{len(dead)} dead entries across {len(theory_entries)} theories "
+            for e, _ in es if e.thy_line > 0)
+        print(f"{total} {label} entries across {len(theory_entries)} theories "
               f"({total_lines} source lines):\n")
         for theory, count in counts.most_common():
             entries = theory_entries[theory]
-            lines = sum(e.thy_end - e.thy_line + 1 for e in entries
+            lines = sum(e.thy_end - e.thy_line + 1 for e, _ in entries
                         if e.thy_line > 0)
-            names = ", ".join(e.name for e in entries[:4])
+            names = ", ".join(e.name for e, _ in entries[:4])
             if len(entries) > 4:
                 names += f", ... (+{len(entries) - 4})"
             print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
         return
 
-    print(f"{len(dead)} dead entries (zero callers):\n")
+    if recursive:
+        direct = sum(1 for _, _, d in dead_entries if d == 0)
+        cascade = total - direct
+        total_lines = sum(
+            e.thy_end - e.thy_line + 1 for _, e, _ in dead_entries
+            if e.thy_line > 0)
+        print(f"{total} {label} entries "
+              f"({direct} direct + {cascade} cascading, "
+              f"{total_lines} source lines):\n")
+    else:
+        print(f"{total} dead entries (zero callers):\n")
+
     print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
-    for theory, e in dead:
+    for theory, e, depth in dead_entries:
         size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
-        print(f"{e.tag:<8}  {e.name:<42}  {theory}  ({e.thy_line}-{e.thy_end}, {size} lines)")
+        depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
+        print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
+              f"({e.thy_line}-{e.thy_end}, {size} lines){depth_mark}")
+
+
+def cmd_dead(sections: list[TheorySection], flags: 'CmdFlags') -> None:
+    """List all entries with zero callers in proof bodies."""
+    graph = _build_call_graph(sections)
+
+    if flags.recursive:
+        dead_map = _compute_dead_recursive(graph)
+    else:
+        dead_map = {n: 0 for n in _compute_dead(graph)}
+
+    dead_entries: list[tuple[str, Entry, int]] = []
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+                if e.name in dead_map:
+                    dead_entries.append((sec.theory, e, dead_map[e.name]))
+
+    _render_dead(sections, dead_entries, flags, flags.recursive)
 
 
 def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
