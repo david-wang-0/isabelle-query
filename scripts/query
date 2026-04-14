@@ -17,9 +17,11 @@ Commands:
                                 to substring)
   callers <name> [flags]        Find proof-body usages (not prose/text blocks)
   uses <name> [flags]           Show what entries this entry's proof references
-  dead [flags]                   List entries with zero callers.
+  unused [flags]                  List entries with zero callers.
                                   -r: cascade (include entries whose
-                                  callers are all dead)
+                                  callers are all unused).
+                                  --roots: forest summary showing each
+                                  root's exclusive subtree size.
 
 Verbosity / search-mode flags (apply to find and show):
   default       First match: header + statement + first proof line
@@ -38,8 +40,11 @@ Graph traversal flags:
                 uses -r: everything this entry transitively depends on.
                 Output is a depth-indented tree.  Combine with -c for
                 just the count or -n for a flat name list.
-  --by-theory   (dead) Group dead entries by theory with line counts,
+  --by-theory   (unused) Group entries by theory with line counts,
                 sorted by count descending.
+  --roots       (unused) Forest summary: each root with its exclusive
+                subtree size (entries removable only if that root is
+                removed).  Sorted by exclusive lines descending.
 
 Comment-context flags (apply to show / outline / theory; --with-comments
 applies to find):
@@ -81,10 +86,11 @@ Examples:
   scripts/query callers -r -c sim_tape_data          # just the count
   scripts/query uses sim_faithful_one_step           # direct dependencies
   scripts/query uses -r sim_faithful_one_step        # transitive deps
-  scripts/query dead --by-theory                     # dead entries grouped
-  scripts/query dead -r                              # cascade dead analysis
-  scripts/query dead -r --by-theory                  # cascade grouped by theory
-  scripts/query dead -r -c                           # cascade count + line total
+  scripts/query unused --by-theory                    # unused entries grouped
+  scripts/query unused -r                             # cascade analysis
+  scripts/query unused -r --by-theory                 # cascade grouped by theory
+  scripts/query unused -r -c                          # cascade count + line total
+  scripts/query unused --roots                        # forest root summary
 
 Future / TODO features (to keep us from re-reading large theories):
   - signatures <theory>: like `theory <name>` but only the first line of
@@ -481,7 +487,7 @@ def load_index() -> list[TheorySection]:
 
 
 # ---------------------------------------------------------------------------
-# Call graph — shared dependency infrastructure for callers -r, uses, dead
+# Call graph — shared dependency infrastructure for callers -r, uses, unused
 # ---------------------------------------------------------------------------
 
 def _build_line_index(sections: list[TheorySection]
@@ -1247,60 +1253,124 @@ def cmd_uses(sections: list[TheorySection], name: str,
             print(f"  {uname}")
 
 
-def _compute_dead(graph: CallGraph) -> set[str]:
-    """Entries with zero callers (directly dead)."""
+def _compute_unused(graph: CallGraph) -> set[str]:
+    """Entries with zero callers (directly unused)."""
     return {n for n in graph.all_names if not graph.callers.get(n, set())}
 
 
-def _compute_dead_recursive(graph: CallGraph) -> dict[str, int]:
-    """Fixed-point cascade: an entry is dead if all its callers are dead.
+def _compute_unused_recursive(graph: CallGraph) -> dict[str, int]:
+    """Fixed-point cascade: an entry is unused if all its callers are unused.
 
-    Returns {name: depth} where depth 0 = directly dead (zero callers),
-    depth 1 = became dead when depth-0 entries are removed, etc.
+    Returns {name: depth} where depth 0 = directly unused (zero callers),
+    depth 1 = became unused when depth-0 entries are removed, etc.
     """
-    dead: dict[str, int] = {n: 0 for n in _compute_dead(graph)}
+    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph)}
     changed = True
     depth = 1
     while changed:
         changed = False
-        for name in graph.all_names - set(dead):
+        for name in graph.all_names - set(unused):
             callers = graph.callers.get(name, set())
-            if callers and callers <= set(dead):
-                dead[name] = depth
+            if callers and callers <= set(unused):
+                unused[name] = depth
                 changed = True
         depth += 1
-    return dead
+    return unused
 
 
-def _render_dead(sections: list[TheorySection],
-                 dead_entries: list[tuple[str, Entry, int]],
-                 flags: 'CmdFlags', recursive: bool) -> None:
-    """Shared rendering for dead and dead -r."""
-    if not dead_entries:
-        print("No dead entries found.")
+def _compute_forest(graph: CallGraph,
+                    sections: list[TheorySection]
+                    ) -> list[tuple[str, int, int, int, int]]:
+    """Compute the forest of unused roots with exclusive subtree sizes.
+
+    For each root (zero callers), compute:
+    - total cone: all entries transitively reachable via callees
+    - exclusive subtree: entries reachable ONLY from this root
+
+    Returns list of (root_name, exclusive_entries, exclusive_lines,
+    total_entries, total_lines) sorted by exclusive_lines descending.
+    """
+    roots = _compute_unused(graph)
+
+    # For each non-root entry, compute which roots can reach it by
+    # walking callers upward.  An entry's root-set is the union of
+    # root-sets of its callers (or {self} if it's a root).
+    root_sets: dict[str, set[str]] = {r: {r} for r in roots}
+
+    # BFS from roots downward through callees.
+    from collections import deque
+    queue: deque[str] = deque(roots)
+    visited: set[str] = set(roots)
+    while queue:
+        name = queue.popleft()
+        for callee in graph.callees.get(name, set()):
+            if callee not in root_sets:
+                root_sets[callee] = set()
+            root_sets[callee] |= root_sets[name]
+            if callee not in visited:
+                visited.add(callee)
+                queue.append(callee)
+
+    # Entry line-size lookup.
+    entry_lines: dict[str, int] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name in graph.all_names and e.name not in entry_lines:
+                entry_lines[e.name] = (e.thy_end - e.thy_line + 1
+                                       if e.thy_line > 0 else 0)
+
+    # For each root, compute exclusive entries (reachable only from it).
+    # Total cone = all entries whose root-set includes this root.
+    result: list[tuple[str, int, int, int, int]] = []
+    for root in sorted(roots):
+        exclusive_entries = 0
+        exclusive_lines = 0
+        total_entries = 0
+        total_lines = 0
+        for name, rset in root_sets.items():
+            if root in rset:
+                sz = entry_lines.get(name, 0)
+                total_entries += 1
+                total_lines += sz
+                if len(rset) == 1:
+                    exclusive_entries += 1
+                    exclusive_lines += sz
+        result.append((root, exclusive_entries, exclusive_lines,
+                        total_entries, total_lines))
+
+    result.sort(key=lambda x: -x[2])  # by exclusive lines desc
+    return result
+
+
+def _render_unused(sections: list[TheorySection],
+                   entries: list[tuple[str, Entry, int]],
+                   flags: 'CmdFlags', recursive: bool) -> None:
+    """Shared rendering for unused and unused -r."""
+    if not entries:
+        print("No unused entries found.")
         return
 
-    label = "transitively dead" if recursive else "dead"
-    total = len(dead_entries)
+    label = "transitively unused" if recursive else "unused"
+    total = len(entries)
 
     if flags.mode == "count":
         if recursive:
-            direct = sum(1 for _, _, d in dead_entries if d == 0)
+            direct = sum(1 for _, _, d in entries if d == 0)
             cascade = total - direct
             total_lines = sum(
-                e.thy_end - e.thy_line + 1 for _, e, _ in dead_entries
+                e.thy_end - e.thy_line + 1 for _, e, _ in entries
                 if e.thy_line > 0)
             print(f"{total} {label} entries "
                   f"({direct} direct + {cascade} cascading, "
                   f"{total_lines} source lines)")
         else:
-            print(f"{total} dead entries (zero callers)")
+            print(f"{total} unused entries (zero callers)")
         return
 
     if flags.by_theory:
         from collections import Counter
         theory_entries: dict[str, list[tuple[Entry, int]]] = {}
-        for theory, e, depth in dead_entries:
+        for theory, e, depth in entries:
             theory_entries.setdefault(theory, []).append((e, depth))
         counts = Counter({t: len(es) for t, es in theory_entries.items()})
         total_lines = sum(
@@ -1309,53 +1379,92 @@ def _render_dead(sections: list[TheorySection],
         print(f"{total} {label} entries across {len(theory_entries)} theories "
               f"({total_lines} source lines):\n")
         for theory, count in counts.most_common():
-            entries = theory_entries[theory]
-            lines = sum(e.thy_end - e.thy_line + 1 for e, _ in entries
+            tes = theory_entries[theory]
+            lines = sum(e.thy_end - e.thy_line + 1 for e, _ in tes
                         if e.thy_line > 0)
-            names = ", ".join(e.name for e, _ in entries[:4])
-            if len(entries) > 4:
-                names += f", ... (+{len(entries) - 4})"
+            names = ", ".join(e.name for e, _ in tes[:4])
+            if len(tes) > 4:
+                names += f", ... (+{len(tes) - 4})"
             print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
         return
 
     if recursive:
-        direct = sum(1 for _, _, d in dead_entries if d == 0)
+        direct = sum(1 for _, _, d in entries if d == 0)
         cascade = total - direct
         total_lines = sum(
-            e.thy_end - e.thy_line + 1 for _, e, _ in dead_entries
+            e.thy_end - e.thy_line + 1 for _, e, _ in entries
             if e.thy_line > 0)
         print(f"{total} {label} entries "
               f"({direct} direct + {cascade} cascading, "
               f"{total_lines} source lines):\n")
     else:
-        print(f"{total} dead entries (zero callers):\n")
+        print(f"{total} unused entries (zero callers):\n")
 
     print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
-    for theory, e, depth in dead_entries:
+    for theory, e, depth in entries:
         size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
               f"({e.thy_line}-{e.thy_end}, {size} lines){depth_mark}")
 
 
-def cmd_dead(sections: list[TheorySection], flags: 'CmdFlags') -> None:
-    """List all entries with zero callers in proof bodies."""
+def _render_forest(sections: list[TheorySection],
+                   forest: list[tuple[str, int, int, int, int]],
+                   flags: 'CmdFlags') -> None:
+    """Render the forest root summary."""
+    if not forest:
+        print("No unused roots found.")
+        return
+
+    # Entry lookup for tag/theory.
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+
+    if flags.mode == "count":
+        total_excl = sum(el for _, _, el, _, _ in forest)
+        print(f"{len(forest)} roots, {total_excl} exclusive lines total")
+        return
+
+    print(f"{len(forest)} unused roots:\n")
+    print(f"  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
+          f"{'Total':>5s}  {'Lines':>6s}  Theory")
+    print(f"  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
+          f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
+    for root, ee, el, te, tl in forest:
+        if root in by_name:
+            thy, entry = by_name[root]
+            tag = entry.tag
+        else:
+            thy, tag = "?", "?"
+        print(f"  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  {tl:>6d}  {thy}")
+
+
+def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
+    """List entries with zero callers in proof bodies."""
     graph = _build_call_graph(sections)
 
-    if flags.recursive:
-        dead_map = _compute_dead_recursive(graph)
-    else:
-        dead_map = {n: 0 for n in _compute_dead(graph)}
+    if flags.roots:
+        forest = _compute_forest(graph, sections)
+        _render_forest(sections, forest, flags)
+        return
 
-    dead_entries: list[tuple[str, Entry, int]] = []
+    if flags.recursive:
+        unused_map = _compute_unused_recursive(graph)
+    else:
+        unused_map = {n: 0 for n in _compute_unused(graph)}
+
+    unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
         for e in sec.entries:
             if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
-                if e.name in dead_map:
-                    dead_entries.append((sec.theory, e, dead_map[e.name]))
+                if e.name in unused_map:
+                    unused_entries.append((sec.theory, e, unused_map[e.name]))
 
-    _render_dead(sections, dead_entries, flags, flags.recursive)
+    _render_unused(sections, unused_entries, flags, flags.recursive)
 
 
 def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
@@ -1401,7 +1510,8 @@ class CmdFlags:
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find only)
     recursive: bool = False      # -r / --recursive (callers, uses)
-    by_theory: bool = False      # --by-theory (dead)
+    by_theory: bool = False      # --by-theory (unused)
+    roots: bool = False          # --roots (unused)
     file: str | None = None      # --file PATH (parse a single arbitrary .thy)
 
 
@@ -1430,6 +1540,8 @@ def _parse_flags(args: list[str]) -> tuple[list[str], CmdFlags]:
             f.recursive = True
         elif arg == "--by-theory":
             f.by_theory = True
+        elif arg == "--roots":
+            f.roots = True
         elif arg in ("-U", "--context") and i + 1 < len(args):
             f.context = int(args[i + 1])
             i += 1
@@ -1521,8 +1633,8 @@ def main():
         cmd_callers(sections, positional[0], flags)
     elif cmd == "uses" and len(positional) >= 1:
         cmd_uses(sections, positional[0], flags)
-    elif cmd == "dead":
-        cmd_dead(sections, flags)
+    elif cmd in ("unused", "dead"):
+        cmd_unused(sections, flags)
     else:
         print(__doc__)
         sys.exit(1)
