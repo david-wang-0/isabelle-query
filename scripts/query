@@ -16,6 +16,7 @@ Commands:
   show <name> [flags]           Show a specific entry (exact name, falls back
                                 to substring)
   callers <name> [flags]        Find proof-body usages (not prose/text blocks)
+  uses <name> [flags]           Show what entries this entry's proof references
   dead                          List entries with zero callers
 
 Verbosity / search-mode flags (apply to find and show):
@@ -27,6 +28,14 @@ Verbosity / search-mode flags (apply to find and show):
   -V, --verbatim
                 Print the full source slice (statement + entire proof body)
                 from the .thy file.
+
+Graph traversal flag (applies to callers and uses):
+  -r, --recursive
+                Transitive closure.  callers -r: everything that
+                transitively depends on this entry.  uses -r: everything
+                this entry transitively depends on.  Output is a
+                depth-indented tree.  Combine with -c for just the count
+                or -n for a flat name list.
 
 Comment-context flags (apply to show / outline / theory; --with-comments
 applies to find):
@@ -64,10 +73,12 @@ Examples:
   scripts/query show sim_faithful_one_step --no-comments
   scripts/query show sim_faithful_one_step -V        # full source
   scripts/query --file ../Universal_Turing_Machine/UTM.thy outline UTM
+  scripts/query callers -r sim_tape_data             # transitive callers
+  scripts/query callers -r -c sim_tape_data          # just the count
+  scripts/query uses sim_faithful_one_step           # direct dependencies
+  scripts/query uses -r sim_faithful_one_step        # transitive deps
 
 Future / TODO features (to keep us from re-reading large theories):
-  - rdeps-lemma <name>: transitive closure of `callers` (everything
-    reachable backward).  Falls out of `callers` once it exists.
   - signatures <theory>: like `theory <name>` but only the first line of
     each entry (signature/header) — saves output budget when scanning a
     big theory.  Could be a flag to `theory` rather than its own command.
@@ -77,6 +88,7 @@ Future / TODO features (to keep us from re-reading large theories):
 
 import re
 import sys
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -129,6 +141,14 @@ class TheorySection:
         s = max(0, start - 1)
         e = min(len(lines), end)
         return lines[s:e]
+
+
+@dataclass
+class CallGraph:
+    """Name-level dependency graph built by a single pass over all sources."""
+    callers: dict[str, set[str]]   # callee_name → {caller entry names}
+    callees: dict[str, set[str]]   # caller_name → {callee names referenced}
+    all_names: set[str]            # universe of indexed entry names
 
 
 DECL_RE = re.compile(
@@ -440,6 +460,123 @@ def load_index() -> list[TheorySection]:
             add(thy, thy_path)
 
     return sections
+
+
+# ---------------------------------------------------------------------------
+# Call graph — shared dependency infrastructure for callers -r, uses, dead
+# ---------------------------------------------------------------------------
+
+def _build_line_index(sections: list[TheorySection]
+                      ) -> dict[str, list[tuple[int, int, Entry]]]:
+    """For each theory, build a sorted list of (thy_line, thy_end, Entry)
+    for binary-search lookup of which entry owns a given line."""
+    index: dict[str, list[tuple[int, int, Entry]]] = {}
+    for sec in sections:
+        spans = [(e.thy_line, e.thy_end, e) for e in sec.entries
+                 if e.thy_line > 0]
+        spans.sort()
+        index[sec.theory] = spans
+    return index
+
+
+def _entry_at_line(line_index: list[tuple[int, int, Entry]],
+                   line_no: int) -> Entry | None:
+    """Binary search for the entry whose [thy_line, thy_end] contains line_no."""
+    keys = [s[0] for s in line_index]
+    idx = bisect_right(keys, line_no) - 1
+    if idx < 0:
+        return None
+    start, end, entry = line_index[idx]
+    if start <= line_no <= end:
+        return entry
+    return None
+
+
+def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
+    """Single-pass scan building a full name-level call graph.
+
+    Same filtering as _find_callers / cmd_dead: skips text blocks,
+    definition sites, and antiquotation-only mentions.
+    """
+    # 1. Collect candidate names (same filter as cmd_dead).
+    name_set: set[str] = set()
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+                name_set.add(e.name)
+
+    # 2. Build def-site and text-block exclusion ranges.
+    def_sites: dict[str, dict[str, set[range]]] = {}
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        site_map: dict[str, set[range]] = {}
+        for e in sec.entries:
+            if e.name in name_set and e.thy_line > 0:
+                site_map.setdefault(e.name, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+        def_sites[sec.theory] = site_map
+        ranges: list[range] = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+
+    # 3. Build line-to-entry index for caller attribution.
+    line_index = _build_line_index(sections)
+
+    # 4. Antiquotation pattern.
+    antiq_re = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
+
+    # 5. Single pass over all source lines.
+    callers: dict[str, set[str]] = {n: set() for n in name_set}
+    callees: dict[str, set[str]] = {}
+
+    for sec in sections:
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_map = def_sites.get(sec.theory, {})
+        idx = line_index.get(sec.theory, [])
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if any(line_no in r for r in t_ranges):
+                continue
+            stripped = antiq_re.sub('', line)
+            for name in name_set:
+                if name not in stripped:
+                    continue
+                if not re.search(r'\b' + re.escape(name) + r'\b', stripped):
+                    continue
+                d_ranges = d_map.get(name, set())
+                if any(line_no in r for r in d_ranges):
+                    continue
+                caller_entry = _entry_at_line(idx, line_no)
+                if caller_entry is None or caller_entry.name == "?":
+                    continue
+                callers[name].add(caller_entry.name)
+                callees.setdefault(caller_entry.name, set()).add(name)
+
+    return CallGraph(callers=callers, callees=callees, all_names=name_set)
+
+
+def _transitive_closure(graph: dict[str, set[str]],
+                        seeds: set[str]) -> dict[str, int]:
+    """BFS from seeds through graph edges.  Returns {name: depth}."""
+    visited: dict[str, int] = {}
+    frontier = seeds
+    depth = 0
+    while frontier:
+        next_frontier: set[str] = set()
+        for name in frontier:
+            if name in visited:
+                continue
+            visited[name] = depth
+            next_frontier |= graph.get(name, set())
+        frontier = next_frontier - set(visited)
+        depth += 1
+    return visited
 
 
 # ---------------------------------------------------------------------------
@@ -993,9 +1130,57 @@ def _find_callers(sections: list[TheorySection], name: str,
     return results
 
 
+def _render_graph_results(sections: list[TheorySection],
+                          reachable: dict[str, int],
+                          label: str, seed: str,
+                          flags: 'CmdFlags') -> None:
+    """Shared rendering for callers -r and uses -r."""
+    if flags.mode == "count":
+        print(f"{len(reachable)} transitive {label}(s) of {seed}")
+        return
+    if not reachable:
+        print(f"No {label}s found for '{seed}'.")
+        return
+
+    # Build name → (theory, Entry) lookup for rendering.
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+
+    if flags.mode == "names":
+        for name in sorted(reachable):
+            if name in by_name:
+                thy, e = by_name[name]
+                print(f"  {name} ({e.tag}) — {thy}")
+            else:
+                print(f"  {name}")
+        return
+
+    print(f"{len(reachable)} transitive {label}(s) of {seed}:\n")
+    for name, depth in sorted(reachable.items(), key=lambda x: (x[1], x[0])):
+        indent = "  " * (depth + 1)
+        if name in by_name:
+            thy, e = by_name[name]
+            print(f"{indent}{name} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"{indent}{name}")
+
+
 def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
+    if flags.recursive:
+        graph = _build_call_graph(sections)
+        if name not in graph.all_names:
+            print(f"'{name}' not found in the entry index.")
+            return
+        reachable = _transitive_closure(graph.callers, {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "caller", name, flags)
+        return
+
     hits = _find_callers(sections, name)
     if flags.mode == "count":
         print(f"{len(hits)} caller(s) of {name}")
@@ -1008,71 +1193,53 @@ def cmd_callers(sections: list[TheorySection], name: str,
         print(f"  {theory}:{line_no}:  {text.strip()}")
 
 
-def cmd_dead(sections: list[TheorySection]) -> None:
-    """List all entries with zero callers in proof bodies (single-pass)."""
-    import re
-
-    # Collect all candidate names.
-    all_entries: list[tuple[str, Entry]] = []
-    name_set: set[str] = set()
-    for sec in sections:
-        for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF"):
-                all_entries.append((sec.theory, e))
-                name_set.add(e.name)
-
-    if not all_entries:
-        print("No entries found.")
+def cmd_uses(sections: list[TheorySection], name: str,
+             flags: 'CmdFlags') -> None:
+    """Show what entries are referenced in this entry's proof body."""
+    graph = _build_call_graph(sections)
+    if name not in graph.all_names:
+        print(f"'{name}' not found in the entry index.")
         return
 
-    # Build definition-site ranges and text-block ranges per theory.
-    def_sites: dict[str, dict[str, set[range]]] = {}
-    text_ranges: dict[str, list[range]] = {}
+    if flags.recursive:
+        reachable = _transitive_closure(graph.callees, {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "dependency", name, flags)
+        return
+
+    used = graph.callees.get(name, set())
+    if flags.mode == "count":
+        print(f"{len(used)} name(s) used by {name}")
+        return
+    if not used:
+        print(f"No references found in {name}'s body.")
+        return
+
+    by_name: dict[str, tuple[str, Entry]] = {}
     for sec in sections:
-        site_map: dict[str, set[range]] = {}
         for e in sec.entries:
-            if e.name in name_set and e.thy_line > 0:
-                site_map.setdefault(e.name, set()).add(
-                    range(e.thy_line, e.thy_end + 1))
-        def_sites[sec.theory] = site_map
-        ranges = []
-        for tb_start, tb_end in sec.text_blocks:
-            ranges.append(range(tb_start, tb_end + 1))
-        for e in sec.entries:
-            if e.preamble:
-                pr_start, pr_end = e.preamble
-                ranges.append(range(pr_start, pr_end + 1))
-        text_ranges[sec.theory] = ranges
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
 
-    # Antiquotation pattern.
-    antiq_re = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
+    print(f"{len(used)} name(s) used by {name}:\n")
+    for uname in sorted(used):
+        if uname in by_name:
+            thy, e = by_name[uname]
+            print(f"  {uname} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"  {uname}")
 
-    # Single pass: for each line, check which names appear.
-    has_callers: set[str] = set()
+
+def cmd_dead(sections: list[TheorySection]) -> None:
+    """List all entries with zero callers in proof bodies."""
+    graph = _build_call_graph(sections)
+
+    dead: list[tuple[str, Entry]] = []
     for sec in sections:
-        lines = sec.source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_map = def_sites.get(sec.theory, {})
-        for line_no_0, line in enumerate(lines):
-            line_no = line_no_0 + 1
-            # Skip text blocks.
-            if any(line_no in r for r in t_ranges):
-                continue
-            # Strip antiquotations for the name check.
-            stripped = antiq_re.sub('', line)
-            for name in name_set - has_callers:
-                if name not in stripped:
-                    continue  # fast substring pre-check
-                # Confirm word boundary.
-                if not re.search(r'\b' + re.escape(name) + r'\b', stripped):
-                    continue
-                # Skip definition site.
-                d_ranges = d_map.get(name, set())
-                if any(line_no in r for r in d_ranges):
-                    continue
-                has_callers.add(name)
-
-    dead = [(thy, e) for thy, e in all_entries if e.name not in has_callers]
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+                if not graph.callers.get(e.name, set()):
+                    dead.append((sec.theory, e))
 
     if not dead:
         print("No dead entries found.")
@@ -1127,6 +1294,7 @@ class CmdFlags:
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find only)
+    recursive: bool = False      # -r / --recursive (callers, uses)
     file: str | None = None      # --file PATH (parse a single arbitrary .thy)
 
 
@@ -1151,6 +1319,8 @@ def _parse_flags(args: list[str]) -> tuple[list[str], CmdFlags]:
             f.comments = "only"
         elif arg == "--with-comments":
             f.with_comments = True
+        elif arg in ("-r", "--recursive"):
+            f.recursive = True
         elif arg in ("-U", "--context") and i + 1 < len(args):
             f.context = int(args[i + 1])
             i += 1
@@ -1240,6 +1410,8 @@ def main():
         cmd_largest(sections, positional)
     elif cmd == "callers" and len(positional) >= 1:
         cmd_callers(sections, positional[0], flags)
+    elif cmd == "uses" and len(positional) >= 1:
+        cmd_uses(sections, positional[0], flags)
     elif cmd == "dead":
         cmd_dead(sections)
     else:
