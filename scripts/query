@@ -3,101 +3,7 @@ r"""Query the theory index — computed live from .thy files on every invocation
 
 All commands re-parse the theory tree (~60ms for the full ~90 theories).
 This means results are always in sync with the current .thy source.
-
-Commands:
-  summary                       Theory summary table (sizes, defs/lemmas/thms,
-                                key exports)
-  theory <name> [flags]         Show all entries for a theory
-  defs <theory>                 List definitions in a theory
-  deps <theory>                 List upstream theories (from ROOT order)
-  outline <theory>              Section structure interleaved with entries
-  largest [N] [theory]          Top N largest entries by source span (default 20)
-  find <pattern> [flags]        Find entries by name (regex, case-insensitive)
-  show <name> [flags]           Show a specific entry (exact name, falls back
-                                to substring)
-  callers <name> [flags]        Find proof-body usages (not prose/text blocks)
-  uses <name> [flags]           Show what entries this entry's proof references
-  unused [flags]                  List entries with zero callers.
-                                  -r: cascade (include entries whose
-                                  callers are all unused).
-                                  --roots: forest summary showing each
-                                  root's exclusive subtree size.
-
-Verbosity / search-mode flags (apply to find and show):
-  default       First match: header + statement + first proof line
-                + roadmap or count of remaining proof lines.
-  -a, --all     Show all matches.
-  -c, --count   Just print the match count, no bodies.
-  -n, --names   Just print names + tags + theory + src span (no bodies).
-  -V, --verbatim
-                Print the full source slice (statement + entire proof body)
-                from the .thy file.
-
-Graph traversal flags:
-  -r, --recursive
-                (callers, uses) Transitive closure.  callers -r:
-                everything that transitively depends on this entry.
-                uses -r: everything this entry transitively depends on.
-                Output is a depth-indented tree.  Combine with -c for
-                just the count or -n for a flat name list.
-  --by-theory   (unused) Group entries by theory with line counts,
-                sorted by count descending.
-  --roots       (unused) Forest summary: each root with its exclusive
-                subtree size (entries removable only if that root is
-                removed).  Sorted by exclusive lines descending.
-
-Comment-context flags (apply to show / outline / theory; --with-comments
-applies to find):
-  (default)         Include preamble (truncated) above the entry header
-                    and roadmap (\<comment> annotations) inside the proof
-                    preview, when present.
-  --no-comments     Suppress preamble and roadmap (formal-content view).
-  --comments-only   Show ONLY preamble + roadmap, skip statement and proof.
-  --with-comments   (find) Also search inside text blocks and \<comment>
-                    annotations; matches return a context window.
-
-Context-size knob (analogous to `diff -U`):
-  -U N, --context N
-                    Lines of preview / context to show.  Default 2.
-                    For find --with-comments: lines either side of a match.
-                    For show / outline / theory: max lines per truncated
-                    text block or roadmap entry.
-                    Use a large N (or -V) to effectively disable truncation.
-
-Source selection:
-  --file PATH       Parse a single arbitrary .thy file instead of walking
-                    the project ROOTs.  Useful for inspecting external
-                    theories (e.g. --file ../Universal_Turing_Machine/UTM.thy).
-
-Examples:
-  scripts/query summary
-  scripts/query theory MultiTapeNTM
-  scripts/query outline SimFaithfulness
-  scripts/query largest 10 SimFaithfulness
-  scripts/query find threshold                       # name search
-  scripts/query find threshold --with-comments       # also search prose
-  scripts/query find threshold --with-comments -U 4  # wider context
-  scripts/query show sim_faithful_one_step           # default with roadmap
-  scripts/query show sim_faithful_one_step --comments-only
-  scripts/query show sim_faithful_one_step --no-comments
-  scripts/query show sim_faithful_one_step -V        # full source
-  scripts/query --file ../Universal_Turing_Machine/UTM.thy outline UTM
-  scripts/query callers -r sim_tape_data             # transitive callers
-  scripts/query callers -r -c sim_tape_data          # just the count
-  scripts/query uses sim_faithful_one_step           # direct dependencies
-  scripts/query uses -r sim_faithful_one_step        # transitive deps
-  scripts/query unused --by-theory                    # unused entries grouped
-  scripts/query unused -r                             # cascade analysis
-  scripts/query unused -r --by-theory                 # cascade grouped by theory
-  scripts/query unused -r -c                          # cascade count + line total
-  scripts/query unused --roots                        # forest root summary
-
-Future / TODO features (to keep us from re-reading large theories):
-  - signatures <theory>: like `theory <name>` but only the first line of
-    each entry (signature/header) — saves output budget when scanning a
-    big theory.  Could be a flag to `theory` rather than its own command.
-  - sections <theory>: just the outline header tree (no entries) — already
-    available as a subset of `outline`; could be a flag to `outline`.
+Use -h/--help on any subcommand for its options.
 """
 
 import re
@@ -1499,145 +1405,243 @@ def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Argument parsing (argparse with subcommands)
 # ---------------------------------------------------------------------------
+
+import argparse
+
 
 @dataclass
 class CmdFlags:
+    """Uniform flag bundle passed to command functions."""
     mode: str = "first"          # first / all / count / names
     verbatim: bool = False       # -V / --verbatim
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find only)
-    recursive: bool = False      # -r / --recursive (callers, uses)
+    recursive: bool = False      # -r / --recursive
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
-    file: str | None = None      # --file PATH (parse a single arbitrary .thy)
 
 
-def _parse_flags(args: list[str]) -> tuple[list[str], CmdFlags]:
-    """Strip flags from args, return (positional, flags)."""
-    positional: list[str] = []
+def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
+    """Build CmdFlags from an argparse Namespace."""
     f = CmdFlags()
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg in ("-a", "--all"):
-            f.mode = "all"
-        elif arg in ("-c", "--count"):
-            f.mode = "count"
-        elif arg in ("-n", "--names"):
-            f.mode = "names"
-        elif arg in ("-V", "--verbatim"):
-            f.verbatim = True
-        elif arg == "--no-comments":
-            f.comments = "off"
-        elif arg == "--comments-only":
-            f.comments = "only"
-        elif arg == "--with-comments":
-            f.with_comments = True
-        elif arg in ("-r", "--recursive"):
-            f.recursive = True
-        elif arg == "--by-theory":
-            f.by_theory = True
-        elif arg == "--roots":
-            f.roots = True
-        elif arg in ("-U", "--context") and i + 1 < len(args):
-            f.context = int(args[i + 1])
-            i += 1
-        elif arg.startswith("-U"):
-            f.context = int(arg[2:])
-        elif arg.startswith("--context="):
-            f.context = int(arg.split("=", 1)[1])
-        elif arg == "--file" and i + 1 < len(args):
-            f.file = args[i + 1]
-            i += 1
-        elif arg.startswith("--file="):
-            f.file = arg.split("=", 1)[1]
-        else:
-            positional.append(arg)
-        i += 1
-    return positional, f
+    if getattr(ns, "all", False):
+        f.mode = "all"
+    if getattr(ns, "count", False):
+        f.mode = "count"
+    if getattr(ns, "names", False):
+        f.mode = "names"
+    f.verbatim = getattr(ns, "verbatim", False)
+    if getattr(ns, "no_comments", False):
+        f.comments = "off"
+    elif getattr(ns, "comments_only", False):
+        f.comments = "only"
+    f.context = getattr(ns, "context", 2)
+    f.with_comments = getattr(ns, "with_comments", False)
+    f.recursive = getattr(ns, "recursive", False)
+    f.by_theory = getattr(ns, "by_theory", False)
+    f.roots = getattr(ns, "roots", False)
+    return f
 
 
-def load_single_file(path: str) -> list[TheorySection]:
-    p = Path(path).expanduser().resolve()
-    if not p.exists():
-        print(f"ERROR: file not found: {p}", file=sys.stderr)
-        sys.exit(1)
-    return [_parse_one(p.stem, p)]
+def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
+    """Load theory sections from --file or the project ROOTs."""
+    file_path = getattr(ns, "file", None)
+    if file_path:
+        p = Path(file_path).expanduser().resolve()
+        if not p.exists():
+            print(f"ERROR: file not found: {p}", file=sys.stderr)
+            sys.exit(1)
+        return [_parse_one(p.stem, p)]
+    return load_index()
 
 
-def _extract_global_file(argv: list[str]) -> tuple[str | None, list[str]]:
-    """Pull `--file PATH` (or `--file=PATH`) out of argv at any position
-    BEFORE the command.  Returns (path_or_None, remaining_argv).
-    """
-    out: list[str] = []
-    file: str | None = None
-    i = 0
-    while i < len(argv):
-        a = argv[i]
-        if a == "--file" and i + 1 < len(argv):
-            file = argv[i + 1]
-            i += 2
-            continue
-        if a.startswith("--file="):
-            file = a.split("=", 1)[1]
-            i += 1
-            continue
-        out.append(a)
-        i += 1
-    return file, out
+# -- Shared flag groups (added to subparsers that need them) ----------------
+
+def _add_mode_flags(p: argparse.ArgumentParser) -> None:
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("-a", "--all", action="store_true",
+                   help="show all matches")
+    g.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    g.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+
+def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-V", "--verbatim", action="store_true",
+                   help="full source slice (statement + proof)")
+
+def _add_comment_flags(p: argparse.ArgumentParser) -> None:
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--no-comments", action="store_true",
+                   help="suppress preamble and roadmap")
+    g.add_argument("--comments-only", action="store_true",
+                   help="show only preamble + roadmap")
+
+def _add_context_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-U", "--context", type=int, default=2, metavar="N",
+                   help="lines of preview / context (default 2)")
+
+
+# -- Subcommand handlers (thin wrappers) -----------------------------------
+
+def _run_summary(ns: argparse.Namespace) -> None:
+    cmd_summary(_load_sections(ns))
+
+def _run_theory(ns: argparse.Namespace) -> None:
+    cmd_theory(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_defs(ns: argparse.Namespace) -> None:
+    cmd_defs(_load_sections(ns), ns.theory)
+
+def _run_deps(ns: argparse.Namespace) -> None:
+    cmd_deps(_load_sections(ns), ns.theory)
+
+def _run_outline(ns: argparse.Namespace) -> None:
+    cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
+
+def _run_largest(ns: argparse.Namespace) -> None:
+    args: list[str] = []
+    if ns.n is not None:
+        args.append(str(ns.n))
+    if ns.theory is not None:
+        args.append(ns.theory)
+    cmd_largest(_load_sections(ns), args)
+
+def _run_find(ns: argparse.Namespace) -> None:
+    cmd_find(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
+
+def _run_show(ns: argparse.Namespace) -> None:
+    cmd_show(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_callers(ns: argparse.Namespace) -> None:
+    cmd_callers(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_uses(ns: argparse.Namespace) -> None:
+    cmd_uses(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_unused(ns: argparse.Namespace) -> None:
+    cmd_unused(_load_sections(ns), _flags_from_ns(ns))
+
+
+# -- Parser construction ----------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    top = argparse.ArgumentParser(
+        prog="scripts/query",
+        description="Query the theory index — computed live from .thy files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    top.add_argument("--file", metavar="PATH",
+                     help="parse a single .thy file instead of the project ROOTs")
+
+    sub = top.add_subparsers(dest="command", title="commands")
+
+    # summary
+    p = sub.add_parser("summary", help="theory overview table")
+    p.set_defaults(func=_run_summary)
+
+    # theory
+    p = sub.add_parser("theory", help="show all entries for a theory")
+    p.add_argument("name", help="theory name")
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_theory)
+
+    # defs
+    p = sub.add_parser("defs", help="list definitions in a theory")
+    p.add_argument("theory", help="theory name")
+    p.set_defaults(func=_run_defs)
+
+    # deps
+    p = sub.add_parser("deps", help="list upstream theories (ROOT order)")
+    p.add_argument("theory", help="theory name")
+    p.set_defaults(func=_run_deps)
+
+    # outline
+    p = sub.add_parser("outline", help="section structure with entries")
+    p.add_argument("theory", help="theory name")
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_outline)
+
+    # largest
+    p = sub.add_parser("largest", help="top N largest entries by span")
+    p.add_argument("n", nargs="?", type=int, default=None,
+                   help="number of entries (default 20)")
+    p.add_argument("theory", nargs="?", default=None,
+                   help="restrict to a theory")
+    p.set_defaults(func=_run_largest)
+
+    # find
+    p = sub.add_parser("find", help="find entries by name (regex)")
+    p.add_argument("pattern", help="regex pattern (case-insensitive)")
+    _add_mode_flags(p)
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.add_argument("--with-comments", action="store_true",
+                   help="also search inside text blocks and comments")
+    p.set_defaults(func=_run_find)
+
+    # show
+    p = sub.add_parser("show", help="show a specific entry")
+    p.add_argument("name", help="entry name (exact, then substring)")
+    _add_mode_flags(p)
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_show)
+
+    # callers
+    p = sub.add_parser("callers", help="find proof-body usages")
+    p.add_argument("name", help="entry name")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect callers)")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+    p.set_defaults(func=_run_callers)
+
+    # uses
+    p = sub.add_parser("uses", help="show what an entry references")
+    p.add_argument("name", help="entry name")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect dependencies)")
+    p.set_defaults(func=_run_uses)
+
+    # unused (with "dead" alias)
+    for name in ("unused", "dead"):
+        p = sub.add_parser(name,
+                           help="list entries with zero callers"
+                                + (" (alias for unused)" if name == "dead" else ""))
+        p.add_argument("-c", "--count", action="store_true",
+                       help="just print the count")
+        p.add_argument("-r", "--recursive", action="store_true",
+                       help="cascade: include entries whose callers are all unused")
+        p.add_argument("--by-theory", action="store_true",
+                       help="group by theory with line counts")
+        p.add_argument("--roots", action="store_true",
+                       help="forest summary: each root with exclusive subtree size")
+        p.set_defaults(func=_run_unused)
+
+    return top
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
+    parser = _build_parser()
+    ns = parser.parse_args()
+    if not hasattr(ns, "func"):
+        parser.print_help()
         sys.exit(1)
-
-    # Allow --file as a global flag before the command (git -C style)
-    global_file, argv_rest = _extract_global_file(sys.argv[1:])
-    if not argv_rest:
-        print(__doc__)
-        sys.exit(1)
-
-    cmd = argv_rest[0]
-    rest = argv_rest[1:]
-
-    positional, flags = _parse_flags(rest)
-    if global_file and not flags.file:
-        flags.file = global_file
-
-    if flags.file:
-        sections = load_single_file(flags.file)
-    else:
-        sections = load_index()
-
-    if cmd == "summary":
-        cmd_summary(sections)
-    elif cmd == "theory" and len(positional) >= 1:
-        cmd_theory(sections, positional[0], flags)
-    elif cmd == "find" and len(positional) >= 1:
-        cmd_find(sections, positional[0], flags)
-    elif cmd == "show" and len(positional) >= 1:
-        cmd_show(sections, positional[0], flags)
-    elif cmd == "defs" and len(positional) >= 1:
-        cmd_defs(sections, positional[0])
-    elif cmd == "deps" and len(positional) >= 1:
-        cmd_deps(sections, positional[0])
-    elif cmd == "outline" and len(positional) >= 1:
-        cmd_outline(sections, positional[0], flags)
-    elif cmd == "largest":
-        cmd_largest(sections, positional)
-    elif cmd == "callers" and len(positional) >= 1:
-        cmd_callers(sections, positional[0], flags)
-    elif cmd == "uses" and len(positional) >= 1:
-        cmd_uses(sections, positional[0], flags)
-    elif cmd in ("unused", "dead"):
-        cmd_unused(sections, flags)
-    else:
-        print(__doc__)
-        sys.exit(1)
+    ns.func(ns)
 
 
 if __name__ == "__main__":
