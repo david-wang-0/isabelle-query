@@ -17,7 +17,7 @@ Commands:
                                 to substring)
   callers <name> [flags]        Find proof-body usages (not prose/text blocks)
   uses <name> [flags]           Show what entries this entry's proof references
-  dead                          List entries with zero callers
+  dead [flags]                   List entries with zero callers
 
 Verbosity / search-mode flags (apply to find and show):
   default       First match: header + statement + first proof line
@@ -29,13 +29,15 @@ Verbosity / search-mode flags (apply to find and show):
                 Print the full source slice (statement + entire proof body)
                 from the .thy file.
 
-Graph traversal flag (applies to callers and uses):
+Graph traversal flags:
   -r, --recursive
-                Transitive closure.  callers -r: everything that
-                transitively depends on this entry.  uses -r: everything
-                this entry transitively depends on.  Output is a
-                depth-indented tree.  Combine with -c for just the count
-                or -n for a flat name list.
+                (callers, uses) Transitive closure.  callers -r:
+                everything that transitively depends on this entry.
+                uses -r: everything this entry transitively depends on.
+                Output is a depth-indented tree.  Combine with -c for
+                just the count or -n for a flat name list.
+  --by-theory   (dead) Group dead entries by theory with line counts,
+                sorted by count descending.
 
 Comment-context flags (apply to show / outline / theory; --with-comments
 applies to find):
@@ -77,6 +79,7 @@ Examples:
   scripts/query callers -r -c sim_tape_data          # just the count
   scripts/query uses sim_faithful_one_step           # direct dependencies
   scripts/query uses -r sim_faithful_one_step        # transitive deps
+  scripts/query dead --by-theory                     # dead entries grouped
 
 Future / TODO features (to keep us from re-reading large theories):
   - signatures <theory>: like `theory <name>` but only the first line of
@@ -1239,7 +1242,7 @@ def cmd_uses(sections: list[TheorySection], name: str,
             print(f"  {uname}")
 
 
-def cmd_dead(sections: list[TheorySection]) -> None:
+def cmd_dead(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     """List all entries with zero callers in proof bodies."""
     graph = _build_call_graph(sections)
 
@@ -1253,6 +1256,33 @@ def cmd_dead(sections: list[TheorySection]) -> None:
     if not dead:
         print("No dead entries found.")
         return
+
+    if flags.mode == "count":
+        print(f"{len(dead)} dead entries (zero callers)")
+        return
+
+    if flags.by_theory:
+        # Group by theory, sorted by count descending.
+        from collections import Counter
+        theory_entries: dict[str, list[Entry]] = {}
+        for theory, e in dead:
+            theory_entries.setdefault(theory, []).append(e)
+        counts = Counter({t: len(es) for t, es in theory_entries.items()})
+        total_lines = sum(
+            e.thy_end - e.thy_line + 1 for es in theory_entries.values()
+            for e in es if e.thy_line > 0)
+        print(f"{len(dead)} dead entries across {len(theory_entries)} theories "
+              f"({total_lines} source lines):\n")
+        for theory, count in counts.most_common():
+            entries = theory_entries[theory]
+            lines = sum(e.thy_end - e.thy_line + 1 for e in entries
+                        if e.thy_line > 0)
+            names = ", ".join(e.name for e in entries[:4])
+            if len(entries) > 4:
+                names += f", ... (+{len(entries) - 4})"
+            print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
+        return
+
     print(f"{len(dead)} dead entries (zero callers):\n")
     print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
@@ -1304,6 +1334,7 @@ class CmdFlags:
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find only)
     recursive: bool = False      # -r / --recursive (callers, uses)
+    by_theory: bool = False      # --by-theory (dead)
     file: str | None = None      # --file PATH (parse a single arbitrary .thy)
 
 
@@ -1330,6 +1361,8 @@ def _parse_flags(args: list[str]) -> tuple[list[str], CmdFlags]:
             f.with_comments = True
         elif arg in ("-r", "--recursive"):
             f.recursive = True
+        elif arg == "--by-theory":
+            f.by_theory = True
         elif arg in ("-U", "--context") and i + 1 < len(args):
             f.context = int(args[i + 1])
             i += 1
@@ -1422,7 +1455,7 @@ def main():
     elif cmd == "uses" and len(positional) >= 1:
         cmd_uses(sections, positional[0], flags)
     elif cmd == "dead":
-        cmd_dead(sections)
+        cmd_dead(sections, flags)
     else:
         print(__doc__)
         sys.exit(1)
