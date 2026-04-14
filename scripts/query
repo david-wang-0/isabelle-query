@@ -175,7 +175,17 @@ COMMENT_LINE_RE = re.compile(r"\\<comment>\s*\\<open>(.*)$")
 LATEX_LINE_RE = re.compile(
     r"\\(begin|end|caption|node|draw|newlength|newcommand|settowidth|settoheight|scalebox|label)\b"
 )
-NAME_RE = re.compile(r"^(\w+)")
+NAME_RE = re.compile(r"^(\w[\w']*)")
+
+
+def _isa_word_pattern(name: str) -> str:
+    """Return a regex pattern matching `name` as an Isabelle identifier.
+
+    Isabelle allows primes (') in identifiers, so \\b is wrong — it
+    treats ' as a word boundary.  We use negative lookbehind/lookahead
+    for [\\w'] instead.
+    """
+    return r"(?<![\w'])" + re.escape(name) + r"(?![\w'])"
 
 
 def _parse_name(text_after_tag: str) -> str:
@@ -547,7 +557,7 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
             for name in name_set:
                 if name not in stripped:
                     continue
-                if not re.search(r'\b' + re.escape(name) + r'\b', stripped):
+                if not re.search(_isa_word_pattern(name), stripped):
                     continue
                 d_ranges = d_map.get(name, set())
                 if any(line_no in r for r in d_ranges):
@@ -1080,8 +1090,7 @@ def _find_callers(sections: list[TheorySection], name: str,
         ``@{term name}`` where the *only* occurrence of *name* on the line
         is inside an antiquotation.
     """
-    import re
-    word_re = re.compile(r'\b' + re.escape(name) + r'\b')
+    word_re = re.compile(_isa_word_pattern(name))
     # Antiquotation pattern: @{text/thm/term/const "?name"?}
     antiq_re = re.compile(
         r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
