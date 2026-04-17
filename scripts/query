@@ -620,8 +620,10 @@ def _render_preamble(sec: TheorySection, preamble: tuple[int, int],
     suffix = ""
     shown = len(preview)
     remaining = block_size - shown
+    if remaining == 1:
+        return "\n".join(body)
     if remaining > 0:
-        suffix = (f"\n  [+{remaining} more preamble line{'s' if remaining != 1 else ''}, "
+        suffix = (f"\n  [+{remaining} more preamble lines, "
                   f"use --comments-only or -V to see]")
     return "\n".join(preview) + suffix
 
@@ -648,8 +650,12 @@ def _render_roadmap(roadmap: list[tuple[int, str]], context: int,
         out.append(f"  | line {ln}: {content}")
     if mode != "full" and len(roadmap) > len(shown):
         rest = len(roadmap) - len(shown)
-        out.append(f"  | ...({rest} more annotation{'s' if rest != 1 else ''} "
-                   f"in {proof_remaining}-line proof, use -U N to see more)")
+        if rest == 1:
+            ln, content = roadmap[len(shown)]
+            out.append(f"  | line {ln}: {content}")
+        else:
+            out.append(f"  | ...({rest} more annotations "
+                       f"in {proof_remaining}-line proof, use -U N to see more)")
     return "\n".join(out)
 
 
@@ -714,9 +720,11 @@ def render_entry(sec: TheorySection, entry: Entry, *,
         if comments != "off" and entry.roadmap:
             out_parts.append(_render_roadmap(entry.roadmap, context,
                                              remaining, "summary"))
+        elif remaining == 1:
+            extra = sec.slice(entry.proof_line + 1, entry.proof_line + 1)
+            out_parts.append("\n".join(extra))
         elif remaining > 0:
-            out_parts.append(f"  [+{remaining} more proof line"
-                             f"{'s' if remaining != 1 else ''}]")
+            out_parts.append(f"  [+{remaining} more proof lines]")
     else:
         # No proof captured → just the declaration as recorded by the parser.
         body_lines = sec.slice(entry.thy_line, entry.decl_end_line)
