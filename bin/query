@@ -1,0 +1,1656 @@
+#!/usr/bin/env python3
+r"""Query the theory index — computed live from .thy files on every invocation.
+
+All commands re-parse the theory tree (~60ms for the full ~90 theories).
+This means results are always in sync with the current .thy source.
+Use -h/--help on any subcommand for its options.
+"""
+
+import re
+import sys
+from bisect import bisect_right
+from dataclasses import dataclass, field
+from pathlib import Path
+
+T_DIR = Path(__file__).resolve().parent.parent / "t"
+
+# ---------------------------------------------------------------------------
+# Parsing — walks ROOT files and extracts entries from .thy sources
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Entry:
+    tag: str            # DEF, FUN, LEMMA, THEOREM, DATATYPE, TYPE, RECORD, AXIOM
+    name: str           # identifier
+    text: str           # legacy pre-formatted text (for `theory` dump)
+    theory: str = ""
+    thy_line: int = 0       # 1-indexed start line in the .thy source file
+    decl_end_line: int = 0  # 1-indexed last line of the declaration
+                            # (last header line before proof / blank / next decl)
+    proof_line: int = 0     # 1-indexed first line of the proof (0 if no proof)
+    thy_end: int = 0        # 1-indexed structural end (heuristic — to next entry)
+    # Comment context attached during _parse_one:
+    preamble: tuple[int, int] | None = None
+        # (start, end) of the `text \<open>...\<close>` block immediately
+        # preceding this entry, if one exists within ~3 blank lines.
+    roadmap: list[tuple[int, str]] = field(default_factory=list)
+        # (line_no, content) for `\<comment> \<open>...\<close>` annotations
+        # found inside this entry's proof body.
+
+
+@dataclass
+class TheorySection:
+    theory: str
+    path: Path
+    entries: list[Entry]
+    thy_lines: int = 0
+    outline: list[tuple[str, str, int]] = field(default_factory=list)
+    text_blocks: list[tuple[int, int]] = field(default_factory=list)
+        # All top-level text blocks in the theory, used for `outline` rendering
+        # (per-entry preambles are stored on Entry.preamble).
+    _source_cache: list[str] | None = None
+
+    def source(self) -> list[str]:
+        if self._source_cache is None:
+            self._source_cache = self.path.read_text().splitlines()
+        return self._source_cache
+
+    def slice(self, start: int, end: int) -> list[str]:
+        """Return 1-indexed inclusive line range from the .thy source."""
+        lines = self.source()
+        s = max(0, start - 1)
+        e = min(len(lines), end)
+        return lines[s:e]
+
+
+@dataclass
+class CallGraph:
+    """Name-level dependency graph built by a single pass over all sources."""
+    callers: dict[str, set[str]]   # callee_name → {caller entry names}
+    callees: dict[str, set[str]]   # caller_name → {callee names referenced}
+    all_names: set[str]            # universe of indexed entry names
+
+
+DECL_RE = re.compile(
+    r"^(definition|fun|primrec|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
+)
+
+TAG_MAP = {
+    "definition": "DEF", "fun": "FUN", "primrec": "FUN",
+    "lemma": "LEMMA", "corollary": "LEMMA",
+    "theorem": "THEOREM",
+    "axiomatization": "AXIOM",
+    "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
+}
+
+PROOF_RE = re.compile(
+    r"^\s*(proof\b|by\b|sorry\b|oops\b|using\b"
+    r"|unfolding\b|apply\b|\.\.\s*$)"
+)
+BLANK_RE = re.compile(r"^\s*$")
+TOPLEVEL_RE = re.compile(r"^[a-z]")
+SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
+TEXT_OPEN_RE = re.compile(r"^\s*(text|text_raw)\s*\\<open>")
+COMMENT_LINE_RE = re.compile(r"\\<comment>\s*\\<open>(.*)$")
+LATEX_LINE_RE = re.compile(
+    r"\\(begin|end|caption|node|draw|newlength|newcommand|settowidth|settoheight|scalebox|label)\b"
+)
+NAME_RE = re.compile(r"^(\w[\w']*)")
+
+
+def _isa_word_pattern(name: str) -> str:
+    """Return a regex pattern matching `name` as an Isabelle identifier.
+
+    Isabelle allows primes (') in identifiers, so \\b is wrong — it
+    treats ' as a word boundary.  We use negative lookbehind/lookahead
+    for [\\w'] instead.
+    """
+    return r"(?<![\w'])" + re.escape(name) + r"(?![\w'])"
+
+
+def _parse_name(text_after_tag: str) -> str:
+    m = NAME_RE.match(text_after_tag.strip())
+    return m.group(1) if m else "?"
+
+
+def parse_theories_from_root(root_path: Path) -> list[str]:
+    theories = []
+    in_theories = False
+    for line in root_path.read_text().splitlines():
+        stripped = line.strip()
+        if re.match(r"theories\b", stripped):
+            in_theories = True
+            continue
+        if re.match(r"(document_files|document_theories|sessions|options|description)\b", stripped):
+            in_theories = False
+            continue
+        if in_theories and re.match(r"[A-Za-z_][A-Za-z0-9_]*$", stripped):
+            theories.append(stripped)
+    return theories
+
+
+def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
+    out: list[tuple[str, str, int]] = []
+    for i, line in enumerate(lines, 1):
+        m = SECTION_RE.match(line)
+        if not m:
+            continue
+        level = m.group(1)
+        rest = m.group(2)
+        close_idx = rest.find("\\<close>")
+        title = rest[:close_idx] if close_idx >= 0 else rest
+        out.append((level, title.strip(), i))
+    return out
+
+
+def _find_balanced_close(lines: list[str], start: int) -> int:
+    """Given a 0-indexed start line that opens a `\\<open>` block, return the
+    0-indexed line of the matching `\\<close>` (counts open/close balance).
+    Returns start if no balance found (malformed).
+    """
+    depth = 0
+    for i in range(start, len(lines)):
+        depth += lines[i].count("\\<open>")
+        depth -= lines[i].count("\\<close>")
+        if depth <= 0 and i >= start:
+            return i
+    return start
+
+
+def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    """Return [(start_line, end_line)] (1-indexed inclusive) for top-level
+    `text \\<open>...\\<close>` and `text_raw` blocks.  Body is not stored —
+    callers slice from sec.source() when needed.
+    """
+    out = []
+    i = 0
+    while i < len(lines):
+        if TEXT_OPEN_RE.match(lines[i]):
+            end = _find_balanced_close(lines, i)
+            out.append((i + 1, end + 1))
+            i = end + 1
+        else:
+            i += 1
+    return out
+
+
+def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Return [(line_no, content)] for in-proof `\\<comment> \\<open>...\\<close>`
+    annotations.  `content` is the prose text inside the `\\<open>...\\<close>`
+    on the comment's first line (truncated at the first `\\<close>` if present).
+    """
+    out = []
+    for i, line in enumerate(lines, 1):
+        m = COMMENT_LINE_RE.search(line)
+        if not m:
+            continue
+        rest = m.group(1)
+        close_idx = rest.find("\\<close>")
+        content = rest[:close_idx] if close_idx >= 0 else rest
+        out.append((i, content.strip()))
+    return out
+
+
+def extract_entries(lines: list[str]) -> list[Entry]:
+    entries: list[Entry] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        m = DECL_RE.match(line)
+        if not m:
+            i += 1
+            continue
+
+        keyword = m.group(1)
+        tag = TAG_MAP[keyword]
+        decl_line = i + 1  # 1-indexed source line
+
+        # --- Simple one-concept declarations ---
+        if keyword in ("datatype", "type_synonym", "record"):
+            rest = line[len(keyword):].strip()
+            rest = re.sub(r"\s+where$", "", rest)
+            e = Entry(tag, _parse_name(rest), f"{tag} {rest}",
+                      thy_line=decl_line, decl_end_line=decl_line)
+            entries.append(e)
+            i += 1
+            continue
+
+        if keyword == "axiomatization":
+            entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
+                                 thy_line=decl_line, decl_end_line=decl_line))
+            i += 1
+            while i < len(lines):
+                ax_line = lines[i].strip()
+                if re.match(r"[a-z_]+\s*:", ax_line):
+                    name = ax_line.split(":")[0].strip()
+                    ax_entry = Entry("AXIOM", name, f"  AXIOM {ax_line}",
+                                     thy_line=i + 1, decl_end_line=i + 1)
+                    entries.append(ax_entry)
+                    i += 1
+                elif ax_line.startswith("and "):
+                    i += 1
+                elif ax_line == "" or TOPLEVEL_RE.match(lines[i]):
+                    break
+                else:
+                    i += 1
+            continue
+
+        # --- Definitions ---
+        if keyword in ("definition", "fun", "primrec"):
+            rest = line[len(keyword):].strip()
+            rest = re.sub(r"\s+where$", "", rest)
+            name = _parse_name(rest)
+            buf = [f"{tag} {rest}"]
+            decl_end_line = decl_line
+            i += 1
+            open_quotes = rest.count('"') % 2
+            while i < len(lines):
+                cline = lines[i]
+                if BLANK_RE.match(cline):
+                    break
+                if DECL_RE.match(cline):
+                    break
+                stripped = cline.strip()
+                if stripped.startswith("\\<comment>") or stripped.startswith("text "):
+                    break
+                buf.append(f"  {stripped}")
+                open_quotes = (open_quotes + stripped.count('"')) % 2
+                i += 1
+                decl_end_line = i  # 1-indexed line just appended
+                if keyword == "definition" and open_quotes == 0 and '"' in stripped:
+                    break
+            entries.append(Entry(tag, name, "\n".join(buf),
+                                 thy_line=decl_line,
+                                 decl_end_line=decl_end_line))
+            continue
+
+        # --- Lemmas / theorems / corollaries ---
+        if keyword in ("lemma", "corollary", "theorem"):
+            rest = line[len(keyword):].strip()
+            name = _parse_name(rest)
+            buf = [f"{tag} {rest}"]
+            decl_end_line = decl_line
+            proof_line = 0
+            i += 1
+
+            while i < len(lines):
+                cline = lines[i]
+                stripped = cline.strip()
+                if BLANK_RE.match(cline):
+                    break
+                if PROOF_RE.match(cline):
+                    proof_line = i + 1
+                    break
+                if DECL_RE.match(cline):
+                    break
+                if stripped.startswith("\\<comment>"):
+                    i += 1
+                    continue
+                buf.append(f"  {stripped}")
+                i += 1
+                decl_end_line = i
+
+            entries.append(Entry(tag, name, "\n".join(buf),
+                                 thy_line=decl_line,
+                                 decl_end_line=decl_end_line,
+                                 proof_line=proof_line))
+            continue
+
+        i += 1
+
+    return entries
+
+
+def compute_spans(entries: list[Entry], section_lines: list[int],
+                  total_lines: int) -> None:
+    """Set thy_end on each entry to the line before the next entry-or-section."""
+    structural = sorted({e.thy_line for e in entries} | set(section_lines))
+    for e in entries:
+        nxt = [s for s in structural if s > e.thy_line]
+        e.thy_end = (nxt[0] - 1) if nxt else total_lines
+
+
+def _attach_comments(entries: list[Entry], lines: list[str],
+                     text_blocks: list[tuple[int, int]],
+                     comment_lines: list[tuple[int, str]]) -> None:
+    """Attach text blocks (preambles) and \\<comment> lines (roadmaps) to
+    the entries they belong to.
+
+    Preamble: text block whose `end` line is within ~3 blank lines of an
+    entry's `thy_line`.  Avoids attaching a giant top-of-file narrative
+    to the very first entry hundreds of lines later.
+
+    Roadmap: \\<comment> line whose line number lies inside the entry's
+    proof span [proof_line+1 .. _proof_extent(...)].
+    """
+    # --- preambles: text block → next entry, only if adjacent AND small ---
+    # Both conditions matter: a 500-line section narrative just before the
+    # first definition is NOT that definition's docstring; it's the chapter's
+    # introduction.  See UTM.thy lines 28-530 for the canonical example.
+    PREAMBLE_MAX_LINES = 30
+    entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
+    for tb_start, tb_end in text_blocks:
+        if tb_end - tb_start + 1 > PREAMBLE_MAX_LINES:
+            continue  # too big to be a per-entry docstring
+        # Find the first entry whose thy_line is > tb_end.
+        for es, e in entry_starts:
+            if es <= tb_end:
+                continue
+            # Are intervening lines (tb_end+1 .. es-1) all blank?
+            gap = lines[tb_end:es - 1]
+            if all(not l.strip() for l in gap) and len(gap) <= 3:
+                e.preamble = (tb_start, tb_end)
+            break
+
+    # --- roadmaps: comment line → containing entry's proof span ---
+    for cline, content in comment_lines:
+        for e in entries:
+            if e.proof_line and e.proof_line < cline <= e.thy_end:
+                e.roadmap.append((cline, content))
+                break
+
+
+def _parse_one(thy: str, thy_path: Path) -> TheorySection:
+    lines = thy_path.read_text().splitlines()
+    entries = extract_entries(lines)
+    outline = extract_sections(lines)
+    text_blocks = extract_text_blocks(lines)
+    comment_lines = extract_comment_lines(lines)
+    compute_spans(entries, [s[2] for s in outline], len(lines))
+    _attach_comments(entries, lines, text_blocks, comment_lines)
+    for e in entries:
+        e.theory = thy
+    return TheorySection(thy, thy_path, entries, thy_lines=len(lines),
+                         outline=outline, text_blocks=text_blocks)
+
+
+def load_index() -> list[TheorySection]:
+    """Walk both ROOT files (base + main), parse all .thy files."""
+    sections: list[TheorySection] = []
+    seen: set[str] = set()
+
+    def add(thy: str, thy_path: Path) -> None:
+        if thy in seen or not thy_path.exists():
+            return
+        seen.add(thy)
+        sections.append(_parse_one(thy, thy_path))
+
+    base_root = T_DIR / "base" / "ROOT"
+    if base_root.exists():
+        for thy in parse_theories_from_root(base_root):
+            add(thy, T_DIR / "base" / f"{thy}.thy")
+
+    root_path = T_DIR / "ROOT"
+    if root_path.exists():
+        for thy in parse_theories_from_root(root_path):
+            thy_path = T_DIR / f"{thy}.thy"
+            if not thy_path.exists():
+                thy_path = T_DIR / "base" / f"{thy}.thy"
+            add(thy, thy_path)
+
+    return sections
+
+
+# ---------------------------------------------------------------------------
+# Call graph — shared dependency infrastructure for callers -r, uses, unused
+# ---------------------------------------------------------------------------
+
+def _build_line_index(sections: list[TheorySection]
+                      ) -> dict[str, list[tuple[int, int, Entry]]]:
+    """For each theory, build a sorted list of (thy_line, thy_end, Entry)
+    for binary-search lookup of which entry owns a given line."""
+    index: dict[str, list[tuple[int, int, Entry]]] = {}
+    for sec in sections:
+        spans = [(e.thy_line, e.thy_end, e) for e in sec.entries
+                 if e.thy_line > 0]
+        spans.sort()
+        index[sec.theory] = spans
+    return index
+
+
+def _entry_at_line(line_index: list[tuple[int, int, Entry]],
+                   line_no: int) -> Entry | None:
+    """Binary search for the entry whose [thy_line, thy_end] contains line_no."""
+    keys = [s[0] for s in line_index]
+    idx = bisect_right(keys, line_no) - 1
+    if idx < 0:
+        return None
+    start, end, entry = line_index[idx]
+    if start <= line_no <= end:
+        return entry
+    return None
+
+
+def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
+    """Single-pass scan building a full name-level call graph.
+
+    Same filtering as _find_callers / cmd_dead: skips text blocks,
+    definition sites, and antiquotation-only mentions.
+    """
+    # 1. Collect candidate names (same filter as cmd_dead).
+    name_set: set[str] = set()
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+                name_set.add(e.name)
+
+    # 2. Build def-site and text-block exclusion ranges.
+    def_sites: dict[str, dict[str, set[range]]] = {}
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        site_map: dict[str, set[range]] = {}
+        for e in sec.entries:
+            if e.name in name_set and e.thy_line > 0:
+                site_map.setdefault(e.name, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+        def_sites[sec.theory] = site_map
+        ranges: list[range] = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+
+    # 3. Build line-to-entry index for caller attribution.
+    line_index = _build_line_index(sections)
+
+    # 4. Antiquotation pattern.
+    antiq_re = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
+
+    # 5. Single pass over all source lines.
+    callers: dict[str, set[str]] = {n: set() for n in name_set}
+    callees: dict[str, set[str]] = {}
+
+    for sec in sections:
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_map = def_sites.get(sec.theory, {})
+        idx = line_index.get(sec.theory, [])
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if any(line_no in r for r in t_ranges):
+                continue
+            stripped = antiq_re.sub('', line)
+            for name in name_set:
+                if name not in stripped:
+                    continue
+                if not re.search(_isa_word_pattern(name), stripped):
+                    continue
+                d_ranges = d_map.get(name, set())
+                if any(line_no in r for r in d_ranges):
+                    continue
+                caller_entry = _entry_at_line(idx, line_no)
+                if caller_entry is None or caller_entry.name == "?":
+                    continue
+                callers[name].add(caller_entry.name)
+                callees.setdefault(caller_entry.name, set()).add(name)
+
+    return CallGraph(callers=callers, callees=callees, all_names=name_set)
+
+
+def _transitive_closure(graph: dict[str, set[str]],
+                        seeds: set[str]) -> dict[str, int]:
+    """BFS from seeds through graph edges.  Returns {name: depth}."""
+    visited: dict[str, int] = {}
+    frontier = seeds
+    depth = 0
+    while frontier:
+        next_frontier: set[str] = set()
+        for name in frontier:
+            if name in visited:
+                continue
+            visited[name] = depth
+            next_frontier |= graph.get(name, set())
+        frontier = next_frontier - set(visited)
+        depth += 1
+    return visited
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+def _format_name_line(sec: TheorySection, entry: Entry) -> str:
+    span_size = entry.thy_end - entry.thy_line + 1 if entry.thy_line else 0
+    span = f" [src {entry.thy_line}-{entry.thy_end}, {span_size} lines]" if entry.thy_line else ""
+    return f"{entry.name} ({entry.tag}) — {sec.theory}{span}"
+
+
+def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:
+    """Walk forward from proof_line, return last line that belongs to the proof.
+    Stops at `text \\<open>...` blocks, section headers, next declarations, or
+    end of file.  Returns proof_line itself for one-line proofs.
+    """
+    lines = sec.source()
+    last = proof_line
+    for line_no in range(proof_line + 1, thy_end + 1):
+        if line_no > len(lines):
+            break
+        cline = lines[line_no - 1]
+        stripped = cline.strip()
+        # Stop at top-level documentation blocks (text \<open>...\<close>) but
+        # NOT at in-proof Isar annotations (\<comment> \<open>...\<close>), which
+        # are routine inside proof bodies.
+        if stripped.startswith("text ") or stripped.startswith("text\\<open>"):
+            break
+        if SECTION_RE.match(cline):
+            break
+        if DECL_RE.match(cline):
+            break
+        if stripped:
+            last = line_no
+    return last
+
+
+def _is_latex_noise(line: str) -> bool:
+    """Lines containing LaTeX figure/typesetting markup we want to skip in
+    truncated previews of text blocks (e.g. UTM.thy's tikzpicture diagrams)."""
+    return bool(LATEX_LINE_RE.search(line))
+
+
+def _strip_text_wrapper(lines: list[str]) -> list[str]:
+    """Strip leading `text \\<open>` / `text_raw \\<open>` and trailing
+    `\\<close>` from a text block body, so previews don't show the wrapper.
+    Returns a copy; does nothing if the markers aren't found.
+    """
+    if not lines:
+        return lines
+    out = list(lines)
+    # Strip leading "text \<open>" or "text_raw \<open>"
+    first = out[0]
+    m = re.match(r"^(\s*)(?:text_raw|text)\s*\\<open>\s*(.*)$", first)
+    if m:
+        stripped_first = (m.group(1) + m.group(2)).rstrip()
+        if stripped_first:
+            out[0] = stripped_first
+        else:
+            out = out[1:]
+    if not out:
+        return out
+    # Strip trailing "\<close>" from last line
+    last = out[-1]
+    if last.rstrip().endswith("\\<close>"):
+        trimmed = last.rstrip()[: -len("\\<close>")].rstrip()
+        if trimmed:
+            out[-1] = trimmed
+        else:
+            out = out[:-1]
+    return out
+
+
+def _truncate_preview(lines: list[str], n: int,
+                      skip_latex: bool = True) -> tuple[list[str], int]:
+    """Return (preview_lines, omitted_count).  Picks up to N non-blank,
+    non-LaTeX content lines from the start of `lines`.  `omitted_count` is
+    how many *original* lines were not included in the preview.
+    """
+    if n <= 0:
+        return [], len(lines)
+    out = []
+    consumed = 0
+    for line in lines:
+        consumed += 1
+        if not line.strip():
+            continue
+        if skip_latex and _is_latex_noise(line):
+            continue
+        out.append(line)
+        if len(out) >= n:
+            break
+    omitted = len(lines) - consumed
+    return out, max(0, omitted)
+
+
+def _render_preamble(sec: TheorySection, preamble: tuple[int, int],
+                     mode: str, context: int) -> str:
+    """Render a preamble text block.
+
+    mode='summary': first `context` content lines + "[+N more preamble lines]"
+    mode='full':    full slice, wrapper stripped
+    """
+    start, end = preamble
+    body = _strip_text_wrapper(sec.slice(start, end))
+    block_size = len(body)
+    if mode == "full":
+        return "\n".join(body)
+    preview, _ = _truncate_preview(body, context)
+    suffix = ""
+    shown = len(preview)
+    remaining = block_size - shown
+    if remaining == 1:
+        return "\n".join(body)
+    if remaining > 0:
+        suffix = (f"\n  [+{remaining} more preamble lines, "
+                  f"use --comments-only or -V to see]")
+    return "\n".join(preview) + suffix
+
+
+def _render_roadmap(roadmap: list[tuple[int, str]], context: int,
+                    proof_remaining: int, mode: str) -> str:
+    """Render a proof roadmap (extracted \\<comment> annotations).
+
+    mode='summary': first `context` annotations + "...(N total of M proof lines)"
+    mode='full':    all annotations
+    """
+    if not roadmap:
+        # Fallback: show the existing "+N more proof lines" count line.
+        if proof_remaining > 0:
+            return (f"  [+{proof_remaining} more proof line"
+                    f"{'s' if proof_remaining != 1 else ''}]")
+        return ""
+    if mode == "full":
+        shown = roadmap
+    else:
+        shown = roadmap[:max(1, context)]
+    out = []
+    for ln, content in shown:
+        out.append(f"  | line {ln}: {content}")
+    if mode != "full" and len(roadmap) > len(shown):
+        rest = len(roadmap) - len(shown)
+        if rest == 1:
+            ln, content = roadmap[len(shown)]
+            out.append(f"  | line {ln}: {content}")
+        else:
+            out.append(f"  | ...({rest} more annotations "
+                       f"in {proof_remaining}-line proof, use -U N to see more)")
+    return "\n".join(out)
+
+
+def render_entry(sec: TheorySection, entry: Entry, *,
+                 verbatim: bool = False,
+                 comments: str = "on",
+                 context: int = 2) -> str:
+    """Render a single entry.
+
+    verbatim:        full source slice [thy_line..thy_end]
+    comments='on':   preamble (truncated) + header + statement + proof preview
+                     + roadmap (truncated)
+    comments='off':  header + statement + proof preview only (current default)
+    comments='only': preamble (full) + header + roadmap (full), no statement
+    context:         lines of preamble preview / roadmap entries shown
+    """
+    span_size = entry.thy_end - entry.thy_line + 1 if entry.thy_line else 0
+    header = (f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy "
+              f"[src {entry.thy_line}-{entry.thy_end}, {span_size} lines] ---")
+
+    # No source location (e.g. AXIOM placeholder) → fall back to entry.text
+    if not entry.thy_line:
+        return f"{header}\n{entry.text}"
+
+    if verbatim:
+        body_lines = sec.slice(entry.thy_line, entry.thy_end)
+        return header + "\n" + "\n".join(body_lines)
+
+    out_parts: list[str] = []
+
+    # Preamble (above header)
+    if comments != "off" and entry.preamble:
+        pmode = "full" if comments == "only" else "summary"
+        rendered = _render_preamble(sec, entry.preamble, pmode, context)
+        if rendered:
+            pstart, pend = entry.preamble
+            out_parts.append(f"--- preamble [{pstart}-{pend}] ---")
+            out_parts.append(rendered)
+            out_parts.append("")
+
+    out_parts.append(header)
+
+    if comments == "only":
+        # Skip statement + proof; show only roadmap (full).
+        if entry.roadmap:
+            out_parts.append("--- roadmap (\\<comment> annotations) ---")
+            proof_end = _proof_extent(sec, entry.proof_line, entry.thy_end) \
+                if entry.proof_line else entry.thy_end
+            out_parts.append(_render_roadmap(entry.roadmap, context,
+                                             proof_end - entry.proof_line, "full"))
+        elif not entry.preamble:
+            out_parts.append("(no comment context for this entry)")
+        return "\n".join(out_parts)
+
+    # Statement + proof preview
+    if entry.proof_line and entry.proof_line >= entry.decl_end_line:
+        statement = sec.slice(entry.thy_line, entry.decl_end_line)
+        first_proof = sec.slice(entry.proof_line, entry.proof_line)
+        proof_end = _proof_extent(sec, entry.proof_line, entry.thy_end)
+        remaining = max(0, proof_end - entry.proof_line)
+        out_parts.append("\n".join(statement + first_proof))
+        if comments != "off" and entry.roadmap:
+            out_parts.append(_render_roadmap(entry.roadmap, context,
+                                             remaining, "summary"))
+        elif remaining == 1:
+            extra = sec.slice(entry.proof_line + 1, entry.proof_line + 1)
+            out_parts.append("\n".join(extra))
+        elif remaining > 0:
+            out_parts.append(f"  [+{remaining} more proof lines]")
+    else:
+        # No proof captured → just the declaration as recorded by the parser.
+        body_lines = sec.slice(entry.thy_line, entry.decl_end_line)
+        out_parts.append("\n".join(body_lines))
+
+    return "\n".join(out_parts)
+
+
+# ---------------------------------------------------------------------------
+# Verbosity-mode dispatch
+# ---------------------------------------------------------------------------
+
+def _emit_matches(sections_by_theory: dict[str, TheorySection],
+                  matches: list[Entry], pattern: str, flags: "CmdFlags") -> None:
+    if not matches:
+        print(f"No entries matching '{pattern}'.")
+        return
+
+    if flags.mode == "count":
+        print(f"{len(matches)} match(es) for '{pattern}'.")
+        return
+
+    if flags.mode == "names":
+        for e in matches:
+            print(_format_name_line(sections_by_theory[e.theory], e))
+        return
+
+    if flags.mode == "all":
+        for e in matches:
+            print(render_entry(sections_by_theory[e.theory], e,
+                               verbatim=flags.verbatim,
+                               comments=flags.comments,
+                               context=flags.context))
+            print()
+        return
+
+    # mode == "first"
+    e0 = matches[0]
+    print(render_entry(sections_by_theory[e0.theory], e0,
+                       verbatim=flags.verbatim,
+                       comments=flags.comments,
+                       context=flags.context))
+    if len(matches) > 1:
+        print()
+        print(f"[+{len(matches) - 1} more match(es).  Use --all to show, "
+              f"--names for a list, --count for just the count.]")
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+def cmd_summary(sections: list[TheorySection]) -> None:
+    total = sum(len(s.entries) for s in sections)
+    print(f"# Theory Index — NDTHT Formalization\n")
+    print(f"{total} entries across {len(sections)} theories  "
+          f"(parsed live from .thy files)\n")
+    print("## Theories\n")
+    print("Source-line counts (`.thy` file size), entry counts, and key exports.\n")
+    print("| Theory | Src | D | L | T | Key Exports |")
+    print("|--------|----:|--:|--:|--:|-------------|")
+    for sec in sections:
+        defs = [e for e in sec.entries
+                if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
+        lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
+        thms = [e for e in sec.entries if e.tag == "THEOREM"]
+
+        key_names: list[str] = []
+        for e in defs:
+            if e.name != "?" and e.name not in key_names:
+                key_names.append(e.name)
+        for e in thms:
+            if e.name != "?" and e.name not in key_names:
+                key_names.append(e.name)
+        if not key_names:
+            for e in lemmas[:3]:
+                if e.name != "?" and e.name not in key_names:
+                    key_names.append(e.name)
+
+        exports = ", ".join(key_names[:6])
+        if len(key_names) > 6:
+            exports += ", ..."
+
+        print(f"| {sec.theory} | {sec.thy_lines} | "
+              f"{len(defs)} | {len(lemmas)} | {len(thms)} | {exports} |")
+
+
+def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection | None:
+    for s in sections:
+        if s.theory == name:
+            return s
+    for s in sections:
+        if s.theory.lower() == name.lower():
+            return s
+    return None
+
+
+def cmd_theory(sections: list[TheorySection], name: str,
+               flags: "CmdFlags") -> None:
+    sec = _resolve_theory(sections, name)
+    if sec is None:
+        print(f"Theory '{name}' not found.  Known theories:")
+        for s in sorted(sections, key=lambda x: x.theory):
+            print(f"  {s.theory}")
+        return
+
+    print(f"## {sec.theory}.thy  ({sec.thy_lines} src lines, {len(sec.entries)} entries)")
+    if flags.verbatim:
+        for e in sec.entries:
+            print()
+            print(render_entry(sec, e, verbatim=True))
+        return
+
+    # Default: pre-formatted entries, optionally with preamble headers
+    print("```")
+    for e in sec.entries:
+        if flags.comments != "off" and e.preamble:
+            ps, pe = e.preamble
+            body = _strip_text_wrapper(sec.slice(ps, pe))
+            preview, _ = _truncate_preview(body, flags.context)
+            if preview:
+                print()
+                print(f"[preamble {ps}-{pe}]: " + " ".join(
+                    line.strip() for line in preview))
+        print(e.text)
+    print("```")
+
+
+def cmd_find(sections: list[TheorySection], pattern: str,
+             flags: "CmdFlags") -> None:
+    pat = re.compile(pattern, re.IGNORECASE)
+    by_theory = {s.theory: s for s in sections}
+    matches: list[Entry] = []
+    for s in sections:
+        for e in s.entries:
+            if pat.search(e.name):
+                matches.append(e)
+
+    _emit_matches(by_theory, matches, pattern, flags)
+
+    if flags.with_comments:
+        # Additionally search inside preamble bodies and roadmap content,
+        # producing context windows.
+        comment_hits = _find_in_comments(sections, pat, flags.context)
+        if comment_hits:
+            print()
+            print(f"--- comment matches for '{pattern}' "
+                  f"({len(comment_hits)} hit(s)) ---")
+            for hit in comment_hits:
+                print(hit)
+
+
+def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
+                      context: int) -> list[str]:
+    """Search inside text blocks and \\<comment> annotations across all
+    theories.  Returns formatted hit strings: filename:line + context window.
+    """
+    hits: list[str] = []
+    for sec in sections:
+        src = sec.source()
+        # Text blocks (preambles + standalone)
+        for tb_start, tb_end in sec.text_blocks:
+            for ln in range(tb_start, tb_end + 1):
+                if ln > len(src):
+                    break
+                line = src[ln - 1]
+                if pat.search(line):
+                    lo = max(tb_start, ln - context)
+                    hi = min(tb_end, ln + context)
+                    snippet = src[lo - 1:hi]
+                    hits.append(f"\n{sec.theory}.thy:{ln} "
+                                f"(in text block {tb_start}-{tb_end}):")
+                    for j, snippet_line in enumerate(snippet, start=lo):
+                        marker = ">" if j == ln else " "
+                        hits.append(f"  {marker} {j}: {snippet_line}")
+        # Inline \<comment> annotations: each entry's roadmap
+        for e in sec.entries:
+            for ln, content in e.roadmap:
+                if pat.search(content):
+                    hits.append(f"\n{sec.theory}.thy:{ln} "
+                                f"(\\<comment> in {e.name}): {content}")
+    return hits
+
+
+def cmd_show(sections: list[TheorySection], name: str,
+             flags: "CmdFlags") -> None:
+    by_theory = {s.theory: s for s in sections}
+    matches: list[Entry] = []
+    for s in sections:
+        for e in s.entries:
+            if e.name == name:
+                matches.append(e)
+    if not matches:
+        for s in sections:
+            for e in s.entries:
+                if e.name.lower() == name.lower():
+                    matches.append(e)
+    if not matches:
+        # Substring fallback
+        for s in sections:
+            for e in s.entries:
+                if name.lower() in e.name.lower():
+                    matches.append(e)
+    _emit_matches(by_theory, matches, name, flags)
+
+
+def cmd_defs(sections: list[TheorySection], theory: str) -> None:
+    sec = _resolve_theory(sections, theory)
+    if sec is None:
+        print(f"Theory '{theory}' not found.")
+        return
+    matches = [e for e in sec.entries
+               if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
+    if not matches:
+        print(f"No definitions found in '{sec.theory}'.")
+        return
+    for e in matches:
+        print(render_entry(sec, e))
+        print()
+
+
+def cmd_deps(sections: list[TheorySection], theory: str) -> None:
+    """Show theories that come before the given theory in ROOT order."""
+    target = _resolve_theory(sections, theory)
+    if target is None:
+        print(f"Theory '{theory}' not found.")
+        return
+    idx = sections.index(target)
+    if idx == 0:
+        print(f"{target.theory} has no upstream dependencies (it's first in ROOT).")
+        return
+    print(f"Theories before {target.theory} in ROOT order:")
+    for s in sections[:idx]:
+        print(f"  {s.theory}  ({s.thy_lines} src lines, {len(s.entries)} entries)")
+
+
+def cmd_outline(sections: list[TheorySection], theory: str,
+                flags: "CmdFlags") -> None:
+    sec = _resolve_theory(sections, theory)
+    if sec is None:
+        print(f"Theory '{theory}' not found.")
+        return
+
+    items: list[tuple[int, str, object]] = []
+    for level, title, ln in sec.outline:
+        items.append((ln, "section", (level, title)))
+    for e in sec.entries:
+        if e.thy_line > 0:
+            items.append((e.thy_line, "entry", e))
+    if flags.comments != "off":
+        for tb_start, tb_end in sec.text_blocks:
+            items.append((tb_start, "text", (tb_start, tb_end)))
+    items.sort(key=lambda x: x[0])
+
+    if not items:
+        print(f"No outline data for '{sec.theory}'.")
+        return
+
+    print(f"Outline of {sec.theory}.thy:\n")
+    for ln, kind, payload in items:
+        if kind == "section":
+            level, title = payload  # type: ignore[misc]
+            indent = {"chapter": "", "section": "", "subsection": "  ",
+                      "subsubsection": "    "}[level]
+            print(f"{indent}{level:>14}: {title}  (line {ln})")
+        elif kind == "text":
+            tb_start, tb_end = payload  # type: ignore[misc]
+            block_size = tb_end - tb_start + 1
+            body = _strip_text_wrapper(sec.slice(tb_start, tb_end))
+            preview, _ = _truncate_preview(body, flags.context)
+            preview_text = " ".join(line.strip() for line in preview)
+            if len(preview_text) > 100:
+                preview_text = preview_text[:97] + "..."
+            print(f"        text     [{tb_start}-{tb_end}, {block_size} lines]: "
+                  f"{preview_text}")
+        else:
+            e: Entry = payload  # type: ignore[assignment]
+            size = e.thy_end - e.thy_line + 1
+            print(f"        {e.tag:<8} {e.name}  ({e.thy_line}-{e.thy_end}, {size} lines)")
+
+
+def _find_callers(sections: list[TheorySection], name: str,
+                   ) -> list[tuple[str, int, str]]:
+    """Find proof-body usages of *name* across all .thy files.
+
+    Returns a list of (theory_name, line_no, line_text) triples, filtering
+    out:
+      - The definition site itself (same theory, within the entry's span).
+      - Lines inside ``text \\<open>...\\<close>`` blocks (prose, not proof).
+      - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
+        ``@{term name}`` where the *only* occurrence of *name* on the line
+        is inside an antiquotation.
+    """
+    word_re = re.compile(_isa_word_pattern(name))
+    # Antiquotation pattern: @{text/thm/term/const "?name"?}
+    antiq_re = re.compile(
+        r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
+
+    # Build a set of (theory, line_range) for definition sites to skip.
+    def_sites: dict[str, set[range]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name == name and e.thy_line > 0:
+                def_sites.setdefault(sec.theory, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+
+    # Build text-block ranges per theory (to skip prose).
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        ranges = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        # Also skip per-entry preambles (text blocks immediately above entries).
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+
+    results: list[tuple[str, int, str]] = []
+    for sec in sections:
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_ranges = def_sites.get(sec.theory, set())
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if not word_re.search(line):
+                continue
+            # Skip definition site.
+            if any(line_no in r for r in d_ranges):
+                continue
+            # Skip text blocks.
+            if any(line_no in r for r in t_ranges):
+                continue
+            # Skip if the only occurrences are inside antiquotations.
+            stripped = antiq_re.sub('', line)
+            if not word_re.search(stripped):
+                continue
+            results.append((sec.theory, line_no, line.rstrip()))
+    return results
+
+
+def _render_graph_results(sections: list[TheorySection],
+                          reachable: dict[str, int],
+                          label: str, seed: str,
+                          flags: 'CmdFlags') -> None:
+    """Shared rendering for callers -r and uses -r."""
+    if flags.mode == "count":
+        print(f"{len(reachable)} transitive {label}(s) of {seed}")
+        return
+    if not reachable:
+        print(f"No {label}s found for '{seed}'.")
+        return
+
+    # Build name → (theory, Entry) lookup for rendering.
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+
+    if flags.mode == "names":
+        for name in sorted(reachable):
+            if name in by_name:
+                thy, e = by_name[name]
+                print(f"  {name} ({e.tag}) — {thy}")
+            else:
+                print(f"  {name}")
+        return
+
+    print(f"{len(reachable)} transitive {label}(s) of {seed}:\n")
+    for name, depth in sorted(reachable.items(), key=lambda x: (x[1], x[0])):
+        indent = "  " * (depth + 1)
+        if name in by_name:
+            thy, e = by_name[name]
+            print(f"{indent}{name} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"{indent}{name}")
+
+
+def cmd_callers(sections: list[TheorySection], name: str,
+                flags: 'CmdFlags') -> None:
+    """Print proof-body usages of a lemma/definition."""
+    if flags.recursive:
+        graph = _build_call_graph(sections)
+        if name not in graph.all_names:
+            print(f"'{name}' not found in the entry index.")
+            return
+        reachable = _transitive_closure(graph.callers, {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "caller", name, flags)
+        return
+
+    hits = _find_callers(sections, name)
+    if flags.mode == "count":
+        print(f"{len(hits)} caller(s) of {name}")
+        return
+    if not hits:
+        print(f"No callers found for '{name}'.")
+        return
+    print(f"{len(hits)} caller(s) of {name}:\n")
+    for theory, line_no, text in hits:
+        print(f"  {theory}:{line_no}:  {text.strip()}")
+
+
+def cmd_uses(sections: list[TheorySection], name: str,
+             flags: 'CmdFlags') -> None:
+    """Show what entries are referenced in this entry's proof body."""
+    graph = _build_call_graph(sections)
+    if name not in graph.all_names:
+        print(f"'{name}' not found in the entry index.")
+        return
+
+    if flags.recursive:
+        reachable = _transitive_closure(graph.callees, {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "dependency", name, flags)
+        return
+
+    used = graph.callees.get(name, set())
+    if flags.mode == "count":
+        print(f"{len(used)} name(s) used by {name}")
+        return
+    if not used:
+        print(f"No references found in {name}'s body.")
+        return
+
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+
+    print(f"{len(used)} name(s) used by {name}:\n")
+    for uname in sorted(used):
+        if uname in by_name:
+            thy, e = by_name[uname]
+            print(f"  {uname} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"  {uname}")
+
+
+def _compute_unused(graph: CallGraph) -> set[str]:
+    """Entries with zero callers (directly unused)."""
+    return {n for n in graph.all_names if not graph.callers.get(n, set())}
+
+
+def _compute_unused_recursive(graph: CallGraph) -> dict[str, int]:
+    """Fixed-point cascade: an entry is unused if all its callers are unused.
+
+    Returns {name: depth} where depth 0 = directly unused (zero callers),
+    depth 1 = became unused when depth-0 entries are removed, etc.
+    """
+    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph)}
+    changed = True
+    depth = 1
+    while changed:
+        changed = False
+        for name in graph.all_names - set(unused):
+            callers = graph.callers.get(name, set())
+            if callers and callers <= set(unused):
+                unused[name] = depth
+                changed = True
+        depth += 1
+    return unused
+
+
+def _compute_forest(graph: CallGraph,
+                    sections: list[TheorySection]
+                    ) -> list[tuple[str, int, int, int, int]]:
+    """Compute the forest of unused roots with exclusive subtree sizes.
+
+    For each root (zero callers), compute:
+    - total cone: all entries transitively reachable via callees
+    - exclusive subtree: entries reachable ONLY from this root
+
+    Returns list of (root_name, exclusive_entries, exclusive_lines,
+    total_entries, total_lines) sorted by exclusive_lines descending.
+    """
+    roots = _compute_unused(graph)
+
+    # For each non-root entry, compute which roots can reach it by
+    # walking callers upward.  An entry's root-set is the union of
+    # root-sets of its callers (or {self} if it's a root).
+    root_sets: dict[str, set[str]] = {r: {r} for r in roots}
+
+    # BFS from roots downward through callees.
+    from collections import deque
+    queue: deque[str] = deque(roots)
+    visited: set[str] = set(roots)
+    while queue:
+        name = queue.popleft()
+        for callee in graph.callees.get(name, set()):
+            if callee not in root_sets:
+                root_sets[callee] = set()
+            root_sets[callee] |= root_sets[name]
+            if callee not in visited:
+                visited.add(callee)
+                queue.append(callee)
+
+    # Entry line-size lookup.
+    entry_lines: dict[str, int] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name in graph.all_names and e.name not in entry_lines:
+                entry_lines[e.name] = (e.thy_end - e.thy_line + 1
+                                       if e.thy_line > 0 else 0)
+
+    # For each root, compute exclusive entries (reachable only from it).
+    # Total cone = all entries whose root-set includes this root.
+    result: list[tuple[str, int, int, int, int]] = []
+    for root in sorted(roots):
+        exclusive_entries = 0
+        exclusive_lines = 0
+        total_entries = 0
+        total_lines = 0
+        for name, rset in root_sets.items():
+            if root in rset:
+                sz = entry_lines.get(name, 0)
+                total_entries += 1
+                total_lines += sz
+                if len(rset) == 1:
+                    exclusive_entries += 1
+                    exclusive_lines += sz
+        result.append((root, exclusive_entries, exclusive_lines,
+                        total_entries, total_lines))
+
+    result.sort(key=lambda x: -x[2])  # by exclusive lines desc
+    return result
+
+
+def _render_unused(sections: list[TheorySection],
+                   entries: list[tuple[str, Entry, int]],
+                   flags: 'CmdFlags', recursive: bool) -> None:
+    """Shared rendering for unused and unused -r."""
+    if not entries:
+        print("No unused entries found.")
+        return
+
+    label = "transitively unused" if recursive else "unused"
+    total = len(entries)
+
+    if flags.mode == "count":
+        if recursive:
+            direct = sum(1 for _, _, d in entries if d == 0)
+            cascade = total - direct
+            total_lines = sum(
+                e.thy_end - e.thy_line + 1 for _, e, _ in entries
+                if e.thy_line > 0)
+            print(f"{total} {label} entries "
+                  f"({direct} direct + {cascade} cascading, "
+                  f"{total_lines} source lines)")
+        else:
+            print(f"{total} unused entries (zero callers)")
+        return
+
+    if flags.by_theory:
+        from collections import Counter
+        theory_entries: dict[str, list[tuple[Entry, int]]] = {}
+        for theory, e, depth in entries:
+            theory_entries.setdefault(theory, []).append((e, depth))
+        counts = Counter({t: len(es) for t, es in theory_entries.items()})
+        total_lines = sum(
+            e.thy_end - e.thy_line + 1 for es in theory_entries.values()
+            for e, _ in es if e.thy_line > 0)
+        print(f"{total} {label} entries across {len(theory_entries)} theories "
+              f"({total_lines} source lines):\n")
+        for theory, count in counts.most_common():
+            tes = theory_entries[theory]
+            lines = sum(e.thy_end - e.thy_line + 1 for e, _ in tes
+                        if e.thy_line > 0)
+            names = ", ".join(e.name for e, _ in tes[:4])
+            if len(tes) > 4:
+                names += f", ... (+{len(tes) - 4})"
+            print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
+        return
+
+    if recursive:
+        direct = sum(1 for _, _, d in entries if d == 0)
+        cascade = total - direct
+        total_lines = sum(
+            e.thy_end - e.thy_line + 1 for _, e, _ in entries
+            if e.thy_line > 0)
+        print(f"{total} {label} entries "
+              f"({direct} direct + {cascade} cascading, "
+              f"{total_lines} source lines):\n")
+    else:
+        print(f"{total} unused entries (zero callers):\n")
+
+    print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
+    for theory, e, depth in entries:
+        size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
+        depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
+        print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
+              f"({e.thy_line}-{e.thy_end}, {size} lines){depth_mark}")
+
+
+def _render_forest(sections: list[TheorySection],
+                   forest: list[tuple[str, int, int, int, int]],
+                   flags: 'CmdFlags') -> None:
+    """Render the forest root summary."""
+    if not forest:
+        print("No unused roots found.")
+        return
+
+    # Entry lookup for tag/theory.
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+
+    if flags.mode == "count":
+        total_excl = sum(el for _, _, el, _, _ in forest)
+        print(f"{len(forest)} roots, {total_excl} exclusive lines total")
+        return
+
+    print(f"{len(forest)} unused roots:\n")
+    print(f"  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
+          f"{'Total':>5s}  {'Lines':>6s}  Theory")
+    print(f"  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
+          f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
+    for root, ee, el, te, tl in forest:
+        if root in by_name:
+            thy, entry = by_name[root]
+            tag = entry.tag
+        else:
+            thy, tag = "?", "?"
+        print(f"  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  {tl:>6d}  {thy}")
+
+
+def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
+    """List entries with zero callers in proof bodies."""
+    graph = _build_call_graph(sections)
+
+    if flags.roots:
+        forest = _compute_forest(graph, sections)
+        _render_forest(sections, forest, flags)
+        return
+
+    if flags.recursive:
+        unused_map = _compute_unused_recursive(graph)
+    else:
+        unused_map = {n: 0 for n in _compute_unused(graph)}
+
+    unused_entries: list[tuple[str, Entry, int]] = []
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+                if e.name in unused_map:
+                    unused_entries.append((sec.theory, e, unused_map[e.name]))
+
+    _render_unused(sections, unused_entries, flags, flags.recursive)
+
+
+def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
+    n = 20
+    theory_filter: str | None = None
+    for a in args:
+        if a.isdigit():
+            n = int(a)
+        else:
+            theory_filter = a
+
+    rows: list[tuple[int, Entry, TheorySection]] = []
+    for s in sections:
+        if theory_filter and s.theory.lower() != theory_filter.lower():
+            continue
+        for e in s.entries:
+            if e.thy_line > 0:
+                rows.append((e.thy_end - e.thy_line + 1, e, s))
+
+    rows.sort(key=lambda x: -x[0])
+
+    if not rows:
+        print("No entries found.")
+        return
+
+    where = f" in {theory_filter}" if theory_filter else ""
+    print(f"Top {min(n, len(rows))} largest entries{where}:\n")
+    print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
+    for size, e, s in rows[:n]:
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.thy_line}-{e.thy_end})")
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing (argparse with subcommands)
+# ---------------------------------------------------------------------------
+
+import argparse
+
+
+@dataclass
+class CmdFlags:
+    """Uniform flag bundle passed to command functions."""
+    mode: str = "first"          # first / all / count / names
+    verbatim: bool = False       # -V / --verbatim
+    comments: str = "on"         # on / off / only
+    context: int = 2             # -U N / --context N
+    with_comments: bool = False  # --with-comments (find only)
+    recursive: bool = False      # -r / --recursive
+    by_theory: bool = False      # --by-theory (unused)
+    roots: bool = False          # --roots (unused)
+
+
+def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
+    """Build CmdFlags from an argparse Namespace."""
+    f = CmdFlags()
+    if getattr(ns, "all", False):
+        f.mode = "all"
+    if getattr(ns, "count", False):
+        f.mode = "count"
+    if getattr(ns, "names", False):
+        f.mode = "names"
+    f.verbatim = getattr(ns, "verbatim", False)
+    if getattr(ns, "no_comments", False):
+        f.comments = "off"
+    elif getattr(ns, "comments_only", False):
+        f.comments = "only"
+    f.context = getattr(ns, "context", 2)
+    f.with_comments = getattr(ns, "with_comments", False)
+    f.recursive = getattr(ns, "recursive", False)
+    f.by_theory = getattr(ns, "by_theory", False)
+    f.roots = getattr(ns, "roots", False)
+    return f
+
+
+def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
+    """Load theory sections from --file or the project ROOTs."""
+    file_path = getattr(ns, "file", None)
+    if file_path:
+        p = Path(file_path).expanduser().resolve()
+        if not p.exists():
+            print(f"ERROR: file not found: {p}", file=sys.stderr)
+            sys.exit(1)
+        return [_parse_one(p.stem, p)]
+    return load_index()
+
+
+# -- Shared flag groups (added to subparsers that need them) ----------------
+
+def _add_mode_flags(p: argparse.ArgumentParser) -> None:
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("-a", "--all", action="store_true",
+                   help="show all matches")
+    g.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    g.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+
+def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-V", "--verbatim", action="store_true",
+                   help="full source slice (statement + proof)")
+
+def _add_comment_flags(p: argparse.ArgumentParser) -> None:
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--no-comments", action="store_true",
+                   help="suppress preamble and roadmap")
+    g.add_argument("--comments-only", action="store_true",
+                   help="show only preamble + roadmap")
+
+def _add_context_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("-U", "--context", type=int, default=2, metavar="N",
+                   help="lines of preview / context (default 2)")
+
+
+# -- Subcommand handlers (thin wrappers) -----------------------------------
+
+def _run_summary(ns: argparse.Namespace) -> None:
+    cmd_summary(_load_sections(ns))
+
+def _run_theory(ns: argparse.Namespace) -> None:
+    cmd_theory(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_defs(ns: argparse.Namespace) -> None:
+    cmd_defs(_load_sections(ns), ns.theory)
+
+def _run_deps(ns: argparse.Namespace) -> None:
+    cmd_deps(_load_sections(ns), ns.theory)
+
+def _run_outline(ns: argparse.Namespace) -> None:
+    cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
+
+def _run_largest(ns: argparse.Namespace) -> None:
+    args: list[str] = []
+    if ns.n is not None:
+        args.append(str(ns.n))
+    if ns.theory is not None:
+        args.append(ns.theory)
+    cmd_largest(_load_sections(ns), args)
+
+def _run_find(ns: argparse.Namespace) -> None:
+    cmd_find(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
+
+def _run_show(ns: argparse.Namespace) -> None:
+    cmd_show(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_callers(ns: argparse.Namespace) -> None:
+    cmd_callers(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_uses(ns: argparse.Namespace) -> None:
+    cmd_uses(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_unused(ns: argparse.Namespace) -> None:
+    cmd_unused(_load_sections(ns), _flags_from_ns(ns))
+
+
+# -- Parser construction ----------------------------------------------------
+
+def _build_parser() -> argparse.ArgumentParser:
+    top = argparse.ArgumentParser(
+        prog="scripts/query",
+        description="Query the theory index — computed live from .thy files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    top.add_argument("--file", metavar="PATH",
+                     help="parse a single .thy file instead of the project ROOTs")
+
+    sub = top.add_subparsers(dest="command", title="commands")
+
+    # summary
+    p = sub.add_parser("summary", help="theory overview table")
+    p.set_defaults(func=_run_summary)
+
+    # theory
+    p = sub.add_parser("theory", help="show all entries for a theory")
+    p.add_argument("name", help="theory name")
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_theory)
+
+    # defs
+    p = sub.add_parser("defs", help="list definitions in a theory")
+    p.add_argument("theory", help="theory name")
+    p.set_defaults(func=_run_defs)
+
+    # deps
+    p = sub.add_parser("deps", help="list upstream theories (ROOT order)")
+    p.add_argument("theory", help="theory name")
+    p.set_defaults(func=_run_deps)
+
+    # outline
+    p = sub.add_parser("outline", help="section structure with entries")
+    p.add_argument("theory", help="theory name")
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_outline)
+
+    # largest
+    p = sub.add_parser("largest", help="top N largest entries by span")
+    p.add_argument("n", nargs="?", type=int, default=None,
+                   help="number of entries (default 20)")
+    p.add_argument("theory", nargs="?", default=None,
+                   help="restrict to a theory")
+    p.set_defaults(func=_run_largest)
+
+    # find
+    p = sub.add_parser("find", help="find entries by name (regex)")
+    p.add_argument("pattern", help="regex pattern (case-insensitive)")
+    _add_mode_flags(p)
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.add_argument("--with-comments", action="store_true",
+                   help="also search inside text blocks and comments")
+    p.set_defaults(func=_run_find)
+
+    # show
+    p = sub.add_parser("show", help="show a specific entry")
+    p.add_argument("name", help="entry name (exact, then substring)")
+    _add_mode_flags(p)
+    _add_verbatim_flag(p)
+    _add_comment_flags(p)
+    _add_context_flag(p)
+    p.set_defaults(func=_run_show)
+
+    # callers
+    p = sub.add_parser("callers", help="find proof-body usages")
+    p.add_argument("name", help="entry name")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect callers)")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+    p.set_defaults(func=_run_callers)
+
+    # uses
+    p = sub.add_parser("uses", help="show what an entry references")
+    p.add_argument("name", help="entry name")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect dependencies)")
+    p.set_defaults(func=_run_uses)
+
+    # unused (with "dead" alias)
+    for name in ("unused", "dead"):
+        p = sub.add_parser(name,
+                           help="list entries with zero callers"
+                                + (" (alias for unused)" if name == "dead" else ""))
+        p.add_argument("-c", "--count", action="store_true",
+                       help="just print the count")
+        p.add_argument("-r", "--recursive", action="store_true",
+                       help="cascade: include entries whose callers are all unused")
+        p.add_argument("--by-theory", action="store_true",
+                       help="group by theory with line counts")
+        p.add_argument("--roots", action="store_true",
+                       help="forest summary: each root with exclusive subtree size")
+        p.set_defaults(func=_run_unused)
+
+    return top
+
+
+def main():
+    parser = _build_parser()
+    ns = parser.parse_args()
+    if not hasattr(ns, "func"):
+        parser.print_help()
+        sys.exit(1)
+    ns.func(ns)
+
+
+if __name__ == "__main__":
+    main()
