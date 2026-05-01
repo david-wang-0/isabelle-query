@@ -365,8 +365,42 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
                          outline=outline, text_blocks=text_blocks)
 
 
+def parse_directories_from_root(root_path: Path) -> list[str]:
+    """Parse ROOT's `directories "<sub>"` clause, returning the
+    list of declared sub-directory names.  Empty if the ROOT
+    declares no `directories` clause."""
+    subdirs: list[str] = []
+    in_dirs = False
+    exit_keywords = ("theories", "document_files", "sessions",
+                     "options", "description", "chapter", "session")
+    try:
+        for line in root_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("directories"):
+                in_dirs = True
+                stripped = stripped[len("directories"):].strip()
+            elif any(stripped.startswith(kw) for kw in exit_keywords):
+                in_dirs = False
+                continue
+            if in_dirs:
+                # Pull every quoted token off the line.
+                rest = stripped
+                while '"' in rest:
+                    a = rest.index('"')
+                    b = rest.index('"', a + 1)
+                    name = rest[a + 1:b]
+                    if name:
+                        subdirs.append(name)
+                    rest = rest[b + 1:]
+    except OSError:
+        pass
+    return subdirs
+
+
 def load_index() -> list[TheorySection]:
-    """Walk both ROOT files (base + main), parse all .thy files."""
+    """Walk the project ROOT, parsing each declared theory.
+    Theories are searched at the session root and in any
+    sub-directory declared by ROOT's `directories` clause."""
     sections: list[TheorySection] = []
     seen: set[str] = set()
 
@@ -376,17 +410,17 @@ def load_index() -> list[TheorySection]:
         seen.add(thy)
         sections.append(_parse_one(thy, thy_path))
 
-    base_root = T_DIR / "base" / "ROOT"
-    if base_root.exists():
-        for thy in parse_theories_from_root(base_root):
-            add(thy, T_DIR / "base" / f"{thy}.thy")
-
     root_path = T_DIR / "ROOT"
     if root_path.exists():
+        subdirs = parse_directories_from_root(root_path)
         for thy in parse_theories_from_root(root_path):
             thy_path = T_DIR / f"{thy}.thy"
             if not thy_path.exists():
-                thy_path = T_DIR / "base" / f"{thy}.thy"
+                for sub in subdirs:
+                    candidate = T_DIR / sub / f"{thy}.thy"
+                    if candidate.exists():
+                        thy_path = candidate
+                        break
             add(thy, thy_path)
 
     return sections
