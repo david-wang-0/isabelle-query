@@ -889,6 +889,11 @@ def cmd_theory(sections: list[TheorySection], name: str,
 
 def cmd_find(sections: list[TheorySection], pattern: str,
              flags: "CmdFlags") -> None:
+    # Shell users often reach for grep-style escaped alternation
+    # ('a\|b\|c'); in Python's re, '\|' is the literal '|' character,
+    # which would silently match nothing.  Preprocess to PCRE-style
+    # alternation so the pattern does what the user expects.
+    pattern = pattern.replace(r"\|", "|")
     pat = re.compile(pattern, re.IGNORECASE)
     by_theory = {s.theory: s for s in sections}
     matches: list[Entry] = []
@@ -1469,12 +1474,13 @@ class CmdFlags:
 def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     """Build CmdFlags from an argparse Namespace."""
     f = CmdFlags()
+    # Precedence: count > names > all > default ("first").
     if getattr(ns, "all", False):
         f.mode = "all"
-    if getattr(ns, "count", False):
-        f.mode = "count"
     if getattr(ns, "names", False):
         f.mode = "names"
+    if getattr(ns, "count", False):
+        f.mode = "count"
     f.verbatim = getattr(ns, "verbatim", False)
     if getattr(ns, "no_comments", False):
         f.comments = "off"
@@ -1503,13 +1509,15 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
 # -- Shared flag groups (added to subparsers that need them) ----------------
 
 def _add_mode_flags(p: argparse.ArgumentParser) -> None:
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("-a", "--all", action="store_true",
+    # Not mutually exclusive: -a -n composes (= "all matches as
+    # names").  Precedence at resolution: -c > -n > -a > default.
+    p.add_argument("-a", "--all", action="store_true",
                    help="show all matches")
-    g.add_argument("-c", "--count", action="store_true",
-                   help="just print the count")
-    g.add_argument("-n", "--names", action="store_true",
-                   help="names + tags + theory only")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count (wins over -a / -n)")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="names + tags + theory only "
+                        "(composable with -a)")
 
 def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
     p.add_argument("-V", "--verbatim", action="store_true",
