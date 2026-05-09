@@ -72,11 +72,12 @@ class CallGraph:
 
 
 DECL_RE = re.compile(
-    r"^(definition|fun|primrec|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
+    r"^(definition|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
 )
 
 TAG_MAP = {
     "definition": "DEF", "fun": "FUN", "primrec": "FUN",
+    "inductive_set": "INDSET", "inductive": "IND",
     "lemma": "LEMMA", "corollary": "LEMMA",
     "theorem": "THEOREM",
     "axiomatization": "AXIOM",
@@ -237,7 +238,8 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             continue
 
         # --- Definitions ---
-        if keyword in ("definition", "fun", "primrec"):
+        if keyword in ("definition", "fun", "primrec",
+                       "inductive_set", "inductive"):
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
             name = _parse_name(rest)
