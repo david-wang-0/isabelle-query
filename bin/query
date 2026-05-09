@@ -97,6 +97,11 @@ LATEX_LINE_RE = re.compile(
     r"\\(begin|end|caption|node|draw|newlength|newcommand|settowidth|settoheight|scalebox|label)\b"
 )
 NAME_RE = re.compile(r"^(\w[\w']*)")
+# Type-decl names: optional type-args (a single \<open>'a\<close> or a
+# tuple \<open>('a, 'b)\<close>) precede the name.
+TYPEDECL_NAME_RE = re.compile(
+    r"^(?:'\w+\s+|\([^)]*\)\s+)?(\w[\w']*)"
+)
 
 
 def _isa_word_pattern(name: str) -> str:
@@ -111,6 +116,13 @@ def _isa_word_pattern(name: str) -> str:
 
 def _parse_name(text_after_tag: str) -> str:
     m = NAME_RE.match(text_after_tag.strip())
+    return m.group(1) if m else "?"
+
+
+def _parse_typedecl_name(text_after_tag: str) -> str:
+    r"""Parse a type_synonym / datatype / record's name, skipping any
+    leading type-argument list (\<open>'a\<close> or \<open>('a, 'b)\<close>)."""
+    m = TYPEDECL_NAME_RE.match(text_after_tag.strip())
     return m.group(1) if m else "?"
 
 
@@ -211,7 +223,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
         if keyword in ("datatype", "type_synonym", "record"):
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
-            e = Entry(tag, _parse_name(rest), f"{tag} {rest}",
+            e = Entry(tag, _parse_typedecl_name(rest), f"{tag} {rest}",
                       thy_line=decl_line, decl_end_line=decl_line)
             entries.append(e)
             i += 1
@@ -247,6 +259,9 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             decl_end_line = decl_line
             i += 1
             open_quotes = rest.count('"') % 2
+            past_where = False  # for `definition`: tracks whether the body's
+                                # quoted RHS has begun, so we don't break at the
+                                # type signature's closing quote.
             while i < len(lines):
                 cline = lines[i]
                 if BLANK_RE.match(cline):
@@ -256,12 +271,17 @@ def extract_entries(lines: list[str]) -> list[Entry]:
                 stripped = cline.strip()
                 if stripped.startswith("\\<comment>") or stripped.startswith("text "):
                     break
+                where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
                 buf.append(f"  {stripped}")
                 open_quotes = (open_quotes + stripped.count('"')) % 2
                 i += 1
                 decl_end_line = i  # 1-indexed line just appended
-                if keyword == "definition" and open_quotes == 0 and '"' in stripped:
-                    break
+                if keyword == "definition":
+                    # Break when the body's quoted RHS closes (after `where`).
+                    if past_where and open_quotes == 0 and '"' in stripped:
+                        break
+                    if where_on_this_line:
+                        past_where = True
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line))
