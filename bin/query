@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/python3
+#!/usr/bin/env python3
 r"""Query the theory index — computed live from .thy files on every invocation.
 
 All commands re-parse the theory tree (~60ms for the full ~90 theories).
