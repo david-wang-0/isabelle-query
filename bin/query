@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""Query the theory index — computed live from .thy files on every invocation.
 
-All commands re-parse the theory tree (~60ms for the full ~90 theories).
+All commands re-parse the theory tree (<100ms).
 This means results are always in sync with the current .thy source.
 Use -h/--help on any subcommand for its options.
 """
@@ -481,7 +481,7 @@ def _entry_at_line(line_index: list[tuple[int, int, Entry]],
 def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
-    Same filtering as _find_callers / cmd_dead: skips text blocks,
+    Same filtering as _find_callers / _compute_unused: skips text blocks,
     definition sites, and antiquotation-only mentions.
     """
     # 1. Collect candidate names (same filter as cmd_dead).
@@ -1689,20 +1689,16 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="transitive closure (all indirect dependencies)")
     p.set_defaults(func=_run_uses)
 
-    # unused (with "dead" alias)
-    for name in ("unused", "dead"):
-        p = sub.add_parser(name,
-                           help="list entries with zero callers"
-                                + (" (alias for unused)" if name == "dead" else ""))
-        p.add_argument("-c", "--count", action="store_true",
-                       help="just print the count")
-        p.add_argument("-r", "--recursive", action="store_true",
-                       help="cascade: include entries whose callers are all unused")
-        p.add_argument("--by-theory", action="store_true",
-                       help="group by theory with line counts")
-        p.add_argument("--roots", action="store_true",
-                       help="forest summary: each root with exclusive subtree size")
-        p.set_defaults(func=_run_unused)
+    p = sub.add_parser("unused", help="list entries with zero callers")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="cascade: include entries whose callers are all unused")
+    p.add_argument("--by-theory", action="store_true",
+                   help="group by theory with line counts")
+    p.add_argument("--roots", action="store_true",
+                   help="forest summary: each root with exclusive subtree size")
+    p.set_defaults(func=_run_unused)
 
     return top
 
