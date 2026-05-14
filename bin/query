@@ -48,6 +48,12 @@ class TheorySection:
     text_blocks: list[tuple[int, int]] = field(default_factory=list)
         # All top-level text blocks in the theory, used for `outline` rendering
         # (per-entry preambles are stored on Entry.preamble).
+    comment_ranges: list[tuple[int, int]] = field(default_factory=list)
+        # Multi-line ranges for `\<comment> \<open>...\<close>` annotations;
+        # consumed by cmd_grep's live-source filter so a token on a continuation
+        # line of a multi-line \<comment> is not misclassified as live source.
+        # (Distinct from comment_lines, which records first-line content for the
+        # roadmap-attachment feature.)
     _source_cache: list[str] | None = None
 
     def source(self) -> list[str]:
@@ -179,6 +185,26 @@ def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
     i = 0
     while i < len(lines):
         if TEXT_OPEN_RE.match(lines[i]):
+            end = _find_balanced_close(lines, i)
+            out.append((i + 1, end + 1))
+            i = end + 1
+        else:
+            i += 1
+    return out
+
+
+def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
+    """Return [(start_line, end_line)] (1-indexed inclusive) for every
+    \\<comment> \\<open>...\\<close> annotation, including multi-line bodies.
+
+    Tracks \\<open>/\\<close> balance starting from the line that contains
+    \\<comment>.  A \\<comment> on a line without \\<open> yields a single-
+    line range (covers tag-only annotations without explicit body).
+    """
+    out: list[tuple[int, int]] = []
+    i = 0
+    while i < len(lines):
+        if "\\<comment>" in lines[i]:
             end = _find_balanced_close(lines, i)
             out.append((i + 1, end + 1))
             i = end + 1
@@ -378,13 +404,15 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
     entries = extract_entries(lines)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
+    comment_ranges = extract_comment_ranges(lines)
     comment_lines = extract_comment_lines(lines)
     compute_spans(entries, [s[2] for s in outline], len(lines))
     _attach_comments(entries, lines, text_blocks, comment_lines)
     for e in entries:
         e.theory = thy
     return TheorySection(thy, thy_path, entries, thy_lines=len(lines),
-                         outline=outline, text_blocks=text_blocks)
+                         outline=outline, text_blocks=text_blocks,
+                         comment_ranges=comment_ranges)
 
 
 def parse_directories_from_root(root_path: Path) -> list[str]:
@@ -1442,6 +1470,117 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     _render_unused(sections, unused_entries, flags, flags.recursive)
 
 
+def _grep_sections(sections: list[TheorySection], pat: re.Pattern
+                   ) -> list[tuple[str, int, str, "Entry | None", bool]]:
+    """Walk every theory's source and return one tuple per line that
+    matches `pat`.  Each tuple is (theory, line_no, line_text,
+    owning_entry, is_live).
+
+    is_live = True iff the line is genuine proof / declaration source —
+    not inside a top-level `text \\<open>...\\<close>` block, not inside
+    a per-entry preamble (a small text block attached to a following
+    declaration), and not inside a multi-line `\\<comment>
+    \\<open>...\\<close>` annotation.
+
+    owning_entry is the lemma/theorem/definition whose span contains the
+    matching line, via binary-search lookup (None if the line is outside
+    any indexed entry — e.g. between top-level declarations).
+    """
+    line_index = _build_line_index(sections)
+    out: list[tuple[str, int, str, Entry | None, bool]] = []
+    for sec in sections:
+        lines = sec.source()
+        noise: list[range] = []
+        for tb_start, tb_end in sec.text_blocks:
+            noise.append(range(tb_start, tb_end + 1))
+        for cb_start, cb_end in sec.comment_ranges:
+            noise.append(range(cb_start, cb_end + 1))
+        for e in sec.entries:
+            if e.preamble:
+                ps, pe = e.preamble
+                noise.append(range(ps, pe + 1))
+        idx = line_index.get(sec.theory, [])
+        for line_no_0, line in enumerate(lines):
+            if not pat.search(line):
+                continue
+            line_no = line_no_0 + 1
+            is_live = not any(line_no in r for r in noise)
+            owner = _entry_at_line(idx, line_no)
+            out.append((sec.theory, line_no, line.rstrip(), owner, is_live))
+    return out
+
+
+def cmd_grep(sections: list[TheorySection], pattern: str,
+             flags: 'CmdFlags') -> None:
+    """Regex-search live source across all theories.
+
+    Default: only matches in live source (declarations + proof bodies),
+    skipping `text \\<open>...\\<close>` blocks, per-entry preambles, and
+    multi-line `\\<comment> \\<open>...\\<close>` annotations.  Use
+    `--all` to also include prose matches; each non-live hit is tagged.
+
+    Pattern accepts both Python regex syntax (`a|b|c`) and shell-grep-
+    style alternation (`a\\|b\\|c`); the latter is rewritten to the
+    former before compiling, mirroring `cmd_find`'s behaviour.
+    """
+    pattern = pattern.replace(r"\|", "|")
+    try:
+        pat = re.compile(pattern)
+    except re.error as exc:
+        print(f"ERROR: invalid regex '{pattern}': {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    all_hits = _grep_sections(sections, pat)
+    live_hits = [h for h in all_hits if h[4]]
+    dead_hits = [h for h in all_hits if not h[4]]
+    hits = all_hits if flags.include_all else live_hits
+
+    if flags.mode == "count":
+        if flags.include_all:
+            print(f"{len(all_hits)} match(es) for '{pattern}' "
+                  f"({len(live_hits)} live, "
+                  f"{len(dead_hits)} in comments/text)")
+        else:
+            print(f"{len(live_hits)} live match(es) for '{pattern}'")
+        return
+
+    if not hits:
+        print(f"No {'' if flags.include_all else 'live '}"
+              f"matches for '{pattern}'.")
+        return
+
+    if flags.include_all:
+        print(f"{len(all_hits)} match(es) for '{pattern}' "
+              f"({len(live_hits)} live, "
+              f"{len(dead_hits)} in comments/text):\n")
+    else:
+        print(f"{len(live_hits)} live match(es) for '{pattern}':\n")
+
+    if flags.mode == "names":
+        # Compact: location + owning entry, no source line.
+        loc_w = max((len(f"{t}.thy:{ln}") for t, ln, *_ in hits), default=0)
+        for theory, ln, _text, owner, is_live in hits:
+            loc = f"{theory}.thy:{ln}"
+            owner_str = (f"{owner.name} ({owner.tag})"
+                         if owner is not None and owner.name != "?"
+                         else "—")
+            marker = "" if is_live else "  [in comment/text]"
+            print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
+        return
+
+    # Default: location + owning entry + matched line text.
+    loc_w = max((len(f"{t}.thy:{ln}") for t, ln, *_ in hits), default=0)
+    for theory, ln, text, owner, is_live in hits:
+        loc = f"{theory}.thy:{ln}"
+        if owner is not None and owner.name != "?":
+            owner_str = f"{owner.name} ({owner.tag})"
+        else:
+            owner_str = "—"
+        marker = "" if is_live else "  [in comment/text]"
+        print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
+        print(f"    {text.strip()}")
+
+
 def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
     n = 20
     theory_filter: str | None = None
@@ -1491,6 +1630,7 @@ class CmdFlags:
     recursive: bool = False      # -r / --recursive
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
+    include_all: bool = False    # --all (grep: include in-comment matches)
 
 
 def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
@@ -1513,6 +1653,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.recursive = getattr(ns, "recursive", False)
     f.by_theory = getattr(ns, "by_theory", False)
     f.roots = getattr(ns, "roots", False)
+    f.include_all = getattr(ns, "all_hits", False)
     return f
 
 
@@ -1596,6 +1737,9 @@ def _run_uses(ns: argparse.Namespace) -> None:
 
 def _run_unused(ns: argparse.Namespace) -> None:
     cmd_unused(_load_sections(ns), _flags_from_ns(ns))
+
+def _run_grep(ns: argparse.Namespace) -> None:
+    cmd_grep(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
 
 
 # -- Parser construction ----------------------------------------------------
@@ -1688,6 +1832,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect dependencies)")
     p.set_defaults(func=_run_uses)
+
+    # grep
+    p = sub.add_parser("grep",
+                       help="regex search across live theory source")
+    p.add_argument("pattern",
+                   help="regex pattern (Python syntax; `\\|` rewritten to `|` "
+                        "for shell-grep compatibility)")
+    p.add_argument("-a", "--all", dest="all_hits", action="store_true",
+                   help="include matches inside text blocks / "
+                        "\\<comment> annotations (default: live source only)")
+    p.add_argument("-c", "--count", action="store_true",
+                   help="just print the count")
+    p.add_argument("-n", "--names", action="store_true",
+                   help="locations + owning entry only "
+                        "(skip the matched line text)")
+    p.set_defaults(func=_run_grep)
 
     p = sub.add_parser("unused", help="list entries with zero callers")
     p.add_argument("-c", "--count", action="store_true",
