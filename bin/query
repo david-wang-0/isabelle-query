@@ -1194,6 +1194,19 @@ def _render_graph_results(sections: list[TheorySection],
             print(f"{indent}{name}")
 
 
+def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
+    """Return the entry whose [thy_line, thy_end] span contains *line_no*.
+
+    Used by ``cmd_callers`` to annotate each hit with its enclosing lemma
+    name — answering "which proof is calling this?" in one line rather
+    than requiring a follow-up ``show`` invocation.
+    """
+    for e in sec.entries:
+        if e.thy_line and e.thy_end and e.thy_line <= line_no <= e.thy_end:
+            return e
+    return None
+
+
 def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
@@ -1214,9 +1227,23 @@ def cmd_callers(sections: list[TheorySection], name: str,
     if not hits:
         print(f"No callers found for '{name}'.")
         return
+    # Build theory → section lookup once for enclosing-entry lookup and
+    # trailing-context line access.
+    sec_by_theory: dict[str, TheorySection] = {s.theory: s for s in sections}
+    n_after = max(0, flags.context)
     print(f"{len(hits)} caller(s) of {name}:\n")
     for theory, line_no, text in hits:
-        print(f"  {theory}:{line_no}:  {text.strip()}")
+        sec = sec_by_theory.get(theory)
+        encl = _enclosing_entry(sec, line_no) if sec is not None else None
+        encl_tag = f"  [in {encl.name}]" if encl is not None else ""
+        print(f"  {theory}:{line_no}:{encl_tag}  {text.strip()}")
+        if n_after > 0 and sec is not None:
+            src = sec.source()
+            # 1-indexed line_no → 0-indexed slice start at line_no
+            # (i.e., the line *after* the match).
+            for off, ctx in enumerate(src[line_no:line_no + n_after], start=1):
+                ctx_no = line_no + off
+                print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
 
 
 def cmd_uses(sections: list[TheorySection], name: str,
@@ -1658,14 +1685,28 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
 
 
 def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
-    """Load theory sections from --file or the project ROOTs."""
-    file_path = getattr(ns, "file", None)
-    if file_path:
-        p = Path(file_path).expanduser().resolve()
-        if not p.exists():
-            print(f"ERROR: file not found: {p}", file=sys.stderr)
-            sys.exit(1)
-        return [_parse_one(p.stem, p)]
+    """Load theory sections from trailing positional FILEs, --file, or
+    the project ROOTs.
+
+    Precedence: ``ns.files`` (rg/grep-style trailing positionals on the
+    subcommand) wins over the top-level ``--file`` alias.  Both produce
+    a hand-rolled list of TheorySections; if neither is given, fall back
+    to the full project index.
+    """
+    files: list[str] = list(getattr(ns, "files", None) or [])
+    if not files:
+        single = getattr(ns, "file", None)
+        if single:
+            files = [single]
+    if files:
+        sections: list[TheorySection] = []
+        for fp in files:
+            p = Path(fp).expanduser().resolve()
+            if not p.exists():
+                print(f"ERROR: file not found: {p}", file=sys.stderr)
+                sys.exit(1)
+            sections.append(_parse_one(p.stem, p))
+        return sections
     return load_index()
 
 
@@ -1746,11 +1787,13 @@ def _run_grep(ns: argparse.Namespace) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
-        prog="scripts/query",
+        prog="bin/query",
         description="Query the theory index — computed live from .thy files.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     top.add_argument("--file", metavar="PATH",
-                     help="parse a single .thy file instead of the project ROOTs")
+                     help="parse a single .thy file instead of the project ROOTs "
+                          "(deprecated; prefer trailing positional FILE args "
+                          "where the subcommand supports them)")
 
     sub = top.add_subparsers(dest="command", title="commands")
 
@@ -1820,6 +1863,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="transitive closure (all indirect callers)")
     p.add_argument("-n", "--names", action="store_true",
                    help="names + tags + theory only")
+    p.add_argument("-C", "--context", type=int, default=0, metavar="N",
+                   help="show N trailing lines after each match (rg-style; "
+                        "useful for multi-line `[where ..., OF ...]` "
+                        "invocations whose argument list spans 2-3 lines)")
     p.set_defaults(func=_run_callers)
 
     # uses
@@ -1839,6 +1886,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("pattern",
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
                         "for shell-grep compatibility)")
+    p.add_argument("files", nargs="*", metavar="FILE",
+                   help="restrict search to specific .thy files "
+                        "(rg/grep-style; overrides --file)")
     p.add_argument("-a", "--all", dest="all_hits", action="store_true",
                    help="include matches inside text blocks / "
                         "\\<comment> annotations (default: live source only)")
