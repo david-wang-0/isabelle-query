@@ -1685,29 +1685,25 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
 
 
 def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
-    """Load theory sections from trailing positional FILEs, --file, or
-    the project ROOTs.
+    """Load theory sections from trailing positional FILEs, or the
+    project ROOTs.
 
-    Precedence: ``ns.files`` (rg/grep-style trailing positionals on the
-    subcommand) wins over the top-level ``--file`` alias.  Both produce
-    a hand-rolled list of TheorySections; if neither is given, fall back
-    to the full project index.
+    Subcommands that accept ``nargs='*'`` trailing file positionals
+    (e.g. ``grep PATTERN file.thy``, ``callers NAME file.thy``)
+    pre-populate ``ns.files``; the parse is then restricted to those
+    files instead of the full project index.
     """
     files: list[str] = list(getattr(ns, "files", None) or [])
     if not files:
-        single = getattr(ns, "file", None)
-        if single:
-            files = [single]
-    if files:
-        sections: list[TheorySection] = []
-        for fp in files:
-            p = Path(fp).expanduser().resolve()
-            if not p.exists():
-                print(f"ERROR: file not found: {p}", file=sys.stderr)
-                sys.exit(1)
-            sections.append(_parse_one(p.stem, p))
-        return sections
-    return load_index()
+        return load_index()
+    sections: list[TheorySection] = []
+    for fp in files:
+        p = Path(fp).expanduser().resolve()
+        if not p.exists():
+            print(f"ERROR: file not found: {p}", file=sys.stderr)
+            sys.exit(1)
+        sections.append(_parse_one(p.stem, p))
+    return sections
 
 
 # -- Shared flag groups (added to subparsers that need them) ----------------
@@ -1790,10 +1786,6 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="bin/query",
         description="Query the theory index — computed live from .thy files.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    top.add_argument("--file", metavar="PATH",
-                     help="parse a single .thy file instead of the project ROOTs "
-                          "(deprecated; prefer trailing positional FILE args "
-                          "where the subcommand supports them)")
 
     sub = top.add_subparsers(dest="command", title="commands")
 
@@ -1857,6 +1849,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # callers
     p = sub.add_parser("callers", help="find proof-body usages")
     p.add_argument("name", help="entry name")
+    p.add_argument("files", nargs="*", metavar="FILE",
+                   help="restrict search to specific .thy files "
+                        "(rg/grep-style trailing positionals)")
     p.add_argument("-c", "--count", action="store_true",
                    help="just print the count")
     p.add_argument("-r", "--recursive", action="store_true",
@@ -1888,7 +1883,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "for shell-grep compatibility)")
     p.add_argument("files", nargs="*", metavar="FILE",
                    help="restrict search to specific .thy files "
-                        "(rg/grep-style; overrides --file)")
+                        "(rg/grep-style trailing positionals)")
     p.add_argument("-a", "--all", dest="all_hits", action="store_true",
                    help="include matches inside text blocks / "
                         "\\<comment> annotations (default: live source only)")
