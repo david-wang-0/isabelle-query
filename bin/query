@@ -28,7 +28,16 @@ class Entry:
     decl_end_line: int = 0  # 1-indexed last line of the declaration
                             # (last header line before proof / blank / next decl)
     proof_line: int = 0     # 1-indexed first line of the proof (0 if no proof)
-    thy_end: int = 0        # 1-indexed structural end (heuristic — to next entry)
+    thy_end: int = 0        # 1-indexed structural end (to next entry-or-section,
+                            # minus one).  Includes any trailing inter-lemma
+                            # `text \<open>...\<close>` block — NOT a safe cut
+                            # boundary for relocations (use body_end_line).
+    body_end_line: int = 0  # 1-indexed last line that belongs to this entry's
+                            # body (the closing `qed`, the terminating `by` /
+                            # `.`, or for declarations the last header line).
+                            # Stops before any trailing inter-lemma `text` /
+                            # `\<comment>` block.  Safe cut boundary for
+                            # `bin/move-block.py`.
     # Comment context attached during _parse_one:
     preamble: tuple[int, int] | None = None
         # (start, end) of the `text \<open>...\<close>` block immediately
@@ -410,6 +419,18 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
     _attach_comments(entries, lines, text_blocks, comment_lines)
     for e in entries:
         e.theory = thy
+    # Compute body_end_line: for entries with a proof, walk forward from
+    # proof_line through proof / by / qed / blank lines, stopping at the
+    # next text \<open>...\<close> block or declaration.  For pure
+    # declarations (no proof), body ends at decl_end_line.  Computed after
+    # compute_spans because _proof_extent needs thy_end as a search bound.
+    sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines))
+    sec_for_extent._source_cache = lines
+    for e in entries:
+        if e.proof_line:
+            e.body_end_line = _proof_extent(sec_for_extent, e.proof_line, e.thy_end)
+        else:
+            e.body_end_line = e.decl_end_line or e.thy_line
     return TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                          outline=outline, text_blocks=text_blocks,
                          comment_ranges=comment_ranges)
@@ -597,9 +618,30 @@ def _transitive_closure(graph: dict[str, set[str]],
 # Rendering
 # ---------------------------------------------------------------------------
 
+def _format_extent(entry: Entry) -> str:
+    """Format the `[src ...]` extent annotation for an entry.
+
+    Surfaces `body_end_line` separately from `thy_end` when the two
+    diverge (i.e., the entry has a trailing inter-lemma `text` /
+    `\\<comment>` block).  The body end is the safe cut boundary for
+    `bin/move-block.py`; the outline end (`thy_end`) is the structural
+    end-of-region the next entry-or-section starts after.
+    """
+    if not entry.thy_line:
+        return ""
+    span_size = entry.thy_end - entry.thy_line + 1
+    body_end = entry.body_end_line or entry.thy_end
+    if body_end < entry.thy_end:
+        body_size = body_end - entry.thy_line + 1
+        return (f"[src {entry.thy_line}-{entry.thy_end}, "
+                f"body {entry.thy_line}-{body_end}, "
+                f"{body_size}/{span_size} lines]")
+    return f"[src {entry.thy_line}-{entry.thy_end}, {span_size} lines]"
+
+
 def _format_name_line(sec: TheorySection, entry: Entry) -> str:
-    span_size = entry.thy_end - entry.thy_line + 1 if entry.thy_line else 0
-    span = f" [src {entry.thy_line}-{entry.thy_end}, {span_size} lines]" if entry.thy_line else ""
+    ext = _format_extent(entry)
+    span = f" {ext}" if ext else ""
     return f"{entry.name} ({entry.tag}) — {sec.theory}{span}"
 
 
@@ -756,9 +798,8 @@ def render_entry(sec: TheorySection, entry: Entry, *,
     comments='only': preamble (full) + header + roadmap (full), no statement
     context:         lines of preamble preview / roadmap entries shown
     """
-    span_size = entry.thy_end - entry.thy_line + 1 if entry.thy_line else 0
-    header = (f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy "
-              f"[src {entry.thy_line}-{entry.thy_end}, {span_size} lines] ---")
+    ext = _format_extent(entry)
+    header = f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy {ext} ---"
 
     # No source location (e.g. AXIOM placeholder) → fall back to entry.text
     if not entry.thy_line:
@@ -1608,6 +1649,57 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         print(f"    {text.strip()}")
 
 
+def _parse_line_range(spec: str) -> tuple[int, int]:
+    """Parse `A..B` or `A` into a (start, end) inclusive pair.  Raises
+    ValueError on malformed input.
+    """
+    if ".." in spec:
+        a_str, b_str = spec.split("..", 1)
+        a, b = int(a_str), int(b_str)
+    else:
+        a = b = int(spec)
+    if a < 1 or b < a:
+        raise ValueError(f"invalid range '{spec}': require 1 <= start <= end")
+    return a, b
+
+
+def cmd_lines(file_path: str, ranges: list[str]) -> None:
+    """Print the specified line ranges of FILE with `NR| CONTENT` prefix.
+
+    Sandbox-friendly alternative to `awk 'NR>=A && NR<=B {…}'` loops;
+    multiple ranges separated by blank lines (rg-style `--` separators
+    between hunks).  Width of the line-number column adapts to the
+    largest line number requested.
+    """
+    p = Path(file_path).expanduser().resolve()
+    if not p.exists():
+        print(f"ERROR: file not found: {p}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        parsed = [_parse_line_range(r) for r in ranges]
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
+    lines = p.read_text().splitlines()
+    n_lines = len(lines)
+    max_no = max((b for _, b in parsed), default=1)
+    width = len(str(min(max_no, n_lines)))
+    for i, (a, b) in enumerate(parsed):
+        if i > 0:
+            print("--")
+        a_clamped = max(1, a)
+        b_clamped = min(n_lines, b)
+        if a_clamped > n_lines:
+            print(f"# range {a}..{b}: past end of file ({n_lines} lines)",
+                  file=sys.stderr)
+            continue
+        for nr in range(a_clamped, b_clamped + 1):
+            print(f"{nr:>{width}}| {lines[nr - 1]}")
+        if b > n_lines:
+            print(f"# range {a}..{b}: truncated at line {n_lines}",
+                  file=sys.stderr)
+
+
 def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
     n = 20
     theory_filter: str | None = None
@@ -1783,6 +1875,9 @@ def _run_unused(ns: argparse.Namespace) -> None:
 def _run_grep(ns: argparse.Namespace) -> None:
     cmd_grep(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
 
+def _run_lines(ns: argparse.Namespace) -> None:
+    cmd_lines(ns.file, ns.ranges)
+
 
 # -- Parser construction ----------------------------------------------------
 
@@ -1901,6 +1996,19 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="locations + owning entry only "
                         "(skip the matched line text)")
     p.set_defaults(func=_run_grep)
+
+    # lines
+    p = sub.add_parser("lines",
+                       help="print specified line ranges of FILE "
+                            "with `NR| CONTENT` prefix (sandbox-friendly "
+                            "alternative to awk loops)")
+    p.add_argument("file", metavar="FILE",
+                   help="file to read (any text file; no theory parsing)")
+    p.add_argument("ranges", nargs="+", metavar="RANGE",
+                   help="line range(s); each `A..B` (inclusive) or `A` "
+                        "(single line).  Multiple ranges separated by "
+                        "`--` in output.")
+    p.set_defaults(func=_run_lines)
 
     p = sub.add_parser("unused", help="list entries with zero callers")
     p.add_argument("-c", "--count", action="store_true",
