@@ -1304,23 +1304,39 @@ def cmd_uses(sections: list[TheorySection], name: str,
             print(f"  {uname}")
 
 
-def _compute_unused(graph: CallGraph) -> set[str]:
-    """Entries with zero callers (directly unused)."""
-    return {n for n in graph.all_names if not graph.callers.get(n, set())}
+def _compute_unused(graph: CallGraph,
+                    keep: set[str] | None = None) -> set[str]:
+    """Entries with zero callers (directly unused).
+
+    Names in `keep` are treated as live roots — never flagged as unused
+    regardless of caller count.  Use this to exclude top-of-pyramid
+    theorems (e.g. AFP-headline statements) which legitimately have
+    zero callers in the project but should not be pruned.
+    """
+    keep = keep or set()
+    return {n for n in graph.all_names
+            if n not in keep and not graph.callers.get(n, set())}
 
 
-def _compute_unused_recursive(graph: CallGraph) -> dict[str, int]:
+def _compute_unused_recursive(graph: CallGraph,
+                              keep: set[str] | None = None
+                              ) -> dict[str, int]:
     """Fixed-point cascade: an entry is unused if all its callers are unused.
+
+    Names in `keep` are treated as live roots — never flagged, and
+    entries whose callers include a kept name stay live too (the
+    cascade stops at the live frontier).
 
     Returns {name: depth} where depth 0 = directly unused (zero callers),
     depth 1 = became unused when depth-0 entries are removed, etc.
     """
-    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph)}
+    keep = keep or set()
+    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph, keep)}
     changed = True
     depth = 1
     while changed:
         changed = False
-        for name in graph.all_names - set(unused):
+        for name in graph.all_names - set(unused) - keep:
             callers = graph.callers.get(name, set())
             if callers and callers <= set(unused):
                 unused[name] = depth
@@ -1330,37 +1346,57 @@ def _compute_unused_recursive(graph: CallGraph) -> dict[str, int]:
 
 
 def _compute_forest(graph: CallGraph,
-                    sections: list[TheorySection]
+                    sections: list[TheorySection],
+                    keep: set[str] | None = None
                     ) -> list[tuple[str, int, int, int, int]]:
     """Compute the forest of unused roots with exclusive subtree sizes.
 
-    For each root (zero callers), compute:
+    For each root (zero callers, modulo `keep`), compute:
     - total cone: all entries transitively reachable via callees
     - exclusive subtree: entries reachable ONLY from this root
+
+    Names in `keep` are treated as live and excluded from the root
+    set; their support cones don't contribute to the forest.
 
     Returns list of (root_name, exclusive_entries, exclusive_lines,
     total_entries, total_lines) sorted by exclusive_lines descending.
     """
-    roots = _compute_unused(graph)
+    roots = _compute_unused(graph, keep)
+    keep = keep or set()
 
-    # For each non-root entry, compute which roots can reach it by
-    # walking callers upward.  An entry's root-set is the union of
-    # root-sets of its callers (or {self} if it's a root).
-    root_sets: dict[str, set[str]] = {r: {r} for r in roots}
+    # For each entry, compute the set of roots that can reach it.
+    # An entry is "exclusive" to a root iff its root-set is exactly
+    # {root}.  Include kept (live) roots in the seed so that entries
+    # shared between an unused root and a live root are NOT counted
+    # as exclusive to the unused root — those would survive a prune.
+    #
+    # Fixed-point iteration:
+    #   root_set(X) = {X}                            if X is a root
+    #               = union(root_set(c) for c in callers(X))   else
+    #
+    # A single-pass BFS is INCORRECT here: a node's root-set must
+    # accumulate from ALL its callers, but BFS-via-callees visits each
+    # node once at first discovery, missing later-discovered caller
+    # contributions.  The DAG (no cycles, per Isabelle theory order)
+    # makes fixed-point iteration converge in O(longest-caller-chain)
+    # passes.
+    all_roots = roots | keep
+    root_sets: dict[str, set[str]] = {r: {r} for r in all_roots}
 
-    # BFS from roots downward through callees.
-    from collections import deque
-    queue: deque[str] = deque(roots)
-    visited: set[str] = set(roots)
-    while queue:
-        name = queue.popleft()
-        for callee in graph.callees.get(name, set()):
-            if callee not in root_sets:
-                root_sets[callee] = set()
-            root_sets[callee] |= root_sets[name]
-            if callee not in visited:
-                visited.add(callee)
-                queue.append(callee)
+    changed = True
+    while changed:
+        changed = False
+        for name in graph.all_names:
+            if name in all_roots:
+                continue
+            new_rset: set[str] = set()
+            for c in graph.callers.get(name, set()):
+                new_rset |= root_sets.get(c, set())
+            if not new_rset:
+                continue
+            if root_sets.get(name) != new_rset:
+                root_sets[name] = new_rset
+                changed = True
 
     # Entry line-size lookup.
     entry_lines: dict[str, int] = {}
@@ -1498,15 +1534,22 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     """List entries with zero callers in proof bodies."""
     graph = _build_call_graph(sections)
 
+    keep = set(flags.keep)
+    if keep:
+        unknown = keep - graph.all_names
+        if unknown:
+            print(f"warning: --keep names not found in call graph: "
+                  f"{', '.join(sorted(unknown))}", file=sys.stderr)
+
     if flags.roots:
-        forest = _compute_forest(graph, sections)
+        forest = _compute_forest(graph, sections, keep)
         _render_forest(sections, forest, flags)
         return
 
     if flags.recursive:
-        unused_map = _compute_unused_recursive(graph)
+        unused_map = _compute_unused_recursive(graph, keep)
     else:
-        unused_map = {n: 0 for n in _compute_unused(graph)}
+        unused_map = {n: 0 for n in _compute_unused(graph, keep)}
 
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
@@ -1729,6 +1772,7 @@ class CmdFlags:
     recursive: bool = False      # -r / --recursive
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
+    keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
     include_all: bool = False    # --all (grep: include in-comment matches)
 
 
@@ -1752,6 +1796,9 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.recursive = getattr(ns, "recursive", False)
     f.by_theory = getattr(ns, "by_theory", False)
     f.roots = getattr(ns, "roots", False)
+    keep_args = getattr(ns, "keep", None) or []
+    f.keep = frozenset(n for arg in keep_args
+                       for n in arg.split(",") if n.strip())
     f.include_all = getattr(ns, "all_hits", False)
     return f
 
@@ -2025,6 +2072,11 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="group by theory with line counts")
     p.add_argument("--roots", action="store_true",
                    help="forest summary: each root with exclusive subtree size")
+    p.add_argument("--keep", action="append", metavar="NAME[,NAME...]",
+                   help="treat these names as live roots (never flag as "
+                        "unused, and stop the cascade at them).  Repeatable, "
+                        "or pass a comma-separated list.  Use for AFP-headline "
+                        "theorems and other intentional zero-caller entries.")
     p.set_defaults(func=_run_unused)
 
     return top
