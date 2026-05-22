@@ -468,32 +468,57 @@ def parse_directories_from_root(root_path: Path) -> list[str]:
     return subdirs
 
 
-def load_index() -> list[TheorySection]:
-    """Walk the project ROOT, parsing each declared theory.
-    Theories are searched at the session root and in any
-    sub-directory declared by ROOT's `directories` clause."""
-    sections: list[TheorySection] = []
-    seen: set[str] = set()
+def _add_one_section(thy: str, thy_path: Path,
+                     seen_paths: set[Path],
+                     sections: list[TheorySection]) -> None:
+    """Append a parsed theory section, deduplicating by resolved
+    absolute path so that symlinked theories (e.g.\\
+    `archive/generic/Substrate.thy` -> `t/generic/Substrate.thy`)
+    appear once even if both the symlink and the target are
+    encountered."""
+    if not thy_path.exists():
+        return
+    resolved = thy_path.resolve()
+    if resolved in seen_paths:
+        return
+    seen_paths.add(resolved)
+    sections.append(_parse_one(thy, thy_path))
 
-    def add(thy: str, thy_path: Path) -> None:
-        if thy in seen or not thy_path.exists():
-            return
-        seen.add(thy)
-        sections.append(_parse_one(thy, thy_path))
 
-    root_path = T_DIR / "ROOT"
+def _sections_from_dir(root_dir: Path,
+                       seen_paths: set[Path],
+                       sections: list[TheorySection]) -> None:
+    """Enumerate theories under `root_dir` and append parsed
+    sections.  If `root_dir` contains a `ROOT` file, use ROOT's
+    `theories` and `directories` clauses to drive the enumeration
+    (matches Isabelle's own session declaration); otherwise fall
+    back to a recursive `*.thy` glob.  Dedup by resolved path via
+    `_add_one_section`."""
+    root_path = root_dir / "ROOT"
     if root_path.exists():
         subdirs = parse_directories_from_root(root_path)
         for thy in parse_theories_from_root(root_path):
-            thy_path = T_DIR / f"{thy}.thy"
+            thy_path = root_dir / f"{thy}.thy"
             if not thy_path.exists():
                 for sub in subdirs:
-                    candidate = T_DIR / sub / f"{thy}.thy"
+                    candidate = root_dir / sub / f"{thy}.thy"
                     if candidate.exists():
                         thy_path = candidate
                         break
-            add(thy, thy_path)
+            _add_one_section(thy, thy_path, seen_paths, sections)
+    else:
+        for thy_path in sorted(root_dir.rglob("*.thy")):
+            _add_one_section(thy_path.stem, thy_path,
+                             seen_paths, sections)
 
+
+def load_index() -> list[TheorySection]:
+    """Walk the project ROOT (the `t/` session), parsing each
+    declared theory.  Searches at the session root and in any
+    sub-directory declared by ROOT's `directories` clause."""
+    sections: list[TheorySection] = []
+    seen_paths: set[Path] = set()
+    _sections_from_dir(T_DIR, seen_paths, sections)
     return sections
 
 
@@ -1777,24 +1802,40 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
 
 
 def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
-    """Load theory sections from trailing positional FILEs, or the
+    """Load theory sections from trailing positional PATHs, or the
     project ROOTs.
 
-    Subcommands that accept ``nargs='*'`` trailing file positionals
-    (e.g. ``grep PATTERN file.thy``, ``callers NAME file.thy``)
-    pre-populate ``ns.files``; the parse is then restricted to those
-    files instead of the full project index.
+    Subcommands that accept ``nargs='*'`` trailing path positionals
+    (``grep PATTERN ...``, ``callers NAME ...``) pre-populate
+    ``ns.files``; the parse is then restricted to those paths
+    instead of the full project index.
+
+    Each positional may be:
+
+    * a ``.thy`` file path  -> that single theory.
+    * a directory containing a ``ROOT`` file  -> all theories
+      declared by ROOT (resolved through ROOT's ``theories`` and
+      ``directories`` clauses, matching Isabelle's own semantics).
+    * a directory with no ``ROOT``  -> recursive ``*.thy`` glob.
+
+    Results are unioned and deduplicated by resolved absolute
+    path, so passing ``t/ archive/`` does not double-count the
+    archive theories that are symlinks into ``t/generic/``.
     """
     files: list[str] = list(getattr(ns, "files", None) or [])
     if not files:
         return load_index()
     sections: list[TheorySection] = []
+    seen_paths: set[Path] = set()
     for fp in files:
         p = Path(fp).expanduser().resolve()
         if not p.exists():
-            print(f"ERROR: file not found: {p}", file=sys.stderr)
+            print(f"ERROR: path not found: {p}", file=sys.stderr)
             sys.exit(1)
-        sections.append(_parse_one(p.stem, p))
+        if p.is_dir():
+            _sections_from_dir(p, seen_paths, sections)
+        else:
+            _add_one_section(p.stem, p, seen_paths, sections)
     return sections
 
 
@@ -1952,9 +1993,13 @@ def _build_parser() -> argparse.ArgumentParser:
     # callers
     p = sub.add_parser("callers", help="find proof-body usages")
     p.add_argument("name", help="entry name")
-    p.add_argument("files", nargs="*", metavar="FILE",
-                   help="restrict search to specific .thy files "
-                        "(rg/grep-style trailing positionals)")
+    p.add_argument("files", nargs="*", metavar="PATH",
+                   help="restrict search to specific .thy files or "
+                        "directories (rg/grep-style trailing "
+                        "positionals).  Directories with a ROOT are "
+                        "expanded via the ROOT's `theories` clause; "
+                        "directories without are walked recursively "
+                        "for `*.thy`")
     p.add_argument("-c", "--count", action="store_true",
                    help="just print the count")
     p.add_argument("-r", "--recursive", action="store_true",
@@ -1984,9 +2029,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("pattern",
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
                         "for shell-grep compatibility)")
-    p.add_argument("files", nargs="*", metavar="FILE",
-                   help="restrict search to specific .thy files "
-                        "(rg/grep-style trailing positionals)")
+    p.add_argument("files", nargs="*", metavar="PATH",
+                   help="restrict search to specific .thy files or "
+                        "directories (rg/grep-style trailing "
+                        "positionals).  Directories with a ROOT are "
+                        "expanded via the ROOT's `theories` clause; "
+                        "directories without are walked recursively "
+                        "for `*.thy`.  Results are dedup'd by "
+                        "resolved path, so `t/ archive/` does not "
+                        "double-count symlinked theories")
     p.add_argument("-a", "--all", dest="all_hits", action="store_true",
                    help="include matches inside text blocks / "
                         "\\<comment> annotations (default: live source only)")
