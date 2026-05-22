@@ -12,7 +12,15 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
-T_DIR = Path(__file__).resolve().parent.parent / "t"
+# Make sibling bin/common.py importable regardless of how this script
+# is invoked (by absolute path, via Makefile, via a hook).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from common import (  # noqa: E402
+    T_DIR,
+    parse_root_theories,
+    resolve_thy_file,
+)
 
 # ---------------------------------------------------------------------------
 # Parsing — walks ROOT files and extracts entries from .thy sources
@@ -139,22 +147,6 @@ def _parse_typedecl_name(text_after_tag: str) -> str:
     leading type-argument list (\<open>'a\<close> or \<open>('a, 'b)\<close>)."""
     m = TYPEDECL_NAME_RE.match(text_after_tag.strip())
     return m.group(1) if m else "?"
-
-
-def parse_theories_from_root(root_path: Path) -> list[str]:
-    theories = []
-    in_theories = False
-    for line in root_path.read_text().splitlines():
-        stripped = line.strip()
-        if re.match(r"theories\b", stripped):
-            in_theories = True
-            continue
-        if re.match(r"(document_files|document_theories|sessions|options|description)\b", stripped):
-            in_theories = False
-            continue
-        if in_theories and re.match(r"[A-Za-z_][A-Za-z0-9_]*$", stripped):
-            theories.append(stripped)
-    return theories
 
 
 def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
@@ -436,38 +428,6 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
                          comment_ranges=comment_ranges)
 
 
-def parse_directories_from_root(root_path: Path) -> list[str]:
-    """Parse ROOT's `directories "<sub>"` clause, returning the
-    list of declared sub-directory names.  Empty if the ROOT
-    declares no `directories` clause."""
-    subdirs: list[str] = []
-    in_dirs = False
-    exit_keywords = ("theories", "document_files", "sessions",
-                     "options", "description", "chapter", "session")
-    try:
-        for line in root_path.read_text().splitlines():
-            stripped = line.strip()
-            if stripped.startswith("directories"):
-                in_dirs = True
-                stripped = stripped[len("directories"):].strip()
-            elif any(stripped.startswith(kw) for kw in exit_keywords):
-                in_dirs = False
-                continue
-            if in_dirs:
-                # Pull every quoted token off the line.
-                rest = stripped
-                while '"' in rest:
-                    a = rest.index('"')
-                    b = rest.index('"', a + 1)
-                    name = rest[a + 1:b]
-                    if name:
-                        subdirs.append(name)
-                    rest = rest[b + 1:]
-    except OSError:
-        pass
-    return subdirs
-
-
 def _add_one_section(thy: str, thy_path: Path,
                      seen_paths: set[Path],
                      sections: list[TheorySection]) -> None:
@@ -496,15 +456,10 @@ def _sections_from_dir(root_dir: Path,
     `_add_one_section`."""
     root_path = root_dir / "ROOT"
     if root_path.exists():
-        subdirs = parse_directories_from_root(root_path)
-        for thy in parse_theories_from_root(root_path):
-            thy_path = root_dir / f"{thy}.thy"
-            if not thy_path.exists():
-                for sub in subdirs:
-                    candidate = root_dir / sub / f"{thy}.thy"
-                    if candidate.exists():
-                        thy_path = candidate
-                        break
+        for thy in parse_root_theories(root_path):
+            thy_path = resolve_thy_file(thy, t_dir=root_dir)
+            if thy_path is None:
+                continue
             _add_one_section(thy, thy_path, seen_paths, sections)
     else:
         for thy_path in sorted(root_dir.rglob("*.thy")):
