@@ -2137,10 +2137,18 @@ def _run_defs(ns: argparse.Namespace) -> None:
     cmd_defs(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
 def _run_deps(ns: argparse.Namespace) -> None:
-    cmd_deps(_load_sections(ns), ns.theory, recursive=ns.recursive)
+    sections = _load_sections(ns)
+    for i, thy in enumerate(ns.theory):
+        if i > 0:
+            print()
+        cmd_deps(sections, thy, recursive=ns.recursive)
 
 def _run_theory_uses(ns: argparse.Namespace) -> None:
-    cmd_deps(_load_sections(ns), ns.theory, reverse=True, recursive=ns.recursive)
+    sections = _load_sections(ns)
+    for i, thy in enumerate(ns.theory):
+        if i > 0:
+            print()
+        cmd_deps(sections, thy, reverse=True, recursive=ns.recursive)
 
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
@@ -2218,18 +2226,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # deps
     p = sub.add_parser("deps",
-                       help="theories this one imports (direct; -r for "
+                       help="theories these import (direct; -r for "
                             "transitive); reverse is `uses`")
-    p.add_argument("theory", help="theory name or .thy path")
+    p.add_argument("theory", nargs="+", metavar="THEORY",
+                   help="one or more theory names or .thy paths "
+                        "(brew-style: reported in turn)")
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect imports)")
     p.set_defaults(func=_run_deps)
 
     # uses (theory-level reverse of deps; brew's deps/uses convention)
     p = sub.add_parser("uses",
-                       help="theories that import this one (direct; -r for "
+                       help="theories that import these (direct; -r for "
                             "transitive); reverse of `deps`")
-    p.add_argument("theory", help="theory name or .thy path")
+    p.add_argument("theory", nargs="+", metavar="THEORY",
+                   help="one or more theory names or .thy paths "
+                        "(brew-style: reported in turn)")
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect importers)")
     p.set_defaults(func=_run_theory_uses)
