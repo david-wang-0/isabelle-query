@@ -14,7 +14,11 @@ File organisation (section banners below mark each):
   exclusion ranges (prose text blocks; definition-site spans) shared by
   single-name search (`_find_callers`) and bulk graph construction
   (`_build_call_graph`).  `_transitive_closure` is the BFS used by both
-  `callers -r` and `uses -r`.
+  `callers -r` and `callees -r`.
+
+  Two forward/reverse pairs, at different granularities: entry-level
+  `callees` (forward) / `callers` (reverse) over proof-body references;
+  theory-level `deps` (forward) / `uses` (reverse) over imports.
 * **Rendering** — `_format_extent`, `render_entry`, preview/comment
   formatting.
 * **Verbosity-mode dispatch** — the `-c`/`-n`/`-a`/`-V` resolution shared
@@ -1176,14 +1180,19 @@ def _bfs_depths(adj: dict[str, list[str]], start: str) -> dict[str, int]:
 
 
 def cmd_deps(sections: list[TheorySection], theory: str,
-             reverse: bool = False) -> None:
+             reverse: bool = False, recursive: bool = False) -> None:
     """Theory-level (not entry-level) import dependencies.
 
-    Forward (default): the theories this one needs to build — its
-    import-transitive closure.  Reverse (``--reverse``): the theories
-    that need this one — every theory whose import-transitive closure
-    contains it.  This is the theory-graph analogue of the entry-level
-    ``uses`` / ``callers`` pair."""
+    Forward (``reverse=False``): the theories this one imports.
+    Reverse (``reverse=True``): the theories that import this one.
+    Exposed as the ``deps`` (forward) / ``uses`` (reverse) subcommand
+    pair — the theory-graph analogue of the entry-level
+    ``callees`` / ``callers`` pair (brew's ``deps`` / ``uses``
+    convention).
+
+    Direct by default; ``recursive`` (``-r``) gives the transitive
+    closure with per-hop depth labels — matching the direct/``-r``
+    semantics of the entry-level pair."""
     target = _resolve_theory(sections, theory)
     if target is None:
         print(f"Theory '{theory}' not found.")
@@ -1198,47 +1207,61 @@ def cmd_deps(sections: list[TheorySection], theory: str,
             print(f"  {name}  ({sec.thy_lines} src lines, "
                   f"{len(sec.entries)} entries){tag}")
 
+    scope = "transitively" if recursive else "directly"
+
     if reverse:
-        # Build the in-project forward adjacency for every theory, then
-        # invert it: child -> theories that import the child.  Reverse
-        # queries inherently need the whole graph, so the full scan here
-        # is unavoidable (forward queries below stay lazy).
+        # Invert the in-project import adjacency: child -> theories that
+        # import the child.  The reverse direction needs the whole graph
+        # regardless of depth, so the full scan here is unavoidable.
         rev: dict[str, list[str]] = {s.theory: [] for s in sections}
         for s in sections:
             for imp in parse_thy_imports(s.path):
                 if imp in sec_by_name:
                     rev[imp].append(s.theory)
-        found = _bfs_depths(rev, target.theory)
+        if recursive:
+            found = _bfs_depths(rev, target.theory)
+        else:
+            found = {name: 0 for name in rev.get(target.theory, [])}
         if not found:
-            print(f"No in-project theory imports {target.theory}.")
+            print(f"No in-project theory imports {target.theory} ({scope}).")
             return
-        print(f"Theories that import {target.theory} (transitively):")
+        print(f"Theories that import {target.theory} ({scope}):")
         emit(found)
         return
 
-    # Forward: lazy BFS over the imports graph, accumulating out-of-
-    # project imports (e.g. HOL-Library.*) seen along the way.
+    # Forward.  Direct: just the target's own import line.  Recursive:
+    # lazy BFS over the imports graph.  Out-of-project imports (e.g.
+    # HOL-Library.*) are direct edges, so they show in both modes.
     in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
     out_of_project: set[str] = set()
-    queue: list[tuple[str, int]] = [(target.theory, -1)]
-    while queue:
-        name, depth = queue.pop(0)
-        sec = sec_by_name.get(name)
-        if sec is None:
-            continue
-        for imp in parse_thy_imports(sec.path):
-            child = sec_by_name.get(imp)
-            if child is None:
+    if recursive:
+        queue: list[tuple[str, int]] = [(target.theory, -1)]
+        while queue:
+            name, depth = queue.pop(0)
+            sec = sec_by_name.get(name)
+            if sec is None:
+                continue
+            for imp in parse_thy_imports(sec.path):
+                child = sec_by_name.get(imp)
+                if child is None:
+                    out_of_project.add(imp)
+                elif imp not in in_project and imp != target.theory:
+                    in_project[imp] = depth + 1
+                    queue.append((imp, depth + 1))
+    else:
+        for imp in parse_thy_imports(target.path):
+            if imp not in sec_by_name:
                 out_of_project.add(imp)
-            elif imp not in in_project and imp != target.theory:
-                in_project[imp] = depth + 1
-                queue.append((imp, depth + 1))
+            elif imp != target.theory:
+                in_project[imp] = 0
 
     if not in_project and not out_of_project:
         print(f"{target.theory} has no upstream dependencies.")
         return
 
-    print(f"Import-transitive dependencies of {target.theory}:")
+    header = ("Import-transitive dependencies" if recursive
+              else "Direct imports")
+    print(f"{header} of {target.theory}:")
     emit(in_project)
     for name in sorted(out_of_project):
         print(f"  {name}  [out-of-project]")
@@ -1435,9 +1458,11 @@ def cmd_callers(sections: list[TheorySection], name: str,
                 print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
 
 
-def cmd_uses(sections: list[TheorySection], name: str,
-             flags: 'CmdFlags') -> None:
-    """Show what entries are referenced in this entry's proof body."""
+def cmd_callees(sections: list[TheorySection], name: str,
+                flags: 'CmdFlags') -> None:
+    """Entry-level forward edge: the entries this entry references in
+    its proof body (its callees).  Pairs with `cmd_callers` (reverse).
+    Not to be confused with the theory-level `deps` / `uses` pair."""
     graph = _build_call_graph(sections)
     if name not in graph.all_names:
         print(f"'{name}' not found in the entry index.")
@@ -1463,7 +1488,7 @@ def cmd_uses(sections: list[TheorySection], name: str,
             if e.name not in by_name:
                 by_name[e.name] = (sec.theory, e)
 
-    print(f"{len(used)} name(s) used by {name}:\n")
+    print(f"{len(used)} callee(s) of {name}:\n")
     for uname in sorted(used):
         if uname in by_name:
             thy, e = by_name[uname]
@@ -2065,7 +2090,10 @@ def _run_defs(ns: argparse.Namespace) -> None:
     cmd_defs(_load_sections(ns), ns.theory)
 
 def _run_deps(ns: argparse.Namespace) -> None:
-    cmd_deps(_load_sections(ns), ns.theory, reverse=ns.reverse)
+    cmd_deps(_load_sections(ns), ns.theory, recursive=ns.recursive)
+
+def _run_theory_uses(ns: argparse.Namespace) -> None:
+    cmd_deps(_load_sections(ns), ns.theory, reverse=True, recursive=ns.recursive)
 
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
@@ -2092,8 +2120,8 @@ def _run_show(ns: argparse.Namespace) -> None:
 def _run_callers(ns: argparse.Namespace) -> None:
     cmd_callers(_load_sections(ns), ns.name, _flags_from_ns(ns))
 
-def _run_uses(ns: argparse.Namespace) -> None:
-    cmd_uses(_load_sections(ns), ns.name, _flags_from_ns(ns))
+def _run_callees(ns: argparse.Namespace) -> None:
+    cmd_callees(_load_sections(ns), ns.name, _flags_from_ns(ns))
 
 def _run_unused(ns: argparse.Namespace) -> None:
     cmd_unused(_load_sections(ns), _flags_from_ns(ns))
@@ -2134,13 +2162,21 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # deps
     p = sub.add_parser("deps",
-                       help="theory-level import dependencies "
-                            "(forward, or reverse with -r)")
+                       help="theories this one imports (direct; -r for "
+                            "transitive); reverse is `uses`")
     p.add_argument("theory", help="theory name or .thy path")
-    p.add_argument("-r", "--reverse", action="store_true",
-                   help="invert: theories that import this one "
-                        "(transitively), instead of those it imports")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect imports)")
     p.set_defaults(func=_run_deps)
+
+    # uses (theory-level reverse of deps; brew's deps/uses convention)
+    p = sub.add_parser("uses",
+                       help="theories that import this one (direct; -r for "
+                            "transitive); reverse of `deps`")
+    p.add_argument("theory", help="theory name or .thy path")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="transitive closure (all indirect importers)")
+    p.set_defaults(func=_run_theory_uses)
 
     # outline
     p = sub.add_parser("outline", help="section structure with entries")
@@ -2201,14 +2237,16 @@ def _build_parser() -> argparse.ArgumentParser:
                         "transitive closure via -r ignores this flag.")
     p.set_defaults(func=_run_callers)
 
-    # uses
-    p = sub.add_parser("uses", help="show what an entry references")
+    # callees
+    p = sub.add_parser("callees",
+                       help="entries this entry references; reverse is "
+                            "`callers`")
     p.add_argument("name", help="entry name")
     _add_count_flag(p)
     _add_names_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
-                   help="transitive closure (all indirect dependencies)")
-    p.set_defaults(func=_run_uses)
+                   help="transitive closure (all indirect callees)")
+    p.set_defaults(func=_run_callees)
 
     # grep
     p = sub.add_parser("grep",
