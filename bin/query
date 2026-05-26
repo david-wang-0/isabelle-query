@@ -1117,6 +1117,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
 
 
 def _find_callers(sections: list[TheorySection], name: str,
+                   external: bool = False,
                    ) -> list[tuple[str, int, str]]:
     """Find proof-body usages of *name* across all .thy files.
 
@@ -1127,19 +1128,27 @@ def _find_callers(sections: list[TheorySection], name: str,
       - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
         ``@{term name}`` where the *only* occurrence of *name* on the line
         is inside an antiquotation.
+
+    When ``external`` is true, additionally skip every line in the
+    theory(ies) that define *name* — useful for "is anything outside
+    MacroLib using MacroLib's primitives?" audits where intra-theory
+    cross-references are noise.
     """
     word_re = re.compile(_isa_word_pattern(name))
     # Antiquotation pattern: @{text/thm/term/const "?name"?}
     antiq_re = re.compile(
         r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
 
-    # Build a set of (theory, line_range) for definition sites to skip.
+    # Build a set of (theory, line_range) for definition sites to skip,
+    # and the set of theories where *name* is defined (for --external).
     def_sites: dict[str, set[range]] = {}
+    def_theories: set[str] = set()
     for sec in sections:
         for e in sec.entries:
             if e.name == name and e.thy_line > 0:
                 def_sites.setdefault(sec.theory, set()).add(
                     range(e.thy_line, e.thy_end + 1))
+                def_theories.add(sec.theory)
 
     # Build text-block ranges per theory (to skip prose).
     text_ranges: dict[str, list[range]] = {}
@@ -1156,6 +1165,10 @@ def _find_callers(sections: list[TheorySection], name: str,
 
     results: list[tuple[str, int, str]] = []
     for sec in sections:
+        # External mode: skip every line in the defining theory(ies),
+        # treating intra-theory cross-references as noise.
+        if external and sec.theory in def_theories:
+            continue
         lines = sec.source()
         t_ranges = text_ranges.get(sec.theory, [])
         d_ranges = def_sites.get(sec.theory, set())
@@ -1241,7 +1254,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
         _render_graph_results(sections, reachable, "caller", name, flags)
         return
 
-    hits = _find_callers(sections, name)
+    hits = _find_callers(sections, name, external=flags.external)
     if flags.mode == "count":
         print(len(hits))
         return
@@ -1774,6 +1787,7 @@ class CmdFlags:
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
     include_all: bool = False    # --all (grep: include in-comment matches)
+    external: bool = False       # --external (callers: skip defining theory)
 
 
 def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
@@ -1800,6 +1814,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
     f.include_all = getattr(ns, "all_hits", False)
+    f.external = getattr(ns, "external", False)
     return f
 
 
@@ -2012,6 +2027,13 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="show N trailing lines after each match (rg-style; "
                         "useful for multi-line `[where ..., OF ...]` "
                         "invocations whose argument list spans 2-3 lines)")
+    p.add_argument("--external", action="store_true",
+                   help="exclude callers inside the theory that defines "
+                        "NAME (e.g. when auditing whether anything outside "
+                        "MacroLib uses MacroLib's primitives, the "
+                        "internal cross-references between MacroLib lemmas "
+                        "are noise).  Only affects the non-recursive form; "
+                        "transitive closure via -r ignores this flag.")
     p.set_defaults(func=_run_callers)
 
     # uses
