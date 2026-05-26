@@ -1243,7 +1243,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
 
     hits = _find_callers(sections, name)
     if flags.mode == "count":
-        print(f"{len(hits)} caller(s) of {name}")
+        print(len(hits))
         return
     if not hits:
         print(f"No callers found for '{name}'.")
