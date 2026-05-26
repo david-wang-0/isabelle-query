@@ -1902,15 +1902,44 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
 # -- Shared flag groups (added to subparsers that need them) ----------------
 
 def _add_mode_flags(p: argparse.ArgumentParser) -> None:
-    # Not mutually exclusive: -a -n composes (= "all matches as
-    # names").  Precedence at resolution: -c > -n > -a > default.
+    # Composite bundle for subparsers that accept all three.  Not mutually
+    # exclusive: -a -n composes (= "all matches as names").  Precedence at
+    # resolution: -c > -n > -a > default.  Subparsers wanting only a
+    # subset call the per-flag helpers (`_add_count_flag`,
+    # `_add_names_flag`) directly.
     p.add_argument("-a", "--all", action="store_true",
                    help="show all matches")
-    p.add_argument("-c", "--count", action="store_true",
-                   help="just print the count (wins over -a / -n)")
-    p.add_argument("-n", "--names", action="store_true",
-                   help="names + tags + theory only "
-                        "(composable with -a)")
+    _add_count_flag(p, "just print the count (wins over -a / -n)")
+    _add_names_flag(p, "names + tags + theory only (composable with -a)")
+
+
+def _add_count_flag(p: argparse.ArgumentParser,
+                    help_text: str = "just print the count") -> None:
+    p.add_argument("-c", "--count", action="store_true", help=help_text)
+
+
+def _add_names_flag(p: argparse.ArgumentParser,
+                    help_text: str = "names + tags + theory only") -> None:
+    p.add_argument("-n", "--names", action="store_true", help=help_text)
+
+
+def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
+    """Add the rg/grep-style trailing PATH positionals.
+
+    Resolved by `_load_sections`: each may be a .thy file (single
+    theory), a directory containing a ROOT (theories per ROOT's
+    `theories` clause), or a directory without (recursive *.thy glob).
+    Results dedup'd by resolved path so `t/ archive/` doesn't double-
+    count symlinked theories.
+    """
+    p.add_argument("files", nargs="*", metavar="PATH",
+                   help="restrict search to specific .thy files or "
+                        "directories (rg/grep-style trailing positionals). "
+                        "Directories with a ROOT are expanded via the "
+                        "ROOT's `theories` clause; directories without are "
+                        "walked recursively for `*.thy`.  Results are "
+                        "dedup'd by resolved path, so `t/ archive/` does "
+                        "not double-count symlinked theories.")
 
 def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
     p.add_argument("-V", "--verbatim", action="store_true",
@@ -2053,19 +2082,11 @@ def _build_parser() -> argparse.ArgumentParser:
     # callers
     p = sub.add_parser("callers", help="find proof-body usages")
     p.add_argument("name", help="entry name")
-    p.add_argument("files", nargs="*", metavar="PATH",
-                   help="restrict search to specific .thy files or "
-                        "directories (rg/grep-style trailing "
-                        "positionals).  Directories with a ROOT are "
-                        "expanded via the ROOT's `theories` clause; "
-                        "directories without are walked recursively "
-                        "for `*.thy`")
-    p.add_argument("-c", "--count", action="store_true",
-                   help="just print the count")
+    _add_path_files_arg(p)
+    _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect callers)")
-    p.add_argument("-n", "--names", action="store_true",
-                   help="names + tags + theory only")
+    _add_names_flag(p)
     p.add_argument("-C", "--context", type=int, default=0, metavar="N",
                    help="show N trailing lines after each match (rg-style; "
                         "useful for multi-line `[where ..., OF ...]` "
@@ -2082,10 +2103,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # uses
     p = sub.add_parser("uses", help="show what an entry references")
     p.add_argument("name", help="entry name")
-    p.add_argument("-c", "--count", action="store_true",
-                   help="just print the count")
-    p.add_argument("-n", "--names", action="store_true",
-                   help="names + tags + theory only")
+    _add_count_flag(p)
+    _add_names_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect dependencies)")
     p.set_defaults(func=_run_uses)
@@ -2096,23 +2115,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("pattern",
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
                         "for shell-grep compatibility)")
-    p.add_argument("files", nargs="*", metavar="PATH",
-                   help="restrict search to specific .thy files or "
-                        "directories (rg/grep-style trailing "
-                        "positionals).  Directories with a ROOT are "
-                        "expanded via the ROOT's `theories` clause; "
-                        "directories without are walked recursively "
-                        "for `*.thy`.  Results are dedup'd by "
-                        "resolved path, so `t/ archive/` does not "
-                        "double-count symlinked theories")
+    _add_path_files_arg(p)
     p.add_argument("-a", "--all", dest="all_hits", action="store_true",
                    help="include matches inside text blocks / "
                         "\\<comment> annotations (default: live source only)")
-    p.add_argument("-c", "--count", action="store_true",
-                   help="just print the count")
-    p.add_argument("-n", "--names", action="store_true",
-                   help="locations + owning entry only "
-                        "(skip the matched line text)")
+    _add_count_flag(p)
+    _add_names_flag(p, "locations + owning entry only "
+                       "(skip the matched line text)")
     p.set_defaults(func=_run_grep)
 
     # lines
@@ -2129,8 +2138,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_run_lines)
 
     p = sub.add_parser("unused", help="list entries with zero callers")
-    p.add_argument("-c", "--count", action="store_true",
-                   help="just print the count")
+    _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="cascade: include entries whose callers are all unused")
     p.add_argument("--by-theory", action="store_true",
