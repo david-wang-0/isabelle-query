@@ -41,9 +41,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import (  # noqa: E402
     T_DIR,
-    parse_root_theories,
+    discover_roots,
+    parse_root_sessions,
     parse_thy_imports,
-    resolve_thy_file,
+    resolve_session_theory,
 )
 
 # ---------------------------------------------------------------------------
@@ -472,19 +473,29 @@ def _add_one_section(thy: str, thy_path: Path,
 def _sections_from_dir(root_dir: Path,
                        seen_paths: set[Path],
                        sections: list[TheorySection]) -> None:
-    """Enumerate theories under `root_dir` and append parsed
-    sections.  If `root_dir` contains a `ROOT` file, use ROOT's
-    `theories` and `directories` clauses to drive the enumeration
-    (matches Isabelle's own session declaration); otherwise fall
-    back to a recursive `*.thy` glob.  Dedup by resolved path via
-    `_add_one_section`."""
-    root_path = root_dir / "ROOT"
-    if root_path.exists():
-        for thy in parse_root_theories(root_path):
-            thy_path = resolve_thy_file(thy, t_dir=root_dir)
-            if thy_path is None:
-                continue
-            _add_one_section(thy, thy_path, seen_paths, sections)
+    """Enumerate theories under `root_dir` and append parsed sections.
+
+    Walks every ROOT file under `root_dir` (via `discover_roots`) and
+    each session declared in each ROOT (via `parse_root_sessions`).
+    Theories are resolved against the declaring session's directory,
+    honouring `in <subdir>` and `directories` clauses (so Flyspeck-
+    Tame-Computation's `Completeness.thy` is found under
+    `Computation/`, and post-`[t-layout-split]` `NDTHT_AE` theories
+    are found under `t/ae/`).
+
+    Falls back to a recursive `*.thy` glob if no ROOTs are found
+    (legacy behaviour for non-Isabelle-session directories).  Dedup
+    by resolved path via `_add_one_section`.
+    """
+    roots = discover_roots(root_dir)
+    if roots:
+        for root_path in roots:
+            for session in parse_root_sessions(root_path):
+                for thy in session.theories:
+                    thy_path = resolve_session_theory(session, thy)
+                    if thy_path is None:
+                        continue
+                    _add_one_section(thy, thy_path, seen_paths, sections)
     else:
         for thy_path in sorted(root_dir.rglob("*.thy")):
             _add_one_section(thy_path.stem, thy_path,
