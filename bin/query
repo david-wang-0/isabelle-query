@@ -1041,6 +1041,16 @@ def cmd_theory(sections: list[TheorySection], name: str,
             print(f"  {s.theory}")
         return
 
+    # Terse modes: the theory's namespace as a bare list, no header or
+    # code-fence decoration, so output is greppable / scriptable.
+    if flags.mode == "count":
+        print(len(sec.entries))
+        return
+    if flags.mode == "names":
+        for e in sec.entries:
+            print(_format_name_line(sec, e))
+        return
+
     print(f"## {sec.theory}.thy  ({sec.thy_lines} src lines, {len(sec.entries)} entries)")
     if flags.verbatim:
         for e in sec.entries:
@@ -1146,7 +1156,8 @@ def cmd_show(sections: list[TheorySection], name: str,
     _emit_matches(by_theory, matches, name, flags)
 
 
-def cmd_defs(sections: list[TheorySection], theory: str) -> None:
+def cmd_defs(sections: list[TheorySection], theory: str,
+             flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, theory)
     if sec is None:
         print(f"Theory '{theory}' not found.")
@@ -1155,6 +1166,13 @@ def cmd_defs(sections: list[TheorySection], theory: str) -> None:
                if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
     if not matches:
         print(f"No definitions found in '{sec.theory}'.")
+        return
+    if flags.mode == "count":
+        print(len(matches))
+        return
+    if flags.mode == "names":
+        for e in matches:
+            print(_format_name_line(sec, e))
         return
     for e in matches:
         print(render_entry(sec, e))
@@ -2087,7 +2105,7 @@ def _run_theory(ns: argparse.Namespace) -> None:
     cmd_theory(_load_sections(ns), ns.name, _flags_from_ns(ns))
 
 def _run_defs(ns: argparse.Namespace) -> None:
-    cmd_defs(_load_sections(ns), ns.theory)
+    cmd_defs(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
 def _run_deps(ns: argparse.Namespace) -> None:
     cmd_deps(_load_sections(ns), ns.theory, recursive=ns.recursive)
@@ -2148,16 +2166,25 @@ def _build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_run_summary)
 
     # theory
-    p = sub.add_parser("theory", help="show all entries for a theory")
+    p = sub.add_parser("theory",
+                       help="show all entries for a theory "
+                            "(-n for a terse namespace listing)")
     p.add_argument("name", help="theory name")
+    _add_names_flag(p, "list the theory's namespace entries terse "
+                       "(name, tag, line; no bodies) — one per line")
+    _add_count_flag(p, "just print the entry count")
     _add_verbatim_flag(p)
     _add_comment_flags(p)
     _add_context_flag(p)
     p.set_defaults(func=_run_theory)
 
     # defs
-    p = sub.add_parser("defs", help="list definitions in a theory")
+    p = sub.add_parser("defs",
+                       help="list definitions in a theory "
+                            "(-n for terse name listing)")
     p.add_argument("theory", help="theory name")
+    _add_names_flag(p, "list definition names terse (name, tag, line)")
+    _add_count_flag(p, "just print the definition count")
     p.set_defaults(func=_run_defs)
 
     # deps
