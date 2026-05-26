@@ -100,6 +100,13 @@ class TheorySection:
         # line of a multi-line \<comment> is not misclassified as live source.
         # (Distinct from comment_lines, which records first-line content for the
         # roadmap-attachment feature.)
+    is_thy: bool = True
+        # False for a non-`.thy` path passed as a trailing grep positional
+        # (e.g. `query grep PAT ar-design.md`).  Such a section is parsed
+        # *plainly* (no entries, outline, text/comment blocks): the Isabelle
+        # entry-grammar does not apply to Markdown / prose, so cmd_grep treats
+        # it as plain `grep` — every matched line, no synthesised owning-entry
+        # label, no live/comment classification.
     _source_cache: list[str] | None = None
 
     def source(self) -> list[str]:
@@ -457,21 +464,41 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
                          comment_ranges=comment_ranges)
 
 
+def _parse_plain(thy: str, path: Path) -> TheorySection:
+    """Build a *plain* section for a non-`.thy` file (e.g. a design memo
+    passed as a grep positional).  The Isabelle entry/section/comment
+    grammar does not apply to Markdown or prose, so we deliberately skip
+    `extract_entries` and friends: a plain section has no entries, no
+    outline, and no text/comment ranges.  cmd_grep then degrades to
+    ordinary line-based `grep` over it — no synthesised owning-entry
+    labels, no live/comment classification (every match is reported)."""
+    lines = path.read_text().splitlines()
+    sec = TheorySection(thy, path, [], thy_lines=len(lines), is_thy=False)
+    sec._source_cache = lines
+    return sec
+
+
 def _add_one_section(thy: str, thy_path: Path,
                      seen_paths: set[Path],
                      sections: list[TheorySection]) -> None:
-    """Append a parsed theory section, deduplicating by resolved
-    absolute path so that symlinked theories (e.g.\\
-    `archive/generic/Substrate.thy` -> `t/generic/Substrate.thy`)
-    appear once even if both the symlink and the target are
-    encountered."""
+    """Append a parsed section, deduplicating by resolved absolute path
+    so that symlinked theories (e.g.\\ `archive/generic/Substrate.thy`
+    -> `t/generic/Substrate.thy`) appear once even if both the symlink
+    and the target are encountered.
+
+    `.thy` paths are parsed with the full Isabelle entry grammar
+    (`_parse_one`); any other path is parsed plainly (`_parse_plain`)
+    so grep over a Markdown/prose file does not invent bogus entries."""
     if not thy_path.exists():
         return
     resolved = thy_path.resolve()
     if resolved in seen_paths:
         return
     seen_paths.add(resolved)
-    sections.append(_parse_one(thy, thy_path))
+    if thy_path.suffix == ".thy":
+        sections.append(_parse_one(thy, thy_path))
+    else:
+        sections.append(_parse_plain(thy, thy_path))
 
 
 def _sections_from_dir(root_dir: Path,
@@ -1763,9 +1790,11 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
                    ) -> list[tuple[str, int, str, "Entry | None", bool]]:
-    """Walk every theory's source and return one tuple per line that
-    matches `pat`.  Each tuple is (theory, line_no, line_text,
-    owning_entry, is_live).
+    """Walk every section's source and return one tuple per line that
+    matches `pat`.  Each tuple is (loc_name, line_no, line_text,
+    owning_entry, is_live), where loc_name is the file's real name
+    (e.g. `Substrate.thy`, `ar-design.md`) so plain non-`.thy`
+    positionals report their actual filename rather than `<stem>.thy`.
 
     is_live = True iff the line is genuine proof / declaration source —
     not inside a top-level `text \\<open>...\\<close>` block, not inside
@@ -1797,7 +1826,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
             line_no = line_no_0 + 1
             is_live = not any(line_no in r for r in noise)
             owner = _entry_at_line(idx, line_no)
-            out.append((sec.theory, line_no, line.rstrip(), owner, is_live))
+            out.append((sec.path.name, line_no, line.rstrip(), owner, is_live))
     return out
 
 
@@ -1844,9 +1873,9 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
 
     if flags.mode == "names":
         # Compact: location + owning entry, no source line.
-        loc_w = max((len(f"{t}.thy:{ln}") for t, ln, *_ in hits), default=0)
-        for theory, ln, _text, owner, is_live in hits:
-            loc = f"{theory}.thy:{ln}"
+        loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
+        for loc_name, ln, _text, owner, is_live in hits:
+            loc = f"{loc_name}:{ln}"
             owner_str = (f"{owner.name} ({owner.tag})"
                          if owner is not None and owner.name != "?"
                          else "—")
@@ -1855,9 +1884,9 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         return
 
     # Default: location + owning entry + matched line text.
-    loc_w = max((len(f"{t}.thy:{ln}") for t, ln, *_ in hits), default=0)
-    for theory, ln, text, owner, is_live in hits:
-        loc = f"{theory}.thy:{ln}"
+    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
+    for loc_name, ln, text, owner, is_live in hits:
+        loc = f"{loc_name}:{ln}"
         if owner is not None and owner.name != "?":
             owner_str = f"{owner.name} ({owner.tag})"
         else:
