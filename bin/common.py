@@ -198,20 +198,40 @@ def parse_thy_imports(thy_path: Path) -> list[str]:
 
 
 def iter_thy_files(t_dir: Path = T_DIR) -> list[Path]:
-    """Return the ordered list of .thy files declared in t_dir/ROOT.
+    """Return the ordered list of .thy files declared by ROOT(s) under t_dir.
 
-    Order matches ROOT's `theories` block.  Each theory is resolved at
-    the session root first, then in declared subdirectories.  Theory
-    names with no matching file on disk are silently skipped (mirrors
-    bin/common.sh's get_build_files behaviour, so callers can run
-    against partial trees during a refactor).
+    Two layouts are supported transparently:
+
+    * **Single ROOT** (``t_dir/ROOT`` exists): order matches that ROOT's
+      `theories` block; each theory is resolved at the session root first,
+      then in declared subdirectories.
+    * **Multi-ROOT** (no ``t_dir/ROOT``, e.g. the post-[t-layout-split]
+      tree with ``t/base/ROOT``, ``t/ae/ROOT``, ``t/ar/ROOT``): every
+      session declared by every ROOT under ``t_dir`` is enumerated (via
+      ``iter_sessions``) and its theories resolved against the declaring
+      session's directory.  Results are deduplicated by resolved path so
+      a theory reached through more than one session appears once.
+
+    Theory names with no matching file on disk are silently skipped
+    (mirrors bin/common.sh's get_build_files behaviour, so callers can
+    run against partial trees during a refactor).
     """
-    root_path = t_dir / "ROOT"
     out: list[Path] = []
-    for name in parse_root_theories(root_path):
-        resolved = resolve_thy_file(name, t_dir=t_dir)
-        if resolved is not None:
-            out.append(resolved)
+    root_path = t_dir / "ROOT"
+    if root_path.exists():
+        for name in parse_root_theories(root_path):
+            resolved = resolve_thy_file(name, t_dir=t_dir)
+            if resolved is not None:
+                out.append(resolved)
+        return out
+    # Multi-ROOT: union theories across every session under t_dir.
+    seen: set[Path] = set()
+    for session in iter_sessions(t_dir):
+        for theory_entry in session.theories:
+            resolved = resolve_session_theory(session, theory_entry)
+            if resolved is not None and resolved not in seen:
+                seen.add(resolved)
+                out.append(resolved)
     return out
 
 
