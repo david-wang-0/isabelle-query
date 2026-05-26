@@ -1056,19 +1056,65 @@ def cmd_defs(sections: list[TheorySection], theory: str) -> None:
         print()
 
 
+_IMPORTS_RE = re.compile(r'\bimports\b(.*?)\bbegin\b', re.DOTALL)
+
+
+def _parse_imports(sec: TheorySection) -> list[str]:
+    """Extract theory names from the `imports ... begin` clause.
+
+    Handles plain names (`Substrate`) and quoted qualified names
+    (`"HOL-Library.FuncSet"`).  Returns raw import names; the caller
+    filters in-project vs out-of-project.
+    """
+    # The imports clause sits between `theory X` and `begin`; reading the
+    # head of the file is enough.
+    head = '\n'.join(sec.source()[:50])
+    m = _IMPORTS_RE.search(head)
+    if not m:
+        return []
+    raw = m.group(1)
+    tokens = re.findall(r'"([^"]+)"|(\S+)', raw)
+    return [a or b for a, b in tokens]
+
+
 def cmd_deps(sections: list[TheorySection], theory: str) -> None:
-    """Show theories that come before the given theory in ROOT order."""
+    """Show import-transitive dependencies (what this theory needs to build)."""
     target = _resolve_theory(sections, theory)
     if target is None:
         print(f"Theory '{theory}' not found.")
         return
-    idx = sections.index(target)
-    if idx == 0:
-        print(f"{target.theory} has no upstream dependencies (it's first in ROOT).")
+
+    sec_by_name: dict[str, TheorySection] = {s.theory: s for s in sections}
+
+    # BFS over the imports graph.
+    in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
+    out_of_project: set[str] = set()
+    queue: list[tuple[str, int]] = [(target.theory, -1)]
+    while queue:
+        name, depth = queue.pop(0)
+        sec = sec_by_name.get(name)
+        if sec is None:
+            continue
+        for imp in _parse_imports(sec):
+            child = sec_by_name.get(imp)
+            if child is None:
+                out_of_project.add(imp)
+            elif imp not in in_project and imp != target.theory:
+                in_project[imp] = depth + 1
+                queue.append((imp, depth + 1))
+
+    if not in_project and not out_of_project:
+        print(f"{target.theory} has no upstream dependencies.")
         return
-    print(f"Theories before {target.theory} in ROOT order:")
-    for s in sections[:idx]:
-        print(f"  {s.theory}  ({s.thy_lines} src lines, {len(s.entries)} entries)")
+
+    print(f"Import-transitive dependencies of {target.theory}:")
+    for name, depth in sorted(in_project.items(), key=lambda kv: (kv[1], kv[0])):
+        sec = sec_by_name[name]
+        tag = "  [direct]" if depth == 0 else f"  [depth {depth}]"
+        print(f"  {name}  ({sec.thy_lines} src lines, "
+              f"{len(sec.entries)} entries){tag}")
+    for name in sorted(out_of_project):
+        print(f"  {name}  [out-of-project]")
 
 
 def cmd_outline(sections: list[TheorySection], theory: str,
