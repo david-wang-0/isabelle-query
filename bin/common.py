@@ -236,8 +236,10 @@ class SessionInfo:
         # `sessions` clause: cross-session deps without heap inheritance
     directories: list[str] = field(default_factory=list)
         # `directories` clause: extra subdirs to search for theory files
-    theories: list[str] = field(default_factory=list)
-        # `theories` clause: declared theory names (bare identifiers)
+    theories: list[tuple[str, str | None]] = field(default_factory=list)
+        # `theories` clause: list of (name, dir_override).
+        # dir_override is the per-theory `in <subdir>` overlaid on
+        # the session-level `in_subdir`; almost always None.
 
     @property
     def session_dir(self) -> Path:
@@ -247,107 +249,239 @@ class SessionInfo:
         return self.root_path.parent
 
 
-# Regex matching a `session ...` header line.  Handles:
-#   * quoted or bare session name
-#   * optional `(slow timing)`-style options
-#   * optional `in DIR` (quoted or bare)
-#   * `= PARENT +`
-_SESSION_HEADER = re.compile(
-    r'''
-    ^\s*session\s+                          # `session` keyword
-    (?:"([^"]+)"|(\S+))                     # session name
-    (?:\s+\([^)]*\))?                       # optional `(options)`
-    (?:\s+in\s+(?:"([^"]+)"|(\S+)))?        # optional `in DIR`
-    \s*=\s*                                 # `=`
-    (?:"([^"]+)"|(\S+))                     # parent
-    \s*\+                                   # `+`
-    ''',
-    re.MULTILINE | re.VERBOSE)
+# ROOT tokeniser.  Hoisted from `bin/afp-metrics.py` (which had the
+# more robust parser) and extended to capture session header context
+# (parent, session-level `in <subdir>`) the metrics tool didn't need.
+
+# Keywords recognised by the ROOT tokeniser.  Encountering one closes
+# the previous stanza and opens a new one.
+_ROOT_KEYWORDS = {
+    "chapter", "session", "options", "sessions", "directories",
+    "theories", "document_files", "document_theories",
+    "export_files", "export_classpath", "global",
+    "description", "in",
+}
+
+_COMMENT_RE = re.compile(r"\(\*.*?\*\)", re.DOTALL)
+_OLD_DESC_RE = re.compile(r"\{\*.*?\*\}", re.DOTALL)
+_ID_RE = re.compile(r"[A-Za-z0-9_./\-]+")
+_OPEN_CARTOUCHE, _CLOSE_CARTOUCHE = r"\<open>", r"\<close>"
+_TAG_RE = re.compile(r"\\<[A-Za-z_^]+>")
+
+
+def _strip_cartouches(text: str) -> str:
+    """Remove Isabelle cartouches `\\<open>...\\<close>` (nestable).
+
+    Content inside a cartouche is descriptive text, not ROOT syntax,
+    so it must not be tokenised — otherwise a comment like
+    `\\<comment> \\<open>...session... \\<close>` spawns phantom
+    sessions from words inside the prose.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    depth = 0
+    while i < n:
+        if text.startswith(_OPEN_CARTOUCHE, i):
+            depth += 1
+            i += len(_OPEN_CARTOUCHE)
+            continue
+        if text.startswith(_CLOSE_CARTOUCHE, i):
+            if depth > 0:
+                depth -= 1
+            i += len(_CLOSE_CARTOUCHE)
+            continue
+        if depth == 0:
+            out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+def _strip_comments(text: str) -> str:
+    text = _COMMENT_RE.sub(" ", text)
+    text = _strip_cartouches(text)
+    text = _OLD_DESC_RE.sub(" ", text)  # legacy `{* ... *}` description
+    text = _TAG_RE.sub(" ", text)  # lone `\<comment>` etc. (after cartouches)
+    return text
+
+
+def _tokenize_root(text: str):
+    """Yield (kind, value) tokens from a ROOT file source.
+
+    kind ∈ {"kw", "id", "str"}.  Both `[...]` and `(...)` are skipped
+    wholesale — they hold options (`[document = false]`,
+    `(slow very_slow)`) and theory annotations (`Main (global)`) that
+    shouldn't leak their internal identifiers into the token stream.
+    `=` and `+` are dropped (structural session-header punctuation).
+    """
+    text = _strip_comments(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+            continue
+        if c == '"':
+            j = text.find('"', i + 1)
+            if j < 0:
+                return
+            yield ("str", text[i + 1:j])
+            i = j + 1
+            continue
+        if c in "[(":
+            close = "]" if c == "[" else ")"
+            opener = c
+            depth = 1
+            j = i + 1
+            while j < n and depth:
+                if text[j] == opener:
+                    depth += 1
+                elif text[j] == close:
+                    depth -= 1
+                j += 1
+            i = j
+            continue
+        if c in "=+)]":
+            i += 1
+            continue
+        m = _ID_RE.match(text, i)
+        if not m:
+            i += 1
+            continue
+        tok = m.group()
+        i = m.end()
+        yield ("kw" if tok in _ROOT_KEYWORDS else "id", tok)
 
 
 def parse_root_sessions(root_path: Path) -> list[SessionInfo]:
     """Parse every `session ...` declaration from a ROOT file.
 
-    Each session's body extends from its header to the next session
-    header (or EOF).  Within each body, the `sessions`, `directories`,
-    and `theories` clauses are extracted via `_extract_clause`.
-
     Returns sessions in declaration order.  Empty if the file is
     missing or declares no sessions (e.g. `afp/thys/ROOT`, which is
     a `chapter_definition` file).
+
+    The parser handles:
+
+    * Session-level `in <subdir>` and parent (after `=`).
+    * Per-theory `in <subdir>` overrides (`theory Foo in "sub"`).
+    * `(...)`-wrapped options (`session NAME (timing)`,
+      `theory Main (global)`) — content inside parens is dropped
+      wholesale, so `(global)` doesn't spawn a phantom `global`
+      theory name.
+    * `(* comments *)`, `\\<open>...\\<close>` cartouches, and
+      `{* legacy descriptions *}` — all stripped before tokenising,
+      so a session declaration inside a comment isn't mis-parsed
+      as real syntax.
     """
     if not root_path.exists():
         return []
-    text = root_path.read_text()
-    matches = list(_SESSION_HEADER.finditer(text))
+    text = root_path.read_text(errors="replace")
+    toks = list(_tokenize_root(text))
     out: list[SessionInfo] = []
     abs_root = root_path.resolve()
-    for i, m in enumerate(matches):
-        name = m.group(1) or m.group(2)
-        in_dir = m.group(3) or m.group(4)
-        parent = m.group(5) or m.group(6)
-        body_start = m.end()
-        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        body = text[body_start:body_end]
-        out.append(SessionInfo(
-            name=name,
-            root_path=abs_root,
-            in_subdir=in_dir,
-            parent=parent,
-            used_sessions=_extract_clause(body, "sessions"),
-            directories=_extract_clause(body, "directories"),
-            theories=_extract_clause(body, "theories", names_only=True),
-        ))
-    return out
 
+    cur: SessionInfo | None = None
+    state: str | None = None
+    pending_theory: tuple[str, str | None] | None = None
 
-def _extract_clause(body: str, clause: str,
-                    names_only: bool = False) -> list[str]:
-    """Extract entries from a named clause inside a session body.
+    def flush_pending() -> None:
+        nonlocal pending_theory
+        if pending_theory is not None and cur is not None:
+            cur.theories.append(pending_theory)
+            pending_theory = None
 
-    `clause` is the keyword (`theories`, `directories`, `sessions`).
-    Tokens may be bare identifiers or `"quoted"`; with
-    `names_only=True`, only bare-identifier matches are returned (used
-    for `theories`, which are always plain Isabelle names).
-    """
-    out: list[str] = []
-    in_clause = False
-    for line in body.splitlines():
-        stripped = line.strip()
-        if re.match(rf"{clause}\b", stripped):
-            in_clause = True
-            stripped = stripped[len(clause):].strip()
-        elif _is_terminator(stripped, exclude=clause):
-            in_clause = False
+    i = 0
+    while i < len(toks):
+        kind, val = toks[i]
+        if kind == "kw":
+            flush_pending()
+            if val == "session":
+                if cur is not None:
+                    out.append(cur)
+                # New session: next id/str is its name.
+                cur = SessionInfo(
+                    name="<anon>", root_path=abs_root,
+                    in_subdir=None, parent=None)
+                if i + 1 < len(toks) and toks[i + 1][0] in ("id", "str"):
+                    cur.name = toks[i + 1][1]
+                    i += 2
+                else:
+                    i += 1
+                state = "session_header"
+                continue
+            if val == "in":
+                # Either session-level (right after `session NAME`) or
+                # per-theory (right after a pending theory name).
+                target_arg = (i + 1 < len(toks)
+                              and toks[i + 1][0] in ("id", "str"))
+                if state == "session_header" and target_arg and cur is not None:
+                    cur.in_subdir = toks[i + 1][1]
+                    i += 2
+                    continue
+                if pending_theory is not None and target_arg:
+                    pending_theory = (pending_theory[0], toks[i + 1][1])
+                    i += 2
+                    continue
+                i += 1
+                continue
+            # Any other keyword changes the active stanza.
+            state = val
+            i += 1
             continue
-        if in_clause and stripped:
-            if names_only:
-                if re.match(r"[A-Za-z_][A-Za-z0-9_]*$", stripped):
-                    out.append(stripped)
-            else:
-                for a, b in re.findall(r'"([^"]+)"|(\S+)', stripped):
-                    token = a or b
-                    if token:
-                        out.append(token)
+        # id / str token
+        if cur is not None:
+            if state == "session_header":
+                # First id/str after `session NAME [in DIR]?` is parent.
+                cur.parent = val
+                state = None
+            elif state == "theories":
+                flush_pending()
+                pending_theory = (val, None)
+            elif state == "directories":
+                cur.directories.append(val)
+            elif state == "sessions":
+                cur.used_sessions.append(val)
+            # Other states (options, description, ...) — ignore values.
+        i += 1
+    flush_pending()
+    if cur is not None:
+        out.append(cur)
     return out
 
 
-def resolve_session_theory(session: SessionInfo, name: str) -> Path | None:
-    """Resolve a theory name to its .thy file within a session.
+def resolve_session_theory(session: SessionInfo,
+                           theory_entry: tuple[str, str | None] | str,
+                           ) -> Path | None:
+    """Resolve a session-owned theory to its `.thy` file on disk.
 
-    Checks the session's directory first (`session.session_dir`), then
-    each subdirectory in `session.directories`.  Returns None if not
-    found — the theory may be missing or declared by a parent session.
+    ``theory_entry`` is either a ``(name, dir_override)`` tuple (the
+    shape `SessionInfo.theories` produces) or a bare ``name`` string
+    (for ad-hoc callers).  Search order:
+
+    1. ``session_dir / dir_override / NAME.thy``  (if dir_override set)
+    2. ``session_dir / NAME.thy``
+    3. ``session_dir / D / NAME.thy`` for each ``D`` in
+       ``session.directories``
+    4. ``rglob("NAME.thy")`` under ``session_dir`` — last-resort
+       fallback for unusual AFP layouts (only succeeds on a unique
+       match).
     """
+    if isinstance(theory_entry, tuple):
+        name, dir_override = theory_entry
+    else:
+        name, dir_override = theory_entry, None
     base = session.session_dir
-    candidate = base / f"{name}.thy"
-    if candidate.exists():
-        return candidate
-    for sub in session.directories:
-        candidate = base / sub / f"{name}.thy"
-        if candidate.exists():
-            return candidate
-    return None
+    candidates: list[Path] = []
+    if dir_override is not None:
+        candidates.append(base / dir_override / f"{name}.thy")
+    candidates.append(base / f"{name}.thy")
+    for d in session.directories:
+        candidates.append(base / d / f"{name}.thy")
+    for c in candidates:
+        if c.exists():
+            return c
+    leaf = Path(name).name + ".thy"
+    matches = list(base.rglob(leaf))
+    return matches[0] if len(matches) == 1 else None
 
 
 def discover_roots(root_dir: Path) -> list[Path]:

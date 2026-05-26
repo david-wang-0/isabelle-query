@@ -491,11 +491,12 @@ def _sections_from_dir(root_dir: Path,
     if roots:
         for root_path in roots:
             for session in parse_root_sessions(root_path):
-                for thy in session.theories:
-                    thy_path = resolve_session_theory(session, thy)
+                for thy_entry in session.theories:
+                    thy_path = resolve_session_theory(session, thy_entry)
                     if thy_path is None:
                         continue
-                    _add_one_section(thy, thy_path, seen_paths, sections)
+                    name = thy_entry[0]
+                    _add_one_section(name, thy_path, seen_paths, sections)
     else:
         for thy_path in sorted(root_dir.rglob("*.thy")):
             _add_one_section(thy_path.stem, thy_path,
