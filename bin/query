@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
 r"""Query the theory index — computed live from .thy files on every invocation.
 
-All commands re-parse the theory tree (<100ms).
-This means results are always in sync with the current .thy source.
-Use -h/--help on any subcommand for its options.
+All commands re-parse the theory tree (<100ms).  Results are always in
+sync with the current .thy source.  Use -h/--help on any subcommand for
+its options.
+
+File organisation (section banners below mark each):
+
+* **Parsing** — `Entry` / `TheorySection` / `CallGraph` dataclasses,
+  ROOT walking, .thy parsing, span attribution.
+* **Call graph and shared filter helpers** —
+  `_build_text_ranges` / `_build_def_sites` provide the per-theory
+  exclusion ranges (prose text blocks; definition-site spans) shared by
+  single-name search (`_find_callers`) and bulk graph construction
+  (`_build_call_graph`).  `_transitive_closure` is the BFS used by both
+  `callers -r` and `uses -r`.
+* **Rendering** — `_format_extent`, `render_entry`, preview/comment
+  formatting.
+* **Verbosity-mode dispatch** — the `-c`/`-n`/`-a`/`-V` resolution shared
+  across subcommands.
+* **Commands** — one `cmd_*` function per subcommand.  Output discipline:
+  `-c` prints a bare integer (no decoration); verbose forms print
+  hits + footers.
+* **Argument parsing** — argparse subparsers.  Shared flag helpers
+  (`_add_count_flag`, `_add_names_flag`, `_add_path_files_arg`,
+  `_add_mode_flags`, `_add_verbatim_flag`, `_add_comment_flags`,
+  `_add_context_flag`) keep per-subparser declarations short and
+  uniform.
 """
 
 import re
@@ -478,7 +501,10 @@ def load_index() -> list[TheorySection]:
 
 
 # ---------------------------------------------------------------------------
-# Call graph — shared dependency infrastructure for callers -r, uses, unused
+# Call graph and shared filter helpers — `_build_text_ranges` /
+# `_build_def_sites` underpin both single-name search (`_find_callers`)
+# and bulk graph construction (`_build_call_graph`).  `_transitive_closure`
+# drives the -r form for callers and uses, and the unused-cascade.
 # ---------------------------------------------------------------------------
 
 def _build_line_index(sections: list[TheorySection]
@@ -2037,7 +2063,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_run_defs)
 
     # deps
-    p = sub.add_parser("deps", help="list upstream theories (ROOT order)")
+    p = sub.add_parser("deps",
+                       help="list import-transitive dependencies")
     p.add_argument("theory", help="theory name")
     p.set_defaults(func=_run_deps)
 
