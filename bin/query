@@ -849,7 +849,7 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
         return
 
     if flags.mode == "count":
-        print(f"{len(matches)} match(es) for '{pattern}'.")
+        print(len(matches))
         return
 
     if flags.mode == "names":
@@ -1242,7 +1242,7 @@ def _render_graph_results(sections: list[TheorySection],
                           flags: 'CmdFlags') -> None:
     """Shared rendering for callers -r and uses -r."""
     if flags.mode == "count":
-        print(f"{len(reachable)} transitive {label}(s) of {seed}")
+        print(len(reachable))
         return
     if not reachable:
         print(f"No {label}s found for '{seed}'.")
@@ -1342,7 +1342,7 @@ def cmd_uses(sections: list[TheorySection], name: str,
 
     used = graph.callees.get(name, set())
     if flags.mode == "count":
-        print(f"{len(used)} name(s) used by {name}")
+        print(len(used))
         return
     if not used:
         print(f"No references found in {name}'s body.")
@@ -1500,17 +1500,7 @@ def _render_unused(sections: list[TheorySection],
     total = len(entries)
 
     if flags.mode == "count":
-        if recursive:
-            direct = sum(1 for _, _, d in entries if d == 0)
-            cascade = total - direct
-            total_lines = sum(
-                e.thy_end - e.thy_line + 1 for _, e, _ in entries
-                if e.thy_line > 0)
-            print(f"{total} {label} entries "
-                  f"({direct} direct + {cascade} cascading, "
-                  f"{total_lines} source lines)")
-        else:
-            print(f"{total} unused entries (zero callers)")
+        print(total)
         return
 
     if flags.by_theory:
@@ -1571,8 +1561,7 @@ def _render_forest(sections: list[TheorySection],
                 by_name[e.name] = (sec.theory, e)
 
     if flags.mode == "count":
-        total_excl = sum(el for _, _, el, _, _ in forest)
-        print(f"{len(forest)} roots, {total_excl} exclusive lines total")
+        print(len(forest))
         return
 
     print(f"{len(forest)} unused roots:\n")
@@ -1686,12 +1675,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     hits = all_hits if flags.include_all else live_hits
 
     if flags.mode == "count":
-        if flags.include_all:
-            print(f"{len(all_hits)} match(es) for '{pattern}' "
-                  f"({len(live_hits)} live, "
-                  f"{len(dead_hits)} in comments/text)")
-        else:
-            print(f"{len(live_hits)} live match(es) for '{pattern}'")
+        print(len(all_hits) if flags.include_all else len(live_hits))
         return
 
     if not hits:
