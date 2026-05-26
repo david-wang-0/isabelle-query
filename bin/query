@@ -988,6 +988,37 @@ def cmd_summary(sections: list[TheorySection]) -> None:
 
 
 def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection | None:
+    """Resolve a theory by path or by name.
+
+    Two argument forms, so callers can paste either a file path or a
+    bare theory name:
+
+      - **Path form** — the argument carries a path separator or a
+        ``.thy`` suffix (e.g. ``t/generic/AlphabetReduction.thy``).
+        Matched against each section's resolved path, so symlinks and
+        relative/absolute spellings all land on the same section.
+      - **Name form** — a bare theory name (e.g.
+        ``AlphabetReduction``), matched against the section's theory
+        name (exact, then case-insensitive).  This is the convenience
+        spelling: the name is looked up among the sections already
+        discovered through the ``common.py`` ROOT-walking routines.
+    """
+    if name.endswith(".thy") or "/" in name:
+        try:
+            target = Path(name).resolve()
+        except OSError:
+            target = None
+        if target is not None:
+            for s in sections:
+                if s.path.resolve() == target:
+                    return s
+        # Path that doesn't match a known section: fall back to its
+        # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
+        stem = Path(name).stem
+        for s in sections:
+            if s.theory == stem:
+                return s
+        return None
     for s in sections:
         if s.theory == name:
             return s
@@ -1126,8 +1157,33 @@ def cmd_defs(sections: list[TheorySection], theory: str) -> None:
         print()
 
 
-def cmd_deps(sections: list[TheorySection], theory: str) -> None:
-    """Show import-transitive dependencies (what this theory needs to build)."""
+def _bfs_depths(adj: dict[str, list[str]], start: str) -> dict[str, int]:
+    """Breadth-first distances from *start* over adjacency map *adj*.
+
+    The start node sits at conceptual depth -1, so its immediate
+    neighbours land at depth 0 ("direct").  *start* itself is excluded
+    from the result; the visited guard makes the walk safe on the
+    import DAG regardless."""
+    depths: dict[str, int] = {}
+    queue: list[tuple[str, int]] = [(start, -1)]
+    while queue:
+        node, depth = queue.pop(0)
+        for nxt in adj.get(node, []):
+            if nxt != start and nxt not in depths:
+                depths[nxt] = depth + 1
+                queue.append((nxt, depth + 1))
+    return depths
+
+
+def cmd_deps(sections: list[TheorySection], theory: str,
+             reverse: bool = False) -> None:
+    """Theory-level (not entry-level) import dependencies.
+
+    Forward (default): the theories this one needs to build — its
+    import-transitive closure.  Reverse (``--reverse``): the theories
+    that need this one — every theory whose import-transitive closure
+    contains it.  This is the theory-graph analogue of the entry-level
+    ``uses`` / ``callers`` pair."""
     target = _resolve_theory(sections, theory)
     if target is None:
         print(f"Theory '{theory}' not found.")
@@ -1135,7 +1191,33 @@ def cmd_deps(sections: list[TheorySection], theory: str) -> None:
 
     sec_by_name: dict[str, TheorySection] = {s.theory: s for s in sections}
 
-    # BFS over the imports graph.
+    def emit(found: dict[str, int]) -> None:
+        for name, depth in sorted(found.items(), key=lambda kv: (kv[1], kv[0])):
+            sec = sec_by_name[name]
+            tag = "  [direct]" if depth == 0 else f"  [depth {depth}]"
+            print(f"  {name}  ({sec.thy_lines} src lines, "
+                  f"{len(sec.entries)} entries){tag}")
+
+    if reverse:
+        # Build the in-project forward adjacency for every theory, then
+        # invert it: child -> theories that import the child.  Reverse
+        # queries inherently need the whole graph, so the full scan here
+        # is unavoidable (forward queries below stay lazy).
+        rev: dict[str, list[str]] = {s.theory: [] for s in sections}
+        for s in sections:
+            for imp in parse_thy_imports(s.path):
+                if imp in sec_by_name:
+                    rev[imp].append(s.theory)
+        found = _bfs_depths(rev, target.theory)
+        if not found:
+            print(f"No in-project theory imports {target.theory}.")
+            return
+        print(f"Theories that import {target.theory} (transitively):")
+        emit(found)
+        return
+
+    # Forward: lazy BFS over the imports graph, accumulating out-of-
+    # project imports (e.g. HOL-Library.*) seen along the way.
     in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
     out_of_project: set[str] = set()
     queue: list[tuple[str, int]] = [(target.theory, -1)]
@@ -1157,11 +1239,7 @@ def cmd_deps(sections: list[TheorySection], theory: str) -> None:
         return
 
     print(f"Import-transitive dependencies of {target.theory}:")
-    for name, depth in sorted(in_project.items(), key=lambda kv: (kv[1], kv[0])):
-        sec = sec_by_name[name]
-        tag = "  [direct]" if depth == 0 else f"  [depth {depth}]"
-        print(f"  {name}  ({sec.thy_lines} src lines, "
-              f"{len(sec.entries)} entries){tag}")
+    emit(in_project)
     for name in sorted(out_of_project):
         print(f"  {name}  [out-of-project]")
 
@@ -1987,7 +2065,7 @@ def _run_defs(ns: argparse.Namespace) -> None:
     cmd_defs(_load_sections(ns), ns.theory)
 
 def _run_deps(ns: argparse.Namespace) -> None:
-    cmd_deps(_load_sections(ns), ns.theory)
+    cmd_deps(_load_sections(ns), ns.theory, reverse=ns.reverse)
 
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
@@ -2056,8 +2134,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # deps
     p = sub.add_parser("deps",
-                       help="list import-transitive dependencies")
-    p.add_argument("theory", help="theory name")
+                       help="theory-level import dependencies "
+                            "(forward, or reverse with -r)")
+    p.add_argument("theory", help="theory name or .thy path")
+    p.add_argument("-r", "--reverse", action="store_true",
+                   help="invert: theories that import this one "
+                        "(transitively), instead of those it imports")
     p.set_defaults(func=_run_deps)
 
     # outline
