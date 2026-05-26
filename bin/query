@@ -507,11 +507,57 @@ def _entry_at_line(line_index: list[tuple[int, int, Entry]],
     return None
 
 
+def _build_text_ranges(sections: list[TheorySection]
+                       ) -> dict[str, list[range]]:
+    """Per-theory line ranges that contain prose to skip during identifier search.
+
+    Combines top-level ``text \\<open>...\\<close>`` blocks and per-entry
+    preambles, so a name mention inside a comment isn't classified as a
+    proof-body call.  Used by both single-name search (`_find_callers`)
+    and bulk graph construction (`_build_call_graph`).
+    """
+    text_ranges: dict[str, list[range]] = {}
+    for sec in sections:
+        ranges: list[range] = []
+        for tb_start, tb_end in sec.text_blocks:
+            ranges.append(range(tb_start, tb_end + 1))
+        # Per-entry preambles (text blocks immediately above entries).
+        for e in sec.entries:
+            if e.preamble:
+                pr_start, pr_end = e.preamble
+                ranges.append(range(pr_start, pr_end + 1))
+        text_ranges[sec.theory] = ranges
+    return text_ranges
+
+
+def _build_def_sites(sections: list[TheorySection],
+                     names: set[str] | None = None,
+                     ) -> dict[str, dict[str, set[range]]]:
+    """Per-theory map of definition-site line ranges, keyed by entry name.
+
+    Used to exclude the definition itself from a search for references
+    to that name.  When ``names`` is given, only those names are tracked;
+    otherwise every entry with a source location is included.
+
+    Result shape: ``def_sites[theory][name] = {range(thy_line, thy_end+1), ...}``
+    """
+    def_sites: dict[str, dict[str, set[range]]] = {}
+    for sec in sections:
+        site_map: dict[str, set[range]] = {}
+        for e in sec.entries:
+            if e.thy_line > 0 and (names is None or e.name in names):
+                site_map.setdefault(e.name, set()).add(
+                    range(e.thy_line, e.thy_end + 1))
+        def_sites[sec.theory] = site_map
+    return def_sites
+
+
 def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
-    Same filtering as _find_callers / _compute_unused: skips text blocks,
-    definition sites, and antiquotation-only mentions.
+    Uses the shared filtering helpers (`_build_text_ranges`,
+    `_build_def_sites`): skips text blocks, definition sites, and
+    antiquotation-only mentions.
     """
     # 1. Collect candidate names (same filter as cmd_dead).
     name_set: set[str] = set()
@@ -521,23 +567,8 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
                 name_set.add(e.name)
 
     # 2. Build def-site and text-block exclusion ranges.
-    def_sites: dict[str, dict[str, set[range]]] = {}
-    text_ranges: dict[str, list[range]] = {}
-    for sec in sections:
-        site_map: dict[str, set[range]] = {}
-        for e in sec.entries:
-            if e.name in name_set and e.thy_line > 0:
-                site_map.setdefault(e.name, set()).add(
-                    range(e.thy_line, e.thy_end + 1))
-        def_sites[sec.theory] = site_map
-        ranges: list[range] = []
-        for tb_start, tb_end in sec.text_blocks:
-            ranges.append(range(tb_start, tb_end + 1))
-        for e in sec.entries:
-            if e.preamble:
-                pr_start, pr_end = e.preamble
-                ranges.append(range(pr_start, pr_end + 1))
-        text_ranges[sec.theory] = ranges
+    def_sites = _build_def_sites(sections, name_set)
+    text_ranges = _build_text_ranges(sections)
 
     # 3. Build line-to-entry index for caller attribution.
     line_index = _build_line_index(sections)
@@ -1185,29 +1216,11 @@ def _find_callers(sections: list[TheorySection], name: str,
     antiq_re = re.compile(
         r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
 
-    # Build a set of (theory, line_range) for definition sites to skip,
-    # and the set of theories where *name* is defined (for --external).
-    def_sites: dict[str, set[range]] = {}
-    def_theories: set[str] = set()
-    for sec in sections:
-        for e in sec.entries:
-            if e.name == name and e.thy_line > 0:
-                def_sites.setdefault(sec.theory, set()).add(
-                    range(e.thy_line, e.thy_end + 1))
-                def_theories.add(sec.theory)
-
-    # Build text-block ranges per theory (to skip prose).
-    text_ranges: dict[str, list[range]] = {}
-    for sec in sections:
-        ranges = []
-        for tb_start, tb_end in sec.text_blocks:
-            ranges.append(range(tb_start, tb_end + 1))
-        # Also skip per-entry preambles (text blocks immediately above entries).
-        for e in sec.entries:
-            if e.preamble:
-                pr_start, pr_end = e.preamble
-                ranges.append(range(pr_start, pr_end + 1))
-        text_ranges[sec.theory] = ranges
+    # Shared infrastructure: per-theory def-site ranges (for `name`) and
+    # text-block ranges (prose to skip).
+    all_def_sites = _build_def_sites(sections, {name})
+    def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
+    text_ranges = _build_text_ranges(sections)
 
     results: list[tuple[str, int, str]] = []
     for sec in sections:
@@ -1217,7 +1230,7 @@ def _find_callers(sections: list[TheorySection], name: str,
             continue
         lines = sec.source()
         t_ranges = text_ranges.get(sec.theory, [])
-        d_ranges = def_sites.get(sec.theory, set())
+        d_ranges = all_def_sites.get(sec.theory, {}).get(name, set())
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if not word_re.search(line):
