@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (  # noqa: E402
     T_DIR,
     parse_root_theories,
+    parse_thy_imports,
     resolve_thy_file,
 )
 
@@ -1113,27 +1114,6 @@ def cmd_defs(sections: list[TheorySection], theory: str) -> None:
         print()
 
 
-_IMPORTS_RE = re.compile(r'\bimports\b(.*?)\bbegin\b', re.DOTALL)
-
-
-def _parse_imports(sec: TheorySection) -> list[str]:
-    """Extract theory names from the `imports ... begin` clause.
-
-    Handles plain names (`Substrate`) and quoted qualified names
-    (`"HOL-Library.FuncSet"`).  Returns raw import names; the caller
-    filters in-project vs out-of-project.
-    """
-    # The imports clause sits between `theory X` and `begin`; reading the
-    # head of the file is enough.
-    head = '\n'.join(sec.source()[:50])
-    m = _IMPORTS_RE.search(head)
-    if not m:
-        return []
-    raw = m.group(1)
-    tokens = re.findall(r'"([^"]+)"|(\S+)', raw)
-    return [a or b for a, b in tokens]
-
-
 def cmd_deps(sections: list[TheorySection], theory: str) -> None:
     """Show import-transitive dependencies (what this theory needs to build)."""
     target = _resolve_theory(sections, theory)
@@ -1152,7 +1132,7 @@ def cmd_deps(sections: list[TheorySection], theory: str) -> None:
         sec = sec_by_name.get(name)
         if sec is None:
             continue
-        for imp in _parse_imports(sec):
+        for imp in parse_thy_imports(sec.path):
             child = sec_by_name.get(imp)
             if child is None:
                 out_of_project.add(imp)

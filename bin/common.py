@@ -36,6 +36,11 @@ resolve_thy_file(name, t_dir=T_DIR)
     Resolve a single declared theory name to its on-disk path.
     Returns None if not found.
 
+parse_thy_imports(thy_path)
+    Return the ordered list of theory names from a .thy file's
+    `imports ... begin` clause.  Handles plain names and quoted
+    qualified names like "HOL-Library.FuncSet".
+
 Layout assumption: this module sits in PROJECT_ROOT/bin/ and the
 default session directory is PROJECT_ROOT/t/.  Callers needing a
 different layout pass an explicit t_dir.
@@ -140,6 +145,32 @@ def resolve_thy_file(name: str, t_dir: Path = T_DIR) -> Path | None:
         if candidate.exists():
             return candidate
     return None
+
+
+_IMPORTS_RE = re.compile(r'\bimports\b(.*?)\bbegin\b', re.DOTALL)
+
+
+def parse_thy_imports(thy_path: Path) -> list[str]:
+    """Return the ordered list of theory names from a .thy file's
+    `imports ... begin` clause.
+
+    Handles plain names (`Substrate`) and quoted qualified names
+    (`"HOL-Library.FuncSet"`).  Returns the raw import names; callers
+    decide whether each is in-project or external (cross-session) by
+    cross-referencing against a session's `parse_root_theories` list.
+    Returns [] if the file is missing or has no imports clause.
+    """
+    if not thy_path.exists():
+        return []
+    # The imports clause lives near the top of every .thy file
+    # (between `theory X` and `begin`); reading the head is enough.
+    head = '\n'.join(thy_path.read_text().splitlines()[:50])
+    m = _IMPORTS_RE.search(head)
+    if not m:
+        return []
+    raw = m.group(1)
+    tokens = re.findall(r'"([^"]+)"|(\S+)', raw)
+    return [a or b for a, b in tokens]
 
 
 def iter_thy_files(t_dir: Path = T_DIR) -> list[Path]:
