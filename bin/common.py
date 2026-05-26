@@ -41,6 +41,29 @@ parse_thy_imports(thy_path)
     `imports ... begin` clause.  Handles plain names and quoted
     qualified names like "HOL-Library.FuncSet".
 
+Multi-root / multi-session API (for trees with multiple ROOT files
+and/or multi-session ROOTs like Flyspeck-Tame or HOL):
+
+SessionInfo
+    Dataclass capturing one parsed session declaration: name,
+    declaring ROOT path, `in <subdir>` clause, parent (after `=`),
+    `sessions` clause, `directories` clause, `theories` clause.
+
+parse_root_sessions(root_path)
+    Parse all `session ...` declarations from a ROOT file.  A single
+    ROOT may declare multiple sessions (HOL/ROOT declares dozens;
+    Flyspeck-Tame/ROOT declares two).
+
+resolve_session_theory(session, name)
+    Resolve a theory name to its on-disk path within a session,
+    honouring the session's `in <subdir>` and `directories` clauses.
+
+discover_roots(root_dir)
+    Walk a directory tree and return every ROOT file found.
+
+iter_sessions(root_dir)
+    Convenience: discover_roots ∘ parse_root_sessions, flattened.
+
 Layout assumption: this module sits in PROJECT_ROOT/bin/ and the
 default session directory is PROJECT_ROOT/t/.  Callers needing a
 different layout pass an explicit t_dir.
@@ -49,6 +72,7 @@ different layout pass an explicit t_dir.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -188,4 +212,171 @@ def iter_thy_files(t_dir: Path = T_DIR) -> list[Path]:
         resolved = resolve_thy_file(name, t_dir=t_dir)
         if resolved is not None:
             out.append(resolved)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Multi-root / multi-session API
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SessionInfo:
+    """One session declaration parsed from a ROOT file.
+
+    A ROOT may declare multiple sessions; each is captured separately
+    so tools can enumerate theories and follow cross-session references
+    accurately (e.g. resolving a theory that lives under the session's
+    `in <subdir>` clause rather than alongside the ROOT file).
+    """
+    name: str
+    root_path: Path             # absolute path of the declaring ROOT file
+    in_subdir: str | None       # `in <subdir>` clause; None = same dir as ROOT
+    parent: str | None          # session name after `=` (heap inherited from)
+    used_sessions: list[str] = field(default_factory=list)
+        # `sessions` clause: cross-session deps without heap inheritance
+    directories: list[str] = field(default_factory=list)
+        # `directories` clause: extra subdirs to search for theory files
+    theories: list[str] = field(default_factory=list)
+        # `theories` clause: declared theory names (bare identifiers)
+
+    @property
+    def session_dir(self) -> Path:
+        """Directory containing this session's .thy files."""
+        if self.in_subdir:
+            return self.root_path.parent / self.in_subdir
+        return self.root_path.parent
+
+
+# Regex matching a `session ...` header line.  Handles:
+#   * quoted or bare session name
+#   * optional `(slow timing)`-style options
+#   * optional `in DIR` (quoted or bare)
+#   * `= PARENT +`
+_SESSION_HEADER = re.compile(
+    r'''
+    ^\s*session\s+                          # `session` keyword
+    (?:"([^"]+)"|(\S+))                     # session name
+    (?:\s+\([^)]*\))?                       # optional `(options)`
+    (?:\s+in\s+(?:"([^"]+)"|(\S+)))?        # optional `in DIR`
+    \s*=\s*                                 # `=`
+    (?:"([^"]+)"|(\S+))                     # parent
+    \s*\+                                   # `+`
+    ''',
+    re.MULTILINE | re.VERBOSE)
+
+
+def parse_root_sessions(root_path: Path) -> list[SessionInfo]:
+    """Parse every `session ...` declaration from a ROOT file.
+
+    Each session's body extends from its header to the next session
+    header (or EOF).  Within each body, the `sessions`, `directories`,
+    and `theories` clauses are extracted via `_extract_clause`.
+
+    Returns sessions in declaration order.  Empty if the file is
+    missing or declares no sessions (e.g. `afp/thys/ROOT`, which is
+    a `chapter_definition` file).
+    """
+    if not root_path.exists():
+        return []
+    text = root_path.read_text()
+    matches = list(_SESSION_HEADER.finditer(text))
+    out: list[SessionInfo] = []
+    abs_root = root_path.resolve()
+    for i, m in enumerate(matches):
+        name = m.group(1) or m.group(2)
+        in_dir = m.group(3) or m.group(4)
+        parent = m.group(5) or m.group(6)
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[body_start:body_end]
+        out.append(SessionInfo(
+            name=name,
+            root_path=abs_root,
+            in_subdir=in_dir,
+            parent=parent,
+            used_sessions=_extract_clause(body, "sessions"),
+            directories=_extract_clause(body, "directories"),
+            theories=_extract_clause(body, "theories", names_only=True),
+        ))
+    return out
+
+
+def _extract_clause(body: str, clause: str,
+                    names_only: bool = False) -> list[str]:
+    """Extract entries from a named clause inside a session body.
+
+    `clause` is the keyword (`theories`, `directories`, `sessions`).
+    Tokens may be bare identifiers or `"quoted"`; with
+    `names_only=True`, only bare-identifier matches are returned (used
+    for `theories`, which are always plain Isabelle names).
+    """
+    out: list[str] = []
+    in_clause = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        if re.match(rf"{clause}\b", stripped):
+            in_clause = True
+            stripped = stripped[len(clause):].strip()
+        elif _is_terminator(stripped, exclude=clause):
+            in_clause = False
+            continue
+        if in_clause and stripped:
+            if names_only:
+                if re.match(r"[A-Za-z_][A-Za-z0-9_]*$", stripped):
+                    out.append(stripped)
+            else:
+                for a, b in re.findall(r'"([^"]+)"|(\S+)', stripped):
+                    token = a or b
+                    if token:
+                        out.append(token)
+    return out
+
+
+def resolve_session_theory(session: SessionInfo, name: str) -> Path | None:
+    """Resolve a theory name to its .thy file within a session.
+
+    Checks the session's directory first (`session.session_dir`), then
+    each subdirectory in `session.directories`.  Returns None if not
+    found — the theory may be missing or declared by a parent session.
+    """
+    base = session.session_dir
+    candidate = base / f"{name}.thy"
+    if candidate.exists():
+        return candidate
+    for sub in session.directories:
+        candidate = base / sub / f"{name}.thy"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def discover_roots(root_dir: Path) -> list[Path]:
+    """Find every ROOT file under `root_dir`.
+
+    Recursive walk; results sorted for stable ordering.  Skips hidden
+    directories (anything starting with `.`).  ROOT files that don't
+    declare any sessions (e.g. AFP's `afp/thys/ROOT`
+    chapter-definition file) are still returned — `parse_root_sessions`
+    will return [] for them, so they're harmless.
+    """
+    if not root_dir.exists():
+        return []
+    out: list[Path] = []
+    for path in sorted(root_dir.rglob("ROOT")):
+        if any(part.startswith(".") for part in path.parts):
+            continue
+        if path.is_file():
+            out.append(path.resolve())
+    return out
+
+
+def iter_sessions(root_dir: Path) -> list[SessionInfo]:
+    """Return every session declared by any ROOT under `root_dir`.
+
+    Order: ROOTs in `discover_roots` order; sessions within each
+    ROOT in declaration order.
+    """
+    out: list[SessionInfo] = []
+    for root_path in discover_roots(root_dir):
+        out.extend(parse_root_sessions(root_path))
     return out
