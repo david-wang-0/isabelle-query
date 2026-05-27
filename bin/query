@@ -1896,6 +1896,36 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         print(f"    {text.strip()}")
 
 
+def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
+    r"""List open goals: every live `sorry` as its location + owning entry.
+
+    A thin specialisation of `grep` over the fixed `sorry` token, sharing
+    the same `_grep_sections` engine.  Two refinements over a bare
+    `grep '\bsorry\b'`: the boundary is prime-aware (`_isa_word_pattern`,
+    so the identifier `sorry'` is not a false hit, unlike Python's `\b`),
+    and only *live* matches count (a `sorry` inside a `text` / `\<comment>`
+    block is not an open goal).  Replaces both the count-only
+    `grep -c '\bsorry\b'` idiom and the shell sorry-counter formerly in
+    `count-axioms.sh`.  `-c` prints the bare count (build-summary form);
+    otherwise prints `FILE:LINE  entry (TAG)` per goal then a total.
+    """
+    pat = re.compile(_isa_word_pattern("sorry"))
+    hits = [h for h in _grep_sections(sections, pat) if h[4]]
+    if count_only:
+        print(len(hits))
+        return
+    if not hits:
+        print("No sorries.")
+        return
+    loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
+    for loc_name, ln, _text, owner, _live in hits:
+        owner_str = (f"{owner.name} ({owner.tag})"
+                     if owner is not None and owner.name != "?"
+                     else "—")
+        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {owner_str}")
+    print(f"\n{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
+
+
 def _parse_line_range(spec: str) -> tuple[int, int]:
     """Parse `A..B` or `A` into a (start, end) inclusive pair.  Raises
     ValueError on malformed input.
@@ -2184,6 +2214,9 @@ def _run_unused(ns: argparse.Namespace) -> None:
 def _run_grep(ns: argparse.Namespace) -> None:
     cmd_grep(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
 
+def _run_sorry(ns: argparse.Namespace) -> None:
+    cmd_sorry(_load_sections(ns), getattr(ns, "count", False))
+
 def _run_lines(ns: argparse.Namespace) -> None:
     cmd_lines(ns.file, ns.ranges)
 
@@ -2330,6 +2363,14 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_names_flag(p, "locations + owning entry only "
                        "(skip the matched line text)")
     p.set_defaults(func=_run_grep)
+
+    # sorry — located open-goal listing (grep specialised to the sorry token)
+    p = sub.add_parser("sorry",
+                       help="list open goals: every live `sorry` with its "
+                            "location + owning entry")
+    _add_path_files_arg(p)
+    _add_count_flag(p, "just print the count (build-summary form)")
+    p.set_defaults(func=_run_sorry)
 
     # lines
     p = sub.add_parser("lines",
