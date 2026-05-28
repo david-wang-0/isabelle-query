@@ -18,6 +18,11 @@ PROJECT_ROOT, T_DIR
     Absolute paths.  PROJECT_ROOT is the repo root (one level up from
     bin/); T_DIR is the Isabelle session directory (PROJECT_ROOT / "t").
 
+run_guarded(label, thunk)
+    Run thunk() for a best-effort side task that must never break its
+    caller; on exception, warn `<label>: skipped (...)` to stderr and
+    return None.  Used by the build-trajectory capture.
+
 parse_root_theories(root_path)
     Return the ordered list of theory names declared under the ROOT
     file's `theories` block.
@@ -72,11 +77,36 @@ different layout pass an explicit t_dir.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, TypeVar
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 T_DIR = PROJECT_ROOT / "t"
+
+_T = TypeVar("_T")
+
+
+def run_guarded(label: str, thunk: Callable[[], _T]) -> "_T | None":
+    """Run `thunk()` for a best-effort side task that must never break
+    its caller.  On any exception, print `<label>: skipped (Type: msg)`
+    to stderr and return None; on success return thunk()'s result.
+
+    Used by the build-trajectory capture (`bin/build_record.py` and the
+    `bin/isabelle-watchdog.py` invocation of it), where a failure in the
+    optional logging must never change the build's exit code.  Both call
+    sites route through here so the swallow-and-warn message has a single
+    definition; they remain two distinct guards because they cover
+    different scopes (build_record guards its record logic, the watchdog
+    additionally guards the `import build_record` that a guard inside
+    build_record cannot)."""
+    try:
+        return thunk()
+    except Exception as exc:  # noqa: BLE001 — best-effort by contract
+        print(f"{label}: skipped ({type(exc).__name__}: {exc})",
+              file=sys.stderr)
+        return None
 
 # Keywords that terminate a `theories` or `directories` block in a ROOT
 # file (i.e. names of sibling clauses at the same nesting level).
