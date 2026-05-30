@@ -2192,7 +2192,12 @@ def _run_largest(ns: argparse.Namespace) -> None:
     cmd_largest(_load_sections(ns), args)
 
 def _run_find(ns: argparse.Namespace) -> None:
-    cmd_find(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
+    sections = _load_sections(ns)
+    flags = _flags_from_ns(ns)
+    for i, pat in enumerate(ns.pattern):
+        if i > 0:
+            print()
+        cmd_find(sections, pat, flags)
 
 def _run_show(ns: argparse.Namespace) -> None:
     sections = _load_sections(ns)
@@ -2296,7 +2301,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # find
     p = sub.add_parser("find", help="find entries by name (regex)")
-    p.add_argument("pattern", help="regex pattern (case-insensitive)")
+    p.add_argument("pattern", nargs="+", metavar="PATTERN",
+                   help="regex pattern(s), case-insensitive. "
+                        "Pass multiple patterns to run each search "
+                        "sequentially (separated by blank lines).")
     _add_mode_flags(p)
     _add_verbatim_flag(p)
     _add_comment_flags(p)
