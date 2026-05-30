@@ -1923,7 +1923,7 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
                      if owner is not None and owner.name != "?"
                      else "—")
         print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {owner_str}")
-    print(f"\n{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
+    print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
 
 
 def _parse_line_range(spec: str) -> tuple[int, int]:
