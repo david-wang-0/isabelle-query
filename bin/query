@@ -131,11 +131,12 @@ class CallGraph:
 
 
 DECL_RE = re.compile(
-    r"^(definition|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
+    r"^(definition|abbreviation|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
 )
 
 TAG_MAP = {
-    "definition": "DEF", "fun": "FUN", "primrec": "FUN",
+    "definition": "DEF", "abbreviation": "ABBREV",
+    "fun": "FUN", "primrec": "FUN",
     "inductive_set": "INDSET", "inductive": "IND",
     "lemma": "LEMMA", "corollary": "LEMMA",
     "theorem": "THEOREM",
@@ -313,7 +314,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             continue
 
         # --- Definitions ---
-        if keyword in ("definition", "fun", "primrec",
+        if keyword in ("definition", "abbreviation", "fun", "primrec",
                        "inductive_set", "inductive"):
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
@@ -322,9 +323,9 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             decl_end_line = decl_line
             i += 1
             open_quotes = rest.count('"') % 2
-            past_where = False  # for `definition`: tracks whether the body's
-                                # quoted RHS has begun, so we don't break at the
-                                # type signature's closing quote.
+            past_where = False  # for `definition`/`abbreviation`: tracks whether
+                                # the body's quoted RHS has begun, so we don't
+                                # break at the type signature's closing quote.
             while i < len(lines):
                 cline = lines[i]
                 if BLANK_RE.match(cline):
@@ -339,7 +340,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
                 open_quotes = (open_quotes + stripped.count('"')) % 2
                 i += 1
                 decl_end_line = i  # 1-indexed line just appended
-                if keyword == "definition":
+                if keyword in ("definition", "abbreviation"):
                     # Break when the body's quoted RHS closes (after `where`).
                     if past_where and open_quotes == 0 and '"' in stripped:
                         break
@@ -633,7 +634,7 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     name_set: set[str] = set()
     for sec in sections:
         for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV") and e.name != "?":
                 name_set.add(e.name)
 
     # 2. Build def-site and text-block exclusion ranges.
@@ -994,7 +995,7 @@ def cmd_summary(sections: list[TheorySection]) -> None:
     print("|--------|----:|--:|--:|--:|-------------|")
     for sec in sections:
         defs = [e for e in sec.entries
-                if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
+                if e.tag in ("DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE")]
         lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
         thms = [e for e in sec.entries if e.tag == "THEOREM"]
 
@@ -1190,7 +1191,7 @@ def cmd_defs(sections: list[TheorySection], theory: str,
         print(f"Theory '{theory}' not found.")
         return
     matches = [e for e in sec.entries
-               if e.tag in ("DEF", "FUN", "DATATYPE", "RECORD", "TYPE")]
+               if e.tag in ("DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE")]
     if not matches:
         print(f"No definitions found in '{sec.theory}'.")
         return
@@ -1519,19 +1520,26 @@ def cmd_callees(sections: list[TheorySection], name: str,
         _render_graph_results(sections, reachable, "dependency", name, flags)
         return
 
-    used = graph.callees.get(name, set())
-    if flags.mode == "count":
-        print(len(used))
-        return
-    if not used:
-        print(f"No references found in {name}'s body.")
-        return
-
     by_name: dict[str, tuple[str, Entry]] = {}
     for sec in sections:
         for e in sec.entries:
             if e.name not in by_name:
                 by_name[e.name] = (sec.theory, e)
+
+    used = graph.callees.get(name, set())
+    if flags.external:
+        # Mirror of `callers --external`: drop callees defined in NAME's
+        # own theory, leaving only its cross-theory dependencies.
+        own_theory = by_name.get(name, (None,))[0]
+        used = {u for u in used
+                if by_name.get(u, (None,))[0] != own_theory}
+    if flags.mode == "count":
+        print(len(used))
+        return
+    if not used:
+        scope = "cross-theory " if flags.external else ""
+        print(f"No {scope}references found in {name}'s body.")
+        return
 
     print(f"{len(used)} callee(s) of {name}:\n")
     for uname in sorted(used):
@@ -1781,7 +1789,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
         for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF") and e.name != "?":
+            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV") and e.name != "?":
                 if e.name in unused_map:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
@@ -1789,12 +1797,15 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
-                   ) -> list[tuple[str, int, str, "Entry | None", bool]]:
+                   ) -> list[tuple[str, int, str, "Entry | None", bool, bool]]:
     """Walk every section's source and return one tuple per line that
     matches `pat`.  Each tuple is (loc_name, line_no, line_text,
-    owning_entry, is_live), where loc_name is the file's real name
-    (e.g. `Substrate.thy`, `ar-design.md`) so plain non-`.thy`
+    owning_entry, is_live, is_thy), where loc_name is the file's real
+    name (e.g. `Substrate.thy`, `ar-design.md`) so plain non-`.thy`
     positionals report their actual filename rather than `<stem>.thy`.
+    `is_thy` is False for non-`.thy` positionals (Markdown / prose),
+    which have no Isabelle entries and hence no owning-entry column —
+    `cmd_grep` shows the matched line text directly for those.
 
     is_live = True iff the line is genuine proof / declaration source —
     not inside a top-level `text \\<open>...\\<close>` block, not inside
@@ -1807,7 +1818,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
     any indexed entry — e.g. between top-level declarations).
     """
     line_index = _build_line_index(sections)
-    out: list[tuple[str, int, str, Entry | None, bool]] = []
+    out: list[tuple[str, int, str, Entry | None, bool, bool]] = []
     for sec in sections:
         lines = sec.source()
         noise: list[range] = []
@@ -1826,7 +1837,8 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
             line_no = line_no_0 + 1
             is_live = not any(line_no in r for r in noise)
             owner = _entry_at_line(idx, line_no)
-            out.append((sec.path.name, line_no, line.rstrip(), owner, is_live))
+            out.append((sec.path.name, line_no, line.rstrip(), owner,
+                        is_live, sec.is_thy))
     return out
 
 
@@ -1872,26 +1884,35 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         print(f"{len(live_hits)} live match(es) for '{pattern}':\n")
 
     if flags.mode == "names":
-        # Compact: location + owning entry, no source line.
+        # Compact: location + owning entry, no source line.  For a
+        # non-`.thy` positional there is no owning entry, so names mode
+        # would be content-free — fall back to the matched line text.
         loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-        for loc_name, ln, _text, owner, is_live in hits:
+        for loc_name, ln, text, owner, is_live, is_thy in hits:
             loc = f"{loc_name}:{ln}"
+            marker = "" if is_live else "  [in comment/text]"
+            if not is_thy:
+                print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
+                continue
             owner_str = (f"{owner.name} ({owner.tag})"
                          if owner is not None and owner.name != "?"
                          else "—")
-            marker = "" if is_live else "  [in comment/text]"
             print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
         return
 
-    # Default: location + owning entry + matched line text.
+    # Default: location + owning entry + matched line text.  Non-`.thy`
+    # positionals have no entry column — show the line inline on one row.
     loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-    for loc_name, ln, text, owner, is_live in hits:
+    for loc_name, ln, text, owner, is_live, is_thy in hits:
         loc = f"{loc_name}:{ln}"
+        marker = "" if is_live else "  [in comment/text]"
+        if not is_thy:
+            print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
+            continue
         if owner is not None and owner.name != "?":
             owner_str = f"{owner.name} ({owner.tag})"
         else:
             owner_str = "—"
-        marker = "" if is_live else "  [in comment/text]"
         print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
         print(f"    {text.strip()}")
 
@@ -1918,7 +1939,7 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
         print("No sorries.")
         return
     loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
-    for loc_name, ln, _text, owner, _live in hits:
+    for loc_name, ln, _text, owner, _live, _is_thy in hits:
         owner_str = (f"{owner.name} ({owner.tag})"
                      if owner is not None and owner.name != "?"
                      else "—")
@@ -2355,6 +2376,12 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_names_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect callees)")
+    p.add_argument("--external", action="store_true",
+                   help="exclude callees defined in NAME's own theory, "
+                        "leaving only cross-theory dependencies (mirror of "
+                        "`callers --external`).  Only affects the "
+                        "non-recursive form; transitive closure via -r "
+                        "ignores this flag.")
     p.set_defaults(func=_run_callees)
 
     # grep
