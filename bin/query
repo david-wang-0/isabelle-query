@@ -82,6 +82,12 @@ class Entry:
     roadmap: list[tuple[int, str]] = field(default_factory=list)
         # (line_no, content) for `\<comment> \<open>...\<close>` annotations
         # found inside this entry's proof body.
+    conjuncts: list[str] = field(default_factory=list)
+        # Named conjuncts of a multi-`shows` lemma (e.g. mttm_step_src's
+        # mttm_step_src_neq_t).  Each is a citable fact that resolves to
+        # this entry under show / find / callers / callees, but is not a
+        # separate Entry (so it never inflates counts or splits call-graph
+        # attribution — resolution happens at the command boundary).
 
 
 @dataclass
@@ -162,6 +168,14 @@ NAME_RE = re.compile(r"^(\w[\w']*)")
 TYPEDECL_NAME_RE = re.compile(
     r"^(?:'\w+\s+|\([^)]*\)\s+)?(\w[\w']*)"
 )
+
+# Named conjuncts of a multi-`shows` lemma: `shows NAME:` / `and NAME:`
+# in the *shows* region.  Gated by the SHOWS_*_RE so the `assumes ... and
+# X:` region — whose `and`-bound names are hypotheses, not citable facts —
+# is excluded (shows always follows assumes in Isabelle's lemma grammar).
+SHOWS_AT_START_RE = re.compile(r"shows\b")     # applied to a stripped line
+SHOWS_ANYWHERE_RE = re.compile(r"\bshows\b")   # applied to the decl-line rest
+CONJUNCT_RE = re.compile(r"(?:shows|and)\s+(\w[\w']*)\s*:")
 
 
 def _isa_word_pattern(name: str) -> str:
@@ -358,6 +372,11 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             buf = [f"{tag} {rest}"]
             decl_end_line = decl_line
             proof_line = 0
+            # Named conjuncts: scan the `shows` region only.  `shows` may
+            # appear inline on the decl line (one-liner) or on its own line.
+            in_shows = bool(SHOWS_ANYWHERE_RE.search(rest))
+            conjuncts: list[str] = (
+                CONJUNCT_RE.findall(rest) if in_shows else [])
             i += 1
 
             while i < len(lines):
@@ -373,6 +392,10 @@ def extract_entries(lines: list[str]) -> list[Entry]:
                 if stripped.startswith("\\<comment>"):
                     i += 1
                     continue
+                if SHOWS_AT_START_RE.match(stripped):
+                    in_shows = True
+                if in_shows:
+                    conjuncts.extend(CONJUNCT_RE.findall(stripped))
                 buf.append(f"  {stripped}")
                 i += 1
                 decl_end_line = i
@@ -380,7 +403,8 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
-                                 proof_line=proof_line))
+                                 proof_line=proof_line,
+                                 conjuncts=conjuncts))
             continue
 
         i += 1
@@ -616,9 +640,20 @@ def _build_def_sites(sections: list[TheorySection],
     for sec in sections:
         site_map: dict[str, set[range]] = {}
         for e in sec.entries:
-            if e.thy_line > 0 and (names is None or e.name in names):
+            if e.thy_line <= 0:
+                continue
+            if names is None or e.name in names:
                 site_map.setdefault(e.name, set()).add(
                     range(e.thy_line, e.thy_end + 1))
+            # A named conjunct's declaration site is its parent's span, so a
+            # `callers CONJUNCT` search excludes the `shows ... and C:` line.
+            # Restricted to explicitly-queried names (never the names=None
+            # broad pass) so conjuncts don't leak into the call-graph universe.
+            if names is not None:
+                for c in e.conjuncts:
+                    if c in names:
+                        site_map.setdefault(c, set()).add(
+                            range(e.thy_line, e.thy_end + 1))
         def_sites[sec.theory] = site_map
     return def_sites
 
@@ -1079,6 +1114,17 @@ def _suggest_theory(sections: list[TheorySection], name: str) -> str | None:
         return str(sec.path)
 
 
+def _resolve_conjunct(sections: list[TheorySection], name: str) -> str | None:
+    """If `name` is a named conjunct of a multi-`shows` lemma, return the
+    parent lemma name; else None.  Lets callers/callees/show resolve a
+    conjunct to the entry that bundles it."""
+    for sec in sections:
+        for e in sec.entries:
+            if name in e.conjuncts:
+                return e.name
+    return None
+
+
 def cmd_theory(sections: list[TheorySection], name: str,
                flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, name)
@@ -1134,6 +1180,8 @@ def cmd_find(sections: list[TheorySection], pattern: str,
         for e in s.entries:
             if pat.search(e.name):
                 matches.append(e)
+            elif any(pat.search(c) for c in e.conjuncts):
+                matches.append(e)  # matched via a named `shows` conjunct
 
     _emit_matches(by_theory, matches, pattern, flags)
 
@@ -1194,6 +1242,16 @@ def cmd_show(sections: list[TheorySection], name: str,
             for e in s.entries:
                 if e.name.lower() == name.lower():
                     matches.append(e)
+    if not matches:
+        # Conjunct fallback (before substring): NAME may be a named conjunct
+        # of a multi-`shows` lemma; resolve to the parent that bundles it.
+        for s in sections:
+            for e in s.entries:
+                if name in e.conjuncts:
+                    matches.append(e)
+        if matches:
+            parents = ", ".join(sorted({e.name for e in matches}))
+            print(f"# '{name}' is a named conjunct of {parents}:")
     if not matches:
         # Substring fallback
         for s in sections:
@@ -1490,8 +1548,15 @@ def cmd_callers(sections: list[TheorySection], name: str,
     if flags.recursive:
         graph = _build_call_graph(sections)
         if name not in graph.all_names:
-            print(f"'{name}' not found in the entry index.")
-            return
+            parent = _resolve_conjunct(sections, name)
+            if parent is not None:
+                print(f"# '{name}' is a named conjunct of {parent}; "
+                      f"recursive caller closure operates at the {parent} "
+                      f"(entry) level.")
+                name = parent
+            else:
+                print(f"'{name}' not found in the entry index.")
+                return
         reachable = _transitive_closure(graph.callers, {name})
         reachable.pop(name, None)
         _render_graph_results(sections, reachable, "caller", name, flags)
@@ -1530,8 +1595,14 @@ def cmd_callees(sections: list[TheorySection], name: str,
     Not to be confused with the theory-level `deps` / `uses` pair."""
     graph = _build_call_graph(sections)
     if name not in graph.all_names:
-        print(f"'{name}' not found in the entry index.")
-        return
+        parent = _resolve_conjunct(sections, name)
+        if parent is not None:
+            print(f"# '{name}' is a named conjunct of {parent}; "
+                  f"reporting {parent}'s callees (shared proof body).")
+            name = parent
+        else:
+            print(f"'{name}' not found in the entry index.")
+            return
 
     if flags.recursive:
         reachable = _transitive_closure(graph.callees, {name})
