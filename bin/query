@@ -2232,7 +2232,12 @@ def _run_callers(ns: argparse.Namespace) -> None:
     cmd_callers(_load_sections(ns), ns.name, _flags_from_ns(ns))
 
 def _run_callees(ns: argparse.Namespace) -> None:
-    cmd_callees(_load_sections(ns), ns.name, _flags_from_ns(ns))
+    sections = _load_sections(ns)
+    flags = _flags_from_ns(ns)
+    for i, n in enumerate(ns.name):
+        if i > 0:
+            print()
+        cmd_callees(sections, n, flags)
 
 def _run_unused(ns: argparse.Namespace) -> None:
     cmd_unused(_load_sections(ns), _flags_from_ns(ns))
@@ -2371,7 +2376,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("callees",
                        help="entries this entry references; reverse is "
                             "`callers`")
-    p.add_argument("name", help="entry name")
+    p.add_argument("name", nargs="+", metavar="NAME",
+                   help="entry name(s); pass multiple to report each in "
+                        "turn (separated by blank lines), so "
+                        "`callees A B C` replaces a gate-tripping "
+                        "`for n in A B C; do callees $n` loop")
     _add_count_flag(p)
     _add_names_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
