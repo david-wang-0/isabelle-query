@@ -1060,6 +1060,25 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
     return None
 
 
+def _suggest_theory(sections: list[TheorySection], name: str) -> str | None:
+    """Closest theory to `name`, as a cwd-relative `.thy` path suggestion
+    for a 'did you mean ...?' hint; None if nothing is close.
+
+    Matches on the theory *stem*, so a mistyped path (`t/ar/Fooo.thy`) is
+    handled as well as a bare name (`Fooo`)."""
+    import difflib
+    by_name = {s.theory: s for s in sections}
+    matches = difflib.get_close_matches(
+        Path(name).stem, list(by_name), n=1, cutoff=0.6)
+    if not matches:
+        return None
+    sec = by_name[matches[0]]
+    try:
+        return str(sec.path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(sec.path)
+
+
 def cmd_theory(sections: list[TheorySection], name: str,
                flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, name)
@@ -2106,15 +2125,29 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
         return load_index()
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
+    index: list[TheorySection] | None = None  # lazily loaded for name lookups
     for fp in files:
         p = Path(fp).expanduser().resolve()
-        if not p.exists():
-            print(f"ERROR: path not found: {p}", file=sys.stderr)
-            sys.exit(1)
         if p.is_dir():
             _sections_from_dir(p, seen_paths, sections)
-        else:
+            continue
+        if p.exists():
             _add_one_section(p.stem, p, seen_paths, sections)
+            continue
+        # Not an on-disk path: accept a bare theory name (or a path whose
+        # stem names a known theory), resolved against the full index —
+        # matching how outline/show/defs/callees take names.
+        if index is None:
+            index = load_index()
+        sec = _resolve_theory(index, fp)
+        if sec is not None:
+            _add_one_section(sec.path.stem, sec.path, seen_paths, sections)
+            continue
+        suggestion = _suggest_theory(index, fp)
+        hint = f" (did you mean {suggestion}?)" if suggestion else ""
+        print(f"ERROR: not a path or known theory: {fp}{hint}",
+              file=sys.stderr)
+        sys.exit(1)
     return sections
 
 
@@ -2153,7 +2186,8 @@ def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
     """
     p.add_argument("files", nargs="*", metavar="PATH",
                    help="restrict search to specific .thy files or "
-                        "directories (rg/grep-style trailing positionals). "
+                        "directories (rg/grep-style trailing positionals); "
+                        "a bare theory name resolves to its .thy. "
                         "Directories with a ROOT are expanded via the "
                         "ROOT's `theories` clause; directories without are "
                         "walked recursively for `*.thy`.  Results are "
@@ -2249,7 +2283,20 @@ def _run_sorry(ns: argparse.Namespace) -> None:
     cmd_sorry(_load_sections(ns), getattr(ns, "count", False))
 
 def _run_lines(ns: argparse.Namespace) -> None:
-    cmd_lines(ns.file, ns.ranges)
+    file_arg = ns.file
+    if not Path(file_arg).expanduser().exists():
+        # Accept a bare theory name (or a stem-naming path), like grep.
+        index = load_index()
+        sec = _resolve_theory(index, file_arg)
+        if sec is not None:
+            file_arg = str(sec.path)
+        else:
+            suggestion = _suggest_theory(index, file_arg)
+            hint = f" (did you mean {suggestion}?)" if suggestion else ""
+            print(f"ERROR: file not found: {file_arg}{hint}",
+                  file=sys.stderr)
+            sys.exit(1)
+    cmd_lines(file_arg, ns.ranges)
 
 
 # -- Parser construction ----------------------------------------------------
@@ -2422,7 +2469,9 @@ def _build_parser() -> argparse.ArgumentParser:
                             "with `NR| CONTENT` prefix (sandbox-friendly "
                             "alternative to awk loops)")
     p.add_argument("file", metavar="FILE",
-                   help="file to read (any text file; no theory parsing)")
+                   help="file to read (any text file; no theory parsing). "
+                        "A bare theory name (or stem-naming path) resolves "
+                        "to its .thy, like outline/show/defs.")
     p.add_argument("ranges", nargs="+", metavar="RANGE",
                    help="line range(s); each `A..B` (inclusive) or `A` "
                         "(single line).  Multiple ranges separated by "
