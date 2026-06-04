@@ -310,8 +310,8 @@ def iter_thy_files(t_dir: Path | None = None) -> list[Path]:
     * **Single ROOT** (``t_dir/ROOT`` exists): order matches that ROOT's
       `theories` block; each theory is resolved at the session root first,
       then in declared subdirectories.
-    * **Multi-ROOT** (no ``t_dir/ROOT``, e.g. the post-[t-layout-split]
-      tree with ``t/base/ROOT``, ``t/ae/ROOT``, ``t/ar/ROOT``): every
+    * **Multi-ROOT** (no ``t_dir/ROOT``, but ROOTs in subdirectories,
+      e.g. ``t_dir/a/ROOT`` and ``t_dir/b/ROOT``): every
       session declared by every ROOT under ``t_dir`` is enumerated (via
       ``iter_sessions``) and its theories resolved against the declaring
       session's directory.  Results are deduplicated by resolved path so
