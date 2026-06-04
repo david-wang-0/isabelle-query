@@ -532,10 +532,9 @@ def _sections_from_dir(root_dir: Path,
     Walks every ROOT file under `root_dir` (via `discover_roots`) and
     each session declared in each ROOT (via `parse_root_sessions`).
     Theories are resolved against the declaring session's directory,
-    honouring `in <subdir>` and `directories` clauses (so Flyspeck-
-    Tame-Computation's `Completeness.thy` is found under
-    `Computation/`, and post-`[t-layout-split]` `NDTHT_AE` theories
-    are found under `t/ae/`).
+    honouring its `in <subdir>` and `directories` clauses (so a theory
+    a session declares to live `in "sub"` is found under `sub/`, not
+    beside its ROOT file).
 
     Falls back to a recursive `*.thy` glob if no ROOTs are found
     (legacy behaviour for non-Isabelle-session directories).  Dedup
