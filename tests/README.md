@@ -51,18 +51,30 @@ bounded slice (never inventing edges; dropping at most 0.5%, in practice
 
 ## Future work
 
-Near-term — the remaining `@expectedFailure` corner cases in
-`test_known_failures.py`: the comment-prefixed-name
-(`definition \<comment> \<open>..\<close> bar :: ...`, ~190 entries) and the
-abbreviation-LHS-head (`abbreviation "lhs x \<equiv> .."` → `lhs`) cases.
+Near-term — the one remaining `@expectedFailure` in `test_known_failures.py`:
+the **infix/mixfix definition** name (`abbreviation "x \<oplus> y \<equiv> .."`).
+The LHS-head heuristic returns the first operand (`x`); the true name is the
+operator (`\<oplus>`), which needs mixfix-aware parsing of the equation.
 
-Done — **name on a following line** (`inductive_set` / `definition` with the
-keyword alone on its line and the name beneath it). `extract_entries` now
-anchors `DECL_RE` on a token boundary so a lone keyword matches at all, then
-`_lookahead_name` reads the name from the first content line below without
-consuming it (spans unchanged). This recovered ~1,455 names and surfaced
-~8,377 declarations the old anchor dropped silently; see the
-`ContinuationLineName` tests.
+Done — the whole name-on-the-decl-line family, which together took the AFP
+`?` rate from ~5.9% to ~4.0% while the call-graph oracle parity held:
+
+* **name on a following line** (`inductive_set` / `definition` with the keyword
+  alone on its line and the name beneath it). `DECL_RE` now anchors on a token
+  boundary so a lone keyword matches at all, and `_lookahead_name` reads the
+  name from the first content line below without consuming it (spans unchanged)
+  — ~1,455 names recovered, ~8,377 silently-dropped decls surfaced.
+* **margin-comment-prefixed name** (`definition \<comment> \<open>..\<close> bar
+  :: ...`) — `_strip_decl_prefix` skips a leading `\<comment>` cartouche
+  (~190 entries).
+* **implicit-name definition/abbreviation** (`abbreviation "lhs x \<equiv> .."`
+  → `lhs`) — `_lhs_head_name` reads the LHS head of the quoted equation
+  (~9,000 entries).
+* **bare reserved keyword** in the name slot (`lemma assumes ...`, `... by ...`)
+  no longer captured as a name — ~630 misparses removed from the call graph.
+
+See the `ContinuationLineName`, `ParseDefName` and reserved-keyword tests in
+`tests/test_names.py`.
 
 Longer-term nice-to-have — a **true ground-truth oracle from Isabelle's own
 outer-syntax parser**. `support.brute_force_call_graph` is only a slow
