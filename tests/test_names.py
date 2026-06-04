@@ -14,6 +14,7 @@ from support import cli, section_from, tags_by_name  # noqa: E402
 
 PN = cli._parse_name
 PT = cli._parse_typedecl_name
+PD = cli._parse_def_name
 
 
 class ParseName(unittest.TestCase):
@@ -95,6 +96,32 @@ class ParseName(unittest.TestCase):
         self.assertEqual(PN(r'\<comment> \<open>see \<open>X\<close>\<close> baz ::'), "baz")
         # a comment with no following name stays '?'
         self.assertEqual(PN(r'\<comment> \<open>only a note\<close>'), "?")
+
+
+class ParseDefName(unittest.TestCase):
+    """`_parse_def_name` = `_parse_name` plus an implicit-name fallback: a
+    definition/abbreviation written as a quoted equation carries no label, so
+    the name is the head of the LHS."""
+
+    def test_explicit_label_still_wins(self):
+        # a normal labelled/identified definition is unaffected
+        self.assertEqual(PD("foo :: nat where ..."), "foo")
+        self.assertEqual(PD('"my_rule": "P"'), "my_rule")
+
+    def test_implicit_lhs_head(self):
+        self.assertEqual(PD(r'"language_ltlc \<phi> \<equiv> {\<xi>. P}"'),
+                         "language_ltlc")
+        self.assertEqual(PD('"foo = 0"'), "foo")
+        self.assertEqual(PD('"pad m s = replicate m x @ s"'), "pad")
+
+    def test_implicit_lhs_head_through_locale_prefix(self):
+        self.assertEqual(PD(r'(in grp) "e \<equiv> 1"'), "e")
+
+    def test_no_connective_is_not_a_definition(self):
+        # a quoted body that is not an equation (no \<equiv>/=) is not an
+        # implicit-name definition — it stays '?', never invents a name
+        self.assertEqual(PD('"P x" by simp'), "?")
+        self.assertEqual(PD(r'"\<forall>x. Q x"'), "?")
 
 
 class ParseTypedeclName(unittest.TestCase):
@@ -224,10 +251,11 @@ end
 '''
         self.assertIn("bar", self.names_of(snippet))
 
-    def test_anonymous_def_does_not_borrow_following_prose(self):
-        # a genuinely anonymous definition (implicit LHS name) followed by a
-        # text cartouche must stay '?': the lookahead reads only the FIRST
-        # content line and must not run on to mint a name from the prose
+    def test_lhs_head_name_through_lookahead(self):
+        # a lone `definition` whose name is implicit in the quoted equation on
+        # the next line is named by its LHS head — and because the lookahead
+        # reads only the FIRST content line, the following prose is not a
+        # candidate (the over-run that once minted 'text\<open>Final')
         snippet = r'''theory T imports Main begin
 definition
   "trans_rel \<equiv> {(a, b). foo a b}"
@@ -237,7 +265,7 @@ end
         sec = section_from(snippet)
         defs = [e for e in sec.entries if e.tag == "DEF"]
         self.assertEqual(len(defs), 1)
-        self.assertEqual(defs[0].name, "?")   # not 'text\<open>Final'
+        self.assertEqual(defs[0].name, "trans_rel")   # LHS head, not the prose
 
 
 if __name__ == "__main__":

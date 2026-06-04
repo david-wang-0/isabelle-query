@@ -402,6 +402,37 @@ def _parse_typedecl_name(text_after_tag: str) -> str:
                       require_label=False)
 
 
+# A definitional connective: an implicit-name definition/abbreviation is
+# written as a quoted equation `"lhs ... <connective> rhs"`.  Its presence is
+# the signal that the quoted body is an equation whose LHS head is the name.
+_DEF_CONNECTIVE_RE = re.compile(r"\\<equiv>|\\<rightleftharpoons>|==|=")
+
+
+def _lhs_head_name(text_after_tag: str) -> str:
+    r"""Head name of an implicit-name definition/abbreviation written as a
+    quoted equation: `abbreviation "language_ltlc \<phi> \<equiv> ..."` ->
+    ``language_ltlc``.  The name is the first identifier of the LHS — the
+    constant being defined.
+
+    Returns '?' unless the leading token (after any modifier/locale prefix) is
+    a quoted body that actually contains a definitional connective, so a quoted
+    *statement* (an anonymous `lemma "P"`) is never mistaken for a definition.
+    Only the prefix-application case is handled; infix/mixfix definitions,
+    whose operator sits between operands, are out of scope and stay '?'."""
+    s = _strip_decl_prefix(text_after_tag.strip(), typevars=False)
+    mq = QUOTED_NAME_RE.match(s)
+    if not mq or not _DEF_CONNECTIVE_RE.search(mq.group(1)):
+        return "?"
+    return _name_from(mq.group(1).strip(), require_label=False)
+
+
+def _parse_def_name(text_after_tag: str) -> str:
+    """Name of a definition/abbreviation: a leading label/identifier as usual,
+    else the LHS head of an implicit-name quoted equation."""
+    name = _parse_name(text_after_tag)
+    return name if name != "?" else _lhs_head_name(text_after_tag)
+
+
 # The column-0 leading token of a line — the candidate command name for a
 # custom-command match.  Anchored like DECL_RE: an indented line (proof body)
 # has no match, so only top-level commands are considered.
@@ -722,9 +753,14 @@ def extract_entries(lines: list[str],
         if route == "def":
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
-            name = _parse_name(rest)
+            # definition/abbreviation may carry an implicit name in a quoted
+            # equation (`"lhs \<equiv> ..."`); read its LHS head when no label.
+            parse_fn = (_parse_def_name
+                        if keyword in ("definition", "abbreviation")
+                        else _parse_name)
+            name = parse_fn(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=False):
-                name = _lookahead_name(lines, i + 1, table, _parse_name)
+                name = _lookahead_name(lines, i + 1, table, parse_fn)
             buf = [f"{tag} {rest}"]
             decl_end_line = decl_line
             i += 1

@@ -29,20 +29,25 @@ def names_of(snippet):
 class RecoverableParserGaps(unittest.TestCase):
 
     @unittest.expectedFailure
-    def test_abbreviation_lhs_head_name(self):
-        # Abbreviations defined by an equation in a cartouche/quotes carry no
-        # separate label; the useful name is the head of the LHS.  Needs the
-        # parser to read the first token before \<equiv>.
+    def test_infix_abbreviation_operator_name(self):
+        # An infix/mixfix definition writes the operator BETWEEN its operands,
+        # so the LHS-head heuristic (test_names.ParseName) returns the first
+        # operand variable, not the constant.  Reading the true name needs
+        # mixfix-aware parsing of the equation; until then this is a known gap.
         snippet = r'''theory T imports Main begin
-abbreviation "language_ltlc \<phi> \<equiv> {\<xi>. \<xi> \<Turnstile> \<phi>}"
+abbreviation "x \<oplus> y \<equiv> plus x y"
 end
 '''
-        self.assertIn("language_ltlc", names_of(snippet))
+        self.assertIn(r"\<oplus>", names_of(snippet))
 
-    # NOTE: custom fact-command keywords (e.g. AOT's `AOT_theorem`) were once
-    # listed here as a gap.  They are now handled by the header keyword scanner
-    # — see tests/test_keywords.py, which reads the `keywords "X" :: kind`
-    # header clause that *is* Isabelle's keyword table.
+    # NOTE: two cases once listed here are now handled and have moved to
+    # tests/test_names.py as passing tests:
+    #   * custom fact-command keywords (AOT's `AOT_theorem`) — the header
+    #     keyword scanner (tests/test_keywords.py) reads the `keywords "X" ::
+    #     kind` clause that *is* Isabelle's keyword table;
+    #   * name on a following line, margin-comment-prefixed name, and the
+    #     abbreviation/definition LHS-head name — the continuation lookahead,
+    #     _strip_decl_prefix comment skip, and _lhs_head_name respectively.
 
 
 if __name__ == "__main__":
