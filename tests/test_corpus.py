@@ -30,9 +30,10 @@ _ORACLE_SUBSET = 120
 # spurious oracle hit the token model correctly ignores.
 _MAX_DROP_FRACTION = 0.005
 # Robustness target: the `?` (unparsed-name) rate.  The bulk of the residual
-# is genuinely-anonymous lemmas (`lemma "P"`, `lemma [simp]:`), which are
-# *correctly* nameless; the recoverable corner cases are catalogued as
-# expected-failures in tests/test_known_failures.py.
+# is genuinely-anonymous lemmas (`lemma "P"`, `lemma [simp]:`) and nameless
+# custom commands (a `C` C-code block, an `autocorres`/`synthesize` tool
+# invocation), which are *correctly* nameless; the recoverable corner cases
+# are catalogued as expected-failures in tests/test_known_failures.py.
 _MAX_UNPARSED_FRACTION = 0.07
 # A leaked `(in locale)` modifier would appear verbatim at the start of a name.
 _LOCALE_LEAK_RE = re.compile(r"\(in\s")
@@ -47,6 +48,18 @@ class Corpus(unittest.TestCase):
                                      recursive=True))
         if not cls.files:
             raise unittest.SkipTest(f"no .thy files under {CORPUS}")
+        # Mirror load_index: build the active root's custom-command union from
+        # every header, so the measurements below reflect the real parse (a
+        # theory that *uses* a command another *declares* is recognised).  We
+        # set the module global rather than threading a param so the oracle
+        # test's cli._parse_one sees it too.
+        cli._CUSTOM_COMMANDS.clear()
+        cli._populate_custom_commands([(Path(p).stem, Path(p))
+                                       for p in cls.files])
+
+    @classmethod
+    def tearDownClass(cls):
+        cli._CUSTOM_COMMANDS.clear()  # don't leak the union into other tests
 
     def _iter_entries(self, paths):
         for p in paths:
@@ -81,6 +94,24 @@ class Corpus(unittest.TestCase):
                     self.assertIsNone(
                         _LOCALE_LEAK_RE.match(e.name),
                         f"locale prefix leaked into name {e.name!r} in {_p}")
+
+    def test_custom_commands_bound_aot_spans(self):
+        # Regression for the reported `largest`/`show` bug: AOT's `AOT_theorem`
+        # commands, unrecognised, let the built-in `theorem "beta-C-cor:3"`
+        # swallow the whole run after it (a 3867-line span).  With the scanner
+        # the surrounding AOT_theorems bound it to its real ~7-line proof.
+        aot = [p for p in self.files if p.replace(os.sep, "/").endswith(
+            "AOT/AOT_PLM.thy")]
+        if not aot:
+            self.skipTest("AOT_PLM.thy not in this corpus")
+        sec = cli._parse_one("AOT_PLM", Path(aot[0]))
+        target = [e for e in sec.entries if e.name == "beta-C-cor:3"]
+        self.assertEqual(len(target), 1, "beta-C-cor:3 should be a single entry")
+        span = target[0].thy_end - target[0].thy_line + 1
+        self.assertLess(span, 50, f"beta-C-cor:3 span {span} lines not collapsed")
+        # The AOT_theorem facts around it must now be indexed by their labels.
+        by_name = {e.name for e in sec.entries}
+        self.assertIn("beta-C-cor:1", by_name)  # an AOT_theorem (thy_goal)
 
     def test_fast_call_graph_matches_oracle_on_subset(self):
         subset = self.files[:_ORACLE_SUBSET]

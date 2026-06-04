@@ -1,4 +1,4 @@
-"""Catalogue of parser corner cases that currently lose the name.
+r"""Catalogue of parser corner cases that currently lose the name.
 
 Each test asserts the *desired* result and is marked ``@unittest.expectedFailure``.
 Today they stay green (the failure is expected); the moment the parser is
@@ -70,16 +70,10 @@ end
 '''
         self.assertIn("language_ltlc", names_of(snippet))
 
-    @unittest.expectedFailure
-    def test_custom_fact_command_keyword(self):
-        # AFP entries (e.g. AOT) define their own fact commands through the
-        # command framework, conventionally <Prefix>_theorem.  Recognising the
-        # family would also fix the inflated entry spans they cause.
-        snippet = r'''theory T imports Main begin
-AOT_theorem "foo:1": \<open>p \<rightarrow> p\<close>
-end
-'''
-        self.assertIn("foo:1", names_of(snippet))
+    # NOTE: custom fact-command keywords (e.g. AOT's `AOT_theorem`) were once
+    # listed here as a gap.  They are now handled by the header keyword scanner
+    # — see tests/test_keywords.py, which reads the `keywords "X" :: kind`
+    # header clause that *is* Isabelle's keyword table.
 
 
 if __name__ == "__main__":

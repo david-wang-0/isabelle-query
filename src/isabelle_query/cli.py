@@ -148,6 +148,58 @@ TAG_MAP = {
     "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
 }
 
+# --- Custom outer-syntax commands (faithful keyword-table scan) ------------
+# An AFP entry may define its own theory commands (AOT's `AOT_theorem`,
+# `AOT_define`, ...) through Isabelle's command framework.  The one fact the
+# regex parser cannot otherwise know — that `AOT_theorem` is a theorem-like
+# command — is declared as PLAIN TEXT in a theory header, and that declaration
+# *is* Isabelle's keyword table (Pure/Thy/thy_header.ML parses exactly the
+# `keywords "name" :: kind` clause we scan).  So recognising these commands is
+# faithful, not a `<Prefix>_theorem` name-guess.  Each declared command's
+# `kind` maps to one of the existing tag families below; we then route the
+# command through the same name/branch logic as the matching built-in.
+#
+# kind -> family follows Pure/Isar/keyword.scala:
+#   theory_goal = {thy_goal, thy_goal_stmt, thy_goal_defn}  (proof-bearing)
+#   theory_defn = {thy_defn, thy_goal_defn}                 (introduces a def)
+#   thy_decl / thy_decl_block / thy_stmt                    (declarations)
+# Proof (prf_*), diagnostic (diag), document, load and quasi_command kinds are
+# intentionally absent: they introduce no citable fact, so they must NOT create
+# an entry.  `thy_goal_defn` both defines and proves (e.g. `function`); we tag
+# it pragmatically as a goal so its name and proof are picked up.
+_KIND_FAMILY = {
+    "thy_goal": "THEOREM",
+    "thy_goal_stmt": "THEOREM",
+    "thy_goal_defn": "THEOREM",
+    "thy_defn": "DEF",
+    "thy_decl": "DEF",
+    "thy_decl_block": "DEF",
+    "thy_stmt": "DEF",
+}
+
+# The union of every scanned header's command table for the active root,
+# populated by load_index()'s header pre-scan (mirroring Isabelle's
+# session-wide `Keywords.++`).  Empty by default, so a bare extract_entries
+# call behaves exactly as before — and every body-scan custom-command check
+# is guarded by `if table`, costing nothing when no custom commands exist.
+_CUSTOM_COMMANDS: dict[str, str] = {}
+
+
+def _route_for(keyword: str, tag: str) -> str:
+    """Which extract_entries branch handles a command with this tag.
+
+    Derived from the tag (not a second keyword table) so built-in and custom
+    commands route uniformly: a custom `thy_goal` command (tag THEOREM) takes
+    the same `goal` branch as `theorem`, a custom `thy_decl`/`thy_defn` (tag
+    DEF) the same `def` branch as `definition`."""
+    if keyword == "axiomatization":
+        return "axiom"
+    if tag in ("DATATYPE", "TYPE", "RECORD"):
+        return "typedecl"
+    if tag in ("LEMMA", "THEOREM"):
+        return "goal"
+    return "def"  # DEF, ABBREV, FUN, INDSET, IND, and custom thy_decl/thy_defn
+
 PROOF_RE = re.compile(
     r"^\s*(proof\b|by\b|sorry\b|oops\b|using\b"
     r"|unfolding\b|apply\b|\.\.\s*$)"
@@ -299,6 +351,129 @@ def _parse_typedecl_name(text_after_tag: str) -> str:
                       require_label=False)
 
 
+# The column-0 leading token of a line — the candidate command name for a
+# custom-command match.  Anchored like DECL_RE: an indented line (proof body)
+# has no match, so only top-level commands are considered.
+_LEAD_TOKEN_RE = re.compile(r"^(\S+)")
+# The header `keywords ... ` clause and its terminators (`abbrevs` / `begin`).
+# Isabelle's header grammar (thy_header.ML:168) is
+#   theory NAME imports ... [keywords <decls>] [abbrevs ...] begin
+# so the keyword block runs from the `keywords` token to `abbrevs`/`begin`.
+_HEADER_KEYWORDS_RE = re.compile(r"^\s*keywords\b")
+_HEADER_BEGIN_RE = re.compile(r"^\s*begin\b")
+_HEADER_END_RE = re.compile(r"^\s*(?:abbrevs|begin)\b")
+# Tokeniser for the keyword block: a double-quoted name, else a bare run.
+_KW_TOK_RE = re.compile(r'"([^"]*)"|(\S+)')
+
+
+def _kw_tokenize(block: str) -> list[tuple[str, str]]:
+    """Split a keyword block into ('name', value) for each double-quoted
+    spelling and ('op', text) for every other run.  Quoting matters: a
+    command name is always quoted, while the kind, load command and `% tags`
+    are bare or quoted-but-after-`::`, so quoting lets us take names only from
+    before the `::` and never mistake a `% "proof"` tag value for a name."""
+    toks: list[tuple[str, str]] = []
+    for m in _KW_TOK_RE.finditer(block):
+        if m.group(1) is not None:
+            toks.append(("name", m.group(1)))
+        else:
+            toks.append(("op", m.group(2)))
+    return toks
+
+
+def _kind_of(tok: str) -> str:
+    """The leading identifier of a kind token (`thy_goal` from `thy_goal`,
+    or from a glued `::thy_goal`'s tail)."""
+    m = re.match(r"[A-Za-z_]+", tok)
+    return m.group(0) if m else ""
+
+
+def _parse_keyword_block(block: str, table: dict[str, str]) -> None:
+    r"""Parse a header keyword block into ``table`` {command_name: tag}.
+
+    Grammar (Pure/Thy/thy_header.ML:154-164):
+      keyword_decls = and_list1(keyword_decl)
+      keyword_decl  = repeat1(quoted_name) , optional( "::" kind (load)? (% tag)* )
+    The names in one `and`-group share the single optional kind that follows
+    them; a group with no `::` is a *minor* keyword (syntax), not a command, so
+    it introduces no entry.  Only kinds in :data:`_KIND_FAMILY` map to a tag.
+    """
+    # Split the token stream into `and`-separated groups (the decl separator).
+    groups: list[list[tuple[str, str]]] = [[]]
+    for flag, val in _kw_tokenize(block):
+        if flag == "op" and val == "and":
+            groups.append([])
+        else:
+            groups[-1].append((flag, val))
+    for g in groups:
+        names: list[str] = []
+        kind = ""
+        seen_colon = False
+        for flag, val in g:
+            if not seen_colon and flag == "op" and val.startswith("::"):
+                seen_colon = True
+                if val != "::":            # glued `::thy_goal`
+                    kind = _kind_of(val[2:])
+                continue
+            if seen_colon:
+                if not kind and flag == "op":   # the kind, just after `::`
+                    kind = _kind_of(val)
+                continue                        # ignore load command / % tags
+            if flag == "name":
+                names.append(val)
+        tag = _KIND_FAMILY.get(kind)
+        if tag:
+            for nm in names:
+                if nm:
+                    table[nm] = tag
+
+
+def scan_keywords(lines: list[str]) -> dict[str, str]:
+    """Return {command_name: tag} for the custom commands a theory's *own*
+    header declares.  Scans only the header (up to the theory's `begin`), so
+    it is cheap and never touches the body."""
+    table: dict[str, str] = {}
+    start = None
+    for idx, line in enumerate(lines):
+        if _HEADER_KEYWORDS_RE.match(line):
+            start = idx
+            break
+        if _HEADER_BEGIN_RE.match(line):
+            return table  # header ended (no keywords clause)
+    if start is None:
+        return table
+    block = [re.sub(r"^\s*keywords\b", "", lines[start], count=1)]
+    for line in lines[start + 1:]:
+        if _HEADER_END_RE.match(line):
+            break
+        block.append(line)
+    _parse_keyword_block(" ".join(block), table)
+    return table
+
+
+def _match_decl(line: str, table: dict[str, str]
+                ) -> tuple[str, str, str] | None:
+    """Return (keyword, tag, route) if `line` begins a recognised top-level
+    command, else None.  Built-in commands match :data:`DECL_RE`; a custom
+    command matches when the column-0 leading token is a name in ``table``
+    (the scanned keyword table).  When ``table`` is empty this collapses to a
+    single DECL_RE test — the pre-scan-free fast path used by every unit test
+    and by non-custom theories."""
+    m = DECL_RE.match(line)
+    if m:
+        kw = m.group(1)
+        tag = TAG_MAP[kw]
+        return kw, tag, _route_for(kw, tag)
+    if table:
+        m2 = _LEAD_TOKEN_RE.match(line)
+        if m2:
+            tag = table.get(m2.group(1))
+            if tag:
+                kw = m2.group(1)
+                return kw, tag, _route_for(kw, tag)
+    return None
+
+
 def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
     for i, line in enumerate(lines, 1):
@@ -381,23 +556,46 @@ def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
     return out
 
 
-def extract_entries(lines: list[str]) -> list[Entry]:
+def extract_entries(lines: list[str],
+                    custom: dict[str, str] | None = None) -> list[Entry]:
     entries: list[Entry] = []
     i = 0
 
+    # Recognised custom commands: this theory's own header declarations, the
+    # active root's scanned union (_CUSTOM_COMMANDS, set by load_index), and an
+    # explicit `custom` override (tests).  Empty for a plain theory with no
+    # `keywords` clause, in which case _match_decl is just a DECL_RE test.
+    table: dict[str, str] = dict(_CUSTOM_COMMANDS)
+    table.update(scan_keywords(lines))
+    if custom:
+        table.update(custom)
+
+    # Prose inside a `text \<open>...\<close>` / `text_raw` cartouche is a single
+    # token to Isabelle, never outer syntax.  A column-0 line *inside* such a
+    # block that happens to begin with a command name — notably a one-letter
+    # command such as Isabelle_C's `C` — is prose, not a declaration, so we
+    # skip those lines and never mint a phantom entry (or phantom span
+    # boundary) from them.  (1-indexed; in_text[i+1] guards source line i+1.)
+    in_text = bytearray(len(lines) + 2)
+    for tb_start, tb_end in extract_text_blocks(lines):
+        for ln in range(tb_start, min(tb_end, len(lines)) + 1):
+            in_text[ln] = 1
+
     while i < len(lines):
         line = lines[i]
-        m = DECL_RE.match(line)
-        if not m:
+        if in_text[i + 1]:
+            i += 1
+            continue
+        md = _match_decl(line, table)
+        if md is None:
             i += 1
             continue
 
-        keyword = m.group(1)
-        tag = TAG_MAP[keyword]
+        keyword, tag, route = md
         decl_line = i + 1  # 1-indexed source line
 
         # --- Simple one-concept declarations ---
-        if keyword in ("datatype", "type_synonym", "record"):
+        if route == "typedecl":
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
             e = Entry(tag, _parse_typedecl_name(rest), f"{tag} {rest}",
@@ -406,7 +604,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             i += 1
             continue
 
-        if keyword == "axiomatization":
+        if route == "axiom":
             entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
                                  thy_line=decl_line, decl_end_line=decl_line))
             i += 1
@@ -427,8 +625,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             continue
 
         # --- Definitions ---
-        if keyword in ("definition", "abbreviation", "fun", "primrec",
-                       "inductive_set", "inductive"):
+        if route == "def":
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
             name = _parse_name(rest)
@@ -443,7 +640,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
                 cline = lines[i]
                 if BLANK_RE.match(cline):
                     break
-                if DECL_RE.match(cline):
+                if _match_decl(cline, table):
                     break
                 stripped = cline.strip()
                 if stripped.startswith("\\<comment>") or stripped.startswith("text "):
@@ -465,7 +662,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
             continue
 
         # --- Lemmas / theorems / corollaries ---
-        if keyword in ("lemma", "corollary", "theorem"):
+        if route == "goal":
             rest = line[len(keyword):].strip()
             name = _parse_name(rest)
             buf = [f"{tag} {rest}"]
@@ -486,7 +683,7 @@ def extract_entries(lines: list[str]) -> list[Entry]:
                 if PROOF_RE.match(cline):
                     proof_line = i + 1
                     break
-                if DECL_RE.match(cline):
+                if _match_decl(cline, table):
                     break
                 if stripped.startswith("\\<comment>"):
                     i += 1
@@ -625,6 +822,36 @@ def _add_one_section(thy: str, thy_path: Path,
         sections.append(_parse_plain(thy, thy_path))
 
 
+def _scan_header_file(path: Path) -> dict[str, str]:
+    r"""Scan only a theory's *header* for its `keywords` clause.
+
+    Reads at most a few hundred lines (a header is short — `theory ... begin`),
+    stopping at the theory's `begin`, so this is cheap even at AFP scale and
+    never touches proof bodies."""
+    head: list[str] = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for n, line in enumerate(f):
+                head.append(line.rstrip("\n"))
+                if n >= 400 or _HEADER_BEGIN_RE.match(line):
+                    break
+    except OSError:
+        return {}
+    return scan_keywords(head)
+
+
+def _populate_custom_commands(pairs: list[tuple[str, Path]]) -> None:
+    """Merge every theory header's custom-command table into the active
+    root's union :data:`_CUSTOM_COMMANDS` — mirroring Isabelle's session-wide
+    ``Keywords.++`` (Pure/Isar/keyword.scala:151).  This is what lets a theory
+    that *uses* `AOT_theorem` be parsed correctly even though the command is
+    *declared* in a different theory's header.  (Cleared by load_index before
+    the scan; a name redeclared with a different kind takes the last seen.)"""
+    for _name, path in pairs:
+        if path.suffix == ".thy" and path.exists():
+            _CUSTOM_COMMANDS.update(_scan_header_file(path))
+
+
 def _sections_from_dir(root_dir: Path,
                        seen_paths: set[Path],
                        sections: list[TheorySection]) -> None:
@@ -640,8 +867,13 @@ def _sections_from_dir(root_dir: Path,
     Falls back to a recursive `*.thy` glob if no ROOTs are found
     (legacy behaviour for non-Isabelle-session directories).  Dedup
     by resolved path via `_add_one_section`.
+
+    Two phases: first collect the theory list, then pre-scan all headers to
+    build the custom-command union (so a use can precede its declaration in
+    parse order), then parse each theory's entries.
     """
     roots = discover_roots(root_dir)
+    pairs: list[tuple[str, Path]] = []
     if roots:
         for root_path in roots:
             for session in parse_root_sessions(root_path):
@@ -649,12 +881,14 @@ def _sections_from_dir(root_dir: Path,
                     thy_path = resolve_session_theory(session, thy_entry)
                     if thy_path is None:
                         continue
-                    name = thy_entry[0]
-                    _add_one_section(name, thy_path, seen_paths, sections)
+                    pairs.append((thy_entry[0], thy_path))
     else:
         for thy_path in sorted(root_dir.rglob("*.thy")):
-            _add_one_section(thy_path.stem, thy_path,
-                             seen_paths, sections)
+            pairs.append((thy_path.stem, thy_path))
+
+    _populate_custom_commands(pairs)
+    for name, thy_path in pairs:
+        _add_one_section(name, thy_path, seen_paths, sections)
 
 
 _ROOT_OVERRIDE: Path | None = None  # set by main() from --root
@@ -674,6 +908,7 @@ def load_index() -> list[TheorySection]:
     directory is resolved (`--root` / `$ISABELLE_QUERY_ROOT` / cwd discovery)."""
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
+    _CUSTOM_COMMANDS.clear()  # rebuilt per load from the active root's headers
     _sections_from_dir(active_t_dir(), seen_paths, sections)
     return sections
 
