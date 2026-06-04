@@ -9,9 +9,9 @@ description = "Query the live theory index of an Isabelle/Isar project — entri
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-# Authored by Andras Salamon, with Claude Opus 4.6, 4.7, and 4.8.
+# Authored by András Salamon, with Claude Opus 4.6, 4.7, and 4.8.
 authors = [
-    { name = "Andras Salamon", email = "Andras.Salamon@st-andrews.ac.uk" },
+    { name = "András Salamon", email = "Andras.Salamon@st-andrews.ac.uk" },
 ]
 keywords = [
     "isabelle", "isar", "theorem-proving", "formal-verification",
