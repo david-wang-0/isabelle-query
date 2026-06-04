@@ -134,8 +134,12 @@ class CallGraph:
     all_names: set[str]            # universe of indexed entry names
 
 
+# `(?=\s|$)` (a token boundary), not a consumed `\s`, so a keyword standing
+# ALONE on its line — the "name on a following line" form — still matches.
+# It stays a whole-word test (`definitions`/`inductively` do not match), and
+# being zero-width it leaves the `line[len(keyword):]` slicing untouched.
 DECL_RE = re.compile(
-    r"^(definition|abbreviation|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)\s"
+    r"^(definition|abbreviation|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)(?=\s|$)"
 )
 
 TAG_MAP = {
@@ -474,6 +478,45 @@ def _match_decl(line: str, table: dict[str, str]
     return None
 
 
+# A decl keyword may stand alone on its line with the name on a *following*
+# line (~1,866 AFP entries):
+#     inductive_set
+#       myset :: "nat set"
+#     definition
+#       foo :: "nat" where "foo = 0"
+# Bound the forward scan to a few lines so a truncated/malformed file cannot
+# run on looking for a name that is not there.
+_NAME_LOOKAHEAD_LINES = 3
+
+
+def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
+                    parse_fn) -> str:
+    r"""The name for a decl whose keyword stood alone: scan forward from the
+    0-indexed line ``start``, skipping blank / ``\<comment>`` / ``text`` lines,
+    and parse the name from the **first content line** with ``parse_fn``.
+
+    Only the first content line is consulted: a continuation name always sits
+    immediately after the keyword.  If that line is an anonymous quoted
+    statement (``definition "lhs = ..."``) ``parse_fn`` rightly yields ``'?'``
+    — the decl really is anonymous, and scanning on would invent a name from
+    unrelated following prose.  A following *top-level command* likewise means
+    no name here.  Does NOT consume lines — the caller's body scan still covers
+    the peeked line, so the body buffer, ``decl_end_line`` and spans are
+    exactly as before; only the name changes."""
+    end = min(len(lines), start + _NAME_LOOKAHEAD_LINES)
+    j = start
+    while j < end:
+        stripped = lines[j].strip()
+        if not stripped or stripped.startswith("\\<comment>") \
+                or TEXT_OPEN_RE.match(lines[j]):
+            j += 1
+            continue
+        if _match_decl(lines[j], table):     # next command — no name here
+            return "?"
+        return parse_fn(stripped)            # first content line is the name
+    return "?"
+
+
 def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
     for i, line in enumerate(lines, 1):
@@ -598,7 +641,11 @@ def extract_entries(lines: list[str],
         if route == "typedecl":
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
-            e = Entry(tag, _parse_typedecl_name(rest), f"{tag} {rest}",
+            name = _parse_typedecl_name(rest)
+            if name == "?" and not _strip_decl_prefix(rest, typevars=True):
+                name = _lookahead_name(lines, i + 1, table,
+                                       _parse_typedecl_name)
+            e = Entry(tag, name, f"{tag} {rest}",
                       thy_line=decl_line, decl_end_line=decl_line)
             entries.append(e)
             i += 1
@@ -629,6 +676,8 @@ def extract_entries(lines: list[str],
             rest = line[len(keyword):].strip()
             rest = re.sub(r"\s+where$", "", rest)
             name = _parse_name(rest)
+            if name == "?" and not _strip_decl_prefix(rest, typevars=False):
+                name = _lookahead_name(lines, i + 1, table, _parse_name)
             buf = [f"{tag} {rest}"]
             decl_end_line = decl_line
             i += 1

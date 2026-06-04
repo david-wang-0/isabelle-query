@@ -29,27 +29,6 @@ def names_of(snippet):
 class RecoverableParserGaps(unittest.TestCase):
 
     @unittest.expectedFailure
-    def test_name_on_next_line_inductive_set(self):
-        # ~1,866 AFP entries: the keyword stands alone, the name is on the
-        # following line.  Needs continuation lookahead in extract_entries.
-        snippet = r'''theory T imports Main begin
-inductive_set
-  myset :: "nat set"
-where base: "0 \<in> myset"
-end
-'''
-        self.assertIn("myset", names_of(snippet))
-
-    @unittest.expectedFailure
-    def test_name_on_next_line_definition(self):
-        snippet = r'''theory T imports Main begin
-definition
-  foo :: "nat" where "foo = 0"
-end
-'''
-        self.assertIn("foo", names_of(snippet))
-
-    @unittest.expectedFailure
     def test_name_after_inline_comment(self):
         # ~190 AFP entries: a \<comment> \<open>...\<close> annotation precedes
         # the name.  Needs the prefix-stripper to skip a leading comment.

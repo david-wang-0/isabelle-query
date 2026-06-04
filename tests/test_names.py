@@ -124,5 +124,94 @@ end
         self.assertEqual(unparsed[0].tag, "LEMMA")
 
 
+class ContinuationLineName(unittest.TestCase):
+    """A decl whose keyword stands alone carries its name on a following line
+    (~1,866 AFP entries).  `extract_entries` peeks forward without consuming
+    the line, so the name is recovered while spans stay correct."""
+
+    def names_of(self, snippet):
+        return [e.name for e in section_from(snippet).entries]
+
+    def test_inductive_set_name_below(self):
+        snippet = r'''theory T imports Main begin
+inductive_set
+  myset :: "nat set"
+where base: "0 \<in> myset"
+end
+'''
+        self.assertIn("myset", self.names_of(snippet))
+
+    def test_definition_name_below(self):
+        snippet = r'''theory T imports Main begin
+definition
+  foo :: "nat" where "foo = 0"
+end
+'''
+        self.assertIn("foo", self.names_of(snippet))
+
+    def test_datatype_name_below(self):
+        # typedecl route: the type-arg list and name sit on the next line
+        snippet = r'''theory T imports Main begin
+datatype
+  'a tree = Leaf | Node "'a tree" 'a "'a tree"
+end
+'''
+        self.assertIn("tree", self.names_of(snippet))
+
+    def test_locale_prefix_alone_then_name_below(self):
+        # `definition (in foo)` strips to empty -> must still look ahead
+        snippet = r'''theory T imports Main begin
+definition (in ord)
+  min_set :: "'a set" where "min_set = {}"
+end
+'''
+        self.assertIn("min_set", self.names_of(snippet))
+
+    def test_blank_and_comment_lines_are_skipped(self):
+        snippet = r'''theory T imports Main begin
+definition
+
+  \<comment> \<open>a note\<close>
+  spaced :: "nat" where "spaced = 0"
+end
+'''
+        self.assertIn("spaced", self.names_of(snippet))
+
+    def test_following_command_means_no_name(self):
+        # a lone keyword immediately followed by another command really had no
+        # name on its own line: the next command must not be mined as the name
+        snippet = r'''theory T imports Main begin
+definition
+lemma foo: "True" by auto
+end
+'''
+        names = self.names_of(snippet)
+        self.assertNotIn("lemma", names)   # 'lemma' is not a name
+        self.assertIn("foo", names)        # the lemma keeps its own name
+
+    def test_same_line_name_still_parses(self):
+        # the lookahead must not disturb the common same-line form
+        snippet = r'''theory T imports Main begin
+definition bar :: "nat" where "bar = 0"
+end
+'''
+        self.assertIn("bar", self.names_of(snippet))
+
+    def test_anonymous_def_does_not_borrow_following_prose(self):
+        # a genuinely anonymous definition (implicit LHS name) followed by a
+        # text cartouche must stay '?': the lookahead reads only the FIRST
+        # content line and must not run on to mint a name from the prose
+        snippet = r'''theory T imports Main begin
+definition
+  "trans_rel \<equiv> {(a, b). foo a b}"
+text\<open>Final remark\<close>
+end
+'''
+        sec = section_from(snippet)
+        defs = [e for e in sec.entries if e.tag == "DEF"]
+        self.assertEqual(len(defs), 1)
+        self.assertEqual(defs[0].name, "?")   # not 'text\<open>Final'
+
+
 if __name__ == "__main__":
     unittest.main()
