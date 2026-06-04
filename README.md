@@ -1,106 +1,58 @@
-# query
+# isabelle-query
 
-A command-line tool for **querying the live theory index of an
-Isabelle/Isar project** — its entries, call graph, theory dependencies,
-and dead code — computed by parsing the project's `.thy` sources on
-*every* invocation. There is no cached database to rebuild: results are
-always in sync with the current theory tree (a full parse of ~90
-theories runs in well under a second).
+`query` is a command-line tool for **querying the live theory index of an
+Isabelle/Isar project** — its entries (definitions, lemmas, theorems,
+datatypes), call graph, theory dependencies, outstanding `sorry`s, and dead
+code. It parses the project's `.thy` sources on every invocation, so results
+always match the current tree (a full parse of ~90 theories runs in well under
+a second). It's aimed at large developments — sizeable AFP entries, industrial
+verification, research formalisations — where grep-and-eyeball stops scaling.
 
-It is aimed at large formalisations where grep-and-eyeball stops
-scaling — the largest AFP entries, industrial verification trees, or
-research developments with hundreds of interdependent lemmas.
-
-## Install
+## What it does
 
 ```sh
-pip install -e .        # from a clone, for development
-# or
-pip install .           # a regular install
+query summary              # theory overview table
+query theory MyTheory      # entries in a theory (-n for terse names)
+query find <regex>         # search entry names
+query show <name>          # a named entry's declaration + body
+query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
+query callees <name> [-r]  # what a name references (forward)
+query deps <theory> [-r]   # what a theory imports  (forward; reverse: uses)
+query sorry                # outstanding sorry's
+query unused               # dead-code / unused-entry analysis
 ```
 
-This puts a `query` command on your `PATH` (entry point
-`isabelle_query.cli:main`). Requires Python ≥ 3.9.
+Every subcommand takes `-h`; `query -h` lists all 15.
 
-## Pointing it at a project
+The tool reads one Isabelle **session directory** (a directory containing a
+`ROOT` file). Run `query` from inside a project and it finds the session
+automatically. For a tree with several sessions in sibling subdirectories, name
+the session directory (relative to the project root) in a one-line
+`.isabelle-query` marker file at the root, or pass `--root <dir>` / set
+`$ISABELLE_QUERY_ROOT`.
 
-`query` reads one Isabelle **session directory** — a directory
-containing a `ROOT` file, or a parent of several per-session `ROOT`s.
-It is resolved in this order:
+## Installation
 
-1. The `--root DIR` / `-R DIR` flag (must come *before* the subcommand).
-2. The `$ISABELLE_QUERY_ROOT` environment variable.
-3. The nearest **`.isabelle-query` marker file** at or above the current
-   directory (see below).
-4. **Auto-discovery**: the nearest directory at or above the current
-   directory that contains a `ROOT` file.
-
-For a single-session project (a `ROOT` at its top level, as most AFP
-entries have) the common case is zero-config — `cd` in and run `query`.
-
-### Multi-session trees: the `.isabelle-query` marker
-
-A project may keep several sessions in sibling subdirectories (with,
-perhaps, unrelated or vendored `ROOT`s elsewhere in the tree).
-Auto-discovery can't guess which subtree you mean, so name it **once**
-with a marker file at the project root, committed to the repo:
+Requires Python ≥ 3.9. Installs a `query` command on your `PATH`.
 
 ```sh
-echo t > .isabelle-query          # the session dir, relative to this file
+pip install isabelle-query     # from PyPI (once published)
+pip install .                  # from a checkout
 ```
 
-From then on `query` works from anywhere in the project with no flags —
-it walks up to the marker and scans the named directory. The first
-non-blank, non-comment line is used; an empty marker means "the session
-root is this directory". `--root` and `$ISABELLE_QUERY_ROOT` still override it for
-ad-hoc queries against other trees:
+## Developer installation
+
+An editable install — source edits take effect immediately, no reinstall:
 
 ```sh
-query --root ~/afp/thys/Some_Entry summary
+git clone <repo-url>
+cd isabelle-query
+python -m venv .venv && source .venv/bin/activate   # optional but recommended
+pip install -e .
 ```
 
-## Usage
+## Authors & license
 
-```sh
-query summary                 # theory overview table
-query theory MyTheory         # all entries in a theory (-n for terse names)
-query defs MyTheory           # definitions in a theory
-query find <regex>            # search entry names
-query show <name>             # show a named entry's declaration + body
-query callers <name> [-r]     # who references this name (-r = transitive)
-query callees <name> [-r]     # what this entry references
-query deps <theory> [-r]      # theories it imports   (reverse: `uses`)
-query grep <regex>            # live regex search over .thy sources
-query sorry                   # outstanding `sorry`s
-query unused [--roots]        # dead-code / unused-entry analysis
-```
-
-Every subcommand takes `-h/--help`; most support `-c` (bare count),
-`-n` (terse names), and verbosity flags. Run `query -h` for the full
-list.
-
-## Layout
-
-```
-src/isabelle_query/
-├── cli.py       # the `query` CLI: parsing, call graph, rendering, subcommands
-└── common.py    # ROOT/session parsing — the single source of truth for
-                 # "which .thy files belong to the build"
-```
-
-## Provenance
-
-These tools were developed inside a larger Isabelle/Isar formalisation
-of classical computational-complexity results. This repository was
-extracted from that project with **full git history preserved** — back
-to the original shell script that first auto-generated a lemma registry
-— using `git filter-repo`, then restructured into an installable
-package.
-
-## Authors
-
-Andras Salamon, with Claude Opus 4.6, 4.7, and 4.8.
-
-## License
-
-[MIT](LICENSE) © 2026 Andras Salamon.
+By András Salamon, with Claude Opus 4.6, 4.7, and 4.8. Extracted — with its full
+git history — from a larger Isabelle/Isar formalisation of computational-
+complexity results. [MIT](LICENSE).
