@@ -8,7 +8,7 @@ t/**/*.thy independently, because:
 
   - WIP / orphan / archived .thy files on disk are then silently
     included.
-  - Adding a new theory subdirectory (e.g. t/generic/) requires
+  - Adding a new theory subdirectory (e.g. t/sub/) requires
     editing every script that hard-codes the glob list.
 
 Public API
@@ -283,7 +283,7 @@ def parse_thy_imports(thy_path: Path) -> list[str]:
     """Return the ordered list of theory names from a .thy file's
     `imports ... begin` clause.
 
-    Handles plain names (`Substrate`) and quoted qualified names
+    Handles plain names (`Main`) and quoted qualified names
     (`"HOL-Library.FuncSet"`).  Returns the raw import names; callers
     decide whether each is in-project or external (cross-session) by
     cross-referencing against a session's `parse_root_theories` list.

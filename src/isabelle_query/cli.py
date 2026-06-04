@@ -106,7 +106,7 @@ class TheorySection:
         # roadmap-attachment feature.)
     is_thy: bool = True
         # False for a non-`.thy` path passed as a trailing grep positional
-        # (e.g. `query grep PAT ar-design.md`).  Such a section is parsed
+        # (e.g. `query grep PAT notes.md`).  Such a section is parsed
         # *plainly* (no entries, outline, text/comment blocks): the Isabelle
         # entry-grammar does not apply to Markdown / prose, so cmd_grep treats
         # it as plain `grep` — every matched line, no synthesised owning-entry
@@ -505,8 +505,8 @@ def _add_one_section(thy: str, thy_path: Path,
                      seen_paths: set[Path],
                      sections: list[TheorySection]) -> None:
     """Append a parsed section, deduplicating by resolved absolute path
-    so that symlinked theories (e.g.\\ `archive/generic/Substrate.thy`
-    -> `t/generic/Substrate.thy`) appear once even if both the symlink
+    so that symlinked theories (e.g.\\ `link/Foo.thy`
+    -> `sub/Foo.thy`) appear once even if both the symlink
     and the target are encountered.
 
     `.thy` paths are parsed with the full Isabelle entry grammar
@@ -1069,11 +1069,11 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
     bare theory name:
 
       - **Path form** — the argument carries a path separator or a
-        ``.thy`` suffix (e.g. ``t/generic/AlphabetReduction.thy``).
+        ``.thy`` suffix (e.g. ``sub/Foo.thy``).
         Matched against each section's resolved path, so symlinks and
         relative/absolute spellings all land on the same section.
       - **Name form** — a bare theory name (e.g.
-        ``AlphabetReduction``), matched against the section's theory
+        ``Foo``), matched against the section's theory
         name (exact, then case-insensitive).  This is the convenience
         spelling: the name is looked up among the sections already
         discovered through the ``common.py`` ROOT-walking routines.
@@ -1107,8 +1107,8 @@ def _suggest_theory(sections: list[TheorySection], name: str) -> str | None:
     """Closest theory to `name`, as a cwd-relative `.thy` path suggestion
     for a 'did you mean ...?' hint; None if nothing is close.
 
-    Matches on the theory *stem*, so a mistyped path (`t/ar/Fooo.thy`) is
-    handled as well as a bare name (`Fooo`)."""
+    Matches on the theory *stem*, so a mistyped path
+    (`path/to/Fooo.thy`) is handled like a bare name (`Fooo`)."""
     import difflib
     by_name = {s.theory: s for s in sections}
     matches = difflib.get_close_matches(
@@ -1458,7 +1458,7 @@ def _find_callers(sections: list[TheorySection], name: str,
 
     When ``external`` is true, additionally skip every line in the
     theory(ies) that define *name* — useful for "is anything outside
-    MacroLib using MacroLib's primitives?" audits where intra-theory
+    Foo using Foo's primitives?" audits where intra-theory
     cross-references are noise.
     """
     word_re = re.compile(_isa_word_pattern(name))
@@ -1899,7 +1899,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
     """Walk every section's source and return one tuple per line that
     matches `pat`.  Each tuple is (loc_name, line_no, line_text,
     owning_entry, is_live, is_thy), where loc_name is the file's real
-    name (e.g. `Substrate.thy`, `ar-design.md`) so plain non-`.thy`
+    name (e.g. `Foo.thy`, `notes.md`) so plain non-`.thy`
     positionals report their actual filename rather than `<stem>.thy`.
     `is_thy` is False for non-`.thy` positionals (Markdown / prose),
     which have no Isabelle entries and hence no owning-entry column —
@@ -2196,8 +2196,8 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
     * a directory with no ``ROOT``  -> recursive ``*.thy`` glob.
 
     Results are unioned and deduplicated by resolved absolute
-    path, so passing ``t/ archive/`` does not double-count the
-    archive theories that are symlinks into ``t/generic/``.
+    path, so passing two directories where one holds symlinks into
+    the other does not double-count the shared theories.
     """
     files: list[str] = list(getattr(ns, "files", None) or [])
     if not files:
@@ -2498,9 +2498,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--external", action="store_true",
                    help="exclude callers inside the theory that defines "
                         "NAME (e.g. when auditing whether anything outside "
-                        "MacroLib uses MacroLib's primitives, the "
-                        "internal cross-references between MacroLib lemmas "
-                        "are noise).  Only affects the non-recursive form; "
+                        "a given theory uses its primitives, that theory's "
+                        "own internal cross-references are noise).  Only "
+                        "affects the non-recursive form; "
                         "transitive closure via -r ignores this flag.")
     p.set_defaults(func=_run_callers)
 
