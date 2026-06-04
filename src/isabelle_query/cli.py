@@ -160,12 +160,27 @@ COMMENT_LINE_RE = re.compile(r"\\<comment>\s*\\<open>(.*)$")
 LATEX_LINE_RE = re.compile(
     r"\\(begin|end|caption|node|draw|newlength|newcommand|settowidth|settoheight|scalebox|label)\b"
 )
-NAME_RE = re.compile(r"^(\w[\w']*)")
-# Type-decl names: optional type-args (a single \<open>'a\<close> or a
-# tuple \<open>('a, 'b)\<close>) precede the name.
-TYPEDECL_NAME_RE = re.compile(
-    r"^(?:'\w+\s+|\([^)]*\)\s+)?(\w[\w']*)"
-)
+# Isabelle fact/definition names that contain non-identifier characters
+# (-, :, [, ], digits after a colon, ...) must be double-quoted at their
+# declaration site, e.g. `theorem "beta-C-cor:3":`.  Capture the quoted
+# spelling verbatim so `show`/`callers` can find the entry by the name the
+# source actually uses.
+QUOTED_NAME_RE = re.compile(r'^"([^"]+)"')
+# A bare name may interleave ASCII identifier characters with Isabelle
+# symbol tokens written `\<...>` (e.g. \<psi>, \<alpha>ah, \<tau>rtrancl3p)
+# and subscript controls (\<^sub>1).  Treating `\<...>` runs as name
+# characters captures the many AFP entries whose names are Greek letters or
+# decorated identifiers, which a plain `\w[\w']*` pattern misses.
+SYM_NAME_RE = re.compile(r"((?:\\<\^?\w+>|\w)(?:\\<\^?\w+>|[\w'])*)")
+# Isabelle structural control symbols are not fact names: cartouche
+# delimiters (\<open>/\<close>) and the comment marker (\<comment>) can sit
+# where a name is expected (a cartouche statement, or a `\<comment> \<open>
+# ...\<close>` annotation), and must not be captured as the name.
+RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>", "\\<comment>", "\\<^cancel>")
+# A quoted spelling is a *name* only when it forms a label: the closing quote
+# is followed, after optional [attributes], by ':'.  Otherwise the quotes hold
+# the statement of an anonymous lemma (`lemma "P"`), not a name.
+LABEL_AFTER_RE = re.compile(r"\s*(?:\[[^\]]*\]\s*)*:")
 
 # Named conjuncts of a multi-`shows` lemma: `shows NAME:` / `and NAME:`
 # in the *shows* region.  Gated by the SHOWS_*_RE so the `assumes ... and
@@ -186,16 +201,79 @@ def _isa_word_pattern(name: str) -> str:
     return r"(?<![\w'])" + re.escape(name) + r"(?![\w'])"
 
 
+def _balanced_paren_end(s: str) -> int:
+    """Index just past the ')' matching a leading '(' (s must start with
+    '('), accounting for nesting; -1 if unbalanced."""
+    depth = 0
+    for i, c in enumerate(s):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def _strip_decl_prefix(s: str, typevars: bool) -> str:
+    r"""Drop the syntactic noise that can sit between a keyword and the name.
+
+    A fact or type name never starts with '(' or a type variable, so this
+    only removes:
+      * command modifiers / locale specs — ``(in foo)``, ``(nonexhaustive)``,
+        ``(overloaded)``, ``(discs_sels)``, ``(sequential)``, ...
+      * for type declarations (``typevars=True``), leading type arguments,
+        either bare (``'a``) or grouped (``('a, 'b)``).
+    """
+    while s:
+        if s[0] == "(":
+            j = _balanced_paren_end(s)
+            if j < 0:
+                break
+            s = s[j:].lstrip()
+            continue
+        if typevars and s[0] == "'":
+            m = re.match(r"'[\w']+\s+", s)
+            if m:
+                s = s[m.end():]
+                continue
+        break
+    return s
+
+
+def _name_from(s: str, require_label: bool) -> str:
+    """Parse a name from `s` (already stripped of any decl prefix): a
+    double-quoted spelling, else a symbol-aware identifier, else '?'.
+
+    With ``require_label`` (fact commands), a quoted spelling counts only as a
+    *label* — followed, after optional [attributes], by ':'.  Otherwise the
+    quotes hold the statement of an anonymous lemma (`lemma "P"`), not a name.
+    Type declarations pass ``require_label=False``: a quoted type name
+    (`datatype 'a "term"`) is followed by '=' / where, not ':'.
+    """
+    mq = QUOTED_NAME_RE.match(s)
+    if mq and (not require_label or LABEL_AFTER_RE.match(s, mq.end())):
+        return mq.group(1)
+    m = SYM_NAME_RE.match(s)
+    if not m:
+        return "?"
+    name = m.group(1)
+    if name.startswith(RESERVED_NAME_PREFIXES):
+        return "?"
+    return name
+
+
 def _parse_name(text_after_tag: str) -> str:
-    m = NAME_RE.match(text_after_tag.strip())
-    return m.group(1) if m else "?"
+    return _name_from(_strip_decl_prefix(text_after_tag.strip(), typevars=False),
+                      require_label=True)
 
 
 def _parse_typedecl_name(text_after_tag: str) -> str:
     r"""Parse a type_synonym / datatype / record's name, skipping any
-    leading type-argument list (\<open>'a\<close> or \<open>('a, 'b)\<close>)."""
-    m = TYPEDECL_NAME_RE.match(text_after_tag.strip())
-    return m.group(1) if m else "?"
+    leading modifier (\<open>(discs_sels)\<close>) and type-argument list
+    (\<open>'a\<close> or \<open>('a, 'b)\<close>)."""
+    return _name_from(_strip_decl_prefix(text_after_tag.strip(), typevars=True),
+                      require_label=False)
 
 
 def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
@@ -687,10 +765,30 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     # 3. Build line-to-entry index for caller attribution.
     line_index = _build_line_index(sections)
 
-    # 4. Antiquotation pattern.
+    # 4. Reference-extraction patterns.
+    #    antiq_re strips doc antiquotations (@{thm foo}) so a name cited only
+    #    in rendered documentation is not counted as a proof-body call.
     antiq_re = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
+    #    The old per-name search matched a name wherever it sat between
+    #    non-`[\w']` characters.  Because `\` (the start of a \<...> symbol)
+    #    is itself non-`[\w']`, a name can match two ways, and we must
+    #    extract both to reproduce every edge without inventing any:
+    #      * sym_re — maximal runs that include \<...> symbol tokens, so a
+    #        symbolic name like `merge_rt_F\<^sub>m` is one token (a plain
+    #        [\w'] split would lose it);
+    #      * word_re — maximal [\w'] runs, so a bare name that abuts a symbol
+    #        (`iso_transaction` in `iso_transaction\<^sub>h`) is still found.
+    #    Names with other non-identifier characters (beta-C-cor:3) are written
+    #    double-quoted at the use site, so we also look up whole quoted
+    #    spellings.  All three hashed into name_set are the linear-time
+    #    equivalent of the per-name boundary search.
+    sym_re = re.compile(r"(?:\\<\^?\w+>|[\w'])+")
+    word_re = re.compile(r"[\w']+")
+    quoted_re = re.compile(r'"([^"]+)"')
 
-    # 5. Single pass over all source lines.
+    # 5. Single linear pass: O(total source size), not O(lines x names).
+    #    Tokenise each line once and intersect with the name set, rather
+    #    than testing every one of ~10^5 names against the line.
     callers: dict[str, set[str]] = {n: set() for n in name_set}
     callees: dict[str, set[str]] = {}
 
@@ -704,19 +802,26 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
             if any(line_no in r for r in t_ranges):
                 continue
             stripped = antiq_re.sub('', line)
-            for name in name_set:
-                if name not in stripped:
+            # Candidate referenced names on this line: symbol-aware tokens,
+            # bare [\w'] runs, and whole double-quoted spellings — kept only
+            # if they name an indexed entry.
+            cand = name_set.intersection(sym_re.findall(stripped))
+            cand |= name_set.intersection(word_re.findall(stripped))
+            quoted = quoted_re.findall(stripped)
+            if quoted:
+                cand |= name_set.intersection(quoted)
+            if not cand:
+                continue
+            caller_entry = _entry_at_line(idx, line_no)
+            if caller_entry is None or caller_entry.name == "?":
+                continue
+            caller_name = caller_entry.name
+            for name in cand:
+                d_ranges = d_map.get(name)
+                if d_ranges and any(line_no in r for r in d_ranges):
                     continue
-                if not re.search(_isa_word_pattern(name), stripped):
-                    continue
-                d_ranges = d_map.get(name, set())
-                if any(line_no in r for r in d_ranges):
-                    continue
-                caller_entry = _entry_at_line(idx, line_no)
-                if caller_entry is None or caller_entry.name == "?":
-                    continue
-                callers[name].add(caller_entry.name)
-                callees.setdefault(caller_entry.name, set()).add(name)
+                callers[name].add(caller_name)
+                callees.setdefault(caller_name, set()).add(name)
 
     return CallGraph(callers=callers, callees=callees, all_names=name_set)
 
