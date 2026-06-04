@@ -4,6 +4,7 @@ with the brute-force per-name oracle, and must honour the same exclusions
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -100,6 +101,56 @@ end
         })
         g = self.assertMatchesOracle(secs)
         self.assertIn("uses_base", g.callers["base"])
+
+    def test_special_name_substring_is_not_a_call(self):
+        # A quoted special-char name must not be matched inside a *longer*
+        # quoted name it is a substring of: `num:1` ⊄ `eq-num:1`.  This is
+        # the over-match the AOT keyword scanner surfaced at corpus scale.
+        sec = section_from(r'''theory T imports Main begin
+lemma "num:1": "True" by auto
+lemma "eq-num:1": "True" by auto
+lemma usesit: "True" using "eq-num:1" by auto
+end
+''')
+        g = self.assertMatchesOracle([sec])
+        self.assertEqual(g.callers["eq-num:1"], {"usesit"})
+        self.assertEqual(g.callers.get("num:1", set()), set())
+
+    def test_symbolic_name_not_glued_into_longer_symbol(self):
+        # `\<gamma>` must not be matched inside `\<gamma>\<^sub>1`.
+        sec = section_from(r'''theory T imports Main begin
+definition \<gamma> :: "nat" where "\<gamma> = 0"
+definition \<gamma>\<^sub>1 :: "nat" where "\<gamma>\<^sub>1 = 1"
+lemma usesit: "\<gamma>\<^sub>1 = \<gamma>\<^sub>1" by simp
+end
+''')
+        g = self.assertMatchesOracle([sec])
+        self.assertIn("usesit", g.callers[r"\<gamma>\<^sub>1"])
+        self.assertEqual(g.callers.get(r"\<gamma>", set()), set())
+
+
+class WordBoundary(unittest.TestCase):
+    """`_isa_word_pattern` matches a name only where a real citation can be —
+    the precision that keeps the call graph from inventing edges."""
+
+    def m(self, name, text):
+        return bool(re.search(cli._isa_word_pattern(name), text))
+
+    def test_plain_identifier_is_prime_and_substring_aware(self):
+        self.assertTrue(self.m("foo", "using foo by simp"))
+        self.assertTrue(self.m("foo", "foo[OF x]"))        # attribute reference
+        self.assertFalse(self.m("foo", "foobar"))          # substring
+        self.assertFalse(self.m("foo", "foo' = foo'"))     # prime extends the name
+
+    def test_special_char_name_only_matches_quoted(self):
+        self.assertTrue(self.m("num:1", '"num:1"[THEN x]'))
+        self.assertFalse(self.m("num:1", '"eq-num:1"'))    # substring of longer name
+        self.assertFalse(self.m("denote=:4", '"denote=:4[3]"'))
+
+    def test_symbolic_name_not_glued(self):
+        self.assertTrue(self.m(r"\<gamma>", r"rule \<gamma> here"))
+        self.assertFalse(self.m(r"\<gamma>", r"\<gamma>\<^sub>1"))   # followed by a symbol
+        self.assertTrue(self.m("foo", r"foo\<gamma>"))     # ASCII run abutting a symbol
 
 
 if __name__ == "__main__":

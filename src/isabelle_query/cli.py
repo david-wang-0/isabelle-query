@@ -191,14 +191,37 @@ SHOWS_ANYWHERE_RE = re.compile(r"\bshows\b")   # applied to the decl-line rest
 CONJUNCT_RE = re.compile(r"(?:shows|and)\s+(\w[\w']*)\s*:")
 
 
-def _isa_word_pattern(name: str) -> str:
-    """Return a regex pattern matching `name` as an Isabelle identifier.
+# A fact name that contains a character outside the identifier/symbol set —
+# a hyphen, colon, bracket, etc. (`beta-C-cor:3`, `num:1`, `denote=:4[3]`) —
+# cannot be written bare in a reference; Isabelle requires it double-quoted.
+# Such names are also frequently substrings of one another (`num:1` of
+# `eq-num:1`, `safe-ext` of `safe-ext[3]`), so a `[\w']`-boundary search
+# spuriously matches the short one inside the long one.
+_SPECIAL_NAME_RE = re.compile(r"[^\w'\\<>^]")
 
-    Isabelle allows primes (') in identifiers, so \\b is wrong — it
-    treats ' as a word boundary.  We use negative lookbehind/lookahead
-    for [\\w'] instead.
+
+def _isa_word_pattern(name: str) -> str:
+    r"""Return a regex matching `name` as a complete Isabelle name reference.
+
+    Three cases, each matching exactly where a real citation can occur:
+
+    * **Special-character names** (hyphen/colon/bracket — must be quoted in
+      source): match only when flanked by the double-quotes, so `num:1` is
+      not found inside `"eq-num:1"`.
+    * **Symbolic names** written with `\<...>` tokens: a name that *ends* in
+      `>` must not be glued to a following `\<...>` symbol, and one that
+      *starts* with `\<` must not follow a preceding `>` — otherwise `\<gamma>`
+      would match inside `\<gamma>\<^sub>1`.  (A bare ASCII run abutting a
+      symbol, e.g. `foo` in `foo\<gamma>`, is still a match — it does not end
+      in `>`.)
+    * **Plain identifiers**: a prime-aware word boundary — `\b` is wrong
+      because Isabelle allows `'` inside identifiers (`foo'`).
     """
-    return r"(?<![\w'])" + re.escape(name) + r"(?![\w'])"
+    if _SPECIAL_NAME_RE.search(name):
+        return r'(?<=")' + re.escape(name) + r'(?=")'
+    left = r"(?<![\w'])" + (r"(?<!>)" if name.startswith("\\<") else "")
+    right = (r"(?!\\<)" if name.endswith(">") else "") + r"(?![\w'])"
+    return left + re.escape(name) + right
 
 
 def _balanced_paren_end(s: str) -> int:
