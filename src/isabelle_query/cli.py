@@ -41,7 +41,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from isar_query.common import (
+from isabelle_query.common import (
     default_t_dir,
     discover_roots,
     parse_root_sessions,
@@ -563,7 +563,7 @@ _ROOT_OVERRIDE: Path | None = None  # set by main() from --root
 def active_t_dir() -> Path:
     """The session directory the index is built from: the `--root`
     override if `main()` set one, else :func:`default_t_dir` (which
-    consults `$ISAR_ROOT` and walks up from the cwd)."""
+    consults `$ISABELLE_QUERY_ROOT` and walks up from the cwd)."""
     return _ROOT_OVERRIDE if _ROOT_OVERRIDE is not None else default_t_dir()
 
 
@@ -571,7 +571,7 @@ def load_index() -> list[TheorySection]:
     """Walk the active session directory, parsing each declared theory.
     Searches at the session root and in any sub-directory declared by
     ROOT's `directories` clause.  See :func:`active_t_dir` for how the
-    directory is resolved (`--root` / `$ISAR_ROOT` / cwd discovery)."""
+    directory is resolved (`--root` / `$ISABELLE_QUERY_ROOT` / cwd discovery)."""
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
     _sections_from_dir(active_t_dir(), seen_paths, sections)
@@ -2390,7 +2390,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "-R", "--root", metavar="DIR",
         help="Isabelle session directory to query — the directory "
              "containing ROOT, or a parent of per-session ROOTs.  "
-             "Overrides $ISAR_ROOT, any .isar-query marker, and "
+             "Overrides $ISABELLE_QUERY_ROOT, any .isabelle-query marker, and "
              "auto-discovery.  Must precede the subcommand.")
 
     sub = top.add_subparsers(dest="command", title="commands")

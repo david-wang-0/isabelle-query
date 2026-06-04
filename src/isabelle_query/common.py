@@ -15,8 +15,8 @@ Public API
 ----------
 
 default_t_dir(start=None)
-    Resolve the Isabelle session directory to index: ``$ISAR_ROOT`` if
-    set, else the nearest ``.isar-query`` marker file at or above
+    Resolve the Isabelle session directory to index: ``$ISABELLE_QUERY_ROOT`` if
+    set, else the nearest ``.isabelle-query`` marker file at or above
     ``start`` (default: cwd), else the nearest directory containing a
     ``ROOT`` file, else ``start``.  This is the project-root entry point
     used whenever a caller doesn't pass an explicit ``t_dir``.
@@ -73,7 +73,7 @@ iter_sessions(root_dir)
     Convenience: discover_roots ∘ parse_root_sessions, flattened.
 
 Default project root: callers that don't pass an explicit ``t_dir``
-get :func:`default_t_dir`'s result — ``$ISAR_ROOT``, else the nearest
+get :func:`default_t_dir`'s result — ``$ISABELLE_QUERY_ROOT``, else the nearest
 session directory at or above the current working directory.  Callers
 needing a specific layout pass an explicit ``t_dir``.
 """
@@ -88,7 +88,7 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 
-MARKER_NAME = ".isar-query"
+MARKER_NAME = ".isabelle-query"
 
 
 def _read_marker(marker: Path) -> Path | None:
@@ -121,8 +121,8 @@ def default_t_dir(start: Path | None = None) -> Path:
 
     Resolution order:
 
-    1. ``$ISAR_ROOT``, if set (``~`` expanded, resolved to absolute).
-    2. The nearest project marker file (``.isar-query``) at or above
+    1. ``$ISABELLE_QUERY_ROOT``, if set (``~`` expanded, resolved to absolute).
+    2. The nearest project marker file (``.isabelle-query``) at or above
        ``start`` (default: the current working directory).  Drop one at a
        project's root, committed to the repo, so the tool resolves the
        right session directory from anywhere in the tree with no flags.
@@ -138,12 +138,12 @@ def default_t_dir(start: Path | None = None) -> Path:
     child ``ROOT`` files: a directory holding several ROOTs may be one
     project's sessions or several unrelated projects (e.g. vendored
     copies), and a structural scan can't tell them apart — that is what
-    the marker file (or ``--root`` / ``$ISAR_ROOT``) resolves.  This
+    the marker file (or ``--root`` / ``$ISABELLE_QUERY_ROOT``) resolves.  This
     replaces the old hard-coded ``PROJECT_ROOT/t``: the tool assumes no
     particular directory name, and no longer expects to live in a sibling
     ``bin/`` of the project it queries.
     """
-    env = os.environ.get("ISAR_ROOT")
+    env = os.environ.get("ISABELLE_QUERY_ROOT")
     if env:
         return Path(env).expanduser().resolve()
     here = (start or Path.cwd()).resolve()

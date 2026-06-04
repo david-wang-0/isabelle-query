@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "isar-query"
+name = "isabelle-query"
 version = "0.1.0"
 description = "Query the live theory index of an Isabelle/Isar project — entries, call graph, dependencies, and dead code — by parsing .thy files on every invocation."
 readme = "README.md"
@@ -34,7 +34,7 @@ classifiers = [
 ]
 
 [project.scripts]
-query = "isar_query.cli:main"
+query = "isabelle_query.cli:main"
 
 [project.urls]
 # Set these when the GitHub repo is published:
@@ -42,4 +42,4 @@ query = "isar_query.cli:main"
 # Source = "https://github.com/<owner>/query"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/isar_query"]
+packages = ["src/isabelle_query"]
