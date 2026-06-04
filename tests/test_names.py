@@ -56,8 +56,10 @@ class ParseName(unittest.TestCase):
 
     def test_reserved_control_symbols_are_not_names(self):
         # cartouche/comment delimiters at the name position must not be
-        # captured as a name (they were before the reserved-prefix guard)
-        self.assertEqual(PN(r"\<comment> \<open>a note\<close> rest"), "?")
+        # captured as a name (they were before the reserved-prefix guard).
+        # A lone margin comment yields no name; a comment *followed* by a name
+        # is the separate skip case (test_margin_comment_before_name_is_skipped).
+        self.assertEqual(PN(r"\<comment> \<open>a note\<close>"), "?")
         self.assertEqual(PN(r"\<open>P x \<longrightarrow> Q x\<close>"), "?")
 
     def test_quoted_statement_is_not_a_name(self):
@@ -84,6 +86,15 @@ class ParseName(unittest.TestCase):
         self.assertEqual(PN('"for" :: "nat list"'), "for")
         self.assertEqual(PN('"if": "P"'), "if")
         self.assertEqual(PN('"and" :: "fm"'), "and")
+
+    def test_margin_comment_before_name_is_skipped(self):
+        # ~190 AFP entries: a `\<comment> \<open>...\<close>` annotation sits
+        # between the keyword and the name; the prefix-stripper skips it.
+        self.assertEqual(PN(r'\<comment> \<open>a note\<close> bar :: "nat"'), "bar")
+        # nested cartouche inside the comment body
+        self.assertEqual(PN(r'\<comment> \<open>see \<open>X\<close>\<close> baz ::'), "baz")
+        # a comment with no following name stays '?'
+        self.assertEqual(PN(r'\<comment> \<open>only a note\<close>'), "?")
 
 
 class ParseTypedeclName(unittest.TestCase):

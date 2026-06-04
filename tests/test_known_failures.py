@@ -29,16 +29,6 @@ def names_of(snippet):
 class RecoverableParserGaps(unittest.TestCase):
 
     @unittest.expectedFailure
-    def test_name_after_inline_comment(self):
-        # ~190 AFP entries: a \<comment> \<open>...\<close> annotation precedes
-        # the name.  Needs the prefix-stripper to skip a leading comment.
-        snippet = r'''theory T imports Main begin
-definition \<comment> \<open>a note\<close> bar :: "nat" where "bar = 0"
-end
-'''
-        self.assertIn("bar", names_of(snippet))
-
-    @unittest.expectedFailure
     def test_abbreviation_lhs_head_name(self):
         # Abbreviations defined by an equation in a cartouche/quotes carry no
         # separate label; the useful name is the head of the LHS.  Needs the

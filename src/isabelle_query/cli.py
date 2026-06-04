@@ -310,13 +310,36 @@ def _balanced_paren_end(s: str) -> int:
     return -1
 
 
+def _balanced_cartouche_end(s: str) -> int:
+    r"""Index just past the `\<close>` matching a leading `\<open>` (s must
+    start with `\<open>`), accounting for nesting; -1 if unbalanced (e.g. a
+    cartouche that runs past the end of this line).  The cartouche is the
+    symbol-level analogue of a paren: `\<open>`/`\<close>` nest like `(`/`)`."""
+    depth = 0
+    i = 0
+    while i < len(s):
+        if s.startswith("\\<open>", i):
+            depth += 1
+            i += len("\\<open>")
+        elif s.startswith("\\<close>", i):
+            depth -= 1
+            i += len("\\<close>")
+            if depth == 0:
+                return i
+        else:
+            i += 1
+    return -1
+
+
 def _strip_decl_prefix(s: str, typevars: bool) -> str:
     r"""Drop the syntactic noise that can sit between a keyword and the name.
 
-    A fact or type name never starts with '(' or a type variable, so this
-    only removes:
+    A fact or type name never starts with '(', a type variable, or a margin
+    comment, so this only removes:
       * command modifiers / locale specs — ``(in foo)``, ``(nonexhaustive)``,
         ``(overloaded)``, ``(discs_sels)``, ``(sequential)``, ...
+      * a leading margin comment ``\<comment> \<open>...\<close>`` that annotates
+        the declaration before its name;
       * for type declarations (``typevars=True``), leading type arguments,
         either bare (``'a``) or grouped (``('a, 'b)``).
     """
@@ -326,6 +349,14 @@ def _strip_decl_prefix(s: str, typevars: bool) -> str:
             if j < 0:
                 break
             s = s[j:].lstrip()
+            continue
+        if s.startswith("\\<comment>"):
+            s = s[len("\\<comment>"):].lstrip()
+            if s.startswith("\\<open>"):
+                k = _balanced_cartouche_end(s)
+                if k < 0:
+                    break               # comment runs past this line
+                s = s[k:].lstrip()
             continue
         if typevars and s[0] == "'":
             m = re.match(r"'[\w']+\s+", s)
