@@ -33,18 +33,16 @@ File organisation (section banners below mark each):
   uniform.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Make sibling bin/common.py importable regardless of how this script
-# is invoked (by absolute path, via Makefile, via a hook).
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from common import (  # noqa: E402
-    T_DIR,
+from isar_query.common import (
+    default_t_dir,
     discover_roots,
     parse_root_sessions,
     parse_thy_imports,
@@ -559,13 +557,24 @@ def _sections_from_dir(root_dir: Path,
                              seen_paths, sections)
 
 
+_ROOT_OVERRIDE: Path | None = None  # set by main() from --root
+
+
+def active_t_dir() -> Path:
+    """The session directory the index is built from: the `--root`
+    override if `main()` set one, else :func:`default_t_dir` (which
+    consults `$ISAR_ROOT` and walks up from the cwd)."""
+    return _ROOT_OVERRIDE if _ROOT_OVERRIDE is not None else default_t_dir()
+
+
 def load_index() -> list[TheorySection]:
-    """Walk the project ROOT (the `t/` session), parsing each
-    declared theory.  Searches at the session root and in any
-    sub-directory declared by ROOT's `directories` clause."""
+    """Walk the active session directory, parsing each declared theory.
+    Searches at the session root and in any sub-directory declared by
+    ROOT's `directories` clause.  See :func:`active_t_dir` for how the
+    directory is resolved (`--root` / `$ISAR_ROOT` / cwd discovery)."""
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
-    _sections_from_dir(T_DIR, seen_paths, sections)
+    _sections_from_dir(active_t_dir(), seen_paths, sections)
     return sections
 
 
@@ -1021,7 +1030,7 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
 
 def cmd_summary(sections: list[TheorySection]) -> None:
     total = sum(len(s.entries) for s in sections)
-    print(f"# Theory Index — NDTHT Formalization\n")
+    print("# Theory Index\n")
     print(f"{total} entries across {len(sections)} theories  "
           f"(parsed live from .thy files)\n")
     print("## Theories\n")
@@ -2374,9 +2383,15 @@ def _run_lines(ns: argparse.Namespace) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
-        prog="bin/query",
+        prog="query",
         description="Query the theory index — computed live from .thy files.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    top.add_argument(
+        "-R", "--root", metavar="DIR",
+        help="Isabelle session directory to query — the directory "
+             "containing ROOT, or a parent of per-session ROOTs.  "
+             "Overrides $ISAR_ROOT, any .isar-query marker, and "
+             "auto-discovery.  Must precede the subcommand.")
 
     sub = top.add_subparsers(dest="command", title="commands")
 
@@ -2568,8 +2583,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    global _ROOT_OVERRIDE
     parser = _build_parser()
     ns = parser.parse_args()
+    if ns.root:
+        _ROOT_OVERRIDE = Path(ns.root).expanduser().resolve()
     if not hasattr(ns, "func"):
         parser.print_help()
         sys.exit(1)

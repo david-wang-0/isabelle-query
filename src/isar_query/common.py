@@ -14,9 +14,12 @@ t/**/*.thy independently, because:
 Public API
 ----------
 
-PROJECT_ROOT, T_DIR
-    Absolute paths.  PROJECT_ROOT is the repo root (one level up from
-    bin/); T_DIR is the Isabelle session directory (PROJECT_ROOT / "t").
+default_t_dir(start=None)
+    Resolve the Isabelle session directory to index: ``$ISAR_ROOT`` if
+    set, else the nearest ``.isar-query`` marker file at or above
+    ``start`` (default: cwd), else the nearest directory containing a
+    ``ROOT`` file, else ``start``.  This is the project-root entry point
+    used whenever a caller doesn't pass an explicit ``t_dir``.
 
 run_guarded(label, thunk)
     Run thunk() for a best-effort side task that must never break its
@@ -31,13 +34,13 @@ parse_root_directories(root_path)
     Return the ordered list of subdirectory names declared under the
     ROOT file's `directories` clause.
 
-iter_thy_files(t_dir=T_DIR)
+iter_thy_files(t_dir=None)
     Return the ordered list of absolute Path objects for .thy files
     declared in t_dir/ROOT.  Each theory is resolved at the session
     root first, then in each declared subdirectory.  Returns []
     gracefully if t_dir/ROOT is missing.
 
-resolve_thy_file(name, t_dir=T_DIR)
+resolve_thy_file(name, t_dir=None)
     Resolve a single declared theory name to its on-disk path.
     Returns None if not found.
 
@@ -69,21 +72,90 @@ discover_roots(root_dir)
 iter_sessions(root_dir)
     Convenience: discover_roots ∘ parse_root_sessions, flattened.
 
-Layout assumption: this module sits in PROJECT_ROOT/bin/ and the
-default session directory is PROJECT_ROOT/t/.  Callers needing a
-different layout pass an explicit t_dir.
+Default project root: callers that don't pass an explicit ``t_dir``
+get :func:`default_t_dir`'s result — ``$ISAR_ROOT``, else the nearest
+session directory at or above the current working directory.  Callers
+needing a specific layout pass an explicit ``t_dir``.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypeVar
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-T_DIR = PROJECT_ROOT / "t"
+
+MARKER_NAME = ".isar-query"
+
+
+def _read_marker(marker: Path) -> Path | None:
+    """Return the session directory named by a project marker file,
+    resolved relative to the marker's own location.
+
+    The first non-blank, non-comment (``#``) line is taken as the path;
+    ``~`` is expanded and a relative path is resolved against the
+    marker's directory.  Returns None if the file names nothing usable
+    (empty or all comments), in which case the caller treats the marker's
+    own directory as the root.
+    """
+    try:
+        lines = marker.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        p = Path(s).expanduser()
+        if not p.is_absolute():
+            p = marker.parent / p
+        return p.resolve()
+    return None
+
+
+def default_t_dir(start: Path | None = None) -> Path:
+    """Resolve the Isabelle session directory to index.
+
+    Resolution order:
+
+    1. ``$ISAR_ROOT``, if set (``~`` expanded, resolved to absolute).
+    2. The nearest project marker file (``.isar-query``) at or above
+       ``start`` (default: the current working directory).  Drop one at a
+       project's root, committed to the repo, so the tool resolves the
+       right session directory from anywhere in the tree with no flags.
+       Its first non-blank, non-comment line names the session dir
+       (relative to the marker); an empty marker means "the root is my
+       own directory".
+    3. The nearest directory that holds a ``ROOT`` file directly — an
+       unambiguous single session, so most projects need no marker.
+    4. Fall back to ``start`` itself; its theories are then discovered by
+       scanning for ROOT files beneath it.
+
+    Discovery deliberately does *not* infer a multi-session parent from
+    child ``ROOT`` files: a directory holding several ROOTs may be one
+    project's sessions or several unrelated projects (e.g. vendored
+    copies), and a structural scan can't tell them apart — that is what
+    the marker file (or ``--root`` / ``$ISAR_ROOT``) resolves.  This
+    replaces the old hard-coded ``PROJECT_ROOT/t``: the tool assumes no
+    particular directory name, and no longer expects to live in a sibling
+    ``bin/`` of the project it queries.
+    """
+    env = os.environ.get("ISAR_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    here = (start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        marker = d / MARKER_NAME
+        if marker.is_file():
+            named = _read_marker(marker)
+            return named if named is not None else d
+    for d in (here, *here.parents):
+        if (d / "ROOT").is_file():
+            return d
+    return here
 
 _T = TypeVar("_T")
 
@@ -184,12 +256,15 @@ def parse_root_directories(root_path: Path) -> list[str]:
     return subdirs
 
 
-def resolve_thy_file(name: str, t_dir: Path = T_DIR) -> Path | None:
+def resolve_thy_file(name: str, t_dir: Path | None = None) -> Path | None:
     """Resolve a declared theory `name` to its .thy file on disk.
 
     Searches the session root first, then each subdirectory declared
     under ROOT's `directories` clause.  Returns None if not found.
+    ``t_dir`` defaults to :func:`default_t_dir`.
     """
+    if t_dir is None:
+        t_dir = default_t_dir()
     candidate = t_dir / f"{name}.thy"
     if candidate.exists():
         return candidate
@@ -227,7 +302,7 @@ def parse_thy_imports(thy_path: Path) -> list[str]:
     return [a or b for a, b in tokens]
 
 
-def iter_thy_files(t_dir: Path = T_DIR) -> list[Path]:
+def iter_thy_files(t_dir: Path | None = None) -> list[Path]:
     """Return the ordered list of .thy files declared by ROOT(s) under t_dir.
 
     Two layouts are supported transparently:
@@ -246,6 +321,8 @@ def iter_thy_files(t_dir: Path = T_DIR) -> list[Path]:
     (mirrors bin/common.sh's get_build_files behaviour, so callers can
     run against partial trees during a refactor).
     """
+    if t_dir is None:
+        t_dir = default_t_dir()
     out: list[Path] = []
     root_path = t_dir / "ROOT"
     if root_path.exists():
