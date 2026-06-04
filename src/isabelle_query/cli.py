@@ -233,6 +233,22 @@ SYM_NAME_RE = re.compile(r"((?:\\<\^?\w+>|\w)(?:\\<\^?\w+>|[\w'])*)")
 # where a name is expected (a cartouche statement, or a `\<comment> \<open>
 # ...\<close>` annotation), and must not be captured as the name.
 RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>", "\\<comment>", "\\<^cancel>")
+# Outer-syntax keywords that are not fact names.  When the name slot holds one
+# of these *bare* — `lemma assumes ...`, `lemma fixes ...`, `... (eqvt) by ...`,
+# `lemma shows NAME: ...` — the construct is anonymous (or its true name
+# follows), and the keyword must not be captured as the name.  Only the BARE
+# form is rejected: a *quoted* keyword (`fun "for"`, `lemma "if":`,
+# `definition "and"`) is a legitimate, deliberately-quoted name and is parsed
+# by the quoted branch of _name_from before this guard is reached.
+_RESERVED_NAME_WORDS = frozenset({
+    # Isar statement elements following an (anonymous) lemma/theorem
+    "assumes", "shows", "fixes", "obtains", "defines", "notes", "constrains",
+    # proof-script keywords
+    "by", "using", "unfolding", "apply", "proof", "qed", "done", "oops",
+    "sorry",
+    # structural keywords that can land in a misparsed name slot
+    "where", "for", "and", "if", "then", "else", "next", "case",
+})
 # A quoted spelling is a *name* only when it forms a label: the closing quote
 # is followed, after optional [attributes], by ':'.  Otherwise the quotes hold
 # the statement of an anonymous lemma (`lemma "P"`), not a name.
@@ -337,7 +353,7 @@ def _name_from(s: str, require_label: bool) -> str:
     if not m:
         return "?"
     name = m.group(1)
-    if name.startswith(RESERVED_NAME_PREFIXES):
+    if name.startswith(RESERVED_NAME_PREFIXES) or name in _RESERVED_NAME_WORDS:
         return "?"
     return name
 

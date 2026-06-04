@@ -69,6 +69,22 @@ class ParseName(unittest.TestCase):
         self.assertEqual(PN('"my_rule": "P"'), "my_rule")
         self.assertEqual(PN('"my_rule" [simp]: "P"'), "my_rule")
 
+    def test_bare_reserved_keyword_is_not_a_name(self):
+        # `lemma assumes ...` / `... (eqvt) by ...` / `lemma shows NAME:` are
+        # anonymous (or the real name follows); the bare keyword sitting in the
+        # name slot must not be captured as the name.
+        self.assertEqual(PN(r'assumes "s \<in> S" and "fair rs"'), "?")
+        self.assertEqual(PN("by lexicographic_order"), "?")
+        self.assertEqual(PN("fixes p :: nat"), "?")
+        self.assertEqual(PN("shows negmax_maxmin: ..."), "?")
+
+    def test_quoted_reserved_keyword_is_a_name(self):
+        # a *quoted* keyword is a deliberately-quoted legitimate name — the
+        # guard rejects only the bare form (`fun "for"`, `lemma "if":`).
+        self.assertEqual(PN('"for" :: "nat list"'), "for")
+        self.assertEqual(PN('"if": "P"'), "if")
+        self.assertEqual(PN('"and" :: "fm"'), "and")
+
 
 class ParseTypedeclName(unittest.TestCase):
     def test_leading_type_variable(self):
