@@ -47,3 +47,24 @@ reported-bug regression that AOT's `AOT_theorem` run no longer inflates
 `beta-C-cor:3`'s span, and the fast call-graph builder matching the oracle on a
 bounded slice (never inventing edges; dropping at most 0.5%, in practice
 ~0.01%).
+
+## Future work
+
+Near-term — the `@expectedFailure` corner cases in `test_known_failures.py`.
+The largest is **name on a following line** (`inductive_set` / `definition`
+with the keyword alone on its line and the name beneath it, ~1,866 AFP
+entries). It needs only a small continuation-line state in `extract_entries`:
+when a decl keyword yields no name, remember that the next non-blank line
+*is* the name and parse it there. The comment-prefixed-name and
+abbreviation-LHS-head cases are smaller follow-ons.
+
+Longer-term nice-to-have — a **true ground-truth oracle from Isabelle's own
+outer-syntax parser**. `support.brute_force_call_graph` is only a slow
+*regex* reference: it guards the fast builder against drift, not against
+absolute error. Isabelle's real lexer (ML `Outer_Syntax`/`Token`/`Thy_Header`,
+mirrored in Scala `isabelle.Outer_Syntax`) would, on a small sample, *measure*
+this tool's true error rate against the parser itself. A full `isabelle build`
+checks proofs (CPU-days for the AFP — too slow); an outer-syntax-only parse is
+feasible but needs the per-session keyword table assembled (the same
+`keywords :: kind` headers the scanner already reads). Do it for rigor once the
+corner cases above are closed.
