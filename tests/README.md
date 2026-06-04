@@ -23,11 +23,12 @@ clause and routes each command through the matching built-in branch, so the
 facts are indexed and the inflated spans they used to cause collapse.
 
 `tests/test_known_failures.py` is a catalogue of *recoverable* parser corner
-cases (names on a following line, comment-prefixed names, abbreviation LHS
-heads). Each asserts the desired behaviour and is marked `@expectedFailure`,
-so the suite stays green today but reports an "unexpected success" the moment
-the parser is improved to handle one — a built-in to-do list toward full AFP
-coverage.
+cases (comment-prefixed names, abbreviation LHS heads). Each asserts the
+desired behaviour and is marked `@expectedFailure`, so the suite stays green
+today but reports an "unexpected success" the moment the parser is improved to
+handle one — a built-in to-do list toward full AFP coverage. The largest
+former entry, **name on a following line**, is now handled — see the
+`ContinuationLineName` tests in `tests/test_names.py`.
 
 ## Run the corpus-scale checks
 
@@ -50,13 +51,18 @@ bounded slice (never inventing edges; dropping at most 0.5%, in practice
 
 ## Future work
 
-Near-term — the `@expectedFailure` corner cases in `test_known_failures.py`.
-The largest is **name on a following line** (`inductive_set` / `definition`
-with the keyword alone on its line and the name beneath it, ~1,866 AFP
-entries). It needs only a small continuation-line state in `extract_entries`:
-when a decl keyword yields no name, remember that the next non-blank line
-*is* the name and parse it there. The comment-prefixed-name and
-abbreviation-LHS-head cases are smaller follow-ons.
+Near-term — the remaining `@expectedFailure` corner cases in
+`test_known_failures.py`: the comment-prefixed-name
+(`definition \<comment> \<open>..\<close> bar :: ...`, ~190 entries) and the
+abbreviation-LHS-head (`abbreviation "lhs x \<equiv> .."` → `lhs`) cases.
+
+Done — **name on a following line** (`inductive_set` / `definition` with the
+keyword alone on its line and the name beneath it). `extract_entries` now
+anchors `DECL_RE` on a token boundary so a lone keyword matches at all, then
+`_lookahead_name` reads the name from the first content line below without
+consuming it (spans unchanged). This recovered ~1,455 names and surfaced
+~8,377 declarations the old anchor dropped silently; see the
+`ContinuationLineName` tests.
 
 Longer-term nice-to-have — a **true ground-truth oracle from Isabelle's own
 outer-syntax parser**. `support.brute_force_call_graph` is only a slow
