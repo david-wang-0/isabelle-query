@@ -1,0 +1,186 @@
+RESUME PROMPT — isabelle-query parser investigation
+====================================================
+
+Paste this into a new Claude Code session started in /Users/as456/projects/query
+to resume. It is self-contained; you do not need the prior transcript.
+
+--------------------------------------------------------------------------------
+WHAT THIS PROJECT IS
+--------------------------------------------------------------------------------
+isabelle-query is a zero-dependency, stdlib-only Python tool (`query` CLI) that
+indexes Isabelle/Isar theory files by REGEX — it parses outer-syntax command
+structure (theorem/lemma/definition/...) WITHOUT running Isabelle, so it stays
+fast (~4 s over the whole AFP) and needs no Isabelle install. It powers commands
+like `show`, `largest`, `callers -r`, `callees`, `sorry`, `unused`.
+
+  Repo:    /Users/as456/projects/query   (git remote: ott2/isabelle-query, branch main)
+  Source:  src/isabelle_query/cli.py     (the parser + all commands)
+           src/isabelle_query/common.py  (root discovery helpers)
+  Tests:   tests/  (stdlib unittest: test_names, test_call_graph, test_corpus,
+                    test_known_failures, support.py, README.md)
+  Corpus:  /Users/as456/projects/ndtht/afp/thys  (10,084 .thy, 396 MB — the AFP;
+                    NOT in the repo; used only for measurement/gated tests)
+  Isabelle sources (for grounding against the REAL parser):
+           /Users/as456/projects/ndtht/isabelle-src   = Isabelle2025-2 release src
+           /Users/as456/projects/ndtht/isabelle/src   = a repo snapshot
+           /Users/as456/.local/bin/isabelle           = the isabelle binary (installed)
+
+User: András Salamon (GitHub ott2). Isabelle/Isar complexity-theory researcher.
+Prefers plain ASCII in git/SMTP identity; "András" (accented) in display/docs.
+End commit messages with: Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Commit only when asked; do NOT push (the user pushes). Work directly on main
+(the user's established solo workflow).
+
+--------------------------------------------------------------------------------
+WHAT IS ALREADY DONE (committed on main)
+--------------------------------------------------------------------------------
+Two commits landed this session:
+  266ef85  fix: robustly parse AFP names and rebuild the call graph in linear time
+  5594bbb  test: add parser and call-graph test suite
+
+Parser robustness (in cli.py: _parse_name / _parse_typedecl_name / _name_from /
+_strip_decl_prefix, plus SYM_NAME_RE / QUOTED_NAME_RE / RESERVED_NAME_PREFIXES /
+LABEL_AFTER_RE near the top regex block):
+  - double-quoted fact names: `theorem "beta-C-cor:3":`
+  - skip leading locale specs/modifiers: (in foo), (nonexhaustive), (overloaded)...
+  - accept Isabelle symbol tokens \<...> in names (\<psi>, finally\<^sub>n);
+    fixed a silent truncation (\<^sub>n was being dropped)
+  - quoted/symbolic names in datatype/type_synonym/record too
+  - reject structural control symbols (\<open>,\<close>,\<comment>) as names
+  - LABEL rule: a quoted spelling is a NAME only if followed (after optional
+    [attrs]) by ':'; otherwise it is an anonymous lemma's STATEMENT, not a name
+    (this removed ~11,205 statements-as-names).
+  RESULT: unparsed-name ('?') rate on the AFP 6.68% -> 5.54%, 0 regressions.
+
+Call graph (cli.py: _build_call_graph): replaced the O(lines x names) per-name
+boundary search (which made `callers -r`/`callees` over the AFP take TENS OF
+HOURS) with a single linear tokenise-and-hash pass (~25 s over the AFP). It
+extracts three token shapes per line and intersects with the name set:
+    sym_re   = (?:\\<\^?\w+>|[\w'])+   (symbolic identifiers, must match SYM_NAME_RE)
+    word_re  = [\w']+                  (bare runs abutting a \<...> symbol)
+    quoted_re= "([^"]+)"               (whole quoted spellings)
+It NEVER invents an edge; drops <0.2% vs a brute-force oracle (all spurious
+oracle hits on short symbolic names nested in longer identifiers). The test
+suite pins it to that oracle (tests/support.brute_force_call_graph).
+
+--------------------------------------------------------------------------------
+THE OPEN THREAD — IMPLEMENT A FAITHFUL CUSTOM-COMMAND KEYWORD SCANNER  (do this)
+--------------------------------------------------------------------------------
+Biggest remaining gap: custom outer-syntax commands like AOT's `AOT_theorem`
+(1,024 uses), `AOT_define`, `AOT_axiom`, `AOT_act_theorem` are NOT recognized,
+so those facts are unindexed AND they inflate the spans of the few recognized
+entries near them (e.g. `beta-C-cor:3` reports a 3867-line span).
+
+KEY INSIGHT (verified against the real parser): the one thing the regex tool
+can't otherwise know — that `AOT_theorem` is a theorem command — is declared as
+PLAIN TEXT in theory headers, and that declaration IS Isabelle's keyword table.
+So scanning it is FAITHFUL, not heuristic. (This supersedes the `<Prefix>_theorem`
+name-guess heuristic the user previously declined.)
+
+Evidence — AOT/AOT_commands.thy:4-26:
+    keywords "AOT_define"       :: thy_decl
+         and "AOT_theorem"      :: thy_goal
+         and "AOT_lemma"        :: thy_goal
+         and "AOT_act_theorem"  :: thy_goal
+         and "AOT_axiom"        :: thy_goal ...
+
+Grammar (Isabelle2025-2, Pure/Thy/thy_header.ML:149-164):
+    keyword_decl  = repeat1(quoted_name) , optional( "::" kind (load)? (% tag)* )
+    keyword_decls = and_list1(keyword_decl)         -- 'and'-separated
+    A decl with NO "::" kind is a MINOR keyword (syntax), NOT a command — skip it.
+    Several names may share one spec: `keywords "a" "b" :: thy_decl`.
+
+Authoritative kind -> family map (Pure/Isar/keyword.scala):
+    theory_goal = { thy_goal, thy_goal_defn, thy_goal_stmt }   (line 93) -> THEOREM/LEMMA family (has a proof)
+    theory_defn = { thy_defn, thy_goal_defn }                  (line 76) -> introduces a definition
+    thy_decl / thy_decl_block / thy_stmt                                 -> declaration family
+    (thy_goal_defn is BOTH: defines + proves, e.g. `function`. Tag pragmatically.)
+The global keyword table = UNION of every header's declarations (keyword.scala:151
+`Keywords.++`) — so "scan all headers once, build one table" mirrors Isabelle exactly.
+
+Scale: 129 AFP theories declare custom keywords. Kinds seen across the AFP:
+    thy_decl 91, thy_goal 26, thy_defn 17, thy_goal_stmt 10, thy_goal_defn 2,
+    thy_decl_block 2, thy_load 6, qed_block 1.
+
+IMPLEMENTATION SKETCH:
+  1. Add a header-scanner: for each .thy under the active root, read the
+     `keywords ... begin` clause and parse name(s) :: kind, building a dict
+     {command_name: family} where family in {THEOREM-like, DEF-like}. Skip
+     names with no kind, and non-theory kinds (qed/prf/diag/document/thy_load).
+  2. Feed that table into extract_entries. Two integration options:
+       (a) build a per-run DECL_RE that alternates the scanned command names, or
+       (b) after the fixed DECL_RE misses, check the line's first token against
+           the scanned table.
+     extract_entries(lines) currently takes only `lines`; you'll need to thread
+     the table in (param or a module-level set populated by load_index).
+  3. Route recognized commands by family through the EXISTING name branches:
+       thy_goal* -> the lemma/theorem branch (already handles quoted labels like
+                    `AOT_theorem "betaC:1:b":` and the new robustness)
+       thy_decl*/thy_defn -> the definition branch (handles `AOT_define Name ::`)
+     Name extraction reuses _parse_name / the label rule — no new name logic.
+  4. CAVEAT to honor: keywords are technically per-session; a flat global union
+     could collide if two entries declare the same command with different kinds.
+     Rare (names are distinctive); for a single project scan only its headers.
+  5. Wire it as the fix for tests/test_known_failures.py::test_custom_fact_command_keyword
+     (remove the @expectedFailure there once it passes). Re-run the full suite +
+     corpus; confirm ? rate drops, AOT spans collapse, call-graph oracle parity
+     still holds (added==0, drops<0.5%).
+
+--------------------------------------------------------------------------------
+CORNER-CASE ROADMAP (tests/test_known_failures.py — @expectedFailure catalogue)
+--------------------------------------------------------------------------------
+Recoverable parser gaps, each a minimal repro asserting the desired result.
+They flip to "unexpected success" when fixed (a built-in to-do list):
+  - name on next line (`inductive_set\n  name`)            ~1,866 AFP entries
+  - comment-prefixed name (`\<comment> \<open>..\<close> name`) ~190
+  - abbreviation LHS head (`"lang \<phi> \<equiv> .."` -> lang)  (part of ~11k)
+  - custom fact-command keyword (AOT_theorem)              <- the scanner above
+NOT gaps (correctly '?', asserted as passing tests in test_names.py): genuinely
+anonymous `lemma "P"` / `lemma [simp]:` / `abbreviation \<open>..\<close>`.
+
+--------------------------------------------------------------------------------
+SECONDARY THREAD — A TRUE GROUND-TRUTH ORACLE (optional, for measurement)
+--------------------------------------------------------------------------------
+The tests' brute_force_call_graph oracle is itself a slower regex, not ground
+truth. The REAL ground truth is Isabelle's own parser. Cost spectrum:
+  - full build (`isabelle build`): checks proofs -> CPU-DAYS for the AFP -> too slow
+  - OUTER-SYNTAX-ONLY parse (real lexer + command spans, no proofs): feasible,
+    needs Isabelle + per-session keyword table; the relevant layer is ML
+    Outer_Syntax/Token/Thy_Header (mirrored in Scala isabelle.Outer_Syntax).
+Idea: a GATED test that, on a small SAMPLE of theories, gets command names from
+the real outer-syntax parser and compares to extract_entries — to MEASURE the
+tool's true error rate (not its agreement with another heuristic). This is a
+fiddly one-off (assembling the session keyword table); do it only for rigor,
+after the keyword scanner closes the big gap.
+
+--------------------------------------------------------------------------------
+USEFUL COMMANDS
+--------------------------------------------------------------------------------
+  # run the fast suite (both Pythons used this session: /usr/bin/python3 = 3.9, default)
+  cd /Users/as456/projects/query && python3 -m unittest discover -s tests
+  # gated corpus suite (the intricate full-tree checks)
+  ISABELLE_QUERY_CORPUS=../ndtht/afp/thys python3 -m unittest tests.test_corpus
+  # measure the '?' (unparsed-name) rate over the AFP
+  cd src && python3 -c "import glob,isabelle_query.cli as c; t=q=0
+  [ (globals().__setitem__('t',t+1), globals().__setitem__('q',q+(e.name=='?'))) for p in glob.glob('/Users/as456/projects/ndtht/afp/thys/**/*.thy',recursive=True) for e in c.extract_entries(open(p,encoding='utf-8',errors='replace').read().splitlines()) ]"
+  # (simpler: write a small script; tests/test_corpus.py already does this cleanly)
+  # smoke a single command
+  python3 -m isabelle_query.cli -R ../ndtht/afp/thys show beta-C-cor:3
+  python3 -m isabelle_query.cli -R ../ndtht/afp/thys largest
+
+To locate functions (line numbers drift): grep -n in src/isabelle_query/cli.py for
+  DECL_RE  TAG_MAP  def extract_entries  def _parse_name  def _build_call_graph
+
+--------------------------------------------------------------------------------
+WORKING PRINCIPLE (the user stated this; it shaped the real fixes)
+--------------------------------------------------------------------------------
+Do NOT treat bit-parity with the old behaviour as the correctness bar — the old
+code has its own bugs. Verify against Isabelle's actual semantics. Pin fast paths
+to an oracle in tests, but treat oracle disagreements as candidates for EITHER
+side being wrong. Record corner cases as @expectedFailure tests rather than
+discarding the analysis. Measure at AFP scale — corner cases only show there.
+(Saved as memory: isabelle-query-correctness-approach.)
+
+FIRST STEP for the new session: read this file, then
+  grep -n "DECL_RE\|TAG_MAP\|def extract_entries" src/isabelle_query/cli.py
+and propose the keyword-scanner wiring before editing.
