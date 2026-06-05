@@ -848,11 +848,19 @@ def extract_entries(lines: list[str],
 
 def compute_spans(entries: list[Entry], section_lines: list[int],
                   total_lines: int) -> None:
-    """Set thy_end on each entry to the line before the next entry-or-section."""
+    """Set thy_end on each entry to the line before the next entry-or-section.
+
+    ``structural`` is sorted, so the next boundary above an entry is a
+    ``bisect`` away — the old ``[s for s in structural if s > e.thy_line]``
+    rescanned the whole list per entry, making this O(entries^2).  That is
+    invisible on a typical theory but the dominant parse cost on an
+    entry-dense one (e.g. a file of thousands of short declarations).
+    """
     structural = sorted({e.thy_line for e in entries} | set(section_lines))
+    n = len(structural)
     for e in entries:
-        nxt = [s for s in structural if s > e.thy_line]
-        e.thy_end = (nxt[0] - 1) if nxt else total_lines
+        idx = bisect_right(structural, e.thy_line)
+        e.thy_end = (structural[idx] - 1) if idx < n else total_lines
 
 
 def _attach_comments(entries: list[Entry], lines: list[str],
@@ -872,27 +880,37 @@ def _attach_comments(entries: list[Entry], lines: list[str],
     # Both conditions matter: a 500-line section narrative just before the
     # first definition is NOT that definition's docstring; it's the chapter's
     # introduction.  See UTM.thy lines 28-530 for the canonical example.
+    #
+    # entry_starts is sorted, so the entry just below a block (preamble) or
+    # enclosing a comment line (roadmap) is a bisect away — the old per-block /
+    # per-comment linear scans over all entries were O(text_blocks x entries)
+    # and O(comments x entries), quadratic on a theory dense in both.
     PREAMBLE_MAX_LINES = 30
     entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
+    starts_keys = [es for es, _ in entry_starts]
+    n = len(entry_starts)
     for tb_start, tb_end in text_blocks:
         if tb_end - tb_start + 1 > PREAMBLE_MAX_LINES:
             continue  # too big to be a per-entry docstring
-        # Find the first entry whose thy_line is > tb_end.
-        for es, e in entry_starts:
-            if es <= tb_end:
-                continue
-            # Are intervening lines (tb_end+1 .. es-1) all blank?
-            gap = lines[tb_end:es - 1]
-            if all(not l.strip() for l in gap) and len(gap) <= 3:
-                e.preamble = (tb_start, tb_end)
-            break
+        idx = bisect_right(starts_keys, tb_end)  # first entry starting past tb_end
+        if idx >= n:
+            continue
+        es, e = entry_starts[idx]
+        # Are intervening lines (tb_end+1 .. es-1) all blank?
+        gap = lines[tb_end:es - 1]
+        if all(not l.strip() for l in gap) and len(gap) <= 3:
+            e.preamble = (tb_start, tb_end)
 
     # --- roadmaps: comment line → containing entry's proof span ---
+    # Spans are non-overlapping, so the only candidate is the entry whose
+    # thy_line is the greatest <= cline; attach iff cline is in its proof body.
     for cline, content in comment_lines:
-        for e in entries:
-            if e.proof_line and e.proof_line < cline <= e.thy_end:
-                e.roadmap.append((cline, content))
-                break
+        idx = bisect_right(starts_keys, cline) - 1
+        if idx < 0:
+            continue
+        e = entry_starts[idx][1]
+        if e.proof_line and e.proof_line < cline <= e.thy_end:
+            e.roadmap.append((cline, content))
 
 
 def _parse_one(thy: str, thy_path: Path) -> TheorySection:
