@@ -76,30 +76,37 @@ bounded slice (never inventing edges; dropping at most 0.5%, in practice
 ISABELLE_QUERY_PERF=1 python -m unittest tests.test_perf -v
 ```
 
-It guards `_build_call_graph` against the two O(n²) traps it has actually hit —
-`_entry_at_line` rebuilding a keys list per call (O(lines × entries)) and the
-prose-skip test rescanning every range per line (O(lines × ranges)). Both are
-*per-theory* quadratics, so the synthetic corpus scales **per-theory size**
-(not theory count): one theory's definitions, lemmas and text blocks all grow
-together. The assertion is a **scaling ratio**, not an absolute wall-clock
-floor — build at size S and 4·S and require the time ratio to stay near linear
-(~4), nowhere near quadratic (~16). A reintroduced per-line O(n) factor blows
-the ratio (verified: the keys-rebuild regression takes it from ~4 to ~13) long
-before it would trip a fragile absolute threshold; a deliberately loose
-throughput floor (20k lines/s, vs the ~150k+ measured) catches only
-order-of-magnitude regressions. `scripts/profile_build.py` is the matching
-diagnostic — it times the parse and build phases separately and, with
-`--cprofile`, names the hot functions per phase.
+It guards both phases against the *per-theory* O(n²) traps each has actually
+hit, with `BuildScaling` and `ParseScaling`:
 
-## Future work (performance)
+* **build** — `_entry_at_line` rebuilding a keys list per call (O(lines ×
+  entries)) and the prose-skip test rescanning every range per line (O(lines ×
+  ranges));
+* **parse** — `compute_spans` and `_attach_comments` each scanning the whole
+  entry list per entry / block / comment (O(entries²)), the dominant cost on an
+  *entry-dense* theory (thousands of short declarations — the real AFP has
+  files like `SEC1v2_0_Test_Vectors` with ~6,700).
 
-A latent **parse-side per-theory super-linearity** surfaced while sizing the
-perf test: a single synthetic theory of 4.6k lines parses in ~0.55s but one of
-18.5k lines (4×) takes ~9.9s (~18×, i.e. roughly quadratic). It does *not*
-bite the AFP today — real theories are size-bounded (~640 lines on average), so
-the term is diluted across thousands of small files — but a pathologically
-large single theory would feel it. `scripts/profile_build.py` isolates the
-parse phase for a follow-up; the call-graph build phase is already linear.
+All are per-theory quadratics, so the synthetic corpus scales **per-theory
+size** (not theory count): one theory's definitions, lemmas, text blocks and
+comments all grow together — scaling theory count alone would keep each
+quadratic linear in corpus size and hide it. The assertion is a **scaling
+ratio**, not an absolute wall-clock floor — run at size S and 4·S and require
+the ratio to stay near linear (~4), nowhere near quadratic (~16). A reintroduced
+per-entry/per-line O(n) factor blows the ratio (verified by monkeypatching each
+old form back: build ~4→~13, parse ~4→~15) long before it would trip a fragile
+absolute threshold; a deliberately loose build-throughput floor (20k lines/s,
+vs the ~150k+ measured) catches only order-of-magnitude regressions.
+`scripts/profile_build.py` is the matching diagnostic — it times the parse and
+build phases separately and, with `--cprofile`, names the hot functions per
+phase.
+
+The driver of the parse cost is *entry count*, not line count: the AFP's
+longest file by lines (`Tarski_Neutral`, 44k lines) has only ~1,800 entries and
+parses in ~50ms, whereas a same-size file of short declarations would have
+~40k. The fix makes both phases linear in entry count — the entry-dense
+extreme (17k entries) dropped from ~10s to ~70ms, and full AFP `load_index`
+from ~5.2s to ~4.7s.
 
 ## Future work (parser corner cases)
 

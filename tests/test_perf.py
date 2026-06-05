@@ -24,8 +24,10 @@ These are opt-in: timing has no place in the fast default suite.  Run with
 
 import os
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 from support import cli, section_from  # noqa: E402
@@ -74,6 +76,23 @@ def _best_build_time(sections, repeat: int = 5) -> float:
     return best
 
 
+def _best_parse_time(text: str, repeat: int = 5) -> float:
+    """Minimum parse time (`_parse_one`) over `repeat` re-parses of one file."""
+    with tempfile.NamedTemporaryFile("w", suffix=".thy", delete=False,
+                                     encoding="utf-8") as fh:
+        fh.write(text)
+        path = fh.name
+    try:
+        best = float("inf")
+        for _ in range(repeat):
+            t0 = time.perf_counter()
+            cli._parse_one("Perf", Path(path))
+            best = min(best, time.perf_counter() - t0)
+        return best
+    finally:
+        os.unlink(path)
+
+
 @unittest.skipUnless(_RUN, "set ISABELLE_QUERY_PERF=1 to run perf checks")
 class BuildScaling(unittest.TestCase):
     @classmethod
@@ -106,6 +125,27 @@ class BuildScaling(unittest.TestCase):
             rate, 20_000,
             f"build throughput {rate:,.0f} lines/s is below the 20k/s floor "
             f"— an order-of-magnitude regression, not mere machine slowness")
+
+
+@unittest.skipUnless(_RUN, "set ISABELLE_QUERY_PERF=1 to run perf checks")
+class ParseScaling(unittest.TestCase):
+    """The parse phase (`_parse_one`) had its own per-entry O(n^2): both
+    `compute_spans` and `_attach_comments` scanned the whole entry list per
+    entry / block / comment.  Harmless on a typical theory, dominant on an
+    entry-dense one (a file of thousands of short declarations).  Same guard
+    as the build: scale one theory's entry count and require near-linear time.
+    """
+
+    def test_parse_scales_near_linearly(self):
+        t_small = _best_parse_time(_theory_text(1))
+        t_large = _best_parse_time(_theory_text(_SCALE))
+        ratio = t_large / t_small
+        self.assertLess(
+            ratio, _SCALE * 2.0,
+            f"parse time scaled {ratio:.1f}x for a {_SCALE}x entry-dense "
+            f"theory ({t_small*1e3:.0f}ms -> {t_large*1e3:.0f}ms); "
+            f"near-quadratic ({_SCALE**2}x) means a per-entry O(n) scan crept "
+            f"back into the parse (compute_spans / _attach_comments)")
 
 
 if __name__ == "__main__":
