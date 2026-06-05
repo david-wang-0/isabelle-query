@@ -68,7 +68,40 @@ reported-bug regression that AOT's `AOT_theorem` run no longer inflates
 bounded slice (never inventing edges; dropping at most 0.5%, in practice
 ~0.01%).
 
-## Future work
+## Run the performance checks
+
+`tests/test_perf.py` is opt-in (timing has no place in the fast default suite):
+
+```sh
+ISABELLE_QUERY_PERF=1 python -m unittest tests.test_perf -v
+```
+
+It guards `_build_call_graph` against the two O(n²) traps it has actually hit —
+`_entry_at_line` rebuilding a keys list per call (O(lines × entries)) and the
+prose-skip test rescanning every range per line (O(lines × ranges)). Both are
+*per-theory* quadratics, so the synthetic corpus scales **per-theory size**
+(not theory count): one theory's definitions, lemmas and text blocks all grow
+together. The assertion is a **scaling ratio**, not an absolute wall-clock
+floor — build at size S and 4·S and require the time ratio to stay near linear
+(~4), nowhere near quadratic (~16). A reintroduced per-line O(n) factor blows
+the ratio (verified: the keys-rebuild regression takes it from ~4 to ~13) long
+before it would trip a fragile absolute threshold; a deliberately loose
+throughput floor (20k lines/s, vs the ~150k+ measured) catches only
+order-of-magnitude regressions. `scripts/profile_build.py` is the matching
+diagnostic — it times the parse and build phases separately and, with
+`--cprofile`, names the hot functions per phase.
+
+## Future work (performance)
+
+A latent **parse-side per-theory super-linearity** surfaced while sizing the
+perf test: a single synthetic theory of 4.6k lines parses in ~0.55s but one of
+18.5k lines (4×) takes ~9.9s (~18×, i.e. roughly quadratic). It does *not*
+bite the AFP today — real theories are size-bounded (~640 lines on average), so
+the term is diluted across thousands of small files — but a pathologically
+large single theory would feel it. `scripts/profile_build.py` isolates the
+parse phase for a follow-up; the call-graph build phase is already linear.
+
+## Future work (parser corner cases)
 
 Near-term — the one remaining `@expectedFailure` in `test_known_failures.py`:
 the **infix/mixfix definition** name (`abbreviation "x \<oplus> y \<equiv> .."`).
