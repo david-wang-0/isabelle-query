@@ -43,6 +43,7 @@ import sys
 from bisect import bisect_right
 from collections import Counter
 from dataclasses import dataclass, field
+from operator import itemgetter
 from pathlib import Path
 
 from isabelle_query import _isabelle_namespace as _isa_ns
@@ -1070,11 +1071,19 @@ def _build_line_index(sections: list[TheorySection]
     return index
 
 
+_FIRST = itemgetter(0)  # span start, for keyed bisect into a line index
+
+
 def _entry_at_line(line_index: list[tuple[int, int, Entry]],
                    line_no: int) -> Entry | None:
-    """Binary search for the entry whose [thy_line, thy_end] contains line_no."""
-    keys = [s[0] for s in line_index]
-    idx = bisect_right(keys, line_no) - 1
+    """Binary search for the entry whose [thy_line, thy_end] contains line_no.
+
+    `bisect` reads each probed span's start via `key=` (a C-level itemgetter),
+    so the search touches O(log n) elements — the old form rebuilt a full
+    `[s[0] for s in line_index]` keys list on *every* call, which at corpus
+    scale (one call per source line) dominated the build profile.
+    """
+    idx = bisect_right(line_index, line_no, key=_FIRST) - 1
     if idx < 0:
         return None
     start, end, entry = line_index[idx]
@@ -1236,24 +1245,47 @@ def _build_call_graph(sections: list[TheorySection],
     callers: dict[str, set[str]] = {n: set() for n in name_set}
     callees: dict[str, set[str]] = {}
 
+    # Bind the per-line hot callables to locals: this loop runs once per source
+    # line (millions of times), and a local is a fast LOAD_FAST vs an attribute
+    # lookup on each.
+    ns_inter = name_set.intersection
+    antiq_sub = antiq_re.sub
+    word_findall = word_re.findall
+    sym_findall = sym_re.findall
+    quoted_findall = quoted_re.findall
+
     for sec in sections:
         lines = sec.source()
         t_ranges = text_ranges.get(sec.theory, [])
         d_map = def_sites.get(sec.theory, {})
         idx = line_index.get(sec.theory, [])
+        # Flatten the prose ranges into a 1-indexed line mask: a single O(1)
+        # lookup per line replaces the old `any(line_no in r for r in t_ranges)`
+        # rescan (~65M range tests at AFP scale).  Slice-assignment marks each
+        # range C-side; the +2 pad keeps line_no == len(lines) in bounds.
+        text_mask = bytearray(len(lines) + 2)
+        for r in t_ranges:
+            hi = min(r.stop, len(text_mask))
+            if r.start < hi:
+                text_mask[r.start:hi] = b"\x01" * (hi - r.start)
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
-            if any(line_no in r for r in t_ranges):
+            if text_mask[line_no]:
                 continue
-            stripped = antiq_re.sub('', line)
-            # Candidate referenced names on this line: symbol-aware tokens,
-            # bare [\w'] runs, and whole double-quoted spellings — kept only
-            # if they name an indexed entry.
-            cand = name_set.intersection(sym_re.findall(stripped))
-            cand |= name_set.intersection(word_re.findall(stripped))
-            quoted = quoted_re.findall(stripped)
-            if quoted:
-                cand |= name_set.intersection(quoted)
+            # Strip doc antiquotations only when one is present; otherwise the
+            # sub is a no-op that still scans the whole line.
+            stripped = antiq_sub('', line) if '@{' in line else line
+            # Candidate referenced names on this line.  word_re ([\w'] runs) is
+            # always needed; sym_re differs from it only where a \<...> symbol
+            # appears, and quoted_re only where a " does — so the two extra
+            # findalls run on just those lines, not every line.  The union is
+            # identical to scanning all three unconditionally (the oracle's
+            # reference), but skips the provably-redundant passes.
+            cand = ns_inter(word_findall(stripped))
+            if '\\<' in stripped:
+                cand |= ns_inter(sym_findall(stripped))
+            if '"' in stripped:
+                cand |= ns_inter(quoted_findall(stripped))
             if not cand:
                 continue
             caller_entry = _entry_at_line(idx, line_no)
@@ -1304,27 +1336,33 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
     counts: Counter = Counter()
     located: list[tuple[str, int, Entry | None, str]] = []
     line_index = _build_line_index(sections)
+    intro_finditer = _METHOD_INTRO_RE.finditer
     for sec in sections:
         lines = sec.source()
         # "Live" = not inside a text block, multi-line \<comment>, or preamble
         # (the same notion `_grep_sections` uses), so an `apply`/`by` mentioned
-        # in prose does not register as a method use.
-        noise: list[range] = []
-        for tb_start, tb_end in sec.text_blocks:
-            noise.append(range(tb_start, tb_end + 1))
-        for cb_start, cb_end in sec.comment_ranges:
-            noise.append(range(cb_start, cb_end + 1))
-        for e in sec.entries:
-            if e.preamble:
-                ps, pe = e.preamble
-                noise.append(range(ps, pe + 1))
+        # in prose does not register as a method use.  A 1-indexed line mask
+        # gives O(1) liveness per line, vs rescanning every noise range (the
+        # same flattening the call-graph build uses).
+        noise_mask = bytearray(len(lines) + 2)
+        spans = (list(sec.text_blocks) + list(sec.comment_ranges)
+                 + [e.preamble for e in sec.entries if e.preamble])
+        for lo, end in spans:
+            hi = min(end + 1, len(noise_mask))
+            if lo < hi:
+                noise_mask[lo:hi] = b"\x01" * (hi - lo)
         idx = line_index.get(sec.theory, [])
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
-            if any(line_no in r for r in noise):
+            if noise_mask[line_no]:
+                continue
+            # The introducer regex requires one of these whole words, so its
+            # letters must be present — a cheap necessary-condition guard skips
+            # the regex on the many lines that hold no proof introducer at all.
+            if 'by' not in line and 'apply' not in line and 'proof' not in line:
                 continue
             hit_only = False
-            for m in _METHOD_INTRO_RE.finditer(line):
+            for m in intro_finditer(line):
                 tok = m.group(1)
                 if tok in methods:
                     counts[tok] += 1
