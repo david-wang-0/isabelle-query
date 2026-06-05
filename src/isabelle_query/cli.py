@@ -41,6 +41,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from isabelle_query import _isabelle_namespace as _isa_ns
 from isabelle_query.common import (
     default_t_dir,
     discover_roots,
@@ -1134,6 +1135,31 @@ def _build_def_sites(sections: list[TheorySection],
     return def_sites
 
 
+# Method-argument modifiers parsed inline by individual methods, so they have
+# no declaration site of their own (and are absent from _isabelle_namespace);
+# a short, auditable tier-2 list to go with the source-derived namespaces.
+_ARG_MODIFIERS = frozenset({"add", "del", "only", "OF", "THEN"})
+# Tokens that are never a *fact citation*: proof methods (`by simp`),
+# attributes (`[OF g]`), keywords (`proof`, `and`), inline argument modifiers,
+# and bare numerals.  A call-graph edge is created only for a name that passes
+# _is_citation_name, so an entry that merely happens to be *named* after one of
+# these — Isabelle_Meta_Model's `definition "simp"`, a `definition "1 = ..."`,
+# an ML `fun lemma` misread as a command — does not collect a spurious in-edge
+# from every `by simp` / numeral in the corpus.  The entry still exists for
+# show/largest/defs; it is simply not a node in the *citation* graph.  Method
+# occurrences are recovered separately by the `methods` query, so this routes
+# rather than discards.
+_NON_CITATION = (_isa_ns.PROOF_METHODS | _isa_ns.ATTRIBUTES
+                 | _isa_ns.KEYWORDS | _ARG_MODIFIERS)
+
+
+def _is_citation_name(name: str) -> bool:
+    """Whether a name can denote a cited fact (vs a method/attribute/keyword/
+    numeral token).  Shared by the fast builder and the brute-force oracle so
+    both implement the same citation semantics."""
+    return name not in _NON_CITATION and not name.isdigit()
+
+
 def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
@@ -1141,11 +1167,14 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     `_build_def_sites`): skips text blocks, definition sites, and
     antiquotation-only mentions.
     """
-    # 1. Collect candidate names (same filter as cmd_dead).
+    # 1. Collect candidate names (same filter as cmd_dead).  A name that is a
+    #    proof method / attribute / keyword / numeral is not a citable fact —
+    #    excluding it here keeps `by simp` etc. from minting spurious edges.
     name_set: set[str] = set()
     for sec in sections:
         for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV") and e.name != "?":
+            if (e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
+                    and e.name != "?" and _is_citation_name(e.name)):
                 name_set.add(e.name)
 
     # 2. Build def-site and text-block exclusion ranges.

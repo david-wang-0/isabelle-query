@@ -68,7 +68,7 @@ def brute_force_call_graph(sections):
     """
     name_set = {e.name for s in sections for e in s.entries
                 if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
-                and e.name != "?"}
+                and e.name != "?" and cli._is_citation_name(e.name)}
     def_sites = cli._build_def_sites(sections, name_set)
     text_ranges = cli._build_text_ranges(sections)
     line_index = cli._build_line_index(sections)
