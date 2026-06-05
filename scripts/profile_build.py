@@ -20,6 +20,14 @@ WHY THIS EXISTS
 USAGE
     python3 scripts/profile_build.py [--root DIR] [--cprofile] [--top N]
     python3 scripts/profile_build.py --repeat 3        # average 3 graph builds
+    python3 scripts/profile_build.py --by-theory 15    # per-theory cost ranking
+
+    --by-theory N ranks theories by *entry count* and times parse+build for
+    each of the top N.  This is the view that exposed parse cost tracking
+    entry count, not line count (a 44k-line file of long proofs is cheap; a
+    file of thousands of short declarations is not) — the `entries`/`lines`
+    columns sit side by side so the driver is visible.  Complements
+    ndtht/bin/afp-metrics.py, which ranks by lines and does not parse.
 
     Defaults: --root from $ISABELLE_QUERY_ROOT, else ~/projects/ndtht/afp/thys.
 """
@@ -45,6 +53,32 @@ def _time(label, fn):
     return result, dt
 
 
+def _elapsed(fn) -> float:
+    t0 = time.perf_counter()
+    fn()
+    return time.perf_counter() - t0
+
+
+def _by_theory(sections, n: int) -> None:
+    """Rank theories by entry count and time each phase per theory — the view
+    that exposes parse cost tracking entries, not lines.  Re-parses each theory
+    from its path; builds the call graph on that one section (so cross-theory
+    edges are absent, but the per-theory cost is what we want)."""
+    ranked = sorted(sections, key=lambda s: len(s.entries), reverse=True)[:n]
+    print(f"\ntop {n} theories by entry count (parse/build min of 3):")
+    print(f"  {'theory':<34} {'entries':>7} {'lines':>7} {'ent/kloc':>8} "
+          f"{'parse':>8} {'build':>8}")
+    for s in ranked:
+        lines = len(s.source())
+        density = 1000.0 * len(s.entries) / lines if lines else 0.0
+        tp = min(_elapsed(lambda s=s: cli._parse_one(s.path.stem, s.path))
+                 for _ in range(3))
+        tb = min(_elapsed(lambda s=s: cli._build_call_graph([s]))
+                 for _ in range(3))
+        print(f"  {s.theory[:34]:<34} {len(s.entries):>7} {lines:>7} "
+              f"{density:>8.1f} {tp*1e3:>6.0f}ms {tb*1e3:>6.0f}ms")
+
+
 def _cprofile(label, fn, top):
     pr = cProfile.Profile()
     pr.enable()
@@ -68,6 +102,9 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=20)
     ap.add_argument("--repeat", type=int, default=1,
                     help="times to repeat the graph build (parse is cached)")
+    ap.add_argument("--by-theory", type=int, default=0, metavar="N",
+                    help="rank theories by entry count and time the top N "
+                         "per-theory (entries-vs-lines cost view)")
     ns = ap.parse_args()
 
     cli._ROOT_OVERRIDE = Path(ns.root).expanduser().resolve()
@@ -90,6 +127,9 @@ def main() -> int:
               f"{sum(build_times) / len(build_times):7.3f}s")
     print(f"  ({len(g.all_names)} names, "
           f"{sum(len(v) for v in g.callers.values())} in-edges)")
+
+    if ns.by_theory:
+        _by_theory(sections, ns.by_theory)
 
     if ns.cprofile:
         _cprofile("load_index", cli.load_index, ns.top)
