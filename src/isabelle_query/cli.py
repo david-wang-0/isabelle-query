@@ -19,6 +19,9 @@ File organisation (section banners below mark each):
   Two forward/reverse pairs, at different granularities: entry-level
   `callees` (forward) / `callers` (reverse) over proof-body references;
   theory-level `deps` (forward) / `uses` (reverse) over imports.
+  `_scan_methods` is the router's complement: the `PROOF_METHODS` tokens
+  `_is_citation_name` rejects as fact edges are the method uses it tallies
+  for the `methods` query.
 * **Rendering** — `_format_extent`, `render_entry`, preview/comment
   formatting.
 * **Verbosity-mode dispatch** — the `-c`/`-n`/`-a`/`-V` resolution shared
@@ -38,6 +41,7 @@ from __future__ import annotations
 import re
 import sys
 from bisect import bisect_right
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1245,6 +1249,72 @@ def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
     return CallGraph(callers=callers, callees=callees, all_names=name_set)
 
 
+# A proof method is introduced by one of the three pure proof keywords
+# `by` / `apply` / `proof`; the method name is the first token after it
+# (optionally wrapped in an opening `(`).  Anchoring on the introducer is
+# what makes the scan precise: the method namespace contains short,
+# variable-colliding names (`N`, `order`, `field`, `split`, `all`), but in
+# *introducer position* even a one-letter token is unambiguously the method.
+# Trade-off: this counts the initial method of each `by`/`apply`/`proof`, so
+# combinator-chained (`by (induct x) auto`) and line-wrapped methods are
+# undercounted — never over-counted, which keeps the ranking trustworthy.
+_METHOD_INTRO_RE = re.compile(r"\b(?:by|apply|proof)\b\s*\(?\s*([\w']+)")
+
+
+def _scan_methods(sections: list[TheorySection], only: str | None = None,
+                  ) -> tuple[Counter, list[tuple[str, int, "Entry | None", str]]]:
+    """Tally proof-method uses across live theory source.
+
+    Returns ``(counts, located)``:
+
+    * ``counts`` — :class:`collections.Counter` ``{method: occurrences}`` over
+      every ``by`` / ``apply`` / ``proof`` introducer on a *live* line (not a
+      ``text \\<open>...\\<close>`` block, a ``\\<comment>`` annotation, or a
+      per-entry preamble — so prose like "apply the rule" is not mined).
+    * ``located`` — ``[(theory, line_no, owning_entry, line_text)]`` for the
+      method named by ``only`` (empty when ``only`` is None), the method
+      analogue of :func:`_find_callers`.
+
+    This is the complement of the citation router: the tokens
+    :func:`_is_citation_name` declines to treat as fact-graph edges are
+    exactly the method uses surfaced here.
+    """
+    methods = _isa_ns.PROOF_METHODS
+    counts: Counter = Counter()
+    located: list[tuple[str, int, Entry | None, str]] = []
+    line_index = _build_line_index(sections)
+    for sec in sections:
+        lines = sec.source()
+        # "Live" = not inside a text block, multi-line \<comment>, or preamble
+        # (the same notion `_grep_sections` uses), so an `apply`/`by` mentioned
+        # in prose does not register as a method use.
+        noise: list[range] = []
+        for tb_start, tb_end in sec.text_blocks:
+            noise.append(range(tb_start, tb_end + 1))
+        for cb_start, cb_end in sec.comment_ranges:
+            noise.append(range(cb_start, cb_end + 1))
+        for e in sec.entries:
+            if e.preamble:
+                ps, pe = e.preamble
+                noise.append(range(ps, pe + 1))
+        idx = line_index.get(sec.theory, [])
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if any(line_no in r for r in noise):
+                continue
+            hit_only = False
+            for m in _METHOD_INTRO_RE.finditer(line):
+                tok = m.group(1)
+                if tok in methods:
+                    counts[tok] += 1
+                    if tok == only:
+                        hit_only = True
+            if hit_only:
+                located.append((sec.theory, line_no,
+                                _entry_at_line(idx, line_no), line.rstrip()))
+    return counts, located
+
+
 def _transitive_closure(graph: dict[str, set[str]],
                         seeds: set[str]) -> dict[str, int]:
     """BFS from seeds through graph edges.  Returns {name: depth}."""
@@ -2172,6 +2242,70 @@ def cmd_callees(sections: list[TheorySection], name: str,
             print(f"  {uname}")
 
 
+def cmd_methods(sections: list[TheorySection], name: str | None,
+                flags: 'CmdFlags') -> None:
+    """Proof-method usage, the complement of the citation graph.
+
+    ``methods``         — ranked tally of every proof method used, with
+                          occurrence counts and corpus share (``-a`` for the
+                          full list, ``-n`` for names only, ``-c`` for the
+                          distinct-method count).
+    ``methods NAME``    — every live use of method NAME with its location and
+                          owning entry (the method analogue of ``callers``).
+    """
+    counts, located = _scan_methods(sections, only=name)
+
+    if name is None:
+        if flags.mode == "count":
+            print(len(counts))           # number of distinct methods used
+            return
+        if not counts:
+            print("No proof-method uses found.")
+            return
+        ranked = counts.most_common()
+        if flags.mode == "names":
+            for meth, _c in ranked:
+                print(meth)
+            return
+        total = sum(counts.values())
+        shown = ranked if flags.mode == "all" else ranked[:30]
+        suffix = "" if flags.mode == "all" else f" (top {len(shown)})"
+        print(f"{len(counts)} proof methods used across {total} "
+              f"by/apply/proof introducers{suffix}:\n")
+        name_w = max(len(m) for m, _ in shown)
+        for meth, c in shown:
+            print(f"  {meth:<{name_w}}  {c:>8}  {100.0 * c / total:5.1f}%")
+        if flags.mode != "all" and len(ranked) > len(shown):
+            print(f"\n  ... {len(ranked) - len(shown)} more methods "
+                  f"(use -a for all, or `methods NAME` for uses)")
+        return
+
+    # Located form: `methods NAME`.
+    if name not in _isa_ns.PROOF_METHODS:
+        print(f"'{name}' is not a known proof method "
+              f"(method namespace: {_isa_ns.__name__}).  Try `methods` for "
+              f"the list of methods actually used.")
+        return
+    if flags.mode == "count":
+        print(len(located))
+        return
+    if not located:
+        print(f"No uses of method '{name}' found.")
+        return
+    if flags.mode == "names":
+        loc_w = max(len(f"{t}:{ln}") for t, ln, *_ in located)
+        for theory, ln, owner, _text in located:
+            owner_str = (f"{owner.name} ({owner.tag})"
+                         if owner is not None and owner.name != "?" else "—")
+            print(f"  {f'{theory}:{ln}':<{loc_w}}  {owner_str}")
+        return
+    print(f"{len(located)} use(s) of method '{name}':\n")
+    for theory, ln, owner, text in located:
+        encl = (f"  [in {owner.name}]"
+                if owner is not None and owner.name != "?" else "")
+        print(f"  {theory}:{ln}:{encl}  {text.strip()}")
+
+
 def _compute_unused(graph: CallGraph,
                     keep: set[str] | None = None) -> set[str]:
     """Entries with zero callers (directly unused).
@@ -2879,6 +3013,9 @@ def _run_callees(ns: argparse.Namespace) -> None:
 def _run_unused(ns: argparse.Namespace) -> None:
     cmd_unused(_load_sections(ns), _flags_from_ns(ns))
 
+def _run_methods(ns: argparse.Namespace) -> None:
+    cmd_methods(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
 def _run_grep(ns: argparse.Namespace) -> None:
     cmd_grep(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
 
@@ -3101,6 +3238,17 @@ def _build_parser() -> argparse.ArgumentParser:
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
     p.set_defaults(func=_run_unused)
+
+    # methods (alias: method) — proof-method usage; complement of the call
+    # graph.  Scopes to a corpus via the global `-R` (e.g. `-R afp/thys`).
+    p = sub.add_parser("methods", aliases=["method"],
+                       help="proof-method usage tally; `methods NAME` "
+                            "(e.g. `methods simp`) lists that method's uses")
+    p.add_argument("name", nargs="?", default=None, metavar="NAME",
+                   help="a proof method (e.g. simp, auto, induct); omit for "
+                        "the ranked tally of every method used")
+    _add_mode_flags(p)
+    p.set_defaults(func=_run_methods)
 
     return top
 

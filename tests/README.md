@@ -22,6 +22,15 @@ Isabelle's keyword table (`Pure/Thy/thy_header.ML`). The scanner reads that
 clause and routes each command through the matching built-in branch, so the
 facts are indexed and the inflated spans they used to cause collapse.
 
+`tests/test_methods.py` covers the **proof-method scanner** behind `query
+methods` / `query method NAME` — the complement of the citation router. It
+pins the precision property that makes the tally trustworthy: a method-namespace
+token that is really a term variable (`N`, `order`) is counted *only* in
+introducer position (after `by` / `apply` / `proof`), never as a bare token, so
+the AFP-wide ranking is `simp`/`auto`/`blast`/`metis`/… rather than a list of
+common variable names. It also pins the documented under-count (the trailing
+method of `by (induct x) auto` is not tallied — never over-counted).
+
 `tests/test_known_failures.py` is a catalogue of *recoverable* parser corner
 cases (comment-prefixed names, abbreviation LHS heads). Each asserts the
 desired behaviour and is marked `@expectedFailure`, so the suite stays green
