@@ -59,16 +59,18 @@ def tags_by_name(section):
 _ANTIQ_RE = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
 
 
-def brute_force_call_graph(sections):
+def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO):
     """Reference O(lines x names) call-graph builder used as a test oracle.
 
     Mirrors ``cli._build_call_graph`` semantics (text-block skip,
     antiquotation strip, def-site exclusion, line->entry attribution) but
     via the naive per-name boundary search rather than tokenisation.
+    ``drop_upto`` is forwarded to ``cli._is_citation_name`` exactly as the
+    fast builder forwards it, so the two stay in parity at any threshold.
     """
     name_set = {e.name for s in sections for e in s.entries
                 if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
-                and e.name != "?" and cli._is_citation_name(e.name)}
+                and e.name != "?" and cli._is_citation_name(e.name, drop_upto)}
     def_sites = cli._build_def_sites(sections, name_set)
     text_ranges = cli._build_text_ranges(sections)
     line_index = cli._build_line_index(sections)

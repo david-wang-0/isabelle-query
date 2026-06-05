@@ -1157,28 +1157,49 @@ _NON_CITATION = (_isa_ns.PROOF_METHODS | _isa_ns.ATTRIBUTES
                  | _isa_ns.KEYWORDS | _ARG_MODIFIERS)
 
 
-def _is_citation_name(name: str) -> bool:
-    """Whether a name can denote a cited fact (vs a method/attribute/keyword/
-    numeral token).  Shared by the fast builder and the brute-force oracle so
-    both implement the same citation semantics."""
-    return name not in _NON_CITATION and not name.isdigit()
+_DROP_NAMES_UPTO = 1   # default; overridden per-invocation via --drop-names-upto
 
 
-def _build_call_graph(sections: list[TheorySection]) -> CallGraph:
+def _is_citation_name(name: str, drop_upto: int = _DROP_NAMES_UPTO) -> bool:
+    """Whether a name can denote a cited fact, vs a method/attribute/keyword/
+    numeral token *or a name too short to tell apart from a term variable*.
+    Shared by the fast builder and the brute-force oracle so both implement
+    the same citation semantics.
+
+    ``drop_upto`` filters out citation names of length <= it.  A length-1
+    token (`x`, `a`, `f`, the wildcard `_`) is a bound variable in nearly
+    every proof, so by default (``drop_upto`` = 1) length-1 names are not
+    citation nodes — on the AFP they carry ~28% of all in-edges across 51
+    universal-variable names, essentially all noise.  Length-2+ is kept,
+    preserving genuine short lemma names (`le`, `id`, `or`).  ``drop_upto`` = 0
+    disables the length filter (keep single-char names); 2 also drops 2-char
+    names (more aggressive).  See ``scripts/analyze_citation_names.py`` for
+    the AFP evidence; the ``--drop-names-upto N`` flag sets it.  The
+    method/keyword/numeral router is independent of ``drop_upto``.
+    """
+    return (len(name) > drop_upto
+            and name not in _NON_CITATION and not name.isdigit())
+
+
+def _build_call_graph(sections: list[TheorySection],
+                      drop_upto: int = _DROP_NAMES_UPTO) -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
     Uses the shared filtering helpers (`_build_text_ranges`,
     `_build_def_sites`): skips text blocks, definition sites, and
-    antiquotation-only mentions.
+    antiquotation-only mentions.  ``drop_upto`` is forwarded to
+    :func:`_is_citation_name` — length-1 names (variable collisions) are
+    excluded by default; see that function and ``--drop-names-upto``.
     """
     # 1. Collect candidate names (same filter as cmd_dead).  A name that is a
-    #    proof method / attribute / keyword / numeral is not a citable fact —
-    #    excluding it here keeps `by simp` etc. from minting spurious edges.
+    #    proof method / attribute / keyword / numeral — or too short to tell
+    #    from a term variable — is not a citable fact, so `by simp` and the
+    #    universal variable `x` alike don't mint spurious edges.
     name_set: set[str] = set()
     for sec in sections:
         for e in sec.entries:
             if (e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
-                    and e.name != "?" and _is_citation_name(e.name)):
+                    and e.name != "?" and _is_citation_name(e.name, drop_upto)):
                 name_set.add(e.name)
 
     # 2. Build def-site and text-block exclusion ranges.
@@ -2148,7 +2169,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
     if flags.recursive:
-        graph = _build_call_graph(sections)
+        graph = _build_call_graph(sections, flags.drop_names_upto)
         if name not in graph.all_names:
             parent = _resolve_conjunct(sections, name)
             if parent is not None:
@@ -2195,7 +2216,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
     """Entry-level forward edge: the entries this entry references in
     its proof body (its callees).  Pairs with `cmd_callers` (reverse).
     Not to be confused with the theory-level `deps` / `uses` pair."""
-    graph = _build_call_graph(sections)
+    graph = _build_call_graph(sections, flags.drop_names_upto)
     if name not in graph.all_names:
         parent = _resolve_conjunct(sections, name)
         if parent is not None:
@@ -2523,7 +2544,7 @@ def _render_forest(sections: list[TheorySection],
 
 def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     """List entries with zero callers in proof bodies."""
-    graph = _build_call_graph(sections)
+    graph = _build_call_graph(sections, flags.drop_names_upto)
 
     keep = set(flags.keep)
     if keep:
@@ -2806,6 +2827,7 @@ class CmdFlags:
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
     include_all: bool = False    # --all (grep: include in-comment matches)
     external: bool = False       # --external (callers: skip defining theory)
+    drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
 
 
 def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
@@ -2833,6 +2855,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
                        for n in arg.split(",") if n.strip())
     f.include_all = getattr(ns, "all_hits", False)
     f.external = getattr(ns, "external", False)
+    f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     return f
 
 
@@ -2945,6 +2968,18 @@ def _add_comment_flags(p: argparse.ArgumentParser) -> None:
 def _add_context_flag(p: argparse.ArgumentParser) -> None:
     p.add_argument("-U", "--context", type=int, default=2, metavar="N",
                    help="lines of preview / context (default 2)")
+
+def _add_drop_names_flag(p: argparse.ArgumentParser) -> None:
+    # Filter short citation names out of the call graph: a length-1 token
+    # (`x`, `a`, `f`) is a term variable in nearly every proof, so by default
+    # (L=1) single-char names are not graph nodes.  L=0 keeps them; L=2 also
+    # drops 2-char names.  Method/keyword/numeral routing is independent.
+    p.add_argument("--drop-names-upto", type=int, default=_DROP_NAMES_UPTO,
+                   metavar="L",
+                   help=f"exclude citation-graph names of length <= L "
+                        f"(default {_DROP_NAMES_UPTO}: drop single-char "
+                        f"variable collisions; 0 keeps all; 2 also drops "
+                        f"2-char names)")
 
 
 # -- Subcommand handlers (thin wrappers) -----------------------------------
@@ -3152,6 +3187,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect callers)")
     _add_names_flag(p)
+    _add_drop_names_flag(p)
     p.add_argument("-C", "--context", type=int, default=0, metavar="N",
                    help="show N trailing lines after each match (rg-style; "
                         "useful for multi-line `[where ..., OF ...]` "
@@ -3176,6 +3212,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "`for n in A B C; do callees $n` loop")
     _add_count_flag(p)
     _add_names_flag(p)
+    _add_drop_names_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect callees)")
     p.add_argument("--external", action="store_true",
@@ -3237,6 +3274,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "unused, and stop the cascade at them).  Repeatable, "
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
+    _add_drop_names_flag(p)
     p.set_defaults(func=_run_unused)
 
     # methods (alias: method) — proof-method usage; complement of the call

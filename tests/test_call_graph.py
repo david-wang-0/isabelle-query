@@ -56,15 +56,17 @@ end
         self.assertIn("uses_psi", g.callers[r"\<psi>"])
 
     def test_definition_site_excluded(self):
-        # a recursive fun references itself only inside its own span
+        # a recursive fun references itself only inside its own span.
+        # (Name is 2+ chars so it survives the default single-char drop and
+        # the self-edge exclusion is what's actually under test.)
         sec = section_from(r'''theory T imports Main begin
-fun f :: "nat \<Rightarrow> nat" where
-"f 0 = 0" |
-"f (Suc n) = f n"
+fun ff :: "nat \<Rightarrow> nat" where
+"ff 0 = 0" |
+"ff (Suc n) = ff n"
 end
 ''')
         g = self.assertMatchesOracle([sec])
-        self.assertNotIn("f", g.callers.get("f", set()))   # no self-edge
+        self.assertNotIn("ff", g.callers.get("ff", set()))   # no self-edge
 
     def test_prose_mention_is_not_a_call(self):
         sec = section_from(r'''theory T imports Main begin
@@ -127,6 +129,47 @@ end
         g = self.assertMatchesOracle([sec])
         self.assertIn("usesit", g.callers[r"\<gamma>\<^sub>1"])
         self.assertEqual(g.callers.get(r"\<gamma>", set()), set())
+
+
+class DropShortNames(unittest.TestCase):
+    """The `--drop-names-upto L` threshold: a length-1 name (`f`) is a term
+    variable in nearly every proof, so by default it is not a citation node;
+    a length-2 name (`ff`) is kept.  `drop_upto=0` disables the length filter.
+    Both the fast builder and the oracle honour the same `drop_upto`."""
+
+    SNIPPET = r'''theory T imports Main begin
+definition f :: "nat" where "f = 0"
+definition ff :: "nat" where "ff = 0"
+lemma uses_both: "f = ff" by (simp add: f_def ff_def)
+end
+'''
+
+    def test_single_char_dropped_by_default(self):
+        sec = section_from(self.SNIPPET)
+        g = cli._build_call_graph([sec])               # default drop_upto=1
+        self.assertNotIn("f", g.all_names)             # length-1 excluded
+        self.assertIn("ff", g.all_names)               # length-2 kept
+        self.assertIn("uses_both", g.callers["ff"])
+
+    def test_drop_upto_zero_keeps_single_char(self):
+        sec = section_from(self.SNIPPET)
+        g = cli._build_call_graph([sec], drop_upto=0)
+        self.assertIn("f", g.all_names)
+        self.assertIn("uses_both", g.callers["f"])
+
+    def test_oracle_parity_at_each_threshold(self):
+        sec = section_from(self.SNIPPET)
+        for drop in (0, 1, 2):
+            fast = cli._build_call_graph([sec], drop_upto=drop)
+            ref = brute_force_call_graph([sec], drop_upto=drop)
+            self.assertEqual(fast.callers, ref.callers, f"drop_upto={drop}")
+            self.assertEqual(fast.callees, ref.callees, f"drop_upto={drop}")
+
+    def test_drop_upto_two_drops_two_char(self):
+        sec = section_from(self.SNIPPET)
+        g = cli._build_call_graph([sec], drop_upto=2)
+        self.assertNotIn("f", g.all_names)
+        self.assertNotIn("ff", g.all_names)            # length-2 now dropped too
 
 
 class WordBoundary(unittest.TestCase):

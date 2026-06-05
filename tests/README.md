@@ -31,6 +31,16 @@ the AFP-wide ranking is `simp`/`auto`/`blast`/`metis`/… rather than a list of
 common variable names. It also pins the documented under-count (the trailing
 method of `by (induct x) auto` is not tallied — never over-counted).
 
+`tests/test_call_graph.py`'s `DropShortNames` covers the **single-char-name
+filter** (`--drop-names-upto L`, default 1). A length-1 token (`x`, `a`, `f`,
+the wildcard `_`) is a bound variable in nearly every proof — on the AFP,
+length-1 names carry ~28% of all citation in-edges across 51 universal-variable
+names, essentially all noise — so by default they are not citation-graph nodes,
+while length-2+ short *lemma* names (`le`, `id`) are kept. The threshold is a
+parameter of the shared `_is_citation_name`, so the fast builder and the oracle
+stay in parity at every value (`scripts/analyze_citation_names.py` is the
+reusable diagnostic that produced the evidence for the default).
+
 `tests/test_known_failures.py` is a catalogue of *recoverable* parser corner
 cases (comment-prefixed names, abbreviation LHS heads). Each asserts the
 desired behaviour and is marked `@expectedFailure`, so the suite stays green
