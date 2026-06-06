@@ -1,12 +1,12 @@
 # isabelle-query
 
-`query` is a command-line tool for **querying the live theory index of an
-Isabelle/Isar project** — its entries (definitions, lemmas, theorems,
+`query` is a command-line tool for **querying an Isabelle/Isar project**.
+It examines the project's entries (definitions, lemmas, theorems,
 datatypes), call graph, theory dependencies, outstanding `sorry`s, and dead
 code. It parses the project's `.thy` sources on every invocation, so results
-always match the current tree (a full parse of ~90 theories runs in well under
-a second). It's aimed at large developments — sizeable AFP entries, industrial
-verification, research formalisations — where grep-and-eyeball stops scaling.
+always match the current tree, and even a large project parses in a fraction of
+a second. It's aimed at large developments: AFP entries (or the AFP itself),
+or industrial verification, where grep-and-eyeball isn't enough.
 
 ## What it does
 
@@ -22,7 +22,27 @@ query sorry                # outstanding sorry's
 query unused               # dead-code / unused-entry analysis
 ```
 
-Every subcommand takes `-h`; `query -h` lists all 15.
+Every subcommand takes `-h`; `query -h` lists all 16.
+
+## Examples
+
+Point `query` at any session directory with `-R` (or `--root`):
+
+```sh
+query -R AFP/thys largest                          # the biggest entries, by line count
+query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
+```
+
+## Why two kinds of scan
+
+The two examples above are the tool's two kinds of question:
+
+- **Structure** — *what is declared, and where* (`largest`, `summary`,
+  `theory`, `find`, `show`).
+- **Usage** — *which facts cite which* (`callers`, `callees`, `unused`).
+
+The usage scan is heavier and runs only when you ask about the call graph, so
+everyday commands stay fast.
 
 The tool reads one Isabelle **session directory** (a directory containing a
 `ROOT` file). Run `query` from inside a project and it finds the session
@@ -45,7 +65,7 @@ pip install .                  # from a checkout
 An editable install — source edits take effect immediately, no reinstall:
 
 ```sh
-git clone <repo-url>
+git clone https://github.com/ott2/isabelle-query
 cd isabelle-query
 python -m venv .venv && source .venv/bin/activate   # optional but recommended
 pip install -e .
@@ -56,3 +76,4 @@ pip install -e .
 By András Salamon, with Claude Opus 4.6, 4.7, and 4.8. Extracted — with its full
 git history — from a larger Isabelle/Isar formalisation of computational-
 complexity results. [MIT](LICENSE).
+
