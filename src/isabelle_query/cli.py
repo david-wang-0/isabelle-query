@@ -2831,19 +2831,11 @@ def cmd_lines(file_path: str, ranges: list[str]) -> None:
                   file=sys.stderr)
 
 
-def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
-    n = 20
-    theory_filter: str | None = None
-    for a in args:
-        if a.isdigit():
-            n = int(a)
-        else:
-            theory_filter = a
-
+def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
+    # Theory/file scoping is handled upstream by `_load_sections` (the `files`
+    # positionals); here we just rank whatever sections we were handed.
     rows: list[tuple[int, Entry, TheorySection]] = []
     for s in sections:
-        if theory_filter and s.theory.lower() != theory_filter.lower():
-            continue
         for e in s.entries:
             if e.thy_line > 0:
                 rows.append((e.thy_end - e.thy_line + 1, e, s))
@@ -2854,11 +2846,10 @@ def cmd_largest(sections: list[TheorySection], args: list[str]) -> None:
         print("No entries found.")
         return
 
-    where = f" in {theory_filter}" if theory_filter else ""
-    print(f"Top {min(n, len(rows))} largest entries{where}:\n")
+    print(f"Top {min(top, len(rows))} largest entries:\n")
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
-    for size, e, s in rows[:n]:
+    for size, e, s in rows[:top]:
         print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.thy_line}-{e.thy_end})")
 
 
@@ -3067,12 +3058,7 @@ def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
 def _run_largest(ns: argparse.Namespace) -> None:
-    args: list[str] = []
-    if ns.n is not None:
-        args.append(str(ns.n))
-    if ns.theory is not None:
-        args.append(ns.theory)
-    cmd_largest(_load_sections(ns), args)
+    cmd_largest(_load_sections(ns), ns.top)
 
 def _run_find(ns: argparse.Namespace) -> None:
     sections = _load_sections(ns)
@@ -3203,10 +3189,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # largest
     p = sub.add_parser("largest", help="top N largest entries by span")
-    p.add_argument("n", nargs="?", type=int, default=None,
-                   help="number of entries (default 20)")
-    p.add_argument("theory", nargs="?", default=None,
-                   help="restrict to a theory")
+    p.add_argument("-N", "--top", type=int, default=20, metavar="N",
+                   help="number of entries to show (default 20)")
+    _add_path_files_arg(p)  # trailing .thy/dir/name positionals -> union scope
     p.set_defaults(func=_run_largest)
 
     # find
