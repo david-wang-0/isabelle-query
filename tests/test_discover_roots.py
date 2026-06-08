@@ -116,6 +116,31 @@ class DiscoverRoots(unittest.TestCase):
             self.assertEqual(self._roots(d),
                              ["one/ROOT", "two/nested/ROOT"])
 
+    def test_no_index_hidden_ancestor_does_not_suppress(self):
+        # root_dir living *under* a hidden directory must not cause the walk to
+        # skip everything: "hidden" is judged relative to root_dir, not the
+        # absolute path.  (The old full-`parts` test found nothing here.)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            _build(d, {
+                ".cache/proj/ROOT": "session p = HOL\n",
+                ".cache/proj/sub/ROOT": "session q = HOL\n",
+            })
+            root = d / ".cache" / "proj"
+            self.assertEqual(self._roots(root), ["ROOT", "sub/ROOT"])
+
+    def test_no_index_dotdot_in_path_not_treated_as_hidden(self):
+        # A `..` in the path as given is not a hidden component, so a relative
+        # root such as `../proj` resolves normally.
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            _build(d, {
+                "ROOT": "session s = HOL\n",
+                "sub/ROOT": "session t = HOL\n",
+            })
+            root = d / "sub" / ".."  # filesystem-equals d, but carries '..'
+            self.assertEqual(len(discover_roots(root)), 2)
+
     def test_missing_directory_returns_empty(self):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(discover_roots(Path(d) / "nope"), [])

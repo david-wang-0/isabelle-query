@@ -623,11 +623,11 @@ def discover_roots(root_dir: Path) -> list[Path]:
     scope to ROOT files the build never compiles.
 
     When `root_dir` has no `ROOTS` index, fall back to a recursive walk
-    (skipping hidden directories) so single-ROOT and ad-hoc layouts still
-    resolve.  Results sorted for stable ordering.  ROOT files that don't
-    declare any sessions (e.g. AFP's `afp/thys/ROOT` chapter-definition
-    file) are still returned — `parse_root_sessions` returns [] for them,
-    so they're harmless.
+    (skipping hidden *sub*directories such as `.git`) so single-ROOT and
+    ad-hoc layouts still resolve.  Results sorted for stable ordering.
+    ROOT files that don't declare any sessions (e.g. AFP's `afp/thys/ROOT`
+    chapter-definition file) are still returned — `parse_root_sessions`
+    returns [] for them, so they're harmless.
     """
     if not root_dir.exists():
         return []
@@ -643,16 +643,21 @@ def discover_roots(root_dir: Path) -> list[Path]:
                 out.append(rp)
 
     if not (root_dir / "ROOTS").is_file():
-        # No ROOTS index: recursive walk (skip hidden directories).
+        # No ROOTS index: recursive walk, skipping hidden *sub*directories.
+        # The hidden test is judged relative to root_dir, so a hidden ancestor
+        # of root_dir — or a `..` in the path as given — does not suppress the
+        # whole walk (the old absolute-`parts` test did: a relative root like
+        # `../proj` made every "`..`/..." hit look hidden and found nothing).
         for path in sorted(root_dir.rglob("ROOT")):
-            if any(part.startswith(".") for part in path.parts):
+            if any(part.startswith(".")
+                   for part in path.relative_to(root_dir).parts):
                 continue
             if path.is_file():
                 rp = path.resolve()
                 if rp not in seen_roots:
                     seen_roots.add(rp)
                     out.append(rp)
-        return out
+        return sorted(out)
 
     # ROOTS index present: descend only into listed subdirectories.
     visited_dirs: set[Path] = set()
