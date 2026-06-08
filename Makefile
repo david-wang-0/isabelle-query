@@ -2,8 +2,9 @@
 #
 # pyproject.toml's [project].version is the single source of truth for the
 # release version. `make release` reads it, creates an annotated git tag
-# v<version> on the current commit, and pushes that tag to the remote. GitHub
-# renders a pushed tag as a Release with an auto-generated source archive:
+# v<version> on the current commit, then pushes the current branch and that
+# tag to the remote. GitHub renders a pushed tag as a Release with an
+# auto-generated source archive:
 #   https://github.com/ott2/isabelle-query/releases/tag/v<version>
 #
 # To attach human-readable notes afterwards:
@@ -23,7 +24,8 @@ TAG     := v$(VERSION)
 version:
 	@echo $(TAG)
 
-# Tag the current commit as v<version> (annotated) and push it to $(REMOTE).
+# Tag the current commit as v<version> (annotated), then push the current
+# branch and the tag to $(REMOTE).
 release:
 	@test -n "$(VERSION)" || { echo "error: could not read version from pyproject.toml"; exit 1; }
 	@git update-index -q --refresh
@@ -34,7 +36,7 @@ release:
 	@if git ls-remote --exit-code --tags $(REMOTE) "refs/tags/$(TAG)" >/dev/null 2>&1; then \
 		echo "error: tag $(TAG) already exists on $(REMOTE)"; exit 1; \
 	fi
-	@echo "Tagging $$(git rev-parse --short HEAD) as $(TAG); pushing to $(REMOTE)..."
+	@echo "Tagging $$(git rev-parse --short HEAD) as $(TAG); pushing branch + tag to $(REMOTE)..."
 	git tag -a "$(TAG)" -m "isabelle-query $(VERSION)"
-	git push $(REMOTE) "$(TAG)"
+	git push $(REMOTE) HEAD "$(TAG)"
 	@echo "Released $(TAG): https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
