@@ -130,3 +130,11 @@ per-command), `_add_drop_names_flag`.
       `callers` is a lookup-family verb, so `-U` matches its family; and
       rg's `-C` is context on both sides whereas `callers` shows only
       trailing lines (rg's `-A`), so `-C` was mis-aligned anyway.
+- [x] `[version-flag]` (from `[feature-audit]`) — top-level `query
+      --version`.  Reads the installed dist version via
+      `importlib.metadata.version("isabelle-query")` (single source of
+      truth: only `pyproject.toml` carries the number; no `__version__`
+      literal to drift).  Lazy custom `argparse.Action` so the metadata
+      lookup is paid only when asked, not on every sub-100ms run.  Note for
+      editable installs: the label reflects the last `pip install -e`, so it
+      can lag the live checkout.

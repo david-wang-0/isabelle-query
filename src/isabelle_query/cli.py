@@ -3182,6 +3182,43 @@ def _run_lines(ns: argparse.Namespace) -> None:
 
 # -- Parser construction ----------------------------------------------------
 
+def _resolve_version() -> str:
+    """The installed distribution version, read from package metadata.
+
+    Single source of truth: the version lives only in `pyproject.toml` and is
+    baked into the installed dist metadata at build/install time; we read it
+    back here rather than duplicating a `__version__` literal that the release
+    bump (and `make release`'s tomllib read) would then have to keep in sync.
+    Caveat for editable installs: the metadata version reflects the last
+    `pip install -e`, so it can lag the working tree even though the running
+    code is live — the label is the installed version, not the checkout's.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version("isabelle-query")
+    except PackageNotFoundError:
+        return "0+unknown (package not installed)"
+
+
+class _VersionAction(argparse.Action):
+    """Lazy `--version`.
+
+    argparse's built-in `action="version"` wants a precomputed string, which
+    would force the `importlib.metadata` import + dist-info scan on *every*
+    `query` run.  Deferring it to `__call__` means only an actual
+    `query --version` pays that cost — keeping the common path sub-100ms.
+    """
+    def __init__(self, option_strings, dest=argparse.SUPPRESS,
+                 default=argparse.SUPPRESS,
+                 help="show the version and exit"):
+        super().__init__(option_strings=option_strings, dest=dest,
+                         default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"query {_resolve_version()}")
+        parser.exit()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
         prog="query",
@@ -3193,6 +3230,7 @@ def _build_parser() -> argparse.ArgumentParser:
              "containing ROOT, or a parent of per-session ROOTs.  "
              "Overrides $ISABELLE_QUERY_ROOT, any .isabelle-query marker, and "
              "auto-discovery.  Must precede the subcommand.")
+    top.add_argument("--version", action=_VersionAction)
 
     sub = top.add_subparsers(dest="command", title="commands")
 
