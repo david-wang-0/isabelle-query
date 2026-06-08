@@ -612,23 +612,69 @@ def resolve_session_theory(session: SessionInfo,
 
 
 def discover_roots(root_dir: Path) -> list[Path]:
-    """Find every ROOT file under `root_dir`.
+    """Find the ROOT files under `root_dir`, matching `isabelle build -D`.
 
-    Recursive walk; results sorted for stable ordering.  Skips hidden
-    directories (anything starting with `.`).  ROOT files that don't
-    declare any sessions (e.g. AFP's `afp/thys/ROOT`
-    chapter-definition file) are still returned — `parse_root_sessions`
-    will return [] for them, so they're harmless.
+    When `root_dir` carries an Isabelle `ROOTS` index, descend **only**
+    into the subdirectories it lists (one entry per line, relative to the
+    index), exactly as `isabelle build -D <root_dir>` does.  This keeps
+    scan scope identical to build scope: a sibling session directory
+    deliberately omitted from `ROOTS` is excluded here just as the build
+    excludes it.  Without this, a bare recursive glob silently widens
+    scope to ROOT files the build never compiles.
+
+    When `root_dir` has no `ROOTS` index, fall back to a recursive walk
+    (skipping hidden directories) so single-ROOT and ad-hoc layouts still
+    resolve.  Results sorted for stable ordering.  ROOT files that don't
+    declare any sessions (e.g. AFP's `afp/thys/ROOT` chapter-definition
+    file) are still returned — `parse_root_sessions` returns [] for them,
+    so they're harmless.
     """
     if not root_dir.exists():
         return []
     out: list[Path] = []
-    for path in sorted(root_dir.rglob("ROOT")):
-        if any(part.startswith(".") for part in path.parts):
-            continue
-        if path.is_file():
-            out.append(path.resolve())
-    return out
+    seen_roots: set[Path] = set()
+
+    def add_root(d: Path) -> None:
+        root = d / "ROOT"
+        if root.is_file():
+            rp = root.resolve()
+            if rp not in seen_roots:
+                seen_roots.add(rp)
+                out.append(rp)
+
+    if not (root_dir / "ROOTS").is_file():
+        # No ROOTS index: recursive walk (skip hidden directories).
+        for path in sorted(root_dir.rglob("ROOT")):
+            if any(part.startswith(".") for part in path.parts):
+                continue
+            if path.is_file():
+                rp = path.resolve()
+                if rp not in seen_roots:
+                    seen_roots.add(rp)
+                    out.append(rp)
+        return out
+
+    # ROOTS index present: descend only into listed subdirectories.
+    visited_dirs: set[Path] = set()
+
+    def visit(d: Path) -> None:
+        rd = d.resolve()
+        if rd in visited_dirs:
+            return
+        visited_dirs.add(rd)
+        add_root(d)
+        index = d / "ROOTS"
+        if index.is_file():
+            for line in index.read_text().splitlines():
+                entry = line.strip()
+                if not entry or entry.startswith("#"):
+                    continue
+                sub = d / entry
+                if sub.is_dir():
+                    visit(sub)
+
+    visit(root_dir)
+    return sorted(out)
 
 
 def iter_sessions(root_dir: Path) -> list[SessionInfo]:
