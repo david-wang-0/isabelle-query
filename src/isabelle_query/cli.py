@@ -24,7 +24,7 @@ File organisation (section banners below mark each):
   for the `methods` query.
 * **Rendering** — `_format_extent`, `render_entry`, preview/comment
   formatting.
-* **Verbosity-mode dispatch** — the `-c`/`-n`/`-a`/`-V` resolution shared
+* **Verbosity-mode dispatch** — the `-c`/`--names`/`-a`/`-V` resolution shared
   across subcommands.
 * **Commands** — one `cmd_*` function per subcommand.  Output discipline:
   `-c` prints a bare integer (no decoration); verbose forms print
@@ -2325,7 +2325,7 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
 
     ``methods``         — ranked tally of every proof method used, with
                           occurrence counts and corpus share (``-a`` for the
-                          full list, ``-n`` for names only, ``-c`` for the
+                          full list, ``--names`` for names only, ``-c`` for the
                           distinct-method count).
     ``methods NAME``    — every live use of method NAME with its location and
                           owning entry (the method analogue of ``callers``).
@@ -2965,13 +2965,13 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
 
 def _add_mode_flags(p: argparse.ArgumentParser) -> None:
     # Composite bundle for subparsers that accept all three.  Not mutually
-    # exclusive: -a -n composes (= "all matches as names").  Precedence at
-    # resolution: -c > -n > -a > default.  Subparsers wanting only a
+    # exclusive: -a --names composes (= "all matches as names").  Precedence
+    # at resolution: -c > --names > -a > default.  Subparsers wanting only a
     # subset call the per-flag helpers (`_add_count_flag`,
     # `_add_names_flag`) directly.
     p.add_argument("-a", "--all", action="store_true",
                    help="show all matches")
-    _add_count_flag(p, "just print the count (wins over -a / -n)")
+    _add_count_flag(p, "just print the count (wins over -a / --names)")
     _add_names_flag(p, "names + tags + theory only (composable with -a)")
 
 
@@ -2982,7 +2982,13 @@ def _add_count_flag(p: argparse.ArgumentParser,
 
 def _add_names_flag(p: argparse.ArgumentParser,
                     help_text: str = "names + tags + theory only") -> None:
-    p.add_argument("-n", "--names", action="store_true", help=help_text)
+    # No `-n` short flag: it collides with the universal grep/rg convention
+    # where `-n` = line numbers.  This tool always prints `theory:line`
+    # locations, so there is nothing for a grep-style `-n` to toggle; rather
+    # than squat on it for `--names` (a silent, surprising mode switch for
+    # anyone with grep muscle memory), we leave `-n` free for its
+    # conventional meaning and spell the terse view out as `--names`.
+    p.add_argument("--names", action="store_true", help=help_text)
 
 
 def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
@@ -3174,7 +3180,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # theory
     p = sub.add_parser("theory",
                        help="show all entries for a theory "
-                            "(-n for a terse namespace listing)")
+                            "(--names for a terse namespace listing)")
     p.add_argument("name", help="theory name")
     _add_names_flag(p, "list the theory's namespace entries terse "
                        "(name, tag, line; no bodies) — one per line")
@@ -3187,7 +3193,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # defs
     p = sub.add_parser("defs",
                        help="list definitions in a theory "
-                            "(-n for terse name listing)")
+                            "(--names for terse name listing)")
     p.add_argument("theory", help="theory name")
     _add_names_flag(p, "list definition names terse (name, tag, line)")
     _add_count_flag(p, "just print the definition count")
