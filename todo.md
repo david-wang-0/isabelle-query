@@ -3,24 +3,23 @@
 Ordered by priority (highest first).  Tags are stable handles for cross-
 referencing in commits/PRs.
 
-- [ ] `[multi-name]` Extend the remaining single-name subcommands to
-      accept a **list**, so a `for n in A B C; do query callers $n` loop
-      (which trips the permissions gate on every iteration) collapses to
+- [ ] `[multi-name]` Extend the remaining single-name lookup verbs to
+      accept a **list**, so a `for n in A B C; do query CMD $n` loop
+      (which trips the permission gate on every iteration) collapses to
       one gate-free call — the load-bearing reason to prefer `query` over
       looped shell `grep`.
-      Already variadic (`nargs='+'`): `show`, `callees`, `deps`, `uses`,
-      `find` (patterns), `methods`.  **Remaining:**
-      - `callers` — the real work.  Its single positional `name` now
-        collides with the trailing `files nargs='*'` PATH positionals it
-        gained (two variadic positionals can't disambiguate).  Resolve by
-        moving PATH scoping off the positional slot — e.g. an optional
-        `--in DIR/FILE...` (or lean on the global `-R/--root`) — freeing
-        `name` to become `nargs='+'`.  Mirror `callees`'s blank-line-
-        separated per-name reporting.
-      - `theory` / `defs` / `outline` — each takes a single theory name;
-        making them `nargs='+'` is cheap and consistent, but lower value
-        (theory-scoped queries are batched less often than entry-scoped
-        ones).  Do these alongside `callers` only if it's free.
+      **Done:** `show`, `callees`, `callers`, `deps`, `uses`, `find`
+      (patterns), `methods`.  `callers` was the hard case — its `name`
+      positional and the trailing `files` PATH positionals were two greedy
+      positionals that argparse can't disambiguate.  Resolved per the CLI
+      contract below: `callers` dropped its PATH positionals (a file-subset
+      caller set is a footgun anyway — it reads as complete but isn't) to
+      join the lookup family as a plain `NAME...` verb, scoped by `-R` /
+      `--external`.
+      **Remaining (optional, low value):** `theory` / `defs` / `outline`
+      each take a single theory name; `nargs='+'` is cheap and consistent
+      but theory-scoped queries are batched far less than entry-scoped
+      ones.  Route them through `_add_subject_list_arg` if/when touched.
 
 - [ ] `[find-stmt]` `find-stmt PAT` — regex/token search over each
       entry's **statement slice only** (the declaration, not the proof
@@ -50,14 +49,8 @@ referencing in commits/PRs.
       against AWS AutoCorrode's `iq` tool
       (`https://github.com/awslabs/AutoCorrode/blob/main/iq/README.md`)
       to see which of its affordances we still lack.
-      Open design questions (the headline comment-search gap is now
-      *closed* — see Done):
-      - The `-n` = `--names` overload still clashes with the universal
-        grep/rg convention where `-n` = line numbers.  `largest` already
-        sidestepped this (its count flag became `-N/--top`); decide
-        whether to rename the `--names` short flag across
-        `find`/`show`/`grep`/`theory`/`callers`/`callees` or document the
-        deviation deliberately.
+      Open design questions (the headline comment-search gap and the
+      `-n`/`--names` overload are now *closed* — see Done):
       - The `grep` render format (location + owner + line) vs `iq`'s.
       - Optional: a comments-/prose-**only** view.  `grep -a` is additive
         (live source *plus* comments); there's no way to see *only* the
@@ -72,6 +65,33 @@ referencing in commits/PRs.
       flags on the existing graph subcommands vs a dedicated `graph`
       subcommand that emits the whole graph at once.
 
+## CLI contract (follow when adding or changing commands)
+
+Two families, each matching an external convention; a command's primary
+positional decides which one it is.
+
+- **lookup** (git/brew: `git show REF...`, `brew deps FORMULA`) — the
+  primary positional is a **subject** (entry/theory name), one-or-more,
+  reported in turn.  Add it with `_add_subject_list_arg`.  **No trailing
+  PATH positionals**: "who calls X" is corpus-global, so scope with the
+  global `-R/--root` and narrow with *semantic* flags (`--external`,
+  `-r/--recursive`), never a file subset.  Members: `show`, `callers`,
+  `callees`, `deps`, `uses`, `theory`, `defs`, `outline`, `methods`.
+- **search** (grep/rg: `grep PAT PATH...`) — the primary positional is a
+  pattern (or nothing), and **paths are the trailing positionals**, added
+  with `_add_path_files_arg` (resolved by `_load_sections`).  Members:
+  `grep`, `largest`, `sorry` (and `find` once it gains PATH/`--theory`
+  scope under `[theory-refs]`).
+
+Shared-feature help text comes from one helper each, so wording can't
+drift command-to-command — always add a feature through its helper, never
+inline:
+`_add_subject_list_arg` (subject list), `_add_path_files_arg` (PATH),
+`_add_names_flag` (`--names`; **no `-n`** — reserved for grep's
+line-number meaning), `_add_count_flag` (`-c/--count`), `_add_mode_flags`
+(`-a` / `--names` / `-c` bundle), `_add_verbatim_flag`,
+`_add_comment_flags`, `_add_context_flag`, `_add_drop_names_flag`.
+
 ## Done / obsolete
 
 - [x] `[tactic-stats]` Proof-method usage stats — shipped as the
@@ -84,3 +104,10 @@ referencing in commits/PRs.
       includes those matches (tagging each non-live hit `[in
       comment/text]`), and `find --with-comments` does the same for name
       search.
+- [x] `[callers-multi]` (the hard part of `[multi-name]`) — `callers`
+      takes `NAME...`, dropping its PATH positionals to join the lookup
+      family (see CLI contract).  Tests in `tests/test_cli_parser.py`.
+- [x] `[names-flag]` (the `-n` part of `[feature-audit]`) — dropped the
+      `-n` short flag (collided with grep's `-n` = line numbers); the
+      terse view is `--names` only, `-n` left free for its conventional
+      meaning.  One-line change at the `_add_names_flag` chokepoint.
