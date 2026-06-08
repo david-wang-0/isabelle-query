@@ -30,10 +30,10 @@ File organisation (section banners below mark each):
   `-c` prints a bare integer (no decoration); verbose forms print
   hits + footers.
 * **Argument parsing** — argparse subparsers.  Shared flag helpers
-  (`_add_count_flag`, `_add_names_flag`, `_add_path_files_arg`,
-  `_add_mode_flags`, `_add_verbatim_flag`, `_add_comment_flags`,
-  `_add_context_flag`) keep per-subparser declarations short and
-  uniform.
+  (`_add_count_flag`, `_add_names_flag`, `_add_with_comments_flag`,
+  `_add_path_files_arg`, `_add_mode_flags`, `_add_verbatim_flag`,
+  `_add_comment_flags`, `_add_context_flag`) keep per-subparser
+  declarations short and uniform.
 """
 
 from __future__ import annotations
@@ -2682,7 +2682,8 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     Default: only matches in live source (declarations + proof bodies),
     skipping `text \\<open>...\\<close>` blocks, per-entry preambles, and
     multi-line `\\<comment> \\<open>...\\<close>` annotations.  Use
-    `--all` to also include prose matches; each non-live hit is tagged.
+    `--with-comments` to also include prose matches; each non-live hit is
+    tagged.
 
     Pattern accepts both Python regex syntax (`a|b|c`) and shell-grep-
     style alternation (`a\\|b\\|c`); the latter is rewritten to the
@@ -2698,18 +2699,18 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     all_hits = _grep_sections(sections, pat)
     live_hits = [h for h in all_hits if h[4]]
     dead_hits = [h for h in all_hits if not h[4]]
-    hits = all_hits if flags.include_all else live_hits
+    hits = all_hits if flags.with_comments else live_hits
 
     if flags.mode == "count":
-        print(len(all_hits) if flags.include_all else len(live_hits))
+        print(len(all_hits) if flags.with_comments else len(live_hits))
         return
 
     if not hits:
-        print(f"No {'' if flags.include_all else 'live '}"
+        print(f"No {'' if flags.with_comments else 'live '}"
               f"matches for '{pattern}'.")
         return
 
-    if flags.include_all:
+    if flags.with_comments:
         print(f"{len(all_hits)} match(es) for '{pattern}' "
               f"({len(live_hits)} live, "
               f"{len(dead_hits)} in comments/text):\n")
@@ -2867,12 +2868,11 @@ class CmdFlags:
     verbatim: bool = False       # -V / --verbatim
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
-    with_comments: bool = False  # --with-comments (find only)
+    with_comments: bool = False  # --with-comments (find + grep: search prose)
     recursive: bool = False      # -r / --recursive
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
-    include_all: bool = False    # --all (grep: include in-comment matches)
     external: bool = False       # --external (callers: skip defining theory)
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
 
@@ -2900,7 +2900,6 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     keep_args = getattr(ns, "keep", None) or []
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
-    f.include_all = getattr(ns, "all_hits", False)
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     return f
@@ -2991,6 +2990,20 @@ def _add_names_flag(p: argparse.ArgumentParser,
     p.add_argument("--names", action="store_true", help=help_text)
 
 
+def _add_with_comments_flag(
+        p: argparse.ArgumentParser,
+        help_text: str = "also search inside `text` blocks and "
+                         "\\<comment> annotations (default: live source "
+                         "only)") -> None:
+    # The search family's single "widen into cartouche prose" toggle, spelled
+    # the same on `find` and `grep`.  No `-a` short flag: on `find`, `-a`
+    # already means "show all matches" (the lookup-family mode from
+    # `_add_mode_flags`), so giving `grep` `-a` for prose would fork `-a`'s
+    # meaning across the two search verbs — the same trap as the dropped `-n`.
+    # One concept, one word: `--with-comments`.
+    p.add_argument("--with-comments", action="store_true", help=help_text)
+
+
 def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
     """Add the rg/grep-style trailing PATH positionals.
 
@@ -3048,9 +3061,19 @@ def _add_comment_flags(p: argparse.ArgumentParser) -> None:
     g.add_argument("--comments-only", action="store_true",
                    help="show only preamble + roadmap")
 
-def _add_context_flag(p: argparse.ArgumentParser) -> None:
-    p.add_argument("-U", "--context", type=int, default=2, metavar="N",
-                   help="lines of preview / context (default 2)")
+def _add_context_flag(p: argparse.ArgumentParser, *, default: int = 2,
+                      help_text: str = "") -> None:
+    # One short flag for `--context` across every command that has it: `-U`
+    # (the established spelling on the lookup family — theory/outline/find/
+    # show).  `callers` routes through here too rather than declaring its own
+    # `-C` inline: it is a lookup-family verb (it carries no PATH positionals),
+    # so it should match its family, and rg's `-C` means context on *both*
+    # sides whereas callers shows only trailing lines (rg's `-A`) — so `-C`
+    # was a mis-aligned borrowing anyway.  Only the default differs per
+    # command (preview wants 2, a caller listing wants 0), so it is a param.
+    help_text = help_text or f"lines of preview / context (default {default})"
+    p.add_argument("-U", "--context", type=int, default=default, metavar="N",
+                   help=help_text)
 
 def _add_drop_names_flag(p: argparse.ArgumentParser) -> None:
     # Filter short citation names out of the call graph: a length-1 token
@@ -3242,8 +3265,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_verbatim_flag(p)
     _add_comment_flags(p)
     _add_context_flag(p)
-    p.add_argument("--with-comments", action="store_true",
-                   help="also search inside text blocks and comments")
+    _add_with_comments_flag(p)
     p.set_defaults(func=_run_find)
 
     # show
@@ -3268,10 +3290,11 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="transitive closure (all indirect callers)")
     _add_names_flag(p)
     _add_drop_names_flag(p)
-    p.add_argument("-C", "--context", type=int, default=0, metavar="N",
-                   help="show N trailing lines after each match (rg-style; "
-                        "useful for multi-line `[where ..., OF ...]` "
-                        "invocations whose argument list spans 2-3 lines)")
+    _add_context_flag(p, default=0,
+                      help_text="show N trailing lines after each match "
+                                "(useful for multi-line `[where ..., OF ...]` "
+                                "invocations whose argument list spans 2-3 "
+                                "lines; default 0)")
     p.add_argument("--external", action="store_true",
                    help="exclude callers inside the theory that defines "
                         "NAME (e.g. when auditing whether anything outside "
@@ -3306,9 +3329,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
                         "for shell-grep compatibility)")
     _add_path_files_arg(p)
-    p.add_argument("-a", "--all", dest="all_hits", action="store_true",
-                   help="include matches inside text blocks / "
-                        "\\<comment> annotations (default: live source only)")
+    _add_with_comments_flag(p)
     _add_count_flag(p)
     _add_names_flag(p, "locations + owning entry only "
                        "(skip the matched line text)")

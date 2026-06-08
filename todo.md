@@ -88,9 +88,13 @@ drift command-to-command — always add a feature through its helper, never
 inline:
 `_add_subject_list_arg` (subject list), `_add_path_files_arg` (PATH),
 `_add_names_flag` (`--names`; **no `-n`** — reserved for grep's
-line-number meaning), `_add_count_flag` (`-c/--count`), `_add_mode_flags`
-(`-a` / `--names` / `-c` bundle), `_add_verbatim_flag`,
-`_add_comment_flags`, `_add_context_flag`, `_add_drop_names_flag`.
+line-number meaning), `_add_count_flag` (`-c/--count`),
+`_add_with_comments_flag` (`--with-comments`; the *only* prose-search
+toggle on `find`/`grep` — **no `-a`** for it, since `-a` is the
+`_add_mode_flags` show-all mode), `_add_mode_flags` (`-a` / `--names` /
+`-c` bundle), `_add_verbatim_flag`, `_add_comment_flags`,
+`_add_context_flag` (`-U/--context`; one short flag everywhere, default
+per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
@@ -111,3 +115,18 @@ line-number meaning), `_add_count_flag` (`-c/--count`), `_add_mode_flags`
       `-n` short flag (collided with grep's `-n` = line numbers); the
       terse view is `--names` only, `-n` left free for its conventional
       meaning.  One-line change at the `_add_names_flag` chokepoint.
+- [x] `[grep-with-comments]` (sibling of `[names-flag]`) — the search
+      family's "also search prose" toggle is now `--with-comments` on
+      *both* `find` and `grep`, via the shared `_add_with_comments_flag`
+      helper.  grep's old `-a/--all` spelling is gone: on `find`, `-a`
+      already means "show all matches" (the `_add_mode_flags` lookup mode),
+      so a grep-only `-a`-for-prose forked `-a`'s meaning across the two
+      search verbs.  Collapsed the duplicate `include_all`/`with_comments`
+      flag fields into one.
+- [x] `[context-flag]` — `--context` now uses one short flag, `-U`,
+      everywhere.  `callers` dropped its inline `-C/--context` (a CLI-
+      contract violation — features go through one helper) and routes
+      through `_add_context_flag`, which gained a per-command `default`.
+      `callers` is a lookup-family verb, so `-U` matches its family; and
+      rg's `-C` is context on both sides whereas `callers` shows only
+      trailing lines (rg's `-A`), so `-C` was mis-aligned anyway.
