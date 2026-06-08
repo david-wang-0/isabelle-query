@@ -2910,10 +2910,13 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
     """Load theory sections from trailing positional PATHs, or the
     project ROOTs.
 
-    Subcommands that accept ``nargs='*'`` trailing path positionals
-    (``grep PATTERN ...``, ``callers NAME ...``) pre-populate
-    ``ns.files``; the parse is then restricted to those paths
-    instead of the full project index.
+    Subcommands in the *search* family that accept ``nargs='*'`` trailing
+    path positionals (``grep PATTERN ...``, ``largest ...``, ``sorry ...``)
+    pre-populate ``ns.files``; the parse is then restricted to those paths
+    instead of the full project index.  The *lookup* family
+    (``callers``/``callees``/``show``/...) carries no PATH positionals —
+    ``getattr(ns, "files", None)`` is falsy there, so they load the full
+    index and scope via the global ``-R/--root``.
 
     Each positional may be:
 
@@ -3001,6 +3004,33 @@ def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
                         "dedup'd by resolved path, so `t/ archive/` does "
                         "not double-count symlinked theories.")
 
+
+def _add_subject_list_arg(p: argparse.ArgumentParser, *, cmd: str,
+                          dest: str = "name", metavar: str = "NAME",
+                          noun: str = "entry name",
+                          verb: str = "report each",
+                          extra: str = "") -> None:
+    """Shared one-or-more positional for every command that takes a list of
+    subjects and processes them in turn — the lookup family
+    (`show`/`callers`/`callees`, `deps`/`uses`) plus `find`.
+
+    The list form is the load-bearing reason to prefer `query` over a shell
+    loop: `query CMD A B C` does in one gate-free call what
+    `for n in A B C; do query CMD $n` does in N gate-tripping ones.  Routing
+    them all through this template keeps the shared part of their `--help`
+    byte-identical (only `extra` carries the command-specific addendum), so
+    the wording can't drift command-to-command.  The search family's *scope*
+    positional is the separate `_add_path_files_arg`; subjects and paths
+    never share a slot, which is what keeps the two families distinct.
+    """
+    help_text = (f"{noun}(s); pass multiple to {verb} in turn "
+                 f"(blank-line separated), so `{cmd} A B C` replaces a "
+                 f"gate-tripping `for n in A B C; do {cmd} $n` loop")
+    if extra:
+        help_text = f"{help_text}.  {extra}"
+    p.add_argument(dest, nargs="+", metavar=metavar, help=help_text)
+
+
 def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
     p.add_argument("-V", "--verbatim", action="store_true",
                    help="full source slice (statement + proof)")
@@ -3077,7 +3107,12 @@ def _run_show(ns: argparse.Namespace) -> None:
         cmd_show(sections, n, flags)
 
 def _run_callers(ns: argparse.Namespace) -> None:
-    cmd_callers(_load_sections(ns), ns.name, _flags_from_ns(ns))
+    sections = _load_sections(ns)
+    flags = _flags_from_ns(ns)
+    for i, n in enumerate(ns.name):
+        if i > 0:
+            print()
+        cmd_callers(sections, n, flags)
 
 def _run_callees(ns: argparse.Namespace) -> None:
     sections = _load_sections(ns)
@@ -3162,9 +3197,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("deps",
                        help="theories these import (direct; -r for "
                             "transitive); reverse is `uses`")
-    p.add_argument("theory", nargs="+", metavar="THEORY",
-                   help="one or more theory names or .thy paths "
-                        "(brew-style: reported in turn)")
+    _add_subject_list_arg(p, cmd="deps", dest="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect imports)")
     p.set_defaults(func=_run_deps)
@@ -3173,9 +3207,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("uses",
                        help="theories that import these (direct; -r for "
                             "transitive); reverse of `deps`")
-    p.add_argument("theory", nargs="+", metavar="THEORY",
-                   help="one or more theory names or .thy paths "
-                        "(brew-style: reported in turn)")
+    _add_subject_list_arg(p, cmd="uses", dest="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect importers)")
     p.set_defaults(func=_run_theory_uses)
@@ -3196,10 +3229,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # find
     p = sub.add_parser("find", help="find entries by name (regex)")
-    p.add_argument("pattern", nargs="+", metavar="PATTERN",
-                   help="regex pattern(s), case-insensitive. "
-                        "Pass multiple patterns to run each search "
-                        "sequentially (separated by blank lines).")
+    _add_subject_list_arg(p, cmd="find", dest="pattern", metavar="PATTERN",
+                          noun="regex pattern", verb="run each search",
+                          extra="matching is case-insensitive")
     _add_mode_flags(p)
     _add_verbatim_flag(p)
     _add_comment_flags(p)
@@ -3210,10 +3242,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # show
     p = sub.add_parser("show", help="show one or more specific entries")
-    p.add_argument("name", nargs="+", metavar="NAME",
-                   help="entry name(s); each matched exact-then-substring. "
-                        "Pass multiple names to print entries sequentially "
-                        "(separated by blank lines).")
+    _add_subject_list_arg(p, cmd="show",
+                          extra="each name is matched exact-then-substring")
     _add_mode_flags(p)
     _add_verbatim_flag(p)
     _add_comment_flags(p)
@@ -3222,8 +3252,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # callers
     p = sub.add_parser("callers", help="find proof-body usages")
-    p.add_argument("name", help="entry name")
-    _add_path_files_arg(p)
+    _add_subject_list_arg(
+        p, cmd="callers",
+        extra="\"who calls X\" is corpus-global, so there are no trailing "
+              "PATH positionals: scope with the global -R/--root, or cut by "
+              "theory boundary with --external")
     _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect callers)")
@@ -3246,11 +3279,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("callees",
                        help="entries this entry references; reverse is "
                             "`callers`")
-    p.add_argument("name", nargs="+", metavar="NAME",
-                   help="entry name(s); pass multiple to report each in "
-                        "turn (separated by blank lines), so "
-                        "`callees A B C` replaces a gate-tripping "
-                        "`for n in A B C; do callees $n` loop")
+    _add_subject_list_arg(p, cmd="callees")
     _add_count_flag(p)
     _add_names_flag(p)
     _add_drop_names_flag(p)
