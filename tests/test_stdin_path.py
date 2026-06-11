@@ -2,16 +2,22 @@
 
 `[stdin-path]` in todo.md: piped content that never hit disk should be
 queryable, so `git show REF:FILE | query lines - A..B` can inspect a
-pre-migration proof without a scratch file.  Two hooks implement it:
+pre-migration proof without a scratch file.
 
-  * `_load_sections` grows a `-` branch, parsing the piped stream as a
-    theory (entries, live/comment classification, owning-entry labels), so
-    the whole *search* family (`grep`/`largest`/`sorry`) gets it at once;
-  * `cmd_lines` reads stdin directly, since it bypasses section parsing.
+Routing (`-`/path/name → a source) is shared across every `CMD FILES`-shaped
+command through `_resolve_file_source`; the parse policy (syntax-aware vs.
+raw) is the command's own property, applied by `_section_from`:
 
-These pin the stdin read, the synthetic `<stdin>` location label, the
-one-shot guard (stdin can't be re-read), the preserved line numbering, and
-the argparse wiring that lets `-` reach each command.
+  * the search family (`grep`/`largest`/`sorry`) parses sources into
+    TheorySections — `largest`/`sorry` always syntax-aware, `grep` inferred
+    from the `.thy` suffix (stdin, suffix-less, defaults to syntax);
+  * `lines` is ignore-syntax: it routes the token the same way but hands the
+    raw lines straight to `cmd_lines`, no parsing.
+
+These pin the shared routing, the parse-policy split, the synthetic
+`<stdin>` location label, the one-shot guard (stdin can't be re-read), the
+preserved line numbering, and the argparse wiring that lets `-` reach each
+command.
 """
 
 import argparse
@@ -19,10 +25,12 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
-from support import cli  # noqa: E402
+from support import cli, section_from  # noqa: E402
 
 THY = """theory Demo imports Main begin
 
@@ -126,12 +134,14 @@ class SorryStdin(unittest.TestCase):
 
 
 class LinesStdin(unittest.TestCase):
-    """`lines -` reads stdin directly (no section parsing) and keeps the
-    piped content's own 1-based numbering."""
+    """`lines -` routes stdin through the shared resolver (no section
+    parsing) and keeps the piped content's own 1-based numbering.  Driven
+    through `_run_lines` so the routing seam is exercised, not bypassed."""
 
     def _lines(self, text, ranges):
         with _stdin(text):
-            return _capture(cli.cmd_lines, "-", ranges)
+            return _capture(cli._run_lines,
+                            argparse.Namespace(file="-", ranges=ranges))
 
     def test_reads_range_from_stdin_with_preserved_numbers(self):
         out = self._lines(THY, ["5..6"])
@@ -142,6 +152,76 @@ class LinesStdin(unittest.TestCase):
     def test_single_line(self):
         out = self._lines(THY, ["1"])
         self.assertEqual(out.strip(), "1| theory Demo imports Main begin")
+
+
+class SharedRouting(unittest.TestCase):
+    """`_resolve_file_source` is the one token→source resolver shared by the
+    search family and `lines`, so routing can't drift between them."""
+
+    def test_existing_file_resolves_to_itself(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".thy",
+                                         delete=False) as fh:
+            fh.write(THY)
+            path = Path(fh.name)
+        try:
+            src = cli._resolve_file_source(str(path), path.resolve(),
+                                           lambda: [])
+            self.assertEqual(src.path, path.resolve())
+            self.assertEqual(src.label, path.stem)
+            self.assertFalse(src.from_stdin)
+        finally:
+            os.unlink(path)
+
+    def test_bare_name_resolves_via_index(self):
+        # A token that is not an on-disk path falls back to a theory NAME
+        # looked up in the (here faked) index — the outline/show/defs path.
+        sec = section_from(THY, "Demo")
+        src = cli._resolve_file_source("Demo", Path("Demo").resolve(),
+                                       lambda: [sec])
+        self.assertEqual(src.path, sec.path)
+        self.assertEqual(src.label, sec.path.stem)
+
+    def test_unknown_token_exits_with_hint(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                cli._resolve_file_source("Nope", Path("Nope").resolve(),
+                                         lambda: [])
+        self.assertIn("not a path or known theory", err.getvalue())
+
+
+class ParsePolicy(unittest.TestCase):
+    """`_section_from` applies the *command's* parse policy; the `.thy`
+    suffix is only evidence for the inferred (`grep`) case."""
+
+    def _src(self, path):
+        return cli.FileSource(Path(path).stem, Path(path),
+                              preread=THY.splitlines())
+
+    def test_syntax_forces_grammar_even_on_nonthy(self):
+        # largest/sorry policy: entries are the output, so parse regardless
+        # of the (here misleading) `.md` extension.
+        sec = cli._section_from(self._src("note.md"), "syntax")
+        self.assertTrue(sec.is_thy)
+        self.assertEqual({e.name for e in sec.entries}, {"foo_bar", "baz"})
+
+    def test_infer_is_plain_on_nonthy(self):
+        sec = cli._section_from(self._src("note.md"), "infer")
+        self.assertFalse(sec.is_thy)
+        self.assertEqual(sec.entries, [])
+
+    def test_infer_is_syntax_on_thy(self):
+        sec = cli._section_from(self._src("Demo.thy"), "infer")
+        self.assertTrue(sec.is_thy)
+
+    def test_infer_defaults_stdin_to_syntax(self):
+        # stdin has no suffix; the inferred policy still parses it (the
+        # load-bearing case is a piped theory).
+        src = cli.FileSource(cli._STDIN_NAME, cli._STDIN_PATH,
+                             preread=THY.splitlines())
+        self.assertTrue(src.from_stdin)
+        sec = cli._section_from(src, "infer")
+        self.assertTrue(sec.is_thy)
+        self.assertEqual({e.name for e in sec.entries}, {"foo_bar", "baz"})
 
 
 class ParserWiring(unittest.TestCase):

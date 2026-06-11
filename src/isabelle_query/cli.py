@@ -956,15 +956,20 @@ def _parse_one(thy: str, thy_path: Path,
     return sec
 
 
-def _parse_plain(thy: str, path: Path) -> TheorySection:
+def _parse_plain(thy: str, path: Path,
+                 lines: list[str] | None = None) -> TheorySection:
     """Build a *plain* section for a non-`.thy` file (e.g. a design memo
     passed as a grep positional).  The Isabelle entry/section/comment
     grammar does not apply to Markdown or prose, so we deliberately skip
     `extract_entries` and friends: a plain section has no entries, no
     outline, and no text/comment ranges.  cmd_grep then degrades to
     ordinary line-based `grep` over it — no synthesised owning-entry
-    labels, no live/comment classification (every match is reported)."""
-    lines = path.read_text().splitlines()
+    labels, no live/comment classification (every match is reported).
+
+    `lines`, when supplied, is already-read source (the stdin path), parsed
+    in place of reading `path` — symmetric with `_parse_one`."""
+    if lines is None:
+        lines = path.read_text().splitlines()
     sec = TheorySection(thy, path, [], thy_lines=len(lines), is_thy=False)
     sec._source_cache = lines
     return sec
@@ -2830,30 +2835,27 @@ def _read_stdin_lines() -> list[str]:
     return sys.stdin.read().splitlines()
 
 
-def cmd_lines(file_path: str, ranges: list[str]) -> None:
-    """Print the specified line ranges of FILE with `NR| CONTENT` prefix.
+def cmd_lines(source_lines: list[str], ranges: list[str]) -> None:
+    """Print the given RANGEs of `source_lines` with `NR| CONTENT` prefix.
 
     Sandbox-friendly alternative to `awk 'NR>=A && NR<=B {…}'` loops;
     multiple ranges separated by blank lines (rg-style `--` separators
     between hunks).  Width of the line-number column adapts to the
-    largest line number requested.  `file_path` of `-` reads from standard
-    input instead of disk, so `git show REF:FILE | query lines - A..B`
-    inspects a pre-migration proof without a scratch file.
+    largest line number requested.
+
+    `lines` is *ignore-syntax* (raw text, no theory parsing), so it takes
+    already-read content rather than a path: token routing — path, the `-`
+    stdin sentinel, or a bare theory name — is the caller's job, done once
+    through the shared `_resolve_file_source` (see `_run_lines`).  Because
+    the whole source is handed over un-sliced, the printed `NR` matches the
+    source's own 1-based numbering.
     """
-    if file_path == _STDIN_SENTINEL:
-        lines = _read_stdin_lines()
-    else:
-        p = Path(file_path).expanduser().resolve()
-        if not p.exists():
-            print(f"ERROR: file not found: {p}", file=sys.stderr)
-            sys.exit(1)
-        lines = p.read_text().splitlines()
     try:
         parsed = [_parse_line_range(r) for r in ranges]
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(2)
-    n_lines = len(lines)
+    n_lines = len(source_lines)
     max_no = max((b for _, b in parsed), default=1)
     width = len(str(min(max_no, n_lines)))
     for i, (a, b) in enumerate(parsed):
@@ -2866,7 +2868,7 @@ def cmd_lines(file_path: str, ranges: list[str]) -> None:
                   file=sys.stderr)
             continue
         for nr in range(a_clamped, b_clamped + 1):
-            print(f"{nr:>{width}}| {lines[nr - 1]}")
+            print(f"{nr:>{width}}| {source_lines[nr - 1]}")
         if b > n_lines:
             print(f"# range {a}..{b}: truncated at line {n_lines}",
                   file=sys.stderr)
@@ -2945,7 +2947,92 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     return f
 
 
-def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
+# -- FILES routing (shared by every `query CMD FILES`-shaped command) --------
+#
+# Routing answers *where the bytes are*; the command's parse policy answers
+# *whether to read them as Isabelle*.  Keeping them separate is why one token
+# resolver serves both `lines` (ignore-syntax, raw text) and the search family
+# (`largest`/`sorry` syntax-aware, `grep` inferred) without either reinventing
+# `-`/path/name resolution.
+
+@dataclass
+class FileSource:
+    """A resolved `CMD FILES` token, decoupled from how a command reads it.
+
+    `label` is the display/theory name, `path` the real or synthetic
+    (`<stdin>`) path.  `preread` carries content that has no path to re-read
+    (stdin); on-disk sources leave it ``None`` and are read lazily, so the
+    AFP-scale memory profile is unchanged (nothing is materialised until a
+    command actually parses or slices it).
+    """
+    label: str
+    path: Path
+    preread: list[str] | None = None
+
+    @property
+    def from_stdin(self) -> bool:
+        return self.path == _STDIN_PATH
+
+    def lines(self) -> list[str]:
+        """The source's raw lines — the pre-read content, or the file read
+        on demand."""
+        if self.preread is not None:
+            return self.preread
+        return self.path.read_text().splitlines()
+
+
+def _stdin_source() -> FileSource:
+    """The one-shot `-` source: standard input read once, in full."""
+    return FileSource(_STDIN_NAME, _STDIN_PATH, _read_stdin_lines())
+
+
+def _resolve_file_source(token: str, p: Path,
+                         get_index) -> FileSource:
+    """Resolve one non-`-`, non-directory FILES token to a `FileSource`.
+
+    `p` is the caller's already-resolved ``Path(token)``.  An existing file
+    resolves to itself; otherwise the token is treated as a bare theory
+    **name** (or a path whose stem names one), looked up in the lazily-built
+    index via `get_index` — matching how outline/show/defs/callees take
+    names.  A token that is neither exits with a 'did you mean ...?' hint.
+
+    This is the single home of path/name routing: `_load_sections` and
+    `_run_lines` both call it, so the two can never drift on what a token
+    means.
+    """
+    if p.exists():
+        return FileSource(p.stem, p)
+    index = get_index()
+    sec = _resolve_theory(index, token)
+    if sec is not None:
+        return FileSource(sec.path.stem, sec.path)
+    suggestion = _suggest_theory(index, token)
+    hint = f" (did you mean {suggestion}?)" if suggestion else ""
+    print(f"ERROR: not a path or known theory: {token}{hint}",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def _section_from(src: FileSource, parse: str) -> TheorySection:
+    """Parse a source into a TheorySection under the command's parse policy.
+
+    `parse="syntax"` always applies the Isabelle entry grammar — for
+    `largest`/`sorry`, whose output *is* the entry view, syntax-awareness is
+    intrinsic, not a property of the file.  `parse="infer"` (only `grep`, the
+    command where it is genuinely unclear) decides per source from the one
+    piece of evidence available: the `.thy` suffix, with stdin — which has no
+    suffix — defaulting to syntax-aware (the load-bearing case is a piped
+    theory).  The suffix is thus *evidence for the ambiguous case*, never the
+    primary switch.
+    """
+    syntactic = parse == "syntax" or src.from_stdin or src.path.suffix == ".thy"
+    if syntactic:
+        return _parse_one(src.label, src.path, src.preread)
+    return _parse_plain(src.label, src.path, src.preread)
+
+
+def _load_sections(ns: argparse.Namespace,
+                   parse: str = "infer") -> list[TheorySection]:
     """Load theory sections from trailing positional PATHs, or the
     project ROOTs.
 
@@ -2971,46 +3058,45 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
     Results are unioned and deduplicated by resolved absolute
     path, so passing two directories where one holds symlinks into
     the other does not double-count the shared theories.
+
+    `parse` is the caller's parse policy, applied to single-file and stdin
+    sources (a directory always yields syntax-aware `.thy` sections):
+    ``"syntax"`` forces the entry grammar (`largest`/`sorry`), ``"infer"``
+    decides per source from the `.thy` suffix (`grep`).  See `_section_from`.
+    Token routing itself is delegated to `_resolve_file_source`, shared with
+    `lines`.
     """
     files: list[str] = list(getattr(ns, "files", None) or [])
     if not files:
         return load_index()
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
-    index: list[TheorySection] | None = None  # lazily loaded for name lookups
+    index_cache: list[list[TheorySection]] = []  # memo box for name lookups
+
+    def get_index() -> list[TheorySection]:
+        if not index_cache:
+            index_cache.append(load_index())
+        return index_cache[0]
+
     stdin_read = False
-    for fp in files:
-        if fp == _STDIN_SENTINEL:
-            # Read the piped stream once and parse it as a theory, so
-            # grep/largest/sorry get entries, live/comment classification,
-            # and owning-entry labels exactly as for an on-disk .thy.  stdin
-            # is one-shot: a repeated `-` would read empty, so consume once.
+    for token in files:
+        if token == _STDIN_SENTINEL:
+            # stdin is one-shot: a repeated `-` would read an exhausted
+            # stream, so consume it at most once.
             if not stdin_read:
                 stdin_read = True
-                sections.append(_parse_one(_STDIN_NAME, _STDIN_PATH,
-                                           _read_stdin_lines()))
+                sections.append(_section_from(_stdin_source(), parse))
             continue
-        p = Path(fp).expanduser().resolve()
+        p = Path(token).expanduser().resolve()
         if p.is_dir():
             _sections_from_dir(p, seen_paths, sections)
             continue
-        if p.exists():
-            _add_one_section(p.stem, p, seen_paths, sections)
+        src = _resolve_file_source(token, p, get_index)
+        resolved = src.path.resolve()
+        if resolved in seen_paths:
             continue
-        # Not an on-disk path: accept a bare theory name (or a path whose
-        # stem names a known theory), resolved against the full index —
-        # matching how outline/show/defs/callees take names.
-        if index is None:
-            index = load_index()
-        sec = _resolve_theory(index, fp)
-        if sec is not None:
-            _add_one_section(sec.path.stem, sec.path, seen_paths, sections)
-            continue
-        suggestion = _suggest_theory(index, fp)
-        hint = f" (did you mean {suggestion}?)" if suggestion else ""
-        print(f"ERROR: not a path or known theory: {fp}{hint}",
-              file=sys.stderr)
-        sys.exit(1)
+        seen_paths.add(resolved)
+        sections.append(_section_from(src, parse))
     return sections
 
 
@@ -3173,7 +3259,8 @@ def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
 def _run_largest(ns: argparse.Namespace) -> None:
-    cmd_largest(_load_sections(ns), ns.top)
+    # largest ranks *entries* by span — syntax-awareness is intrinsic.
+    cmd_largest(_load_sections(ns, parse="syntax"), ns.top)
 
 def _run_find(ns: argparse.Namespace) -> None:
     sections = _load_sections(ns)
@@ -3214,28 +3301,25 @@ def _run_methods(ns: argparse.Namespace) -> None:
     cmd_methods(_load_sections(ns), ns.name, _flags_from_ns(ns))
 
 def _run_grep(ns: argparse.Namespace) -> None:
-    cmd_grep(_load_sections(ns), ns.pattern, _flags_from_ns(ns))
+    # grep is the one command where the parse mode is genuinely unclear
+    # (live source vs. plain prose), so it infers per source.
+    cmd_grep(_load_sections(ns, parse="infer"), ns.pattern, _flags_from_ns(ns))
 
 def _run_sorry(ns: argparse.Namespace) -> None:
-    cmd_sorry(_load_sections(ns), getattr(ns, "count", False))
+    # sorry lists open goals in proofs — a theory concept; always syntax-aware.
+    cmd_sorry(_load_sections(ns, parse="syntax"), getattr(ns, "count", False))
 
 def _run_lines(ns: argparse.Namespace) -> None:
-    file_arg = ns.file
-    if file_arg != _STDIN_SENTINEL and not Path(file_arg).expanduser().exists():
-        # `-` is the stdin sentinel (handled in cmd_lines); only a non-`-`
-        # path that is missing on disk gets the theory-name fallback below.
-        # Accept a bare theory name (or a stem-naming path), like grep.
-        index = load_index()
-        sec = _resolve_theory(index, file_arg)
-        if sec is not None:
-            file_arg = str(sec.path)
-        else:
-            suggestion = _suggest_theory(index, file_arg)
-            hint = f" (did you mean {suggestion}?)" if suggestion else ""
-            print(f"ERROR: file not found: {file_arg}{hint}",
-                  file=sys.stderr)
-            sys.exit(1)
-    cmd_lines(file_arg, ns.ranges)
+    # lines is ignore-syntax: route the single token to its source through the
+    # shared resolver (same `-`/path/name handling as the search family), then
+    # hand the raw lines to cmd_lines.
+    token = ns.file
+    if token == _STDIN_SENTINEL:
+        src = _stdin_source()
+    else:
+        src = _resolve_file_source(token, Path(token).expanduser().resolve(),
+                                   load_index)
+    cmd_lines(src.lines(), ns.ranges)
 
 
 # -- Parser construction ----------------------------------------------------
