@@ -32,8 +32,8 @@ File organisation (section banners below mark each):
 * **Argument parsing** — argparse subparsers.  Shared flag helpers
   (`_add_count_flag`, `_add_names_flag`, `_add_with_comments_flag`,
   `_add_path_files_arg`, `_add_mode_flags`, `_add_verbatim_flag`,
-  `_add_comment_flags`, `_add_context_flag`) keep per-subparser
-  declarations short and uniform.
+  `_add_statement_flag`, `_add_comment_flags`, `_add_context_flag`) keep
+  per-subparser declarations short and uniform.
 """
 
 from __future__ import annotations
@@ -1601,18 +1601,38 @@ def _render_roadmap(roadmap: list[tuple[int, str]], context: int,
     return "\n".join(out)
 
 
+def _statement_text(sec: TheorySection, entry: Entry) -> str:
+    """The entry's statement slice as one string: the declaration lines
+    [thy_line..decl_end_line] (the lemma/def statement, not the proof).
+
+    Falls back to `entry.text` for entries without a source location (e.g.
+    an AXIOM placeholder), matching how `render_entry` degrades — so a
+    statement search still sees *something* for those.
+    """
+    if not entry.thy_line:
+        return entry.text
+    return "\n".join(sec.slice(entry.thy_line, entry.decl_end_line))
+
+
 def render_entry(sec: TheorySection, entry: Entry, *,
                  verbatim: bool = False,
+                 statement: bool = False,
                  comments: str = "on",
                  context: int = 2) -> str:
     """Render a single entry.
 
+    statement:       just the declaration slice [thy_line..decl_end_line]
+                     (the statement, no proof) — the narrowest view
     verbatim:        full source slice [thy_line..thy_end]
     comments='on':   preamble (truncated) + header + statement + proof preview
                      + roadmap (truncated)
     comments='off':  header + statement + proof preview only (current default)
     comments='only': preamble (full) + header + roadmap (full), no statement
     context:         lines of preamble preview / roadmap entries shown
+
+    `statement` and `verbatim` are opposite ends of the slice spectrum
+    (declaration-only vs declaration+proof); `show` declares them mutually
+    exclusive at the CLI.  If both somehow arrive, the narrower one wins.
     """
     ext = _format_extent(entry)
     header = f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy {ext} ---"
@@ -1620,6 +1640,10 @@ def render_entry(sec: TheorySection, entry: Entry, *,
     # No source location (e.g. AXIOM placeholder) → fall back to entry.text
     if not entry.thy_line:
         return f"{header}\n{entry.text}"
+
+    if statement:
+        body_lines = sec.slice(entry.thy_line, entry.decl_end_line)
+        return header + "\n" + "\n".join(body_lines)
 
     if verbatim:
         body_lines = sec.slice(entry.thy_line, entry.thy_end)
@@ -1679,7 +1703,12 @@ def render_entry(sec: TheorySection, entry: Entry, *,
 # ---------------------------------------------------------------------------
 
 def _emit_matches(sections_by_theory: dict[str, TheorySection],
-                  matches: list[Entry], pattern: str, flags: "CmdFlags") -> None:
+                  matches: list[Entry], pattern: str, flags: "CmdFlags",
+                  *, statement: bool = False) -> None:
+    # `statement` is the *render* selector (declaration-only).  It is passed
+    # explicitly rather than read off `flags` so it stays a `show` concern:
+    # on `find`, `flags.statement` means "match the statement slice", which
+    # must not bleed into how the matched entries are rendered.
     if not matches:
         print(f"No entries matching '{pattern}'.")
         return
@@ -1697,6 +1726,7 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
         for e in matches:
             print(render_entry(sections_by_theory[e.theory], e,
                                verbatim=flags.verbatim,
+                               statement=statement,
                                comments=flags.comments,
                                context=flags.context))
             print()
@@ -1706,6 +1736,7 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
     e0 = matches[0]
     print(render_entry(sections_by_theory[e0.theory], e0,
                        verbatim=flags.verbatim,
+                       statement=statement,
                        comments=flags.comments,
                        context=flags.context))
     if len(matches) > 1:
@@ -1875,13 +1906,25 @@ def cmd_find(sections: list[TheorySection], pattern: str,
     pat = re.compile(pattern, re.IGNORECASE)
     by_theory = {s.theory: s for s in sections}
     matches: list[Entry] = []
-    for s in sections:
-        for e in s.entries:
-            if pat.search(e.name):
-                matches.append(e)
-            elif any(pat.search(c) for c in e.conjuncts):
-                matches.append(e)  # matched via a named `shows` conjunct
+    if flags.statement:
+        # Statement-slice search: match the regex against the declaration
+        # text (the lemma/def statement, not the proof body) — a token-level
+        # approximation of `find_theorems` ("which entries are *stated about*
+        # this", whatever they're named).  Not term/type-aware.
+        for s in sections:
+            for e in s.entries:
+                if pat.search(_statement_text(s, e)):
+                    matches.append(e)
+    else:
+        for s in sections:
+            for e in s.entries:
+                if pat.search(e.name):
+                    matches.append(e)
+                elif any(pat.search(c) for c in e.conjuncts):
+                    matches.append(e)  # matched via a named `shows` conjunct
 
+    # `--statement` here selects the match locus, not the render: show the
+    # matched entries the usual way (statement + proof preview).
     _emit_matches(by_theory, matches, pattern, flags)
 
     if flags.with_comments:
@@ -1957,7 +2000,8 @@ def cmd_show(sections: list[TheorySection], name: str,
             for e in s.entries:
                 if name.lower() in e.name.lower():
                     matches.append(e)
-    _emit_matches(by_theory, matches, name, flags)
+    # On `show`, `--statement` is the render selector: declaration only.
+    _emit_matches(by_theory, matches, name, flags, statement=flags.statement)
 
 
 def cmd_defs(sections: list[TheorySection], theory: str,
@@ -2908,6 +2952,9 @@ class CmdFlags:
     """Uniform flag bundle passed to command functions."""
     mode: str = "first"          # first / all / count / names
     verbatim: bool = False       # -V / --verbatim
+    statement: bool = False      # --statement / --stmt
+                                 # find: match the statement slice (input);
+                                 # show: render only the statement slice (output)
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find + grep: search prose)
@@ -2930,6 +2977,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     if getattr(ns, "count", False):
         f.mode = "count"
     f.verbatim = getattr(ns, "verbatim", False)
+    f.statement = getattr(ns, "statement", False)
     if getattr(ns, "no_comments", False):
         f.comments = "off"
     elif getattr(ns, "comments_only", False):
@@ -3193,8 +3241,18 @@ def _add_subject_list_arg(p: argparse.ArgumentParser, *, cmd: str,
 
 
 def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
+    # `p` may be a parser or a mutually-exclusive group (both expose
+    # add_argument), so `show` can pair this with `--statement` in one group.
     p.add_argument("-V", "--verbatim", action="store_true",
                    help="full source slice (statement + proof)")
+
+def _add_statement_flag(p: argparse.ArgumentParser, *, help_text: str) -> None:
+    # The statement slice (the declaration, not the proof) as a locus.  The
+    # *meaning* differs by verb — `find` matches it, `show` renders it — so
+    # the help text is per-verb, but the spelling (`--statement`, alias
+    # `--stmt`, dest `statement`) is shared so it can't drift.
+    p.add_argument("--statement", "--stmt", dest="statement",
+                   action="store_true", help=help_text)
 
 def _add_comment_flags(p: argparse.ArgumentParser) -> None:
     g = p.add_mutually_exclusive_group()
@@ -3437,12 +3495,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_run_largest)
 
     # find
-    p = sub.add_parser("find", help="find entries by name (regex)")
+    p = sub.add_parser("find", help="find entries by name (regex; "
+                                    "--statement to match the statement)")
     _add_subject_list_arg(p, cmd="find", dest="pattern", metavar="PATTERN",
                           noun="regex pattern", verb="run each search",
                           extra="matching is case-insensitive")
     _add_mode_flags(p)
     _add_verbatim_flag(p)
+    _add_statement_flag(
+        p, help_text="match the pattern within each entry's statement slice "
+                     "(the declaration, not the proof) instead of its name — "
+                     "a token-level `find_theorems`")
     _add_comment_flags(p)
     _add_context_flag(p)
     _add_with_comments_flag(p)
@@ -3453,7 +3516,13 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_subject_list_arg(p, cmd="show",
                           extra="each name is matched exact-then-substring")
     _add_mode_flags(p)
-    _add_verbatim_flag(p)
+    # `-V` (full slice) and `--statement` (declaration only) are opposite
+    # ends of the slice spectrum, so they can't be combined.
+    slice_group = p.add_mutually_exclusive_group()
+    _add_verbatim_flag(slice_group)
+    _add_statement_flag(
+        slice_group, help_text="render only the statement slice (the "
+                               "declaration, without the proof)")
     _add_comment_flags(p)
     _add_context_flag(p)
     p.set_defaults(func=_run_show)
