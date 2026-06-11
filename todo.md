@@ -32,6 +32,21 @@ referencing in commits/PRs.
       Pairs with a new `--theory THY` scope on `find` so a name search can
       be confined to one theory.
 
+- [ ] `[enclosing]` Report which entry **encloses a given line** —
+      `query enclosing FILE:LINE` (or `query at FILE LINE`).  The inverse
+      of `outline`: an Isabelle build failure reports a bare line number,
+      and the first triage step is "which lemma owns line N".  Currently
+      done by hand with
+      `awk 'NR<=N && /^lemma /{n=NR; l=$0} END{print n": "l}'` — a
+      nearest-preceding-header scan, which also misses `definition` /
+      `fun` / `text` owners and intra-lemma structure.  `query` already
+      computes entry spans (`outline` prints `[src A-B]`), so this is a
+      span-containment lookup over the existing index: print the owning
+      `NAME (KIND) — THY [src A-B]`, optionally the proof-internal `have`
+      label too.  Frequent during migration build-chase loops where the
+      watchdog surfaces `file:line` loci and the next move is naming the
+      lemma to edit.
+
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool
