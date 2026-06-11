@@ -2277,12 +2277,121 @@ def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
 
     Used by ``cmd_callers`` to annotate each hit with its enclosing lemma
     name — answering "which proof is calling this?" in one line rather
-    than requiring a follow-up ``show`` invocation.
+    than requiring a follow-up ``show`` invocation — and by ``cmd_enclosing``
+    as the span-containment lookup behind ``query enclosing FILE:LINE``.
     """
     for e in sec.entries:
         if e.thy_line and e.thy_end and e.thy_line <= line_no <= e.thy_end:
             return e
     return None
+
+
+def _parse_locus(token: str) -> tuple[str, int, int] | None:
+    """Split a ``FILE:LINE`` or ``FILE:A..B`` locus into ``(file, lo, hi)``.
+
+    The line part is handed to `_parse_line_range`, so a single ``:LINE``
+    yields ``lo == hi`` and a ``:A..B`` range yields the inclusive span —
+    the *same* ``A..B`` grammar `lines` accepts.  That is the round-trip
+    that makes a span printed elsewhere paste back in as a locus.  The file
+    is split off on the *last* colon (``rpartition``), so a path that itself
+    has no colon keeps its separators: ``sub/Foo.thy:8..12`` ->
+    ``("sub/Foo.thy", 8, 12)``, ``Foo:42`` -> ``("Foo", 42, 42)``.
+
+    A single trailing ``:`` or ``-`` is peeled off first: that is
+    ripgrep's match(``:``)/context(``-``) marker, which `callers` and a
+    real ``rg -n`` / ``grep -n`` both emit, so tolerating it lets the
+    tool's own location output (and any grep paste-in) round-trip into
+    `enclosing`.  Returns None when there is no ``:LINE`` suffix or the
+    line part is not a valid range, so the caller reports the malformed
+    locus and carries on instead of aborting the whole batch.
+    """
+    if token[-1:] in ":-":
+        token = token[:-1]
+    file_token, sep, span = token.rpartition(":")
+    if not sep or not file_token or not span:
+        return None
+    try:
+        lo, hi = _parse_line_range(span)
+    except ValueError:
+        return None
+    return file_token, lo, hi
+
+
+def _locus_role(entry: Entry, line_no: int) -> str:
+    """Where in *entry* a line sits: 'in proof', 'in statement', or ''.
+
+    Uses the same `proof_line` / `decl_end_line` boundaries the renderer
+    slices on, so the answer matches what `show --statement` vs the proof
+    preview would show.  Empty for the rare inter-region line (a blank
+    between a statement and its proof, or trailing text on a def).  The
+    point during a build chase: knowing the failing line is the *statement*
+    vs a *proof step* tells you which to edit.
+    """
+    if entry.proof_line and line_no >= entry.proof_line:
+        return "in proof"
+    if entry.decl_end_line and line_no <= entry.decl_end_line:
+        return "in statement"
+    return ""
+
+
+def cmd_enclosing(sections: list[TheorySection], loci: list[str]) -> None:
+    """Report which entry encloses each ``FILE:LINE`` (or ``FILE:A..B``)
+    locus — inverse of `outline`.
+
+    A build failure surfaces a bare ``file:line``; the first triage move is
+    naming the lemma that owns it.  This is a span-containment lookup over
+    the same ``[thy_line, thy_end]`` spans `outline` prints, so unlike a
+    ``^lemma ``-only ``awk`` scan it also names `definition` / `fun` /
+    `datatype` owners.  A range locus (``FILE:A..B`` — e.g. a diff hunk or a
+    multi-line error) lists *every* entry whose span overlaps it, the
+    "which lemmas does this hunk touch" question.  Each result prints one
+    ``LOCUS -> OWNER`` line (the location is the house ``theory:line`` form,
+    so it round-trips back into `enclosing` / `lines` / an editor); malformed
+    or unresolved loci report to stderr and do not stop the batch.
+    """
+    for token in loci:
+        parsed = _parse_locus(token)
+        if parsed is None:
+            print(f"{token}: expected FILE:LINE or FILE:A..B "
+                  f"(e.g. Foo.thy:42 or Foo:8..12)", file=sys.stderr)
+            continue
+        file_token, lo, hi = parsed
+        sec = _resolve_theory(sections, file_token)
+        if sec is None:
+            suggestion = _suggest_theory(sections, file_token)
+            hint = f" (did you mean {suggestion}?)" if suggestion else ""
+            print(f"{token}: no such theory '{file_token}'{hint}",
+                  file=sys.stderr)
+            continue
+        loc = (f"{sec.theory}:{lo}" if lo == hi
+               else f"{sec.theory}:{lo}..{hi}")
+        if lo > sec.thy_lines:
+            print(f"{loc} → (past end of {sec.theory} — "
+                  f"{sec.thy_lines} lines)")
+            continue
+        if lo == hi:
+            entry = _enclosing_entry(sec, lo)
+            if entry is None:
+                print(f"{loc} → (no enclosing entry — "
+                      f"theory header or inter-section gap)")
+                continue
+            role = _locus_role(entry, lo)
+            suffix = f"  ({role})" if role else ""
+            print(f"{loc} → {entry.name} ({entry.tag}) — {sec.theory} "
+                  f"{_format_extent(entry)}{suffix}")
+            continue
+        # Range: every entry whose [thy_line, thy_end] overlaps [lo, hi].
+        overlap = sorted(
+            (e for e in sec.entries if e.thy_line and e.thy_end
+             and not (e.thy_end < lo or e.thy_line > hi)),
+            key=lambda e: e.thy_line)
+        if not overlap:
+            print(f"{loc} → (no entries overlap — "
+                  f"theory header or inter-section gap)")
+            continue
+        for e in overlap:
+            print(f"{loc} → {e.name} ({e.tag}) — {sec.theory} "
+                  f"{_format_extent(e)}")
 
 
 def cmd_callers(sections: list[TheorySection], name: str,
@@ -3316,6 +3425,11 @@ def _run_theory_uses(ns: argparse.Namespace) -> None:
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
+def _run_enclosing(ns: argparse.Namespace) -> None:
+    # No PATH positionals: the FILE is baked into each FILE:LINE locus, so
+    # load the full `-R`-scoped index and resolve each file token against it.
+    cmd_enclosing(_load_sections(ns), ns.locus)
+
 def _run_largest(ns: argparse.Namespace) -> None:
     # largest ranks *entries* by span — syntax-awareness is intrinsic.
     cmd_largest(_load_sections(ns, parse="syntax"), ns.top)
@@ -3486,6 +3600,25 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_comment_flags(p)
     _add_context_flag(p)
     p.set_defaults(func=_run_outline)
+
+    # enclosing (alias: at) — the inverse of outline: name the entry that
+    # owns a FILE:LINE locus, for the build-chase loop "which lemma is at
+    # line N".  Lookup-family (no PATH positionals; the FILE is in the locus).
+    p = sub.add_parser("enclosing", aliases=["at"],
+                       help="name the entry that owns each FILE:LINE locus "
+                            "(or every entry a FILE:A..B range touches; "
+                            "inverse of outline, for build-failure triage)")
+    p.add_argument("locus", nargs="+", metavar="FILE:LINE",
+                   help="one or more loci, each `FILE:LINE` (e.g. Foo.thy:42 "
+                        "or, by bare theory name, Foo:42) or `FILE:A..B` for "
+                        "a line range (e.g. Foo:8..12 — lists every entry the "
+                        "range overlaps, the `lines`-style `A..B` grammar). "
+                        "Pass several to resolve them all in one gate-free "
+                        "call, so a batch of build-failure loci needs no "
+                        "per-line shell loop.  FILE resolves like "
+                        "outline/show — a .thy path or a bare theory name — "
+                        "and is scoped by the global -R/--root.")
+    p.set_defaults(func=_run_enclosing)
 
     # largest
     p = sub.add_parser("largest", help="top N largest entries by span")
