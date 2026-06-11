@@ -37,16 +37,17 @@ release:
 		echo "error: tag $(TAG) already exists on $(REMOTE)"; exit 1; \
 	fi
 	@echo "Tagging $$(git rev-parse --short HEAD) as $(TAG); pushing branch + tag to $(REMOTE)..."
-	@# The annotated tag's message IS the GitHub Release body (published by
-	@# .github/workflows/release.yml via `gh release create --notes-from-tag`).
-	@# Seed the editor with a title line plus every commit since the previous
-	@# tag, then `-e` lets you trim it into real notes. Two `-m` flags = two
-	@# paragraphs; no -F / notes file needed.
-	@prev=$$(git describe --tags --abbrev=0 2>/dev/null); \
-	range=$${prev:+$$prev..}HEAD; \
-	echo "Opening your editor for the $(TAG) notes (seeded with commits since $${prev:-the start})..."; \
-	git tag -a "$(TAG)" -e \
-	  -m "isabelle-query $(VERSION)" \
-	  -m "$$(git log --no-merges --reverse --format='- %s' $$range)"
+	@# Release notes come from the *tagged (HEAD) commit's message*: CI
+	@# (.github/workflows/release.yml) reads it and publishes it as the GitHub
+	@# Release body.  Write the changelog in the version-bump commit, e.g.
+	@#   git commit -m "$(VERSION) - changes from <prev>" -m "## Added" -m "- ..."
+	@# The tag message itself is just a label.
+	@if [ "$$(git log -1 --format=%B HEAD | sed '/^$$/d' | wc -l | tr -d ' ')" -le 1 ]; then \
+		echo "warning: HEAD's commit message is a single line, so the Release"; \
+		echo "         notes will be just that line.  Amend it with the changelog"; \
+		echo "         for fuller notes.  Continuing in 3s (Ctrl-C to abort)..."; \
+		sleep 3; \
+	fi
+	git tag -a "$(TAG)" -m "isabelle-query $(VERSION)"
 	git push $(REMOTE) HEAD "$(TAG)"
-	@echo "Released $(TAG); CI will publish the notes at https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
+	@echo "Released $(TAG); CI will publish HEAD's commit message at https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
