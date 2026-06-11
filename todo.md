@@ -21,45 +21,6 @@ referencing in commits/PRs.
       but theory-scoped queries are batched far less than entry-scoped
       ones.  Route them through `_add_subject_list_arg` if/when touched.
 
-- [ ] `[find-stmt]` Statement-slice search — **a mode on `find`, not a new
-      verb.**  `find PAT` matches entry **names**; `find --statement PAT`
-      matches each entry's **statement slice only** (the declaration, not
-      the proof body), a token-level approximation of Isabelle's
-      `find_theorems` (explicitly *not* term/type-aware: no unification, no
-      type matching).  Design decision (why a `find` flag, not `find-stmt`):
-      both forms return matching **entries**, differing only in which text
-      they regex against — same output model, so one command with a target
-      flag; `grep` stays separate because it returns **lines**.  This also
-      matches intent — `find_theorems` returns *theorems* (entries), not
-      lines.  Fills the gap between `find` (names) and `grep` (every source
-      line): "which lemmas are *stated about* this constant, whatever
-      they're named."  Reuses the statement/proof split that `-V/--verbatim`
-      and the call graph already rely on (note `-V` is the *full* slice —
-      statement **plus** proof — so it is NOT a statement-only view).
-      **`--statement` is a family-level slice selector, not a `find`-only
-      match flag.**  It names the statement slice as the locus; each verb
-      applies it per its nature, which is exactly the find/show complement:
-        - `find --statement PAT` — match the regex *within* the statement
-          slice (input side: changes what you query);
-        - `show NAME --statement` — render *only* the statement slice
-          (output side: the declaration without the proof) — a genuinely
-          new view, since both the default `show` render and `-V` include
-          the proof.  No pattern/name confusion: `show` never takes a
-          pattern, so `show NAME --statement` can only mean "render NAME's
-          statement."
-      Spell it as a plain boolean `--statement` (alias `--stmt`?) on each
-      verb.  Do NOT force a shared `--in name|statement|body` enum: the
-      valid values diverge (`find` can match the *name*; `show` can render
-      the *proof*), so one enum would be lopsided — only reach for a value
-      flag per-verb if a third locus actually shows up.  Keeps `find`'s
-      multiple-pattern positional.  **Scoping caveat:** that `nargs='+'`
-      pattern positional means `find` can NOT also take trailing PATH
-      positionals — two greedy positionals are the exact clash that made
-      `callers` drop its PATHs.  So `find` (and thus `--statement`) scopes
-      via the global `-R` plus a `--theory THY` flag (see `[theory-refs]`),
-      NOT trailing PATHs — and `-`/stdin, being a PATH-positional feature of
-      the true search family (`grep`/`largest`/`sorry`), does not apply.
-
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
       **references** — the complement of `theory -n` (which lists a
@@ -175,6 +136,31 @@ per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
+- [x] `[find-stmt]` Statement-slice search — shipped as a shared
+      `--statement` (alias `--stmt`) flag, one spelling via
+      `_add_statement_flag`, applied per each verb's nature (the find/show
+      complement):
+        - `find --statement PAT` — match the regex against each entry's
+          **declaration slice** (`sec.slice(thy_line, decl_end_line)`, the
+          statement, not the proof) instead of its name, a token-level
+          `find_theorems` (NOT term/type-aware).  Surfaces lemmas *stated
+          about* a constant whatever they are named.  It is a *match-locus*
+          flag only: matched entries still render the usual way (it composes
+          with `-V`).
+        - `show NAME --statement` — render **only** the declaration slice, a
+          genuinely new view (both the default render and `-V` include the
+          proof; `-V` is the *full* slice).  On `show` it is mutually
+          exclusive with `-V` (opposite ends of the slice spectrum), enforced
+          by an argparse group; the narrower (statement) view wins
+          defensively if both ever reach `render_entry`.
+      `_emit_matches` takes an explicit `statement=` *render* selector (not
+      read off `flags`) so `find`'s match-locus meaning can't bleed into how
+      results are rendered.  Slice text via the `_statement_text` helper
+      (falls back to `entry.text` for source-less entries).  Tests in
+      `tests/test_statement_slice.py`.  **Scope still pending:** `find`
+      remains `-R`-scoped only — the `--theory THY` confinement lives under
+      `[theory-refs]`; no PATH/stdin (its multi-pattern positional precludes
+      a second greedy positional).
 - [x] `[stdin-path]` — `-` is a PATH sentinel for **read from stdin**.
       `_load_sections` grows a one-shot `-` branch that parses the piped
       stream as a theory (entries, live/comment classification, owning-entry

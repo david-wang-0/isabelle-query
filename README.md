@@ -13,8 +13,8 @@ or industrial verification, that need more than grep-and-examine.
 ```sh
 query summary              # theory overview table
 query theory MyTheory      # entries in a theory (-n for terse names)
-query find <regex>         # search entry names
-query show <name>          # a named entry's declaration + body
+query find <regex>         # search entry names (--statement: search statements)
+query show <name>          # a named entry's declaration + body (--statement: declaration only)
 query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
 query callees <name> [-r]  # what a name references (forward)
 query deps <theory> [-r]   # what a theory imports  (forward; reverse: uses)
@@ -31,6 +31,7 @@ Point `query` at any session directory with `-R` (or `--root`):
 ```sh
 query -R AFP/thys largest                          # the biggest entries, by line count
 query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
+query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin, whatever they're named
 ```
 
 ## Why two kinds of scan
