@@ -34,13 +34,31 @@ referencing in commits/PRs.
       lines.  Fills the gap between `find` (names) and `grep` (every source
       line): "which lemmas are *stated about* this constant, whatever
       they're named."  Reuses the statement/proof split that `-V/--verbatim`
-      and the call graph already rely on; pair `--statement` with `-V` to
-      show the matched statements.  Flag spelling: start with a boolean
-      `--statement` (alias `--stmt`?); only generalise to a value flag
-      `--in name|statement|body` if a third match target (proof body,
-      comments) actually shows up — YAGNI until then.  Accept multiple
-      patterns like `find`, and honour the PATH positionals (incl. `-`
-      stdin, now that `_load_sections` handles it) for corpus scoping.
+      and the call graph already rely on (note `-V` is the *full* slice —
+      statement **plus** proof — so it is NOT a statement-only view).
+      **`--statement` is a family-level slice selector, not a `find`-only
+      match flag.**  It names the statement slice as the locus; each verb
+      applies it per its nature, which is exactly the find/show complement:
+        - `find --statement PAT` — match the regex *within* the statement
+          slice (input side: changes what you query);
+        - `show NAME --statement` — render *only* the statement slice
+          (output side: the declaration without the proof) — a genuinely
+          new view, since both the default `show` render and `-V` include
+          the proof.  No pattern/name confusion: `show` never takes a
+          pattern, so `show NAME --statement` can only mean "render NAME's
+          statement."
+      Spell it as a plain boolean `--statement` (alias `--stmt`?) on each
+      verb.  Do NOT force a shared `--in name|statement|body` enum: the
+      valid values diverge (`find` can match the *name*; `show` can render
+      the *proof*), so one enum would be lopsided — only reach for a value
+      flag per-verb if a third locus actually shows up.  Keeps `find`'s
+      multiple-pattern positional.  **Scoping caveat:** that `nargs='+'`
+      pattern positional means `find` can NOT also take trailing PATH
+      positionals — two greedy positionals are the exact clash that made
+      `callers` drop its PATHs.  So `find` (and thus `--statement`) scopes
+      via the global `-R` plus a `--theory THY` flag (see `[theory-refs]`),
+      NOT trailing PATHs — and `-`/stdin, being a PATH-positional feature of
+      the true search family (`grep`/`largest`/`sorry`), does not apply.
 
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
