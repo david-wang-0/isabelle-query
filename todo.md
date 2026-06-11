@@ -110,6 +110,38 @@ referencing in commits/PRs.
       flags on the existing graph subcommands vs a dedicated `graph`
       subcommand that emits the whole graph at once.
 
+- [ ] `[countstr]` **(exploratory — shape not settled).**  Record the itch,
+      not a design.  The need: before a multi-site rewrite (a `replace_all`,
+      a `sed`-style sweep), verify *exactly* how many times an exact,
+      usually **multi-line** literal block occurs in a file, so the edit's
+      reach is known up front — the "inventory the whole match set before
+      claiming 'all instances'" discipline applied to a literal block.
+      Today this needs an ad-hoc `python3 -c` count (or a throwaway script),
+      which is precisely the gate-tripping shell the tool exists to retire.
+      Why the shape feels off — the open tensions, all unresolved:
+        - **Scope creep.**  `query` is theory-aware (entries, call graphs,
+          syntax slices); a raw literal counter is generic text counting,
+          nearer `grep -Fc` than anything semantic.  Does it belong here at
+          all, or is reaching for `query` over `grep` here a category error?
+        - **Not line-count.**  `grep -c` (and the planned `[grep-plain]`)
+          count matching *lines*; the whole point is a *multi-line* block as
+          one unit, which line-grep structurally can't express.  So this is a
+          genuinely new counting mode, not a flag on existing `-c`.
+        - **Literal vs regex.**  The `replace_all` use is *fixed-string*
+          (exact block, no metachar surprises) — so `-F`/`--fixed`, not the
+          regex `grep` takes.  A multi-line *regex* count is a different,
+          slipperier beast; conflating them is part of why the shape wobbles.
+        - **Input ergonomics (the worst part).**  Supplying a multi-line
+          literal on argv is miserable; via stdin (`query countstr FILE -` /
+          `< block`) the `-`/stdin sentinel is already the *file* side
+          (`[stdin-path]`), so block-on-stdin + file-on-disk collide.  This
+          tension is the main reason it isn't ready.
+      Tentative leaning (do NOT build yet): a `--fixed`/`-F` + `--count`
+      multiline mode on `grep` rather than a new verb — but only once the
+      block-input ergonomics are solved.  Low value / low urgency: an inline
+      one-liner covers it today; this is about retiring that one-liner, not
+      unblocking anything.
+
 ## CLI contract (follow when adding or changing commands)
 
 Two families, each matching an external convention; a command's primary
