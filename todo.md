@@ -44,22 +44,6 @@ referencing in commits/PRs.
       Pairs with a new `--theory THY` scope on `find` so a name search can
       be confined to one theory.
 
-- [ ] `[stdin-path]` Accept `-` as a PATH sentinel meaning **read from
-      stdin**, so the path-taking verbs (`lines`, `grep`, `largest`,
-      `sorry`, `outline`/`theory`/`defs` once they take a corpus) can
-      operate on piped content that isn't on disk — the load-bearing case
-      is git history: `git show REF:FILE | query lines - A..B` to inspect a
-      lemma's *pre-migration* proof without checking the revision out or
-      dumping to a scratch file.  (Surfaced downstream: an attempted
-      `... | query lines - A..B` silently failed because `-` was treated as
-      a literal filename; the workaround was `git show REF:FILE >
-      scratch.thy` then `query lines scratch.thy A..B`, which litters the
-      tree.)  A single read-stdin-on-`-` branch in `_load_sections` covers
-      the whole search family at once; `lines` needs its own hook since it
-      bypasses section parsing.  Note `lines -` loses the on-disk line-
-      number anchor only if the caller slices first — reading the *whole*
-      piped theory and then applying `A..B` preserves it.
-
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool
@@ -114,6 +98,18 @@ per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
+- [x] `[stdin-path]` — `-` is a PATH sentinel for **read from stdin**.
+      `_load_sections` grows a one-shot `-` branch that parses the piped
+      stream as a theory (entries, live/comment classification, owning-entry
+      labels), so the whole search family (`grep`/`largest`/`sorry`) gets it
+      at once; `cmd_lines` reads stdin directly since it bypasses section
+      parsing.  The load-bearing case works:
+      `git show REF:FILE | query lines - A..B` inspects a pre-migration proof
+      with no scratch file, line numbers preserved (whole stream read, then
+      sliced).  Sections carry a synthetic `<stdin>` location label.  The
+      remaining lookup verbs (`outline`/`theory`/`defs`) inherit it for free
+      once they grow PATH positionals under `[multi-name]`.  Tests in
+      `tests/test_stdin_path.py`.
 - [x] `[tactic-stats]` Proof-method usage stats — shipped as the
       `methods` (alias `method`) subcommand: `methods` gives the ranked
       tally of every proof method with counts and corpus share; `methods
