@@ -2286,6 +2286,22 @@ def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
     return None
 
 
+def _owner_field(owner: Entry | None) -> str:
+    """The owning-entry column for a located hit — ``name (TAG) lo..hi`` (or
+    ``—`` when the line has no owner).
+
+    Shared by `callers` and `methods` so their hit format can't drift.  The
+    ``lo..hi`` is the owner's extent in the `..` grammar, so it pastes into
+    `lines` / `enclosing` — the next move after "who calls X" is usually to
+    open the owning lemma, and its span is right there.
+    """
+    if owner is None or owner.name == "?":
+        return "—"
+    if owner.thy_line and owner.thy_end:
+        return f"{owner.name} ({owner.tag}) {owner.thy_line}..{owner.thy_end}"
+    return f"{owner.name} ({owner.tag})"
+
+
 def _parse_locus(token: str) -> tuple[str, int, int] | None:
     """Split a ``FILE:LINE`` or ``FILE:A..B`` locus into ``(file, lo, hi)``.
 
@@ -2425,16 +2441,21 @@ def cmd_callers(sections: list[TheorySection], name: str,
     # trailing-context line access.
     sec_by_theory: dict[str, TheorySection] = {s.theory: s for s in sections}
     n_after = max(0, flags.context)
+    # Align the match loci into a column; each is a clean `theory:line` that
+    # pastes into `enclosing` / `lines` / an editor (no trailing marker).
+    loc_w = max((len(f"{t}:{ln}") for t, ln, _ in hits), default=0)
     print(f"{len(hits)} caller(s) of {name}:\n")
     for theory, line_no, text in hits:
         sec = sec_by_theory.get(theory)
         encl = _enclosing_entry(sec, line_no) if sec is not None else None
-        encl_tag = f"  [in {encl.name}]" if encl is not None else ""
-        print(f"  {theory}:{line_no}:{encl_tag}  {text.strip()}")
+        loc = f"{theory}:{line_no}"
+        print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
         if n_after > 0 and sec is not None:
             src = sec.source()
             # 1-indexed line_no → 0-indexed slice start at line_no
-            # (i.e., the line *after* the match).
+            # (i.e., the line *after* the match).  Context keeps ripgrep's
+            # `-` marker — it flags the line as context, not a match, and
+            # `_parse_locus` strips it so the locus still round-trips.
             for off, ctx in enumerate(src[line_no:line_no + n_after], start=1):
                 ctx_no = line_no + off
                 print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
@@ -2542,18 +2563,15 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
     if not located:
         print(f"No uses of method '{name}' found.")
         return
+    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in located), default=0)
     if flags.mode == "names":
-        loc_w = max(len(f"{t}:{ln}") for t, ln, *_ in located)
         for theory, ln, owner, _text in located:
-            owner_str = (f"{owner.name} ({owner.tag})"
-                         if owner is not None and owner.name != "?" else "—")
-            print(f"  {f'{theory}:{ln}':<{loc_w}}  {owner_str}")
+            print(f"  {f'{theory}:{ln}':<{loc_w}}  {_owner_field(owner)}")
         return
     print(f"{len(located)} use(s) of method '{name}':\n")
     for theory, ln, owner, text in located:
-        encl = (f"  [in {owner.name}]"
-                if owner is not None and owner.name != "?" else "")
-        print(f"  {theory}:{ln}:{encl}  {text.strip()}")
+        loc = f"{theory}:{ln}"
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner)}  {text.strip()}")
 
 
 def _compute_unused(graph: CallGraph,
