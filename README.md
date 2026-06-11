@@ -15,6 +15,7 @@ query summary              # theory overview table
 query theory MyTheory      # entries in a theory (-n for terse names)
 query find <regex>         # search entry names (--statement: search statements)
 query show <name>          # a named entry's declaration + body (--statement: declaration only)
+query enclosing FILE:LINE  # which entry owns a line/range (FILE:A..B); inverse of outline
 query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
 query callees <name> [-r]  # what a name references (forward)
 query deps <theory> [-r]   # what a theory imports  (forward; reverse: uses)
@@ -22,7 +23,7 @@ query sorry                # outstanding sorry's
 query unused               # dead-code / unused-entry analysis
 ```
 
-Every subcommand takes `-h`; `query -h` lists all 16.
+Every subcommand takes `-h`; `query -h` lists all 17.
 
 ## Examples
 
@@ -32,6 +33,8 @@ Point `query` at any session directory with `-R` (or `--root`):
 query -R AFP/thys largest                          # the biggest entries, by line count
 query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
 query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin, whatever they're named
+query -R AFP/thys enclosing Tfin.thy:412           # which lemma owns the line a build error names
+query -R AFP/thys enclosing Tfin:88..140           # every entry a diff hunk / multi-line error touches
 ```
 
 ## Why two kinds of scan
@@ -39,7 +42,7 @@ query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin,
 The two examples above are the tool's two kinds of question:
 
 - **Structure** — *what is declared, and where* (`largest`, `summary`,
-  `theory`, `find`, `show`).
+  `theory`, `find`, `show`, `outline`, and its inverse `enclosing`).
 - **Usage** — *which facts cite which* (`callers`, `callees`, `unused`).
 
 The call graph used by usage scans is constructed only when needed, so

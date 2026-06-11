@@ -32,20 +32,45 @@ referencing in commits/PRs.
       Pairs with a new `--theory THY` scope on `find` so a name search can
       be confined to one theory.
 
-- [ ] `[enclosing]` Report which entry **encloses a given line** —
-      `query enclosing FILE:LINE` (or `query at FILE LINE`).  The inverse
-      of `outline`: an Isabelle build failure reports a bare line number,
-      and the first triage step is "which lemma owns line N".  Currently
-      done by hand with
-      `awk 'NR<=N && /^lemma /{n=NR; l=$0} END{print n": "l}'` — a
-      nearest-preceding-header scan, which also misses `definition` /
-      `fun` / `text` owners and intra-lemma structure.  `query` already
-      computes entry spans (`outline` prints `[src A-B]`), so this is a
-      span-containment lookup over the existing index: print the owning
-      `NAME (KIND) — THY [src A-B]`, optionally the proof-internal `have`
-      label too.  Frequent during migration build-chase loops where the
-      watchdog surfaces `file:line` loci and the next move is naming the
-      lemma to edit.
+- [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
+      **minimal distinguishing path**.  `query largest` (and any verb that
+      prints a bare theory name) currently strips both `.thy` and the
+      dirname, so across the AFP's thousands of theories the result is a
+      wall of unqualified `Bla` / `Foo` — collisions with no way to tell
+      `ae/Bla` from `ar/Bla`.  Show just enough *leading* path to make each
+      printed name unique within the result set — `ae/Bla`, `ar/Foo` — but
+      not the shared root prefix (`t/ae/Bla`).  Compute the shortest path
+      suffix unique among the names actually shown, so a single-session run
+      stays bare `Bla` and only genuine collisions grow a prefix.  Lands on
+      `largest` first.  Deeper than cosmetics: it is a prerequisite for the
+      `theory:line` **round-trip** convention (see `[locus-roundtrip]`) — a
+      bare `Bla:11` locus is unresolvable when two `Bla`s exist, so the
+      emitter must qualify the name far enough for the resolver to round it
+      back to one theory.
+
+- [ ] `[locus-roundtrip]` Make the tool's output valid input to the tool —
+      "be round-trippable", a tighter rule than "be consistent".  Three
+      sites, one principle:
+      - **Loci**: every emitted location is a marker-free `theory:line`
+        that pastes straight into `enclosing` / `lines` / an editor.
+        `callers`/`methods` drop the dangling rg `:` and the jammed
+        `[in owner]`, rendering owner as a separate `name (TAG)` field
+        (the format `methods --names` and `grep` already use); `enclosing`
+        drops its stray `.thy`.  `_parse_locus` strips a trailing `:`/`-`
+        defensively, so real rg/grep paste-ins (and context lines) resolve.
+      - **Spans**: render every span with `..` (the *input* range grammar),
+        not `-`, across `_format_extent` / `outline` / `largest` /
+        `enclosing`, so a span on screen (`Tfin 8..12`) pastes into
+        `lines`/`enclosing` without hand-translation.  This is what makes a
+        visible range "chain into the next step".
+      - **Names**: see `[disambig-names]` — a printed name must resolve back
+        to exactly one theory.
+      Most of this ships alongside the `enclosing`-range / grep-line-scope
+      / `lines`-colon batch; tracked here so the principle is not lost.
+      **Landed in 0.2.7:** the `enclosing` half — `_parse_locus` strips the
+      rg `:`/`-` marker and accepts `A..B`, and `enclosing` emits the bare
+      `theory:line` form.  **Pending for 0.3.0:** the span-`..` render and
+      the `callers`/`methods` reformat (the muscle-memory-breaking pieces).
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
@@ -150,6 +175,30 @@ toggle on `find`/`grep` — **no `-a`** for it, since `-a` is the
 per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
+
+- [x] `[enclosing]` Line-owner lookup — shipped as `enclosing` (alias
+      `at`): `query enclosing FILE:LINE ...` names the entry whose
+      `[thy_line, thy_end]` span contains each line, the inverse of
+      `outline`.  Pure composition over the existing index — `_parse_locus`
+      (last-colon split, so `sub/Foo.thy:42` and `Foo:42` both work),
+      `_resolve_theory` for the FILE half (path *or* bare name, `-R`-scoped),
+      `_enclosing_entry` for containment, `_format_extent` for the `[src
+      A-B]` block.  Lookup-family: one-or-more `FILE:LINE` loci (no PATH
+      positionals — the FILE is in the locus), so a batch of build-failure
+      loci resolves in one gate-free call; the colon form (not a two-
+      positional `at FILE LINE`) is the universal compiler-locus convention
+      and dodges the two-greedy-positional argparse trap `callers` hit.
+      Each hit also carries a statement/proof *role* (`_locus_role`, from the
+      same `proof_line`/`decl_end_line` the renderer slices on) — knowing the
+      failing line is the statement vs a proof step tells you what to edit.
+      Unlike a `^lemma `-only `awk` scan it names `definition`/`fun`/
+      `datatype` owners and reports *no owner* for an inter-section gap
+      (where the awk would wrongly attribute the line to the lemma above).
+      Malformed / unresolved loci go to stderr without derailing the batch.
+      Tests in `tests/test_enclosing.py`.  **Not built (deferred):** the
+      proof-internal `have`/`obtain` label drill-down the original note
+      floated — the Entry model doesn't capture intra-proof labels yet, so
+      that is its own feature, not part of this span-level lookup.
 
 - [x] `[find-stmt]` Statement-slice search — shipped as a shared
       `--statement` (alias `--stmt`) flag, one spelling via
