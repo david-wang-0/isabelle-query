@@ -1,0 +1,38 @@
+# Publish a GitHub Release whenever a vN.N.N tag is pushed, using the
+# annotated tag's own message as the release notes.
+#
+# `make release` already creates an annotated tag (its message is the notes)
+# and pushes it; this workflow turns that push into a Release with no extra
+# `gh` invocation or web-UI step.  GitHub Actions is free for public repos.
+#
+# Note: GitHub runs the copy of this file present in the *tagged commit*, so
+# it takes effect from the first release tagged after it lands on the default
+# branch — existing tags (v0.2.4 and earlier) are unaffected.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to create a Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch the annotated tag object (with its message), which
+          # --notes-from-tag reads; a shallow checkout would omit it.
+          fetch-depth: 0
+
+      - name: Create the Release from the tag annotation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "isabelle-query ${GITHUB_REF_NAME#v}" \
+            --notes-from-tag \
+            --verify-tag

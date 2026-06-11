@@ -37,6 +37,16 @@ release:
 		echo "error: tag $(TAG) already exists on $(REMOTE)"; exit 1; \
 	fi
 	@echo "Tagging $$(git rev-parse --short HEAD) as $(TAG); pushing branch + tag to $(REMOTE)..."
-	git tag -a "$(TAG)" -m "isabelle-query $(VERSION)"
+	@# The annotated tag's message IS the GitHub Release body (published by
+	@# .github/workflows/release.yml via `gh release create --notes-from-tag`).
+	@# Seed the editor with a title line plus every commit since the previous
+	@# tag, then `-e` lets you trim it into real notes. Two `-m` flags = two
+	@# paragraphs; no -F / notes file needed.
+	@prev=$$(git describe --tags --abbrev=0 2>/dev/null); \
+	range=$${prev:+$$prev..}HEAD; \
+	echo "Opening your editor for the $(TAG) notes (seeded with commits since $${prev:-the start})..."; \
+	git tag -a "$(TAG)" -e \
+	  -m "isabelle-query $(VERSION)" \
+	  -m "$$(git log --no-merges --reverse --format='- %s' $$range)"
 	git push $(REMOTE) HEAD "$(TAG)"
-	@echo "Released $(TAG): https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
+	@echo "Released $(TAG); CI will publish the notes at https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
