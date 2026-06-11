@@ -35,7 +35,12 @@ query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites
 query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin, whatever they're named
 query -R AFP/thys enclosing Tfin.thy:412           # which lemma owns the line a build error names
 query -R AFP/thys enclosing Tfin:88..140           # every entry a diff hunk / multi-line error touches
+query -R AFP/thys grep simp Tfin.thy:88..140       # search just a hunk, for a token that recurs all over
 ```
+
+Locations and spans share one grammar (`theory:line`, `theory:A..B`), so the
+tool's output is valid input: a locus from `callers` / `sorry` pastes into
+`enclosing`, and a span from `outline` / `largest` pastes into `lines`.
 
 ## Why two kinds of scan
 

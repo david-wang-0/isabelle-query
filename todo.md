@@ -48,30 +48,6 @@ referencing in commits/PRs.
       emitter must qualify the name far enough for the resolver to round it
       back to one theory.
 
-- [ ] `[locus-roundtrip]` Make the tool's output valid input to the tool —
-      "be round-trippable", a tighter rule than "be consistent".  Three
-      sites, one principle:
-      - **Loci**: every emitted location is a marker-free `theory:line`
-        that pastes straight into `enclosing` / `lines` / an editor.
-        `callers`/`methods` drop the dangling rg `:` and the jammed
-        `[in owner]`, rendering owner as a separate `name (TAG)` field
-        (the format `methods --names` and `grep` already use); `enclosing`
-        drops its stray `.thy`.  `_parse_locus` strips a trailing `:`/`-`
-        defensively, so real rg/grep paste-ins (and context lines) resolve.
-      - **Spans**: render every span with `..` (the *input* range grammar),
-        not `-`, across `_format_extent` / `outline` / `largest` /
-        `enclosing`, so a span on screen (`Tfin 8..12`) pastes into
-        `lines`/`enclosing` without hand-translation.  This is what makes a
-        visible range "chain into the next step".
-      - **Names**: see `[disambig-names]` — a printed name must resolve back
-        to exactly one theory.
-      Most of this ships alongside the `enclosing`-range / grep-line-scope
-      / `lines`-colon batch; tracked here so the principle is not lost.
-      **Landed in 0.2.7:** the `enclosing` half — `_parse_locus` strips the
-      rg `:`/`-` marker and accepts `A..B`, and `enclosing` emits the bare
-      `theory:line` form.  **Pending for 0.3.0:** the span-`..` render and
-      the `callers`/`methods` reformat (the muscle-memory-breaking pieces).
-
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool
@@ -175,6 +151,27 @@ toggle on `find`/`grep` — **no `-a`** for it, since `-a` is the
 per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
+
+- [x] `[locus-roundtrip]` "Output is valid input" — locations and spans now
+      share one grammar, so the tool's output pastes back into the tool.
+      Loci+spans landed across **0.2.7** (the `enclosing` half) and **0.3.0**
+      (the rest):
+        - **Loci** — every emitted location is a marker-free `theory:line`.
+          `callers`/`methods` dropped the dangling rg `:` and the jammed
+          `[in owner]`, rendering owner as a separate `name (TAG) lo..hi`
+          field (via the shared `_owner_field`); `enclosing` emits bare
+          `theory:line`.  `_parse_locus` strips a trailing `:`/`-` so real
+          rg/grep paste-ins and context lines resolve.
+        - **Spans** — `..` (the input range grammar) everywhere:
+          `_format_extent` (`[src A..B]` → show/find/theory/enclosing),
+          `outline`, `largest`, `unused`.
+      Applications shipped on the same grammar: `enclosing FILE:A..B` range
+      mode, `grep PATH:A..B` line-scoping (`_split_path_window` +
+      `_load_sections(windows=True)`), and `lines` colon-form `FILE:RANGE`
+      (`_lines_file_and_ranges`).  Tests: `test_enclosing`, `test_locus_format`,
+      `test_grep_window`, `test_lines_forms`.  **Remaining (separate item):**
+      the **Names** third of the principle — `[disambig-names]`, so a bare
+      `Bla:11` resolves when two `Bla`s exist.
 
 - [x] `[enclosing]` Line-owner lookup — shipped as `enclosing` (alias
       `at`): `query enclosing FILE:LINE ...` names the entry whose
