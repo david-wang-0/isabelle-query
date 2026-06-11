@@ -21,17 +21,26 @@ referencing in commits/PRs.
       but theory-scoped queries are batched far less than entry-scoped
       ones.  Route them through `_add_subject_list_arg` if/when touched.
 
-- [ ] `[find-stmt]` `find-stmt PAT` — regex/token search over each
-      entry's **statement slice only** (the declaration, not the proof
-      body), a token-level approximation of Isabelle's `find_theorems`
-      (explicitly *not* term/type-aware: no unification, no type
-      matching).  Fills a real gap between the existing search verbs:
-      `find` matches entry **names**, `grep` matches **every** source
-      line; neither lets you ask "which lemmas are *stated about* this
-      constant, whatever they're named."  Reuses the same statement/proof
-      split that `-V/--verbatim` and the call graph already rely on.
-      Should accept multiple patterns like `find`, and honour the PATH
-      positionals via `_load_sections` for corpus scoping.
+- [ ] `[find-stmt]` Statement-slice search — **a mode on `find`, not a new
+      verb.**  `find PAT` matches entry **names**; `find --statement PAT`
+      matches each entry's **statement slice only** (the declaration, not
+      the proof body), a token-level approximation of Isabelle's
+      `find_theorems` (explicitly *not* term/type-aware: no unification, no
+      type matching).  Design decision (why a `find` flag, not `find-stmt`):
+      both forms return matching **entries**, differing only in which text
+      they regex against — same output model, so one command with a target
+      flag; `grep` stays separate because it returns **lines**.  This also
+      matches intent — `find_theorems` returns *theorems* (entries), not
+      lines.  Fills the gap between `find` (names) and `grep` (every source
+      line): "which lemmas are *stated about* this constant, whatever
+      they're named."  Reuses the statement/proof split that `-V/--verbatim`
+      and the call graph already rely on; pair `--statement` with `-V` to
+      show the matched statements.  Flag spelling: start with a boolean
+      `--statement` (alias `--stmt`?); only generalise to a value flag
+      `--in name|statement|body` if a third match target (proof body,
+      comments) actually shows up — YAGNI until then.  Accept multiple
+      patterns like `find`, and honour the PATH positionals (incl. `-`
+      stdin, now that `_load_sections` handles it) for corpus scoping.
 
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
