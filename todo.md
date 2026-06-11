@@ -58,19 +58,21 @@ referencing in commits/PRs.
 
 - [ ] `[grep-plain]` Optional `--plain`/`--raw` override on `grep`:
       force plain line-grep (no entry/comment parsing) instead of the
-      suffix-inferred theory parse.  Today the parse mode is inferred from
-      the path suffix (`.thy` -> syntax-aware, else plain) — but `-` (stdin)
-      has no suffix, so it is *hardcoded* syntax-aware; this flag is the
-      explicit override for that guess, plus the rare on-disk case (a `.thy`
-      you want grepped as raw text, or a theory saved under another
-      extension).  Default stays inference.  Add it through one shared
-      helper per the CLI contract (no per-command drift).  Scope: `grep`
-      only — `lines` does no parsing (flag is inert) and `largest`/`sorry`
-      *are* the entry view (plain mode guts them), so this is **not** a
-      uniform all-commands flag, despite the symmetry it superficially
-      suggests.  Low urgency: syntax-aware parsing of non-theory content
-      already degrades gracefully (every line reads as live, so all matches
-      still show; only the owner column goes `—`).
+      `infer` parse policy.  Post-routing-refactor the parse mode is an
+      explicit per-command property (`_section_from`'s `parse` arg):
+      `largest`/`sorry` are `"syntax"`, `grep` is `"infer"` (decide per
+      source from the `.thy` suffix, stdin defaulting to syntax-aware).
+      This flag would let `grep` take a third value, `"plain"`, forcing
+      plain line-grep — useful to override the suffix-less stdin guess
+      (`git show REF:notes.md | query grep PAT - --plain`) or the rare
+      on-disk case (a `.thy` grepped as raw text, or a theory under another
+      extension).  Default stays `"infer"`.  Add the flag through one shared
+      helper per the CLI contract.  Scope: `grep` only — `lines` is already
+      ignore-syntax (a parse flag is inert) and `largest`/`sorry` *are* the
+      entry view (plain guts them), so this is **not** a uniform
+      all-commands flag.  Low urgency: `"infer"` parsing of non-theory
+      content already degrades gracefully (every line reads as live, so all
+      matches still show; only the owner column goes `—`).
 
 - [ ] `[graph-export]` Machine-readable export of the reference graph
       (`callers`/`callees` adjacency) and the import graph
