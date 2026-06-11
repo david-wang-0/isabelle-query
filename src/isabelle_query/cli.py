@@ -3542,17 +3542,55 @@ def _run_sorry(ns: argparse.Namespace) -> None:
     # sorry lists open goals in proofs — a theory concept; always syntax-aware.
     cmd_sorry(_load_sections(ns, parse="syntax"), getattr(ns, "count", False))
 
+def _lines_file_and_ranges(tokens: list[str]) -> tuple[str, list[str]]:
+    """Split `lines` positionals into ``(file_token, ranges)``.
+
+    Two accepted spellings, detected by whether the first token parses as a
+    ``FILE:RANGE`` locus:
+
+      * ``FILE RANGE...``        — ``lines Foo 1..10 20..30``  (the original)
+      * ``FILE:RANGE ...``       — ``lines Foo:1..10 Foo:20..30``
+
+    The colon form is the `enclosing` / grep locus grammar reused, so a span
+    printed elsewhere pastes straight in; its loci must name **one** file
+    (`cmd_lines` reads a single source).  Exits with a clear error on a
+    mixed or multi-file colon batch, or a bare ``FILE`` with no ranges.
+    """
+    if _parse_locus(tokens[0]) is not None:
+        loci = []
+        for t in tokens:
+            parsed = _parse_locus(t)
+            if parsed is None:
+                print(f"ERROR: mixed `lines` forms — '{t}' is not FILE:RANGE",
+                      file=sys.stderr)
+                sys.exit(2)
+            loci.append(parsed)
+        files = {f for f, _, _ in loci}
+        if len(files) > 1:
+            print(f"ERROR: `lines` reads one file, got: "
+                  f"{', '.join(sorted(files))}", file=sys.stderr)
+            sys.exit(2)
+        return loci[0][0], [f"{lo}..{hi}" for _, lo, hi in loci]
+    if len(tokens) < 2:
+        print("ERROR: `lines` needs at least one RANGE "
+              "(`FILE RANGE...` or `FILE:RANGE ...`)", file=sys.stderr)
+        sys.exit(2)
+    return tokens[0], tokens[1:]
+
+
 def _run_lines(ns: argparse.Namespace) -> None:
-    # lines is ignore-syntax: route the single token to its source through the
+    # lines is ignore-syntax: route the file token to its source through the
     # shared resolver (same `-`/path/name handling as the search family), then
-    # hand the raw lines to cmd_lines.
-    token = ns.file
-    if token == _STDIN_SENTINEL:
+    # hand the raw lines to cmd_lines.  `_lines_file_and_ranges` accepts both
+    # the `FILE RANGE...` and colon-form `FILE:RANGE ...` spellings.
+    file_token, ranges = _lines_file_and_ranges(ns.args)
+    if file_token == _STDIN_SENTINEL:
         src = _stdin_source()
     else:
-        src = _resolve_file_source(token, Path(token).expanduser().resolve(),
+        src = _resolve_file_source(file_token,
+                                   Path(file_token).expanduser().resolve(),
                                    load_index)
-    cmd_lines(src.lines(), ns.ranges)
+    cmd_lines(src.lines(), ranges)
 
 
 # -- Parser construction ----------------------------------------------------
@@ -3795,18 +3833,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # lines
     p = sub.add_parser("lines",
-                       help="print specified line ranges of FILE "
-                            "with `NR| CONTENT` prefix (sandbox-friendly "
-                            "alternative to awk loops)")
-    p.add_argument("file", metavar="FILE",
-                   help="file to read (any text file; no theory parsing). "
-                        "A bare theory name (or stem-naming path) resolves "
-                        "to its .thy, like outline/show/defs; `-` reads from "
-                        "stdin (e.g. `git show REF:FILE | query lines - A..B`).")
-    p.add_argument("ranges", nargs="+", metavar="RANGE",
-                   help="line range(s); each `A..B` (inclusive) or `A` "
-                        "(single line).  Multiple ranges separated by "
-                        "`--` in output.")
+                       help="print line ranges of FILE with `NR| CONTENT` "
+                            "prefix (sandbox-friendly alternative to awk loops)")
+    p.add_argument("args", nargs="+", metavar="FILE-or-RANGE",
+                   help="either `FILE RANGE...` (`lines Foo 1..10 20..30`) or "
+                        "colon-form `FILE:RANGE ...` loci sharing one file "
+                        "(`lines Foo:1..10 Foo:20..30`) — the same `FILE:A..B` "
+                        "grammar `enclosing` uses, so a span printed elsewhere "
+                        "pastes straight in.  FILE is any text file, a bare "
+                        "theory name (resolved to its .thy, like outline/show), "
+                        "or `-` for stdin (`git show REF:FILE | query lines - "
+                        "A..B`).  Each RANGE is `A..B` (inclusive) or `A`; "
+                        "multiple ranges are `--`-separated in the output.")
     p.set_defaults(func=_run_lines)
 
     p = sub.add_parser("unused", help="list entries with zero callers")

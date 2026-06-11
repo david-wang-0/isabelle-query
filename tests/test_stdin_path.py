@@ -141,7 +141,7 @@ class LinesStdin(unittest.TestCase):
     def _lines(self, text, ranges):
         with _stdin(text):
             return _capture(cli._run_lines,
-                            argparse.Namespace(file="-", ranges=ranges))
+                            argparse.Namespace(args=["-", *ranges]))
 
     def test_reads_range_from_stdin_with_preserved_numbers(self):
         out = self._lines(THY, ["5..6"])
@@ -232,8 +232,7 @@ class ParserWiring(unittest.TestCase):
 
     def test_lines_accepts_dash_as_file(self):
         ns = self.parser.parse_args(["lines", "-", "1..3"])
-        self.assertEqual(ns.file, "-")
-        self.assertEqual(ns.ranges, ["1..3"])
+        self.assertEqual(ns.args, ["-", "1..3"])
 
     def test_search_family_accepts_dash_in_files(self):
         for cmd, extra in (("grep", ["foo"]), ("largest", []), ("sorry", [])):
