@@ -117,6 +117,12 @@ class TheorySection:
         # entry-grammar does not apply to Markdown / prose, so cmd_grep treats
         # it as plain `grep` — every matched line, no synthesised owning-entry
         # label, no live/comment classification.
+    line_window: tuple[int, int] | None = None
+        # Optional inclusive 1-indexed [lo, hi] line window from a grep
+        # `PATH:A..B` positional, set by `_load_sections(windows=True)`.
+        # `_grep_sections` skips lines outside it; commands that don't read
+        # it (largest/sorry) never see a window (the suffix isn't parsed for
+        # them, so `largest Foo:1..9` errors rather than silently ignoring).
     _source_cache: list[str] | None = None
 
     def source(self) -> list[str]:
@@ -2855,10 +2861,13 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
                 ps, pe = e.preamble
                 noise.append(range(ps, pe + 1))
         idx = line_index.get(sec.theory, [])
+        window = sec.line_window
         for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if window is not None and not (window[0] <= line_no <= window[1]):
+                continue
             if not pat.search(line):
                 continue
-            line_no = line_no_0 + 1
             is_live = not any(line_no in r for r in noise)
             owner = _entry_at_line(idx, line_no)
             out.append((sec.path.name, line_no, line.rstrip(), owner,
@@ -3206,8 +3215,29 @@ def _section_from(src: FileSource, parse: str) -> TheorySection:
     return _parse_plain(src.label, src.path, src.preread)
 
 
-def _load_sections(ns: argparse.Namespace,
-                   parse: str = "infer") -> list[TheorySection]:
+def _split_path_window(token: str, get_index
+                       ) -> tuple[tuple[int, int] | None, str]:
+    """Peel an optional `:A..B` / `:LINE` window off a grep PATH positional.
+
+    Returns ``(window, file_token)``.  The suffix is treated as a window
+    *only* when the part before it resolves to an existing file or a known
+    theory — otherwise the token is returned unchanged, so a path that
+    happens to end in a colon, the `-` stdin sentinel, or a plain bad token
+    all fall through to the normal resolver and its existing error.  Reuses
+    `_parse_locus`, so the window grammar (`A..B`, trailing-marker tolerance)
+    matches `enclosing`.
+    """
+    locus = _parse_locus(token)
+    if locus is None:
+        return None, token
+    file_token, lo, hi = locus
+    resolves = (Path(file_token).expanduser().exists()
+                or _resolve_theory(get_index(), file_token) is not None)
+    return ((lo, hi), file_token) if resolves else (None, token)
+
+
+def _load_sections(ns: argparse.Namespace, parse: str = "infer", *,
+                   windows: bool = False) -> list[TheorySection]:
     """Load theory sections from trailing positional PATHs, or the
     project ROOTs.
 
@@ -3229,6 +3259,11 @@ def _load_sections(ns: argparse.Namespace,
       declared by ROOT (resolved through ROOT's ``theories`` and
       ``directories`` clauses, matching Isabelle's own semantics).
     * a directory with no ``ROOT``  -> recursive ``*.thy`` glob.
+
+    When ``windows`` is set (grep only), a positional may carry a trailing
+    ``:A..B`` (or ``:LINE``) line window — ``Foo.thy:100..200`` — scoping the
+    search to those lines.  The file part resolves as usual and the window is
+    attached to the section for `_grep_sections` to honour.
 
     Results are unioned and deduplicated by resolved absolute
     path, so passing two directories where one holds symlinks into
@@ -3262,6 +3297,9 @@ def _load_sections(ns: argparse.Namespace,
                 stdin_read = True
                 sections.append(_section_from(_stdin_source(), parse))
             continue
+        window: tuple[int, int] | None = None
+        if windows:
+            window, token = _split_path_window(token, get_index)
         p = Path(token).expanduser().resolve()
         if p.is_dir():
             _sections_from_dir(p, seen_paths, sections)
@@ -3271,7 +3309,9 @@ def _load_sections(ns: argparse.Namespace,
         if resolved in seen_paths:
             continue
         seen_paths.add(resolved)
-        sections.append(_section_from(src, parse))
+        sec = _section_from(src, parse)
+        sec.line_window = window
+        sections.append(sec)
     return sections
 
 
@@ -3492,8 +3532,11 @@ def _run_methods(ns: argparse.Namespace) -> None:
 
 def _run_grep(ns: argparse.Namespace) -> None:
     # grep is the one command where the parse mode is genuinely unclear
-    # (live source vs. plain prose), so it infers per source.
-    cmd_grep(_load_sections(ns, parse="infer"), ns.pattern, _flags_from_ns(ns))
+    # (live source vs. plain prose), so it infers per source.  It is also the
+    # only search verb that honours a `PATH:A..B` line window (windows=True),
+    # to scope a search to a hunk of a file that matches hundreds of times.
+    cmd_grep(_load_sections(ns, parse="infer", windows=True), ns.pattern,
+             _flags_from_ns(ns))
 
 def _run_sorry(ns: argparse.Namespace) -> None:
     # sorry lists open goals in proofs — a theory concept; always syntax-aware.
@@ -3724,11 +3767,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # grep
     p = sub.add_parser("grep",
-                       help="regex search across live theory source")
+                       help="regex search across live theory source "
+                            "(a PATH may carry a `:A..B` line window)")
     p.add_argument("pattern",
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
                         "for shell-grep compatibility)")
     _add_path_files_arg(p)
+    # grep alone honours a `PATH:A..B` (or `PATH:LINE`) line window on a
+    # trailing positional — `query grep PAT Foo.thy:100..200` searches only
+    # lines 100-200, the "this token matches hundreds of times, I want one
+    # region" case.  Resolved in `_load_sections(windows=True)`; the shared
+    # `_add_path_files_arg` help stays window-agnostic (largest/sorry, which
+    # also use it, do not accept a window).
     _add_with_comments_flag(p)
     _add_count_flag(p)
     _add_names_flag(p, "locations + owning entry only "
