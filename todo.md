@@ -44,6 +44,22 @@ referencing in commits/PRs.
       Pairs with a new `--theory THY` scope on `find` so a name search can
       be confined to one theory.
 
+- [ ] `[stdin-path]` Accept `-` as a PATH sentinel meaning **read from
+      stdin**, so the path-taking verbs (`lines`, `grep`, `largest`,
+      `sorry`, `outline`/`theory`/`defs` once they take a corpus) can
+      operate on piped content that isn't on disk — the load-bearing case
+      is git history: `git show REF:FILE | query lines - A..B` to inspect a
+      lemma's *pre-migration* proof without checking the revision out or
+      dumping to a scratch file.  (Surfaced downstream: an attempted
+      `... | query lines - A..B` silently failed because `-` was treated as
+      a literal filename; the workaround was `git show REF:FILE >
+      scratch.thy` then `query lines scratch.thy A..B`, which litters the
+      tree.)  A single read-stdin-on-`-` branch in `_load_sections` covers
+      the whole search family at once; `lines` needs its own hook since it
+      bypasses section parsing.  Note `lines -` loses the on-disk line-
+      number anchor only if the caller slices first — reading the *whole*
+      piped theory and then applying `A..B` preserves it.
+
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool
