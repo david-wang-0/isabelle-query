@@ -131,10 +131,11 @@ class Containment(unittest.TestCase):
         self.assertIn("size_bound (LEMMA)", out)
 
     def test_extent_annotation_present(self):
-        # Reuses _format_extent, so the `[src A-B, N lines]` block shows.
+        # Reuses _format_extent, so the `[src A..B, N lines]` block shows —
+        # `..` (the input range grammar), so the span pastes back as a locus.
         widget = _entry("widget")
         out, _ = _run([f"Owners:{widget.thy_line}"])
-        self.assertIn(f"[src {widget.thy_line}-{widget.thy_end},", out)
+        self.assertIn(f"[src {widget.thy_line}..{widget.thy_end},", out)
 
 
 class RangeMode(unittest.TestCase):

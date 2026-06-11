@@ -1449,10 +1449,10 @@ def _format_extent(entry: Entry) -> str:
     body_end = entry.body_end_line or entry.thy_end
     if body_end < entry.thy_end:
         body_size = body_end - entry.thy_line + 1
-        return (f"[src {entry.thy_line}-{entry.thy_end}, "
-                f"body {entry.thy_line}-{body_end}, "
+        return (f"[src {entry.thy_line}..{entry.thy_end}, "
+                f"body {entry.thy_line}..{body_end}, "
                 f"{body_size}/{span_size} lines]")
-    return f"[src {entry.thy_line}-{entry.thy_end}, {span_size} lines]"
+    return f"[src {entry.thy_line}..{entry.thy_end}, {span_size} lines]"
 
 
 def _format_name_line(sec: TheorySection, entry: Entry) -> str:
@@ -1958,7 +1958,7 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
                     hi = min(tb_end, ln + context)
                     snippet = src[lo - 1:hi]
                     hits.append(f"\n{sec.theory}.thy:{ln} "
-                                f"(in text block {tb_start}-{tb_end}):")
+                                f"(in text block {tb_start}..{tb_end}):")
                     for j, snippet_line in enumerate(snippet, start=lo):
                         marker = ">" if j == ln else " "
                         hits.append(f"  {marker} {j}: {snippet_line}")
@@ -2170,12 +2170,12 @@ def cmd_outline(sections: list[TheorySection], theory: str,
             preview_text = " ".join(line.strip() for line in preview)
             if len(preview_text) > 100:
                 preview_text = preview_text[:97] + "..."
-            print(f"        text     [{tb_start}-{tb_end}, {block_size} lines]: "
+            print(f"        text     [{tb_start}..{tb_end}, {block_size} lines]: "
                   f"{preview_text}")
         else:
             e: Entry = payload  # type: ignore[assignment]
             size = e.thy_end - e.thy_line + 1
-            print(f"        {e.tag:<8} {e.name}  ({e.thy_line}-{e.thy_end}, {size} lines)")
+            print(f"        {e.tag:<8} {e.name}  ({e.thy_line}..{e.thy_end}, {size} lines)")
 
 
 def _find_callers(sections: list[TheorySection], name: str,
@@ -2735,7 +2735,7 @@ def _render_unused(sections: list[TheorySection],
         size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
-              f"({e.thy_line}-{e.thy_end}, {size} lines){depth_mark}")
+              f"({e.thy_line}..{e.thy_end}, {size} lines){depth_mark}")
 
 
 def _render_forest(sections: list[TheorySection],
@@ -3046,7 +3046,7 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
     for size, e, s in rows[:top]:
-        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.thy_line}-{e.thy_end})")
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.thy_line}..{e.thy_end})")
 
 
 # ---------------------------------------------------------------------------
