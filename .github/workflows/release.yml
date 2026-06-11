@@ -1,13 +1,20 @@
 # Publish a GitHub Release whenever a vN.N.N tag is pushed, using the
 # annotated tag's own message as the release notes.
 #
-# `make release` already creates an annotated tag (its message is the notes)
-# and pushes it; this workflow turns that push into a Release with no extra
-# `gh` invocation or web-UI step.  GitHub Actions is free for public repos.
+# `make release` creates an annotated tag (its message is the notes) and
+# pushes it; this turns that push into a Release with no local `gh` or
+# web-UI step.  GitHub Actions is free for public repos.
 #
-# Note: GitHub runs the copy of this file present in the *tagged commit*, so
-# it takes effect from the first release tagged after it lands on the default
-# branch — existing tags (v0.2.4 and earlier) are unaffected.
+# Notes are read from the tag object via the API rather than
+# `gh release create --notes-from-tag`: on the runner the checked-out tag can
+# be *lightweight*, and `--notes-from-tag` then silently falls back to the
+# tagged *commit's* message (this is what mis-published v0.2.5's first run).
+# The API is authoritative.  The step is idempotent (edit if the Release
+# already exists, else create) so a re-pushed tag repairs a bad publish.
+#
+# GitHub runs the copy of this file present in the *tagged commit*, so it
+# takes effect from the first release whose tag points at a commit containing
+# it; earlier tags are unaffected.
 name: release
 
 on:
@@ -16,23 +23,27 @@ on:
       - "v*"
 
 permissions:
-  contents: write # required to create a Release
+  contents: write # required to create/edit a Release
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Fetch the annotated tag object (with its message), which
-          # --notes-from-tag reads; a shallow checkout would omit it.
-          fetch-depth: 0
 
-      - name: Create the Release from the tag annotation
+      - name: Publish the Release with the annotated tag's notes
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "isabelle-query ${GITHUB_REF_NAME#v}" \
-            --notes-from-tag \
-            --verify-tag
+          set -euo pipefail
+          # Deref the annotated tag ref -> tag object -> its message.
+          sha=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha')
+          notes=$(gh api "repos/$REPO/git/tags/$sha" --jq '.message')
+          title="isabelle-query ${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes "$notes"
+          else
+            gh release create "$TAG" --title "$title" --notes "$notes" --verify-tag
+          fi
