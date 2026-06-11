@@ -913,8 +913,19 @@ def _attach_comments(entries: list[Entry], lines: list[str],
             e.roadmap.append((cline, content))
 
 
-def _parse_one(thy: str, thy_path: Path) -> TheorySection:
-    lines = thy_path.read_text().splitlines()
+def _parse_one(thy: str, thy_path: Path,
+               lines: list[str] | None = None) -> TheorySection:
+    """Parse a theory's source into a fully-populated TheorySection.
+
+    `lines`, when supplied, is already-read source parsed *in place of*
+    reading `thy_path` from disk — the path taken by the `-` stdin sentinel,
+    whose `thy_path` is synthetic (`<stdin>`) and has nothing to read.  In
+    that case the section caches the lines so a later `source()` call never
+    falls back to reading the non-existent path.
+    """
+    from_memory = lines is not None
+    if lines is None:
+        lines = thy_path.read_text().splitlines()
     entries = extract_entries(lines)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
@@ -936,9 +947,13 @@ def _parse_one(thy: str, thy_path: Path) -> TheorySection:
             e.body_end_line = _proof_extent(sec_for_extent, e.proof_line, e.thy_end)
         else:
             e.body_end_line = e.decl_end_line or e.thy_line
-    return TheorySection(thy, thy_path, entries, thy_lines=len(lines),
-                         outline=outline, text_blocks=text_blocks,
-                         comment_ranges=comment_ranges)
+    sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
+                        outline=outline, text_blocks=text_blocks,
+                        comment_ranges=comment_ranges)
+    if from_memory:
+        # No disk path to lazily re-read (stdin); pin the source we already have.
+        sec._source_cache = lines
+    return sec
 
 
 def _parse_plain(thy: str, path: Path) -> TheorySection:
@@ -2795,24 +2810,49 @@ def _parse_line_range(spec: str) -> tuple[int, int]:
     return a, b
 
 
+# The PATH sentinel `-` means "read from standard input".  A piped stream
+# has no on-disk path, so stdin content is carried on this synthetic one;
+# its `.name` (`<stdin>`) is what `grep`/`sorry` print as the location.
+_STDIN_SENTINEL = "-"
+_STDIN_NAME = "<stdin>"
+_STDIN_PATH = Path(_STDIN_NAME)
+
+
+def _read_stdin_lines() -> list[str]:
+    """Read **all** of standard input as a list of lines (the `-` sentinel).
+
+    The whole stream is consumed up front and then numbered from 1, so a
+    caller's `A..B` ranges line up with the piped content's own numbering:
+    `git show REF:FILE | query lines - A..B` sees exactly the line numbers
+    `FILE` had at `REF`.  (The anchor is lost only if the *producer* slices
+    before piping — reading the whole stream here never does.)
+    """
+    return sys.stdin.read().splitlines()
+
+
 def cmd_lines(file_path: str, ranges: list[str]) -> None:
     """Print the specified line ranges of FILE with `NR| CONTENT` prefix.
 
     Sandbox-friendly alternative to `awk 'NR>=A && NR<=B {…}'` loops;
     multiple ranges separated by blank lines (rg-style `--` separators
     between hunks).  Width of the line-number column adapts to the
-    largest line number requested.
+    largest line number requested.  `file_path` of `-` reads from standard
+    input instead of disk, so `git show REF:FILE | query lines - A..B`
+    inspects a pre-migration proof without a scratch file.
     """
-    p = Path(file_path).expanduser().resolve()
-    if not p.exists():
-        print(f"ERROR: file not found: {p}", file=sys.stderr)
-        sys.exit(1)
+    if file_path == _STDIN_SENTINEL:
+        lines = _read_stdin_lines()
+    else:
+        p = Path(file_path).expanduser().resolve()
+        if not p.exists():
+            print(f"ERROR: file not found: {p}", file=sys.stderr)
+            sys.exit(1)
+        lines = p.read_text().splitlines()
     try:
         parsed = [_parse_line_range(r) for r in ranges]
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(2)
-    lines = p.read_text().splitlines()
     n_lines = len(lines)
     max_no = max((b for _, b in parsed), default=1)
     width = len(str(min(max_no, n_lines)))
@@ -2919,6 +2959,9 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
 
     Each positional may be:
 
+    * ``-``  -> read one theory from **standard input** (the stdin
+      sentinel), so the whole search family operates on piped content that
+      never hit disk — ``git show REF:FILE | query grep PAT -``.
     * a ``.thy`` file path  -> that single theory.
     * a directory containing a ``ROOT`` file  -> all theories
       declared by ROOT (resolved through ROOT's ``theories`` and
@@ -2935,7 +2978,18 @@ def _load_sections(ns: argparse.Namespace) -> list[TheorySection]:
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
     index: list[TheorySection] | None = None  # lazily loaded for name lookups
+    stdin_read = False
     for fp in files:
+        if fp == _STDIN_SENTINEL:
+            # Read the piped stream once and parse it as a theory, so
+            # grep/largest/sorry get entries, live/comment classification,
+            # and owning-entry labels exactly as for an on-disk .thy.  stdin
+            # is one-shot: a repeated `-` would read empty, so consume once.
+            if not stdin_read:
+                stdin_read = True
+                sections.append(_parse_one(_STDIN_NAME, _STDIN_PATH,
+                                           _read_stdin_lines()))
+            continue
         p = Path(fp).expanduser().resolve()
         if p.is_dir():
             _sections_from_dir(p, seen_paths, sections)
@@ -3016,7 +3070,9 @@ def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
     p.add_argument("files", nargs="*", metavar="PATH",
                    help="restrict search to specific .thy files or "
                         "directories (rg/grep-style trailing positionals); "
-                        "a bare theory name resolves to its .thy. "
+                        "a bare theory name resolves to its .thy, and `-` "
+                        "reads a theory from stdin (e.g. `git show REF:FILE "
+                        "| query grep PAT -`). "
                         "Directories with a ROOT are expanded via the "
                         "ROOT's `theories` clause; directories without are "
                         "walked recursively for `*.thy`.  Results are "
@@ -3165,7 +3221,9 @@ def _run_sorry(ns: argparse.Namespace) -> None:
 
 def _run_lines(ns: argparse.Namespace) -> None:
     file_arg = ns.file
-    if not Path(file_arg).expanduser().exists():
+    if file_arg != _STDIN_SENTINEL and not Path(file_arg).expanduser().exists():
+        # `-` is the stdin sentinel (handled in cmd_lines); only a non-`-`
+        # path that is missing on disk gets the theory-name fallback below.
         # Accept a bare theory name (or a stem-naming path), like grep.
         index = load_index()
         sec = _resolve_theory(index, file_arg)
@@ -3389,7 +3447,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("file", metavar="FILE",
                    help="file to read (any text file; no theory parsing). "
                         "A bare theory name (or stem-naming path) resolves "
-                        "to its .thy, like outline/show/defs.")
+                        "to its .thy, like outline/show/defs; `-` reads from "
+                        "stdin (e.g. `git show REF:FILE | query lines - A..B`).")
     p.add_argument("ranges", nargs="+", metavar="RANGE",
                    help="line range(s); each `A..B` (inclusive) or `A` "
                         "(single line).  Multiple ranges separated by "
