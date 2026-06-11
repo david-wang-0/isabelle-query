@@ -5,8 +5,8 @@ It examines the project's entries (definitions, lemmas, theorems,
 datatypes), call graph, theory dependencies, outstanding `sorry`s, and dead
 code. It parses the project's `.thy` sources on every invocation, so results
 always match the current tree, and even a large project parses in a fraction of
-a second. It's aimed at large developments: AFP entries (or the AFP itself),
-or industrial verification, where grep-and-eyeball isn't enough.
+a second. It's aimed at large projects: AFP entries (or the AFP itself),
+or industrial verification, that need more than grep-and-examine.
 
 ## What it does
 
@@ -41,8 +41,8 @@ The two examples above are the tool's two kinds of question:
   `theory`, `find`, `show`).
 - **Usage** — *which facts cite which* (`callers`, `callees`, `unused`).
 
-The usage scan is heavier and runs only when you ask about the call graph, so
-everyday commands stay fast.
+The call graph used by usage scans is constructed only when needed, so
+most commands stay fast.
 
 The tool reads one Isabelle **session directory** (a directory containing a
 `ROOT` file). Run `query` from inside a project and it finds the session
@@ -53,7 +53,7 @@ the session directory (relative to the project root) in a one-line
 
 ## Installation
 
-Requires Python ≥ 3.9. Installs a `query` command on your `PATH`.
+Requires Python 3.9 or greater. Installs a `query` command on your `PATH`.
 
 ```sh
 pip install isabelle-query     # from PyPI (once published)
@@ -73,7 +73,7 @@ pip install -e .
 
 ## Authors & license
 
-By András Salamon, with Claude Opus 4.6, 4.7, and 4.8. Extracted — with its full
-git history — from a larger Isabelle/Isar formalisation of computational-
+By András Salamon, with Claude Opus 4.6, 4.7, and 4.8. Extracted with its
+git history from a larger Isabelle/Isar formalisation of computational
 complexity results. [MIT](LICENSE).
 
