@@ -3,27 +3,6 @@
 Ordered by priority (highest first).  Tags are stable handles for cross-
 referencing in commits/PRs.
 
-- [ ] `[enclosing-drilldown]` Proof-internal label resolution for
-      `enclosing` (the deferred half of `[enclosing]`).  Today
-      `enclosing FILE:LINE` resolves to the owning *entry* + statement/proof
-      role; inside a large structured proof that still leaves the reader to
-      scan for the specific Isar step.  **Concrete motivation (NDTHT, AR
-      value-arity port):** a `make build` failure at
-      `AlphabetReduction_Reverse.thy:3710` resolved to
-      `ar_walker_cycle_close (in proof)` — correct, but that lemma is a
-      588-line proof, and the actual fault was the `key` fact inside the
-      `apos_1` block.  Knowing the lemma I mostly already knew; what saves a
-      Read round-trip is the **nearest enclosing named step** — report the
-      closest preceding `have`/`show`/`obtain`/`let`/`fix` label (and its
-      line) the target line sits under, e.g.
-      `… → ar_walker_cycle_close ▸ have apos_1 (3680) ▸ have key (3705)`.
-      Needs the Entry model (or a lighter proof-body scan) to capture
-      intra-proof labels with their spans; a single nested level (the
-      innermost named `have`) already covers the common build-triage case,
-      so a full block tree is optional.  Highest-frequency `enclosing` use
-      is exactly red-build locus triage, so this is where its remaining
-      value is.
-
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
       **references** — the complement of `theory -n` (which lists a
@@ -221,6 +200,37 @@ per-command), `_add_drop_names_flag`.
       `test_grep_window`, `test_lines_forms`.  **Remaining (separate item):**
       the **Names** third of the principle — `[disambig-names]`, so a bare
       `Bla:11` resolves when two `Bla`s exist.
+
+- [x] `[enclosing-drilldown]` Nearest enclosing *block* for `enclosing`
+      (the deferred half of `[enclosing]`).  Inside a large structured proof
+      the owning entry is usually what you already know; the useful answer is
+      the **smallest live block** the line sits in, as a pasteable `A..B`
+      span — `Nested:13 → structured (LEMMA) … ▸ have key 11..14`.  Three
+      modes on an outer→inner spectrum: `-e/--entry` (entry only, the
+      original output), default (nearest/innermost block), `-b/--blocks`
+      (full nesting path, entry then each block outer→inner).  Motivated by
+      the NDTHT AR port — a build failure deep in a 588-line proof resolves
+      to the `have key` block, not just the lemma.
+      **How:** a lightweight, on-demand `_proof_blocks` scan of *just* the
+      one resolved entry's proof body (no index/Entry bloat) — a stack of
+      `proof` / brace-only `{` opens popped on `qed` / `}`, each block
+      labelled by its goal-introducer (`have key:` → `have key 11..14`).  The
+      lemma's own outer `proof` is suppressed (the entry already represents
+      it); only blocks strictly inside it are reported.  **Conservative &
+      fail-safe:** openers/closers are line-anchored (a `proof`/`{` buried in
+      a term string or a set-comprehension is ignored), only live lines are
+      read (comment/text skipped), and an unbalanced stack returns None so
+      output degrades to the entry rather than emit a span it can't stand
+      behind.  A flat `by` proof or an in-proof line outside every block
+      likewise degrades to the entry (no `▸`).  **Round-trip:** the block
+      span is a locus — `▸ have key 11..14` pastes into `lines Nested 11..14`
+      / `enclosing Nested:11..14`.  Tests: `tests/test_enclosing_blocks.py`
+      over `tests/fixtures/Nested.thy`.  **Known limits (non-fatal, future):**
+      inline one-line `{ … }` and inline `have … proof` openers aren't split;
+      `case`/`next` sub-blocks inside a `proof (induction)` aren't tracked
+      (the nearest block is the enclosing `proof`); a goal proved via
+      `using … proof` may label the block `proof` rather than the goal.  The
+      "single nested level covers the common build-triage case" bet held.
 
 - [x] `[enclosing]` Line-owner lookup — shipped as `enclosing` (alias
       `at`): `query enclosing FILE:LINE ...` names the entry whose

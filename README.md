@@ -15,7 +15,7 @@ query summary              # theory overview table
 query theory MyTheory      # entries in a theory (-n for terse names)
 query find <regex>         # search entry names (--statement: search statements)
 query show <name>          # a named entry's declaration + body (--statement: declaration only)
-query enclosing FILE:LINE  # which entry owns a line/range (FILE:A..B); inverse of outline
+query enclosing FILE:LINE  # which entry + nearest proof block owns a line/range; inverse of outline
 query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
 query callees <name> [-r]  # what a name references (forward)
 query deps <theory> [-r]   # what a theory imports  (forward; reverse: uses)
@@ -33,14 +33,16 @@ Point `query` at any session directory with `-R` (or `--root`):
 query -R AFP/thys largest                          # the biggest entries, by line count
 query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
 query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin, whatever they're named
-query -R AFP/thys enclosing Tfin.thy:412           # which lemma owns the line a build error names
+query -R AFP/thys enclosing Tfin.thy:412           # the lemma *and nearest proof block* a build error sits in
+query -R AFP/thys enclosing Tfin.thy:412 -b        # ...the full nesting path: entry then each block, outer to inner
 query -R AFP/thys enclosing Tfin:88..140           # every entry a diff hunk / multi-line error touches
 query -R AFP/thys grep simp Tfin.thy:88..140       # search just a hunk, for a token that recurs all over
 ```
 
 Locations and spans share one grammar (`theory:line`, `theory:A..B`), so the
 tool's output is valid input: a locus from `callers` / `sorry` pastes into
-`enclosing`, and a span from `outline` / `largest` pastes into `lines`.
+`enclosing`, and a span from `outline` / `largest` — or a proof block from
+`enclosing`'s own drill-down (`▸ have key 11..14`) — pastes into `lines`.
 
 ## Why two kinds of scan
 

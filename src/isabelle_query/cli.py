@@ -2356,7 +2356,116 @@ def _locus_role(entry: Entry, line_no: int) -> str:
     return ""
 
 
-def cmd_enclosing(sections: list[TheorySection], loci: list[str]) -> None:
+# --- proof-internal block drill-down (enclosing) -------------------------
+#
+# `enclosing` resolves a line to its owning entry; inside a large structured
+# proof the *nearest enclosing syntactic block* (the innermost
+# `proof ... qed` / `{ ... }` the line sits in, as a pasteable `A..B` range)
+# is the more useful answer — often a handful of lines rather than a
+# 500-line lemma.  We find it by a lightweight, on-demand scan of *just* the
+# one resolved entry's proof body — no index/Entry bloat, paid only when a
+# drill-down is asked for.  Deliberately conservative: openers/closers are
+# anchored at line start, so a `proof`/`qed`/`{` buried in a term string or
+# a mid-line set-comprehension is ignored, and only *live* lines are read
+# (comment / text blocks skipped).  If the open/close stack ever goes
+# unbalanced the scan returns None and the caller falls back to the
+# entry-level answer rather than emit a span it isn't sure of.
+_GOAL_INTRO_RE = re.compile(
+    r"^(have|show|hence|thus|obtain|consider)\b"
+    r"(?:\s+([A-Za-z][\w'.]*)\s*:)?")
+_PROOF_OPEN_RE = re.compile(r"^proof\b")
+_QED_RE = re.compile(r"^qed\b")
+# Line-anchored proof *terminators* (a goal proved without opening a block):
+# clears the pending goal so its label can't leak onto a later `proof`.
+_TERMINAL_RE = re.compile(r"^(by|done|sorry|oops)\b|^\.\.?\s*$")
+
+
+@dataclass(frozen=True)
+class _Block:
+    """A nested proof block — a `proof..qed` or a raw `{..}` — labelled by
+    the goal that introduces it.  `start`/`end` are 1-indexed inclusive, so
+    `theory:start..end` is a locus that pastes into `lines` / `enclosing`."""
+    kw: str        # introducing keyword (have/show/...) or "{" for a brace block
+    name: str      # the goal's label (`key` of `have key:`); "" if anonymous
+    start: int
+    end: int
+
+
+def _block_label(b: _Block) -> str:
+    return "{ }" if b.kw == "{" else f"{b.kw} {b.name}".strip()
+
+
+def _block_field(b: _Block) -> str:
+    """`label start..end` — one breadcrumb element; the span round-trips."""
+    return f"{_block_label(b)} {b.start}..{b.end}"
+
+
+def _proof_blocks(sec: TheorySection, entry: Entry) -> list[_Block] | None:
+    """Nested blocks inside *entry*'s proof, or None if the scan went
+    unbalanced (caller then falls back to the entry-level answer).
+
+    The lemma's own outermost `proof` is *not* reported: it is what the
+    entry already represents.  Only blocks strictly inside it — nested
+    `have ... proof ... qed`, raw `{ ... }` — are, since those are the
+    narrower ranges a drill-down is for.
+    """
+    if not entry.proof_line:
+        return []
+    lines = sec.source()
+    end = min(entry.body_end_line or entry.thy_end or len(lines), len(lines))
+    noise = ([range(s, e + 1) for s, e in sec.comment_ranges]
+             + [range(s, e + 1) for s, e in sec.text_blocks])
+    stack: list[tuple[str, str, int]] = []    # (kw, name, start)
+    blocks: list[_Block] = []
+    pending: tuple[str, str, int] | None = None   # a goal awaiting its proof
+    main_open = False
+    for ln in range(entry.proof_line, end + 1):
+        if any(ln in r for r in noise):
+            continue
+        stripped = lines[ln - 1].strip()
+        if not stripped:
+            continue
+        gm = _GOAL_INTRO_RE.match(stripped)
+        if gm:
+            pending = (gm.group(1), gm.group(2) or "", ln)
+        if _PROOF_OPEN_RE.match(stripped):
+            if not main_open and not stack:
+                stack.append(("__main__", "", ln))   # the entry's own proof
+                main_open = True
+            else:
+                stack.append(pending or ("proof", "", ln))
+            pending = None
+        elif _QED_RE.match(stripped):
+            if not stack:
+                return None
+            kw, name, start = stack.pop()
+            if kw != "__main__":
+                blocks.append(_Block(kw, name, start, ln))
+            pending = None
+        elif stripped == "{":
+            stack.append(("{", "", ln))
+        elif stripped == "}":
+            if not stack:
+                return None
+            kw, name, start = stack.pop()
+            if kw != "__main__":
+                blocks.append(_Block(kw, name, start, ln))
+            pending = None
+        elif _TERMINAL_RE.match(stripped):
+            pending = None
+    return None if stack else blocks
+
+
+def _enclosing_blocks(blocks: list[_Block], line_no: int) -> list[_Block]:
+    """Blocks containing *line_no*, outermost first — so the last element is
+    the nearest (innermost) enclosing block."""
+    containing = [b for b in blocks if b.start <= line_no <= b.end]
+    containing.sort(key=lambda b: (b.start, -b.end))
+    return containing
+
+
+def cmd_enclosing(sections: list[TheorySection], loci: list[str],
+                  block_mode: str = "nearest") -> None:
     """Report which entry encloses each ``FILE:LINE`` (or ``FILE:A..B``)
     locus — inverse of `outline`.
 
@@ -2370,6 +2479,14 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str]) -> None:
     ``LOCUS -> OWNER`` line (the location is the house ``theory:line`` form,
     so it round-trips back into `enclosing` / `lines` / an editor); malformed
     or unresolved loci report to stderr and do not stop the batch.
+
+    For a single line inside a proof, ``block_mode`` drills past the entry to
+    the enclosing *syntactic block* — the narrow range a build error really
+    sits in, appended as ``▸ have key 3705..3740`` (itself a pasteable span):
+      * ``"nearest"`` (default) — the innermost enclosing block, or nothing
+        when the proof is flat (then output is just the entry);
+      * ``"blocks"`` — the full nesting path, entry then each block outer→inner;
+      * ``"entry"`` — no drill-down, the owning entry alone (original output).
     """
     for token in loci:
         parsed = _parse_locus(token)
@@ -2399,8 +2516,26 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str]) -> None:
                 continue
             role = _locus_role(entry, lo)
             suffix = f"  ({role})" if role else ""
-            print(f"{loc} → {entry.name} ({entry.tag}) — {sec.theory} "
-                  f"{_format_extent(entry)}{suffix}")
+            base = (f"{loc} → {entry.name} ({entry.tag}) — {sec.theory} "
+                    f"{_format_extent(entry)}")
+            # Drill into the proof for the nearest/whole-path modes, but only
+            # when the line is actually in a proof.  A flat (`by …`) proof or
+            # an unbalanced scan yields no blocks, so output degrades to the
+            # entry — exactly the `--entry` answer, with no `▸`.
+            blocks: list[_Block] = []
+            if block_mode != "entry" and role == "in proof":
+                blocks = _enclosing_blocks(_proof_blocks(sec, entry) or [], lo)
+            if not blocks:
+                print(f"{base}{suffix}")
+            elif block_mode == "blocks":
+                print(f"{base}{suffix}")
+                indent = " " * (len(loc) + len(" → "))
+                width = max(len(_block_label(b)) for b in blocks)
+                for b in blocks:
+                    print(f"{indent}▸ {_block_label(b):<{width}} "
+                          f"{b.start}..{b.end}")
+            else:   # nearest: the innermost enclosing block
+                print(f"{base} ▸ {_block_field(blocks[-1])}{suffix}")
             continue
         # Range: every entry whose [thy_line, thy_end] overlaps [lo, hi].
         overlap = sorted(
@@ -3479,7 +3614,8 @@ def _run_outline(ns: argparse.Namespace) -> None:
 def _run_enclosing(ns: argparse.Namespace) -> None:
     # No PATH positionals: the FILE is baked into each FILE:LINE locus, so
     # load the full `-R`-scoped index and resolve each file token against it.
-    cmd_enclosing(_load_sections(ns), ns.locus)
+    mode = ("entry" if ns.entry else "blocks" if ns.blocks else "nearest")
+    cmd_enclosing(_load_sections(ns), ns.locus, mode)
 
 def _run_largest(ns: argparse.Namespace) -> None:
     # largest ranks *entries* by span — syntax-awareness is intrinsic.
@@ -3697,9 +3833,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # owns a FILE:LINE locus, for the build-chase loop "which lemma is at
     # line N".  Lookup-family (no PATH positionals; the FILE is in the locus).
     p = sub.add_parser("enclosing", aliases=["at"],
-                       help="name the entry that owns each FILE:LINE locus "
-                            "(or every entry a FILE:A..B range touches; "
-                            "inverse of outline, for build-failure triage)")
+                       help="name the entry (and nearest proof block) that "
+                            "owns each FILE:LINE locus (or every entry a "
+                            "FILE:A..B range touches; inverse of outline, "
+                            "for build-failure triage)")
     p.add_argument("locus", nargs="+", metavar="FILE:LINE",
                    help="one or more loci, each `FILE:LINE` (e.g. Foo.thy:42 "
                         "or, by bare theory name, Foo:42) or `FILE:A..B` for "
@@ -3710,6 +3847,14 @@ def _build_parser() -> argparse.ArgumentParser:
                         "per-line shell loop.  FILE resolves like "
                         "outline/show — a .thy path or a bare theory name — "
                         "and is scoped by the global -R/--root.")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("-e", "--entry", action="store_true",
+                   help="report only the owning entry (the outermost block), "
+                        "with no proof-internal drill-down")
+    g.add_argument("-b", "--blocks", action="store_true",
+                   help="report the full nesting path: the entry, then every "
+                        "enclosing proof block from outermost to innermost "
+                        "(default is the innermost block only)")
     p.set_defaults(func=_run_enclosing)
 
     # largest
