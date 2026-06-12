@@ -3,23 +3,26 @@
 Ordered by priority (highest first).  Tags are stable handles for cross-
 referencing in commits/PRs.
 
-- [ ] `[multi-name]` Extend the remaining single-name lookup verbs to
-      accept a **list**, so a `for n in A B C; do query CMD $n` loop
-      (which trips the permission gate on every iteration) collapses to
-      one gate-free call — the load-bearing reason to prefer `query` over
-      looped shell `grep`.
-      **Done:** `show`, `callees`, `callers`, `deps`, `uses`, `find`
-      (patterns), `methods`.  `callers` was the hard case — its `name`
-      positional and the trailing `files` PATH positionals were two greedy
-      positionals that argparse can't disambiguate.  Resolved per the CLI
-      contract below: `callers` dropped its PATH positionals (a file-subset
-      caller set is a footgun anyway — it reads as complete but isn't) to
-      join the lookup family as a plain `NAME...` verb, scoped by `-R` /
-      `--external`.
-      **Remaining (optional, low value):** `theory` / `defs` / `outline`
-      each take a single theory name; `nargs='+'` is cheap and consistent
-      but theory-scoped queries are batched far less than entry-scoped
-      ones.  Route them through `_add_subject_list_arg` if/when touched.
+- [ ] `[enclosing-drilldown]` Proof-internal label resolution for
+      `enclosing` (the deferred half of `[enclosing]`).  Today
+      `enclosing FILE:LINE` resolves to the owning *entry* + statement/proof
+      role; inside a large structured proof that still leaves the reader to
+      scan for the specific Isar step.  **Concrete motivation (NDTHT, AR
+      value-arity port):** a `make build` failure at
+      `AlphabetReduction_Reverse.thy:3710` resolved to
+      `ar_walker_cycle_close (in proof)` — correct, but that lemma is a
+      588-line proof, and the actual fault was the `key` fact inside the
+      `apos_1` block.  Knowing the lemma I mostly already knew; what saves a
+      Read round-trip is the **nearest enclosing named step** — report the
+      closest preceding `have`/`show`/`obtain`/`let`/`fix` label (and its
+      line) the target line sits under, e.g.
+      `… → ar_walker_cycle_close ▸ have apos_1 (3680) ▸ have key (3705)`.
+      Needs the Entry model (or a lighter proof-body scan) to capture
+      intra-proof labels with their spans; a single nested level (the
+      innermost named `have`) already covers the common build-triage case,
+      so a full block tree is optional.  Highest-frequency `enclosing` use
+      is exactly red-build locus triage, so this is where its remaining
+      value is.
 
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
@@ -55,10 +58,17 @@ referencing in commits/PRs.
       to see which of its affordances we still lack.
       Open design questions (the headline comment-search gap and the
       `-n`/`--names` overload are now *closed* — see Done):
-      - The `grep` render format (location + owner + line) vs `iq`'s.
-      - Optional: a comments-/prose-**only** view.  `grep -a` is additive
-        (live source *plus* comments); there's no way to see *only* the
-        cartouche prose, which is what a PDF-commentary reader wants.
+      - `grep` owner column vs the lookup family.  `[locus-roundtrip]`
+        (0.3.0) made grep's locus round-trippable (`theory:line`) but
+        `cmd_grep` still *inlines* `name (TAG)` for the owner instead of
+        routing through `_owner_field` like `callers`/`methods` now do —
+        so grep alone omits the owner `lo..hi` span (the very spans the
+        round-trip note wants more of).  Share `_owner_field` to close it,
+        and re-check the resulting layout against `iq`'s while there.
+      - Optional: a comments-/prose-**only** view.  `grep --with-comments`
+        is additive (live source *plus* comments); there's no way to see
+        *only* the cartouche prose, which is what a PDF-commentary reader
+        wants.
 
 - [ ] `[grep-plain]` Optional `--plain`/`--raw` override on `grep`:
       force plain line-grep (no entry/comment parsing) instead of the
@@ -119,6 +129,34 @@ referencing in commits/PRs.
       one-liner covers it today; this is about retiring that one-liner, not
       unblocking anything.
 
+- [ ] `[doc-graph]` **(exploratory — scope-uncertain.)**  A reference
+      graph + activity survey over a project's **prose documentation**
+      (design memos, spec docs, decision records) — the complement of the
+      theory-entry graph.  As an Isabelle/Isar project accretes design
+      docs, you periodically need to know which docs are stale
+      (last-touched, commit churn) and which are actually referenced — and
+      critically, *from where*.  Load-bearing lesson (NDTHT
+      `insights/155`): a doc's real coupling often lives **outside the
+      prose** — a `ROOT` description, a `.thy` `\<comment>`, a sibling
+      test-harness's relative link — so a markdown-only "who cites this?"
+      scan undercounts; the citer scan must span the whole tracked tree.
+      Concrete prototype: `ndtht:bin/doc-audit.py` — two modes, a per-file
+      table (LASTCOMMIT / commit-count / lines / REF-A [cites from the
+      active steering docs] / REF-ALL [cites anywhere in the tree]) and a
+      `--refs FILE` location dump (`path:line`).
+      Scope tension (same flavour as `[countstr]`): `query` is
+      theory-aware (entries, call graphs, syntax slices over `.thy` under
+      the `.isabelle-query` root); a doc-reference graph is generic prose
+      over arbitrary files, nearer `grep -rl` + `git log` than anything
+      semantic.  Does it belong in `query` at all, or is the doc corpus a
+      sibling tool's job?  Two sub-questions if it lands here: (a) the
+      citer scan wants the *whole* repo, which breaks the `t/`-only
+      `.isabelle-query` scoping; (b) it shares machinery with
+      `[graph-export]` (serialise an adjacency) and `[theory-refs]`
+      (citation rollup) but over a different node set (files, not
+      entries).  Record the need; don't build until the scope call is
+      made.
+
 ## CLI contract (follow when adding or changing commands)
 
 Two families, each matching an external convention; a command's primary
@@ -151,6 +189,23 @@ toggle on `find`/`grep` — **no `-a`** for it, since `-a` is the
 per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
+
+- [x] `[multi-name]` Single-name lookup verbs take a **list**, so a
+      `for n in A B C; do query CMD $n` loop (which trips the permission
+      gate every iteration) collapses to one gate-free call — the
+      load-bearing reason to prefer `query` over looped shell `grep`.
+      Shipped: `show`, `callees`, `callers`, `deps`, `uses`, `find`
+      (patterns), `methods`.  `callers` was the hard case — its `name`
+      positional and the trailing `files` PATH positionals were two greedy
+      positionals argparse can't disambiguate; resolved per the CLI
+      contract by dropping `callers`' PATH positionals (a file-subset
+      caller set is a footgun anyway — it reads as complete but isn't) to
+      join the lookup family as a plain `NAME...` verb, scoped by `-R` /
+      `--external` (`[callers-multi]`).  **Scope still pending (optional,
+      low value):** `theory` / `defs` / `outline` each still take a single
+      theory name; `nargs='+'` via `_add_subject_list_arg` is cheap and
+      consistent but theory-scoped queries batch far less than entry-scoped
+      ones, so this tail is deferred until one is touched for other reasons.
 
 - [x] `[locus-roundtrip]` "Output is valid input" — locations and spans now
       share one grammar, so the tool's output pastes back into the tool.
