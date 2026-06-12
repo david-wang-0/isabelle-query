@@ -8,8 +8,11 @@ owner is a separate `name (TAG) lo..hi` field (its span pastes into
 but still round-trip, because `_parse_locus` strips it.
 
 All three located-hit commands render the owner through the one
-`_owner_field` helper, so the span shows uniformly — `grep` joined them
-after initially carrying a span-less `name (TAG)` inline.
+`_owner_field` helper (so name/tag/no-owner handling can't drift), but the
+`lo..hi` *span* is a per-command content choice: `callers` / `methods` keep
+it, `grep` opts out (`span=False`) — a search hit is already a precise
+locus, so the owner's whole-lemma span would be repetitive noise and would
+blur grep into a line-owner report.
 """
 
 import contextlib
@@ -121,26 +124,46 @@ class MethodsFormat(unittest.TestCase):
         self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
 
 
+class OwnerFieldSpan(unittest.TestCase):
+    """`_owner_field`'s `span` toggle is the one per-command content choice."""
+
+    def test_span_default_on(self):
+        foo = _entry("foo")
+        self.assertEqual(cli._owner_field(foo),
+                         f"foo (LEMMA) {foo.thy_line}..{foo.thy_end}")
+
+    def test_span_off_drops_extent(self):
+        foo = _entry("foo")
+        self.assertEqual(cli._owner_field(foo, span=False), "foo (LEMMA)")
+
+    def test_no_owner_is_dash_either_way(self):
+        self.assertEqual(cli._owner_field(None), "—")
+        self.assertEqual(cli._owner_field(None, span=False), "—")
+
+
 class GrepFormat(unittest.TestCase):
-    """grep routes its owner column through the same `_owner_field`, so a
-    match's owner carries the pasteable `lo..hi` span like callers/methods."""
+    """grep shares `_owner_field` but opts out of the span (`span=False`):
+    its owner column is a bare `name (TAG)`, no `lo..hi`."""
 
     def _grep(self, pattern, mode="first"):
         f = cli.CmdFlags()
         f.mode = mode
         return _capture(cli.cmd_grep, [_sec()], pattern, f)
 
-    def test_default_owner_field_carries_span(self):
+    def test_default_owner_has_no_span(self):
         # `lemma foo:` is owned by foo; `using foo` (in bar's proof) by bar.
         foo, bar = _entry("foo"), _entry("bar")
         out = self._grep("foo")
-        self.assertIn(f"foo (LEMMA) {foo.thy_line}..{foo.thy_end}", out)
-        self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
+        self.assertIn("foo (LEMMA)", out)
+        self.assertIn("bar (LEMMA)", out)
+        self.assertNotIn(f"foo (LEMMA) {foo.thy_line}..", out)
+        self.assertNotIn(f"bar (LEMMA) {bar.thy_line}..", out)
 
-    def test_names_mode_owner_field_carries_span(self):
+    def test_names_mode_owner_has_no_span(self):
         bar = _entry("bar")
         out = self._grep("foo", mode="names")
-        self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
+        self.assertIn("bar (LEMMA)", out)
+        self.assertNotIn(f"bar (LEMMA) {bar.thy_line}..", out)
 
 
 if __name__ == "__main__":

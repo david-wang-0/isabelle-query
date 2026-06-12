@@ -306,14 +306,20 @@ per-command), `_add_drop_names_flag`.
 - [x] `[callers-multi]` (the hard part of `[multi-name]`) — `callers`
       takes `NAME...`, dropping its PATH positionals to join the lookup
       family (see CLI contract).  Tests in `tests/test_cli_parser.py`.
-- [x] `[grep-owner-span]` (from `[feature-audit]`) — `grep` routes its
-      owner column through the shared `_owner_field`, so a match's owner
-      now carries the pasteable `lo..hi` span (`size_bound (LEMMA) 8..12`)
-      just like `callers` / `methods` got in 0.3.0.  Two inline
-      `name (TAG)` sites (default + `--names` modes) collapsed onto the one
-      helper, so the located-hit owner format can't drift between the
-      search and lookup families.  Output change: owned grep hits gain a
-      trailing span.  Tests: `tests/test_locus_format.py::GrepFormat`.
+- [x] `[grep-owner-span]` (from `[feature-audit]`) — `grep`'s owner column
+      now routes through the shared `_owner_field` (the real win: name / tag
+      / no-owner rendering can't drift from `callers` / `methods`), but
+      *without* the `lo..hi` span — `_owner_field(owner, span=False)`.  The
+      span is a per-command **content** choice, not a rendering one, so it is
+      a parameter: `callers` / `methods` keep it (a lookup hit's next move is
+      to open the owning lemma, so its span is the next locus), `grep` opts
+      out (a search hit is already a precise locus — its matched line — so
+      the owner's whole-lemma span is constant across the lemma's hits,
+      repetitive, and blurs grep toward an `enclosing -e` report).  NB the
+      tag is historical: an initial cut *did* show the span on grep; it was
+      reverted on exactly that "grep is drifting into a line-owner report"
+      objection, keeping the chokepoint and dropping the span.  Tests:
+      `tests/test_locus_format.py` (`OwnerFieldSpan`, `GrepFormat`).
 
 - [x] `[names-flag]` (the `-n` part of `[feature-audit]`) — dropped the
       `-n` short flag (collided with grep's `-n` = line numbers); the

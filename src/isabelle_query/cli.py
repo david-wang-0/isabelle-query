@@ -2292,18 +2292,26 @@ def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
     return None
 
 
-def _owner_field(owner: Entry | None) -> str:
+def _owner_field(owner: Entry | None, span: bool = True) -> str:
     """The owning-entry column for a located hit — ``name (TAG) lo..hi`` (or
     ``—`` when the line has no owner).
 
-    Shared by `callers` and `methods` so their hit format can't drift.  The
-    ``lo..hi`` is the owner's extent in the `..` grammar, so it pastes into
-    `lines` / `enclosing` — the next move after "who calls X" is usually to
-    open the owning lemma, and its span is right there.
+    The single chokepoint for owner rendering, so name/tag/no-owner handling
+    can't drift between commands.  ``span`` is the one *content* choice that
+    legitimately differs by command, so it is a parameter rather than baked
+    in:
+
+      * `callers` / `methods` keep it (the default) — the next move after
+        "who references X" is usually to open the owning lemma, so its
+        ``lo..hi`` extent is the next locus, right there;
+      * `grep` opts out (``span=False``) — a search hit is *already* a
+        precise locus (its own matched line), so the owner's whole-lemma
+        span is constant across the lemma's hits, repetitive, and would blur
+        a content search into a line-owner report.
     """
     if owner is None or owner.name == "?":
         return "—"
-    if owner.thy_line and owner.thy_end:
+    if span and owner.thy_line and owner.thy_end:
         return f"{owner.name} ({owner.tag}) {owner.thy_line}..{owner.thy_end}"
     return f"{owner.name} ({owner.tag})"
 
@@ -3063,7 +3071,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
             if not is_thy:
                 print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
                 continue
-            print(f"  {loc:<{loc_w}}  {_owner_field(owner)}{marker}")
+            print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}{marker}")
         return
 
     # Default: location + owning entry + matched line text.  Non-`.thy`
@@ -3075,7 +3083,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         if not is_thy:
             print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
             continue
-        print(f"  {loc:<{loc_w}}  {_owner_field(owner)}{marker}")
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}{marker}")
         print(f"    {text.strip()}")
 
 
