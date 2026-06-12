@@ -1,4 +1,4 @@
-"""`callers` / `methods` print a clean, round-trippable `theory:line` locus.
+"""`callers` / `methods` / `grep` print a clean, round-trippable locus.
 
 Option 1 of the locus-roundtrip design: the location is a marker-free
 `theory:line` (the form `grep` / `methods --names` already used), the
@@ -6,6 +6,10 @@ owner is a separate `name (TAG) lo..hi` field (its span pastes into
 `lines` / `enclosing`), and the dangling ripgrep match-colon + the jammed
 `[in owner]` are gone.  Context lines (`callers -U`) keep rg's `-` marker
 but still round-trip, because `_parse_locus` strips it.
+
+All three located-hit commands render the owner through the one
+`_owner_field` helper, so the span shows uniformly — `grep` joined them
+after initially carrying a span-less `name (TAG)` inline.
 """
 
 import contextlib
@@ -114,6 +118,28 @@ class MethodsFormat(unittest.TestCase):
     def test_names_mode_uses_same_owner_field(self):
         bar = _entry("bar")
         out = self._methods("simp", mode="names")
+        self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
+
+
+class GrepFormat(unittest.TestCase):
+    """grep routes its owner column through the same `_owner_field`, so a
+    match's owner carries the pasteable `lo..hi` span like callers/methods."""
+
+    def _grep(self, pattern, mode="first"):
+        f = cli.CmdFlags()
+        f.mode = mode
+        return _capture(cli.cmd_grep, [_sec()], pattern, f)
+
+    def test_default_owner_field_carries_span(self):
+        # `lemma foo:` is owned by foo; `using foo` (in bar's proof) by bar.
+        foo, bar = _entry("foo"), _entry("bar")
+        out = self._grep("foo")
+        self.assertIn(f"foo (LEMMA) {foo.thy_line}..{foo.thy_end}", out)
+        self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
+
+    def test_names_mode_owner_field_carries_span(self):
+        bar = _entry("bar")
+        out = self._grep("foo", mode="names")
         self.assertIn(f"bar (LEMMA) {bar.thy_line}..{bar.thy_end}", out)
 
 

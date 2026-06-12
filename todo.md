@@ -56,15 +56,9 @@ referencing in commits/PRs.
       against AWS AutoCorrode's `iq` tool
       (`https://github.com/awslabs/AutoCorrode/blob/main/iq/README.md`)
       to see which of its affordances we still lack.
-      Open design questions (the headline comment-search gap and the
-      `-n`/`--names` overload are now *closed* — see Done):
-      - `grep` owner column vs the lookup family.  `[locus-roundtrip]`
-        (0.3.0) made grep's locus round-trippable (`theory:line`) but
-        `cmd_grep` still *inlines* `name (TAG)` for the owner instead of
-        routing through `_owner_field` like `callers`/`methods` now do —
-        so grep alone omits the owner `lo..hi` span (the very spans the
-        round-trip note wants more of).  Share `_owner_field` to close it,
-        and re-check the resulting layout against `iq`'s while there.
+      Open design questions (the headline comment-search gap, the
+      `-n`/`--names` overload, and the `grep` owner-column span are now
+      *closed* — see Done):
       - Optional: a comments-/prose-**only** view.  `grep --with-comments`
         is additive (live source *plus* comments); there's no way to see
         *only* the cartouche prose, which is what a PDF-commentary reader
@@ -302,6 +296,15 @@ per-command), `_add_drop_names_flag`.
 - [x] `[callers-multi]` (the hard part of `[multi-name]`) — `callers`
       takes `NAME...`, dropping its PATH positionals to join the lookup
       family (see CLI contract).  Tests in `tests/test_cli_parser.py`.
+- [x] `[grep-owner-span]` (from `[feature-audit]`) — `grep` routes its
+      owner column through the shared `_owner_field`, so a match's owner
+      now carries the pasteable `lo..hi` span (`size_bound (LEMMA) 8..12`)
+      just like `callers` / `methods` got in 0.3.0.  Two inline
+      `name (TAG)` sites (default + `--names` modes) collapsed onto the one
+      helper, so the located-hit owner format can't drift between the
+      search and lookup families.  Output change: owned grep hits gain a
+      trailing span.  Tests: `tests/test_locus_format.py::GrepFormat`.
+
 - [x] `[names-flag]` (the `-n` part of `[feature-audit]`) — dropped the
       `-n` short flag (collided with grep's `-n` = line numbers); the
       terse view is `--names` only, `-n` left free for its conventional

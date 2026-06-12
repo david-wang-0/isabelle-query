@@ -2928,10 +2928,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
             if not is_thy:
                 print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
                 continue
-            owner_str = (f"{owner.name} ({owner.tag})"
-                         if owner is not None and owner.name != "?"
-                         else "—")
-            print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
+            print(f"  {loc:<{loc_w}}  {_owner_field(owner)}{marker}")
         return
 
     # Default: location + owning entry + matched line text.  Non-`.thy`
@@ -2943,11 +2940,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
         if not is_thy:
             print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
             continue
-        if owner is not None and owner.name != "?":
-            owner_str = f"{owner.name} ({owner.tag})"
-        else:
-            owner_str = "—"
-        print(f"  {loc:<{loc_w}}  {owner_str}{marker}")
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner)}{marker}")
         print(f"    {text.strip()}")
 
 
