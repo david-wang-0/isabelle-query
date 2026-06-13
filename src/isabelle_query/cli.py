@@ -42,6 +42,7 @@ import re
 import sys
 from bisect import bisect_right
 from collections import Counter
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from operator import itemgetter
 from pathlib import Path
@@ -635,21 +636,50 @@ def _find_balanced_close(lines: list[str], start: int) -> int:
     return start
 
 
-def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
-    """Return [(start_line, end_line)] (1-indexed inclusive) for top-level
-    `text \\<open>...\\<close>` and `text_raw` blocks.  Body is not stored —
-    callers slice from sec.source() when needed.
+def _line_mask(n: int, spans: Iterable[tuple[int, int]]) -> bytearray:
+    r"""A 1-indexed byte mask over ``n`` lines: ``mask[i]`` is 1 iff line ``i``
+    lies in some inclusive ``[lo, hi]`` span.  Length ``n + 2`` so a probe at
+    line ``n`` (or a ``+1`` sentinel) stays in bounds; each span is clamped to
+    ``[1, n]`` and marked C-side by slice assignment.  Shared by the parse-time
+    ``text``-block skip and the per-line prose / noise masks of the call-graph
+    and method scans.
     """
-    out = []
+    mask = bytearray(n + 2)
+    for lo, hi in spans:
+        lo = max(1, lo)
+        hi = min(hi, n)
+        if lo <= hi:
+            mask[lo:hi + 1] = b"\x01" * (hi - lo + 1)
+    return mask
+
+
+def _scan_balanced_blocks(lines: list[str],
+                          opens: Callable[[str], bool]
+                          ) -> list[tuple[int, int]]:
+    r"""Return [(start, end)] (1-indexed inclusive) for each balanced
+    ``\<open>...\<close>`` block whose first line satisfies ``opens``, skipping
+    past each block found.  Shared by `extract_text_blocks` (text / text_raw
+    cartouches) and `extract_comment_ranges` (``\<comment>`` bodies), which
+    differ only in that opening-line predicate.
+    """
+    out: list[tuple[int, int]] = []
     i = 0
     while i < len(lines):
-        if TEXT_OPEN_RE.match(lines[i]):
+        if opens(lines[i]):
             end = _find_balanced_close(lines, i)
             out.append((i + 1, end + 1))
             i = end + 1
         else:
             i += 1
     return out
+
+
+def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    """Return [(start_line, end_line)] (1-indexed inclusive) for top-level
+    `text \\<open>...\\<close>` and `text_raw` blocks.  Body is not stored —
+    callers slice from sec.source() when needed.
+    """
+    return _scan_balanced_blocks(lines, lambda ln: bool(TEXT_OPEN_RE.match(ln)))
 
 
 def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
@@ -660,16 +690,7 @@ def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
     \\<comment>.  A \\<comment> on a line without \\<open> yields a single-
     line range (covers tag-only annotations without explicit body).
     """
-    out: list[tuple[int, int]] = []
-    i = 0
-    while i < len(lines):
-        if "\\<comment>" in lines[i]:
-            end = _find_balanced_close(lines, i)
-            out.append((i + 1, end + 1))
-            i = end + 1
-        else:
-            i += 1
-    return out
+    return _scan_balanced_blocks(lines, lambda ln: "\\<comment>" in ln)
 
 
 def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
@@ -709,10 +730,7 @@ def extract_entries(lines: list[str],
     # command such as Isabelle_C's `C` — is prose, not a declaration, so we
     # skip those lines and never mint a phantom entry (or phantom span
     # boundary) from them.  (1-indexed; in_text[i+1] guards source line i+1.)
-    in_text = bytearray(len(lines) + 2)
-    for tb_start, tb_end in extract_text_blocks(lines):
-        for ln in range(tb_start, min(tb_end, len(lines)) + 1):
-            in_text[ln] = 1
+    in_text = _line_mask(len(lines), extract_text_blocks(lines))
 
     while i < len(lines):
         line = lines[i]
@@ -1329,11 +1347,8 @@ def _build_call_graph(sections: list[TheorySection],
         # lookup per line replaces the old `any(line_no in r for r in t_ranges)`
         # rescan (~65M range tests at AFP scale).  Slice-assignment marks each
         # range C-side; the +2 pad keeps line_no == len(lines) in bounds.
-        text_mask = bytearray(len(lines) + 2)
-        for r in t_ranges:
-            hi = min(r.stop, len(text_mask))
-            if r.start < hi:
-                text_mask[r.start:hi] = b"\x01" * (hi - r.start)
+        text_mask = _line_mask(len(lines),
+                               ((r.start, r.stop - 1) for r in t_ranges))
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if text_mask[line_no]:
@@ -1410,13 +1425,9 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
         # in prose does not register as a method use.  A 1-indexed line mask
         # gives O(1) liveness per line, vs rescanning every noise range (the
         # same flattening the call-graph build uses).
-        noise_mask = bytearray(len(lines) + 2)
         spans = (list(sec.text_blocks) + list(sec.comment_ranges)
                  + [e.preamble for e in sec.entries if e.preamble])
-        for lo, end in spans:
-            hi = min(end + 1, len(noise_mask))
-            if lo < hi:
-                noise_mask[lo:hi] = b"\x01" * (hi - lo)
+        noise_mask = _line_mask(len(lines), spans)
         idx = line_index.get(sec.theory, [])
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
@@ -3654,6 +3665,20 @@ def _add_drop_names_flag(p: argparse.ArgumentParser) -> None:
 
 # -- Subcommand handlers (thin wrappers) -----------------------------------
 
+def _run_each(ns: argparse.Namespace, attr: str, fn) -> None:
+    """Load sections once, then apply ``fn(sections, subject)`` to each subject
+    in ``getattr(ns, attr)``, blank-line-separated — the shared spine of the
+    list-taking subcommands (``deps``/``uses``/``find``/``show``/``callers``/
+    ``callees``), so ``CMD A B C`` does in one gate-free call what a shell
+    ``for`` loop does in N.
+    """
+    sections = _load_sections(ns)
+    for i, subject in enumerate(getattr(ns, attr)):
+        if i > 0:
+            print()
+        fn(sections, subject)
+
+
 def _run_summary(ns: argparse.Namespace) -> None:
     cmd_summary(_load_sections(ns))
 
@@ -3664,18 +3689,12 @@ def _run_defs(ns: argparse.Namespace) -> None:
     cmd_defs(_load_sections(ns), ns.theory, _flags_from_ns(ns))
 
 def _run_deps(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
-    for i, thy in enumerate(ns.theory):
-        if i > 0:
-            print()
-        cmd_deps(sections, thy, recursive=ns.recursive)
+    _run_each(ns, "theory",
+              lambda secs, thy: cmd_deps(secs, thy, recursive=ns.recursive))
 
 def _run_theory_uses(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
-    for i, thy in enumerate(ns.theory):
-        if i > 0:
-            print()
-        cmd_deps(sections, thy, reverse=True, recursive=ns.recursive)
+    _run_each(ns, "theory", lambda secs, thy:
+              cmd_deps(secs, thy, reverse=True, recursive=ns.recursive))
 
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
@@ -3691,36 +3710,20 @@ def _run_largest(ns: argparse.Namespace) -> None:
     cmd_largest(_load_sections(ns, parse="syntax"), ns.top)
 
 def _run_find(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
     flags = _flags_from_ns(ns)
-    for i, pat in enumerate(ns.pattern):
-        if i > 0:
-            print()
-        cmd_find(sections, pat, flags)
+    _run_each(ns, "pattern", lambda secs, pat: cmd_find(secs, pat, flags))
 
 def _run_show(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
     flags = _flags_from_ns(ns)
-    for i, n in enumerate(ns.name):
-        if i > 0:
-            print()
-        cmd_show(sections, n, flags)
+    _run_each(ns, "name", lambda secs, n: cmd_show(secs, n, flags))
 
 def _run_callers(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
     flags = _flags_from_ns(ns)
-    for i, n in enumerate(ns.name):
-        if i > 0:
-            print()
-        cmd_callers(sections, n, flags)
+    _run_each(ns, "name", lambda secs, n: cmd_callers(secs, n, flags))
 
 def _run_callees(ns: argparse.Namespace) -> None:
-    sections = _load_sections(ns)
     flags = _flags_from_ns(ns)
-    for i, n in enumerate(ns.name):
-        if i > 0:
-            print()
-        cmd_callees(sections, n, flags)
+    _run_each(ns, "name", lambda secs, n: cmd_callees(secs, n, flags))
 
 def _run_unused(ns: argparse.Namespace) -> None:
     cmd_unused(_load_sections(ns), _flags_from_ns(ns))
