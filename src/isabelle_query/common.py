@@ -21,26 +21,26 @@ default_t_dir(start=None)
     ``ROOT`` file, else ``start``.  This is the project-root entry point
     used whenever a caller doesn't pass an explicit ``t_dir``.
 
-run_guarded(label, thunk)
+run_guarded(label, thunk)  — DEPRECATED (unused in this repo)
     Run thunk() for a best-effort side task that must never break its
     caller; on exception, warn `<label>: skipped (...)` to stderr and
     return None.  Used by the build-trajectory capture.
 
-parse_root_theories(root_path)
+parse_root_theories(root_path)  — DEPRECATED (single-ROOT API)
     Return the ordered list of theory names declared under the ROOT
     file's `theories` block.
 
-parse_root_directories(root_path)
+parse_root_directories(root_path)  — DEPRECATED (single-ROOT API)
     Return the ordered list of subdirectory names declared under the
     ROOT file's `directories` clause.
 
-iter_thy_files(t_dir=None)
+iter_thy_files(t_dir=None)  — DEPRECATED (single-ROOT API)
     Return the ordered list of absolute Path objects for .thy files
     declared in t_dir/ROOT.  Each theory is resolved at the session
     root first, then in each declared subdirectory.  Returns []
     gracefully if t_dir/ROOT is missing.
 
-resolve_thy_file(name, t_dir=None)
+resolve_thy_file(name, t_dir=None)  — DEPRECATED (single-ROOT API)
     Resolve a single declared theory name to its on-disk path.
     Returns None if not found.
 
@@ -172,7 +172,12 @@ def run_guarded(label: str, thunk: Callable[[], _T]) -> "_T | None":
     definition; they remain two distinct guards because they cover
     different scopes (build_record guards its record logic, the watchdog
     additionally guards the `import build_record` that a guard inside
-    build_record cannot)."""
+    build_record cannot).
+
+    DEPRECATED — unused in this repository; its build-trajectory callers
+    live in the upstream ``bin/`` tooling, not here.  Retained pending that
+    tooling's review.  Do not add new callers.
+    """
     try:
         return thunk()
     except Exception as exc:  # noqa: BLE001 — best-effort by contract
@@ -191,7 +196,10 @@ _ROOT_BLOCK_TERMINATORS = (
 
 def _is_terminator(stripped: str, *, exclude: str) -> bool:
     """True iff `stripped` starts with one of the ROOT block terminators
-    other than `exclude` (the block we're currently parsing)."""
+    other than `exclude` (the block we're currently parsing).
+
+    Supports the DEPRECATED single-ROOT parsers (:func:`parse_root_theories`,
+    :func:`parse_root_directories`)."""
     for kw in _ROOT_BLOCK_TERMINATORS:
         if kw == exclude:
             continue
@@ -202,7 +210,13 @@ def _is_terminator(stripped: str, *, exclude: str) -> bool:
 
 def parse_root_theories(root_path: Path) -> list[str]:
     """Return the ordered list of theory names from ROOT's `theories`
-    block.  Returns [] if the file doesn't exist or has no block."""
+    block.  Returns [] if the file doesn't exist or has no block.
+
+    DEPRECATED — legacy single-ROOT API, superseded by the multi-session
+    API (:func:`parse_root_sessions` / :func:`resolve_session_theory` /
+    :func:`discover_roots`).  No in-repo callers remain; retained only for
+    the upstream ``bin/`` tooling pending its review.  Do not add new callers.
+    """
     if not root_path.exists():
         return []
     theories: list[str] = []
@@ -227,7 +241,13 @@ def parse_root_directories(root_path: Path) -> list[str]:
     """Return the ordered list of subdirectory names from ROOT's
     `directories` clause.  Each clause entry is a quoted token; this
     accepts both single-line (`directories "a" "b"`) and multi-line
-    forms.  Returns [] if absent."""
+    forms.  Returns [] if absent.
+
+    DEPRECATED — legacy single-ROOT API, superseded by the multi-session
+    API (:func:`parse_root_sessions` / :func:`resolve_session_theory` /
+    :func:`discover_roots`).  No in-repo callers remain; retained only for
+    the upstream ``bin/`` tooling pending its review.  Do not add new callers.
+    """
     if not root_path.exists():
         return []
     subdirs: list[str] = []
@@ -262,6 +282,11 @@ def resolve_thy_file(name: str, t_dir: Path | None = None) -> Path | None:
     Searches the session root first, then each subdirectory declared
     under ROOT's `directories` clause.  Returns None if not found.
     ``t_dir`` defaults to :func:`default_t_dir`.
+
+    DEPRECATED — legacy single-ROOT API, superseded by the multi-session
+    API (:func:`resolve_session_theory` / :func:`discover_roots`).  No
+    in-repo callers remain; retained only for the upstream ``bin/`` tooling
+    pending its review.  Do not add new callers.
     """
     if t_dir is None:
         t_dir = default_t_dir()
@@ -320,6 +345,11 @@ def iter_thy_files(t_dir: Path | None = None) -> list[Path]:
     Theory names with no matching file on disk are silently skipped
     (mirrors bin/common.sh's get_build_files behaviour, so callers can
     run against partial trees during a refactor).
+
+    DEPRECATED — legacy single-ROOT API, superseded by the multi-session
+    API (:func:`iter_sessions` / :func:`resolve_session_theory`).  No
+    in-repo callers remain; retained only for the upstream ``bin/`` tooling
+    pending its review.  Do not add new callers.
     """
     if t_dir is None:
         t_dir = default_t_dir()
