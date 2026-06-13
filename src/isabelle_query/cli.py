@@ -1136,6 +1136,28 @@ def _entry_at_line(line_index: list[tuple[int, int, Entry]],
     return None
 
 
+def _sections_by_theory(sections: list[TheorySection]
+                        ) -> dict[str, TheorySection]:
+    """Index sections by theory name (theory → section)."""
+    return {s.theory: s for s in sections}
+
+
+def _entry_by_name(sections: list[TheorySection]
+                   ) -> dict[str, tuple[str, Entry]]:
+    """First-wins index of entry name → (theory, Entry).
+
+    First-wins: when a name is defined in more than one theory the earliest
+    section in load order owns the lookup — matching every call site that
+    previously built this map inline.
+    """
+    by_name: dict[str, tuple[str, Entry]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name not in by_name:
+                by_name[e.name] = (sec.theory, e)
+    return by_name
+
+
 def _build_text_ranges(sections: list[TheorySection]
                        ) -> dict[str, list[range]]:
     """Per-theory line ranges that contain prose to skip during identifier search.
@@ -1910,7 +1932,7 @@ def cmd_find(sections: list[TheorySection], pattern: str,
     # alternation so the pattern does what the user expects.
     pattern = pattern.replace(r"\|", "|")
     pat = re.compile(pattern, re.IGNORECASE)
-    by_theory = {s.theory: s for s in sections}
+    by_theory = _sections_by_theory(sections)
     matches: list[Entry] = []
     if flags.statement:
         # Statement-slice search: match the regex against the declaration
@@ -1979,7 +2001,7 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
 
 def cmd_show(sections: list[TheorySection], name: str,
              flags: "CmdFlags") -> None:
-    by_theory = {s.theory: s for s in sections}
+    by_theory = _sections_by_theory(sections)
     matches: list[Entry] = []
     for s in sections:
         for e in s.entries:
@@ -2099,11 +2121,11 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         print(f"Theory '{theory}' not found.")
         return
 
-    sec_by_name: dict[str, TheorySection] = {s.theory: s for s in sections}
+    by_theory = _sections_by_theory(sections)
 
     def emit(found: dict[str, int]) -> None:
         for name, depth in sorted(found.items(), key=lambda kv: (kv[1], kv[0])):
-            sec = sec_by_name[name]
+            sec = by_theory[name]
             tag = "  [direct]" if depth == 0 else f"  [depth {depth}]"
             print(f"  {name}  ({sec.thy_lines} src lines, "
                   f"{len(sec.entries)} entries){tag}")
@@ -2117,7 +2139,7 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         rev: dict[str, list[str]] = {s.theory: [] for s in sections}
         for s in sections:
             for imp in parse_thy_imports(s.path):
-                resolved = _resolve_import(imp, sec_by_name)
+                resolved = _resolve_import(imp, by_theory)
                 if resolved is not None:
                     rev[resolved].append(s.theory)
         if recursive:
@@ -2140,11 +2162,11 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         queue: list[tuple[str, int]] = [(target.theory, -1)]
         while queue:
             name, depth = queue.pop(0)
-            sec = sec_by_name.get(name)
+            sec = by_theory.get(name)
             if sec is None:
                 continue
             for imp in parse_thy_imports(sec.path):
-                child = _resolve_import(imp, sec_by_name)
+                child = _resolve_import(imp, by_theory)
                 if child is None:
                     out_of_project.add(imp)
                 elif child not in in_project and child != target.theory:
@@ -2152,7 +2174,7 @@ def cmd_deps(sections: list[TheorySection], theory: str,
                     queue.append((child, depth + 1))
     else:
         for imp in parse_thy_imports(target.path):
-            resolved = _resolve_import(imp, sec_by_name)
+            resolved = _resolve_import(imp, by_theory)
             if resolved is None:
                 out_of_project.add(imp)
             elif resolved != target.theory:
@@ -2284,11 +2306,7 @@ def _render_graph_results(sections: list[TheorySection],
         return
 
     # Build name → (theory, Entry) lookup for rendering.
-    by_name: dict[str, tuple[str, Entry]] = {}
-    for sec in sections:
-        for e in sec.entries:
-            if e.name not in by_name:
-                by_name[e.name] = (sec.theory, e)
+    by_name = _entry_by_name(sections)
 
     if flags.mode == "names":
         for name in sorted(reachable):
@@ -2626,14 +2644,14 @@ def cmd_callers(sections: list[TheorySection], name: str,
         return
     # Build theory → section lookup once for enclosing-entry lookup and
     # trailing-context line access.
-    sec_by_theory: dict[str, TheorySection] = {s.theory: s for s in sections}
+    by_theory = _sections_by_theory(sections)
     n_after = max(0, flags.context)
     # Align the match loci into a column; each is a clean `theory:line` that
     # pastes into `enclosing` / `lines` / an editor (no trailing marker).
     loc_w = max((len(f"{t}:{ln}") for t, ln, _ in hits), default=0)
     print(f"{len(hits)} caller(s) of {name}:\n")
     for theory, line_no, text in hits:
-        sec = sec_by_theory.get(theory)
+        sec = by_theory.get(theory)
         encl = _enclosing_entry(sec, line_no) if sec is not None else None
         loc = f"{theory}:{line_no}"
         print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
@@ -2670,11 +2688,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
         _render_graph_results(sections, reachable, "dependency", name, flags)
         return
 
-    by_name: dict[str, tuple[str, Entry]] = {}
-    for sec in sections:
-        for e in sec.entries:
-            if e.name not in by_name:
-                by_name[e.name] = (sec.theory, e)
+    by_name = _entry_by_name(sections)
 
     used = graph.callees.get(name, set())
     if flags.external:
@@ -2949,12 +2963,8 @@ def _render_forest(sections: list[TheorySection],
         print("No unused roots found.")
         return
 
-    # Entry lookup for tag/theory.
-    by_name: dict[str, tuple[str, Entry]] = {}
-    for sec in sections:
-        for e in sec.entries:
-            if e.name not in by_name:
-                by_name[e.name] = (sec.theory, e)
+    # Entry lookup for theory.
+    by_name = _entry_by_name(sections)
 
     if flags.mode == "count":
         print(len(forest))
