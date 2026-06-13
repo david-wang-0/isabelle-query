@@ -2886,8 +2886,7 @@ def _compute_forest(graph: CallGraph,
     return result
 
 
-def _render_unused(sections: list[TheorySection],
-                   entries: list[tuple[str, Entry, int]],
+def _render_unused(entries: list[tuple[str, Entry, int]],
                    flags: 'CmdFlags', recursive: bool) -> None:
     """Shared rendering for unused and unused -r."""
     if not entries:
@@ -2902,7 +2901,6 @@ def _render_unused(sections: list[TheorySection],
         return
 
     if flags.by_theory:
-        from collections import Counter
         theory_entries: dict[str, list[tuple[Entry, int]]] = {}
         for theory, e, depth in entries:
             theory_entries.setdefault(theory, []).append((e, depth))
@@ -2968,11 +2966,7 @@ def _render_forest(sections: list[TheorySection],
     print(f"  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
           f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
     for root, ee, el, te, tl in forest:
-        if root in by_name:
-            thy, entry = by_name[root]
-            tag = entry.tag
-        else:
-            thy, tag = "?", "?"
+        thy = by_name[root][0] if root in by_name else "?"
         print(f"  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  {tl:>6d}  {thy}")
 
 
@@ -3004,7 +2998,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
                 if e.name in unused_map:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
-    _render_unused(sections, unused_entries, flags, flags.recursive)
+    _render_unused(unused_entries, flags, flags.recursive)
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
@@ -3155,10 +3149,7 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
         return
     loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
     for loc_name, ln, _text, owner, _live, _is_thy in hits:
-        owner_str = (f"{owner.name} ({owner.tag})"
-                     if owner is not None and owner.name != "?"
-                     else "—")
-        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {owner_str}")
+        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {_owner_field(owner, span=False)}")
     print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
 
 
