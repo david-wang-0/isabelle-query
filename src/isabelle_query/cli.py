@@ -94,6 +94,11 @@ class Entry:
         # separate Entry (so it never inflates counts or splits call-graph
         # attribution — resolution happens at the command boundary).
 
+    @property
+    def line_count(self) -> int:
+        """Inclusive source-span length [thy_line..thy_end]; 0 if unplaced."""
+        return self.thy_end - self.thy_line + 1 if self.thy_line > 0 else 0
+
 
 @dataclass
 class TheorySection:
@@ -164,6 +169,14 @@ TAG_MAP = {
     "axiomatization": "AXIOM",
     "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
 }
+
+# Tag families shared across commands.  Named so the membership lists can't
+# drift between call sites: definition-like exports vs the citation-graph-
+# eligible kinds (the two sets genuinely differ — datatypes/records/types are
+# definitions but never call-graph nodes; lemmas/theorems are the reverse).
+_DEFINITION_TAGS = frozenset(
+    {"DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE"})
+_CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "FUN", "DEF", "ABBREV"})
 
 # --- Custom outer-syntax commands (faithful keyword-table scan) ------------
 # An AFP entry may define its own theory commands (AOT's `AOT_theorem`,
@@ -1291,7 +1304,7 @@ def _build_call_graph(sections: list[TheorySection],
     name_set: set[str] = set()
     for sec in sections:
         for e in sec.entries:
-            if (e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
+            if (e.tag in _CITABLE_TAGS
                     and e.name != "?" and _is_citation_name(e.name, drop_upto)):
                 name_set.add(e.name)
 
@@ -1484,7 +1497,7 @@ def _format_extent(entry: Entry) -> str:
     """
     if not entry.thy_line:
         return ""
-    span_size = entry.thy_end - entry.thy_line + 1
+    span_size = entry.line_count
     body_end = entry.body_end_line or entry.thy_end
     if body_end < entry.thy_end:
         body_size = body_end - entry.thy_line + 1
@@ -1798,8 +1811,7 @@ def cmd_summary(sections: list[TheorySection]) -> None:
     print("| Theory | Src | D | L | T | Key Exports |")
     print("|--------|----:|--:|--:|--:|-------------|")
     for sec in sections:
-        defs = [e for e in sec.entries
-                if e.tag in ("DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE")]
+        defs = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
         lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
         thms = [e for e in sec.entries if e.tag == "THEOREM"]
 
@@ -2049,8 +2061,7 @@ def cmd_defs(sections: list[TheorySection], theory: str,
     if sec is None:
         print(f"Theory '{theory}' not found.")
         return
-    matches = [e for e in sec.entries
-               if e.tag in ("DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE")]
+    matches = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
     if not matches:
         print(f"No definitions found in '{sec.theory}'.")
         return
@@ -2244,7 +2255,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
                   f"{preview_text}")
         else:
             e: Entry = payload  # type: ignore[assignment]
-            size = e.thy_end - e.thy_line + 1
+            size = e.line_count
             print(f"        {e.tag:<8} {e.name}  ({e.thy_line}..{e.thy_end}, {size} lines)")
 
 
@@ -2885,8 +2896,7 @@ def _compute_forest(graph: CallGraph,
     for sec in sections:
         for e in sec.entries:
             if e.name in graph.all_names and e.name not in entry_lines:
-                entry_lines[e.name] = (e.thy_end - e.thy_line + 1
-                                       if e.thy_line > 0 else 0)
+                entry_lines[e.name] = e.line_count
 
     # For each root, compute exclusive entries (reachable only from it).
     # Total cone = all entries whose root-set includes this root.
@@ -2931,13 +2941,13 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
             theory_entries.setdefault(theory, []).append((e, depth))
         counts = Counter({t: len(es) for t, es in theory_entries.items()})
         total_lines = sum(
-            e.thy_end - e.thy_line + 1 for es in theory_entries.values()
+            e.line_count for es in theory_entries.values()
             for e, _ in es if e.thy_line > 0)
         print(f"{total} {label} entries across {len(theory_entries)} theories "
               f"({total_lines} source lines):\n")
         for theory, count in counts.most_common():
             tes = theory_entries[theory]
-            lines = sum(e.thy_end - e.thy_line + 1 for e, _ in tes
+            lines = sum(e.line_count for e, _ in tes
                         if e.thy_line > 0)
             names = ", ".join(e.name for e, _ in tes[:4])
             if len(tes) > 4:
@@ -2949,7 +2959,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         direct = sum(1 for _, _, d in entries if d == 0)
         cascade = total - direct
         total_lines = sum(
-            e.thy_end - e.thy_line + 1 for _, e, _ in entries
+            e.line_count for _, e, _ in entries
             if e.thy_line > 0)
         print(f"{total} {label} entries "
               f"({direct} direct + {cascade} cascading, "
@@ -2960,7 +2970,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
     print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
     for theory, e, depth in entries:
-        size = e.thy_end - e.thy_line + 1 if e.thy_line > 0 else 0
+        size = e.line_count
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
               f"({e.thy_line}..{e.thy_end}, {size} lines){depth_mark}")
@@ -3015,7 +3025,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
         for e in sec.entries:
-            if e.tag in ("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV") and e.name != "?":
+            if e.tag in _CITABLE_TAGS and e.name != "?":
                 if e.name in unused_map:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
@@ -3269,7 +3279,7 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     for s in sections:
         for e in s.entries:
             if e.thy_line > 0:
-                rows.append((e.thy_end - e.thy_line + 1, e, s))
+                rows.append((e.line_count, e, s))
 
     rows.sort(key=lambda x: -x[0])
 
