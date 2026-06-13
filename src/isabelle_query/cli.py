@@ -2051,6 +2051,35 @@ def _bfs_depths(adj: dict[str, list[str]], start: str) -> dict[str, int]:
     return depths
 
 
+def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
+    """Map a raw ``imports``-clause token to the bare in-project theory it
+    denotes, or ``None`` if it is external.
+
+    `parse_thy_imports` returns tokens verbatim, but the section index
+    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
+    are written bare (``Substrate``) and match directly; cross-session
+    imports are session-qualified (``NDTHT_Base.Substrate``) and resolve by
+    their tail after the last ``.``.  A genuinely external import
+    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
+    so it stays ``None`` and the caller keeps the *raw* token for the
+    ``[out-of-project]`` line.
+
+    Tail-matching is correct for every realistic tree: an external leaf-name
+    (``FuncSet``, ``List``) does not collide with a project theory name.  The
+    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
+    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
+    session — is a name collision, the province of `[disambig-names]`; if it
+    ever arises, gate the tail-match on the qualifier naming a known session
+    (`SessionInfo.name`)."""
+    if imp in sec_by_name:
+        return imp
+    if "." in imp:
+        tail = imp.rsplit(".", 1)[1]
+        if tail in sec_by_name:
+            return tail
+    return None
+
+
 def cmd_deps(sections: list[TheorySection], theory: str,
              reverse: bool = False, recursive: bool = False) -> None:
     """Theory-level (not entry-level) import dependencies.
@@ -2088,8 +2117,9 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         rev: dict[str, list[str]] = {s.theory: [] for s in sections}
         for s in sections:
             for imp in parse_thy_imports(s.path):
-                if imp in sec_by_name:
-                    rev[imp].append(s.theory)
+                resolved = _resolve_import(imp, sec_by_name)
+                if resolved is not None:
+                    rev[resolved].append(s.theory)
         if recursive:
             found = _bfs_depths(rev, target.theory)
         else:
@@ -2114,18 +2144,19 @@ def cmd_deps(sections: list[TheorySection], theory: str,
             if sec is None:
                 continue
             for imp in parse_thy_imports(sec.path):
-                child = sec_by_name.get(imp)
+                child = _resolve_import(imp, sec_by_name)
                 if child is None:
                     out_of_project.add(imp)
-                elif imp not in in_project and imp != target.theory:
-                    in_project[imp] = depth + 1
-                    queue.append((imp, depth + 1))
+                elif child not in in_project and child != target.theory:
+                    in_project[child] = depth + 1
+                    queue.append((child, depth + 1))
     else:
         for imp in parse_thy_imports(target.path):
-            if imp not in sec_by_name:
+            resolved = _resolve_import(imp, sec_by_name)
+            if resolved is None:
                 out_of_project.add(imp)
-            elif imp != target.theory:
-                in_project[imp] = 0
+            elif resolved != target.theory:
+                in_project[resolved] = 0
 
     if not in_project and not out_of_project:
         print(f"{target.theory} has no upstream dependencies.")

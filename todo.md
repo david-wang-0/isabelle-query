@@ -163,6 +163,36 @@ per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
+- [x] `[deps-qualified]` **Fixed: `deps`/`uses` resolve session-qualified
+      in-project imports.**  `parse_thy_imports` returns the raw
+      `imports`-clause token, but the section index is keyed by **bare**
+      theory name (`{s.theory: s}`), so same-session imports (bare
+      `Substrate`) matched while cross-session ones
+      (`"NDTHT_Base.Substrate"`) missed: `deps` tagged them
+      `[out-of-project]` and `uses` *silently dropped* the importer — the
+      worse half, since a "collect importers" loop turns a missed match into
+      a confident, wrong "No in-project theory imports X".  Fix: a
+      `_resolve_import` helper maps a raw token to the bare in-project theory
+      it denotes — direct hit first, else the tail after the last `.` —
+      applied at all three in-project sites (forward direct, forward
+      recursive, reverse).  The recursive forward walk now enqueues the
+      **resolved** bare name, so the transitive closure follows *through* a
+      qualified hop instead of re-missing on it.  The raw token is kept for
+      the `[out-of-project]` display, so a genuinely external
+      `HOL-Library.FuncSet` still prints verbatim.  Tail-matching is correct
+      for every realistic tree (external leaf-names like `FuncSet`/`List`
+      don't collide with project theory names).  **Known limit (the province
+      of `[disambig-names]`):** an external `Sess.Foo` whose tail equals an
+      in-project `Foo` and whose `Sess` isn't an in-project session would
+      mis-resolve; the airtight guard is to gate the tail-match on the
+      qualifier naming a known session (`SessionInfo.name`), deferred as a
+      collision concern rather than a routing one.  Tests:
+      `tests/test_deps_qualified.py` (two-dir fixture — qualified import →
+      `[direct]` not `[out-of-project]`, reverse lists the importer, the
+      external import stays out-of-project, recursive reaches the qualified
+      child; plus `_resolve_import` unit cases).  (Filed from the ndtht repo,
+      2026-06-13, during the AFP-refactor dependency survey.)
+
 - [x] `[multi-name]` Single-name lookup verbs take a **list**, so a
       `for n in A B C; do query CMD $n` loop (which trips the permission
       gate every iteration) collapses to one gate-free call — the
