@@ -163,6 +163,28 @@ per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
+- [x] `[open-ranges]` **Added: open-ended line ranges `A..` (to EOF) and
+      `..B` (from line 1).**  The range grammar already had a single split
+      point — `_parse_line_range` — feeding every surface (`lines`, and the
+      `enclosing` / `grep` `FILE:A..B` locus via `_parse_locus` /
+      `_split_path_window`).  The bare/closed form rejected an empty side
+      (`int("")`).  Now an empty *lower* resolves to line 1 in the parser
+      (start-of-file is universal, no file needed) and an empty *upper*
+      returns `end is None`, a sentinel each sink substitutes its own length
+      for: `cmd_lines` → `n_lines`, `cmd_enclosing` → `sec.thy_lines`, the
+      grep window → `len(lines)` (where the None-guard collapsed into a
+      uniform full-file default).  Round-trip preserved: the `lines`
+      colon-form reconstruction emits `A..` (not `A..None`), and
+      `enclosing FILE:A..` echoes the **resolved** concrete span
+      (`Demo:5..11`) so it pastes back in *and* reveals where EOF is.  The
+      `lo == hi` point-test in `enclosing` stays on the *raw* hi, so `A..`
+      is always a range, never mistaken for a single line.  Diagnostics echo
+      the open spec the user typed (`# range 9..: past end of file`).  Help
+      text on `lines` / `enclosing` updated.  Tests:
+      `tests/test_open_ranges.py` (18: parser unit forms, `lines`
+      EOF/from-1/whole/past-EOF, `enclosing` open span + resolved echo,
+      `grep` open window) — promoted from the live smoke probes.
+
 - [x] `[deps-qualified]` **Fixed: `deps`/`uses` resolve session-qualified
       in-project imports.**  `parse_thy_imports` returns the raw
       `imports`-clause token, but the section index is keyed by **bare**

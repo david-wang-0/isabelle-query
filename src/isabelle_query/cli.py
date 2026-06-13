@@ -117,7 +117,7 @@ class TheorySection:
         # entry-grammar does not apply to Markdown / prose, so cmd_grep treats
         # it as plain `grep` — every matched line, no synthesised owning-entry
         # label, no live/comment classification.
-    line_window: tuple[int, int] | None = None
+    line_window: tuple[int, int | None] | None = None
         # Optional inclusive 1-indexed [lo, hi] line window from a grep
         # `PATH:A..B` positional, set by `_load_sections(windows=True)`.
         # `_grep_sections` skips lines outside it; commands that don't read
@@ -2347,12 +2347,14 @@ def _owner_field(owner: Entry | None, span: bool = True) -> str:
     return f"{owner.name} ({owner.tag})"
 
 
-def _parse_locus(token: str) -> tuple[str, int, int] | None:
+def _parse_locus(token: str) -> tuple[str, int, int | None] | None:
     """Split a ``FILE:LINE`` or ``FILE:A..B`` locus into ``(file, lo, hi)``.
 
     The line part is handed to `_parse_line_range`, so a single ``:LINE``
     yields ``lo == hi`` and a ``:A..B`` range yields the inclusive span —
-    the *same* ``A..B`` grammar `lines` accepts.  That is the round-trip
+    the *same* ``A..B`` grammar `lines` accepts (including the open ``:A..``
+    form, whose ``hi`` comes back ``None`` for the caller to resolve to EOF).
+    That is the round-trip
     that makes a span printed elsewhere paste back in as a locus.  The file
     is split off on the *last* colon (``rpartition``), so a path that itself
     has no colon keeps its separators: ``sub/Foo.thy:8..12`` ->
@@ -2541,8 +2543,13 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             print(f"{token}: no such theory '{file_token}'{hint}",
                   file=sys.stderr)
             continue
+        # An open upper bound (`FILE:A..`) resolves to the theory's last line
+        # here — the sink the range parser defers a `None` upper to.  The
+        # `lo == hi` point-test stays on the *raw* hi (None never equals lo),
+        # so `A..` is always a range, never mistaken for a single line.
+        hi_eff = sec.thy_lines if hi is None else hi
         loc = (f"{sec.theory}:{lo}" if lo == hi
-               else f"{sec.theory}:{lo}..{hi}")
+               else f"{sec.theory}:{lo}..{hi_eff}")
         if lo > sec.thy_lines:
             print(f"{loc} → (past end of {sec.theory} — "
                   f"{sec.thy_lines} lines)")
@@ -2576,10 +2583,10 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             else:   # nearest: the innermost enclosing block
                 print(f"{base} ▸ {_block_field(blocks[-1])}{suffix}")
             continue
-        # Range: every entry whose [thy_line, thy_end] overlaps [lo, hi].
+        # Range: every entry whose [thy_line, thy_end] overlaps [lo, hi_eff].
         overlap = sorted(
             (e for e in sec.entries if e.thy_line and e.thy_end
-             and not (e.thy_end < lo or e.thy_line > hi)),
+             and not (e.thy_end < lo or e.thy_line > hi_eff)),
             key=lambda e: e.thy_line)
         if not overlap:
             print(f"{loc} → (no entries overlap — "
@@ -3035,10 +3042,17 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
                 ps, pe = e.preamble
                 noise.append(range(ps, pe + 1))
         idx = line_index.get(sec.theory, [])
+        # Resolve the line window once: no window → the whole file; an open
+        # upper bound (`PATH:A..`) → this section's last line (the sink the
+        # range parser defers a `None` upper to).  With no window the bounds
+        # span the file, so the per-line test needs no separate None-guard.
         window = sec.line_window
+        win_lo, win_hi = window if window is not None else (1, len(lines))
+        if win_hi is None:
+            win_hi = len(lines)
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
-            if window is not None and not (window[0] <= line_no <= window[1]):
+            if not (win_lo <= line_no <= win_hi):
                 continue
             if not pat.search(line):
                 continue
@@ -3148,16 +3162,25 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
     print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
 
 
-def _parse_line_range(spec: str) -> tuple[int, int]:
-    """Parse `A..B` or `A` into a (start, end) inclusive pair.  Raises
-    ValueError on malformed input.
+def _parse_line_range(spec: str) -> tuple[int, int | None]:
+    """Parse `A..B`, `A..` (to EOF), `..B` (from line 1), or `A` into an
+    inclusive (start, end) pair.  Raises ValueError on malformed input.
+
+    An *open upper* bound (`A..`) comes back as ``end is None``: this parser
+    holds no file, so "to EOF" can only be resolved by the caller that knows
+    the source length.  An open *lower* bound (`..B`) needs no sentinel —
+    the start of a file is always line 1 — so it resolves right here.  Every
+    range surface (`lines`, the `enclosing`/grep `FILE:A..B` locus) funnels
+    through this one split, so the open forms light up everywhere at once;
+    each sink substitutes its own length for a `None` upper bound.
     """
     if ".." in spec:
         a_str, b_str = spec.split("..", 1)
-        a, b = int(a_str), int(b_str)
+        a = 1 if a_str == "" else int(a_str)
+        b = None if b_str == "" else int(b_str)
     else:
         a = b = int(spec)
-    if a < 1 or b < a:
+    if a < 1 or (b is not None and b < a):
         raise ValueError(f"invalid range '{spec}': require 1 <= start <= end")
     return a, b
 
@@ -3203,21 +3226,27 @@ def cmd_lines(source_lines: list[str], ranges: list[str]) -> None:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(2)
     n_lines = len(source_lines)
-    max_no = max((b for _, b in parsed), default=1)
+    # Resolve an open upper bound (`A..`) to the last line now that the length
+    # is known — this is the sink the parser defers a `None` upper to.  Carry
+    # the open-ness so a diagnostic echoes the spec the user typed (`A..`,
+    # not `A..<n_lines>`).
+    resolved = [(a, n_lines if b is None else b, b is None) for a, b in parsed]
+    max_no = max((b for _, b, _ in resolved), default=1)
     width = len(str(min(max_no, n_lines)))
-    for i, (a, b) in enumerate(parsed):
+    for i, (a, b, open_end) in enumerate(resolved):
         if i > 0:
             print("--")
+        disp = f"{a}.." if open_end else f"{a}..{b}"
         a_clamped = max(1, a)
         b_clamped = min(n_lines, b)
         if a_clamped > n_lines:
-            print(f"# range {a}..{b}: past end of file ({n_lines} lines)",
+            print(f"# range {disp}: past end of file ({n_lines} lines)",
                   file=sys.stderr)
             continue
         for nr in range(a_clamped, b_clamped + 1):
             print(f"{nr:>{width}}| {source_lines[nr - 1]}")
         if b > n_lines:
-            print(f"# range {a}..{b}: truncated at line {n_lines}",
+            print(f"# range {disp}: truncated at line {n_lines}",
                   file=sys.stderr)
 
 
@@ -3383,7 +3412,7 @@ def _section_from(src: FileSource, parse: str) -> TheorySection:
 
 
 def _split_path_window(token: str, get_index
-                       ) -> tuple[tuple[int, int] | None, str]:
+                       ) -> tuple[tuple[int, int | None] | None, str]:
     """Peel an optional `:A..B` / `:LINE` window off a grep PATH positional.
 
     Returns ``(window, file_token)``.  The suffix is treated as a window
@@ -3738,7 +3767,8 @@ def _lines_file_and_ranges(tokens: list[str]) -> tuple[str, list[str]]:
             print(f"ERROR: `lines` reads one file, got: "
                   f"{', '.join(sorted(files))}", file=sys.stderr)
             sys.exit(2)
-        return loci[0][0], [f"{lo}..{hi}" for _, lo, hi in loci]
+        return loci[0][0], [
+            (f"{lo}.." if hi is None else f"{lo}..{hi}") for _, lo, hi in loci]
     if len(tokens) < 2:
         print("ERROR: `lines` needs at least one RANGE "
               "(`FILE RANGE...` or `FILE:RANGE ...`)", file=sys.stderr)
@@ -3880,7 +3910,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="one or more loci, each `FILE:LINE` (e.g. Foo.thy:42 "
                         "or, by bare theory name, Foo:42) or `FILE:A..B` for "
                         "a line range (e.g. Foo:8..12 — lists every entry the "
-                        "range overlaps, the `lines`-style `A..B` grammar). "
+                        "range overlaps, the `lines`-style `A..B` grammar; the "
+                        "open `Foo:8..` runs to the theory's end, `Foo:..12` "
+                        "from its start). "
                         "Pass several to resolve them all in one gate-free "
                         "call, so a batch of build-failure loci needs no "
                         "per-line shell loop.  FILE resolves like "
@@ -4020,7 +4052,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "pastes straight in.  FILE is any text file, a bare "
                         "theory name (resolved to its .thy, like outline/show), "
                         "or `-` for stdin (`git show REF:FILE | query lines - "
-                        "A..B`).  Each RANGE is `A..B` (inclusive) or `A`; "
+                        "A..B`).  Each RANGE is `A..B` (inclusive), `A`, or "
+                        "open-ended `A..` (to EOF) / `..B` (from line 1); "
                         "multiple ranges are `--`-separated in the output.")
     p.set_defaults(func=_run_lines)
 
