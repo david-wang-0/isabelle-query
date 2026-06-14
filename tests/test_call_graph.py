@@ -78,6 +78,21 @@ end
         g = self.assertMatchesOracle([sec])
         self.assertEqual(g.callers["foo"], set())          # text block skipped
 
+    def test_comment_mention_is_not_a_call(self):
+        # A name cited only inside a `\<comment> \<open>...\<close>` annotation is
+        # documentation, not a proof-body call — the same rule as a `text`
+        # block, and as grep/methods.  (Before this was fixed, the call graph
+        # alone still counted it: the `\<comment>` line was not skipped.)
+        sec = section_from(r'''theory T imports Main begin
+definition foo :: "nat" where "foo = 0"
+lemma bar: "True"
+  \<comment> \<open>this step is by analogy with foo\<close>
+  by auto
+end
+''')
+        g = self.assertMatchesOracle([sec])
+        self.assertEqual(g.callers["foo"], set())          # \<comment> skipped
+
     def test_substring_is_not_a_call(self):
         # `foo` must not match inside `foobar` / `foo_def`
         sec = section_from(r'''theory T imports Main begin

@@ -1194,16 +1194,21 @@ def _build_text_ranges(sections: list[TheorySection]
                        ) -> dict[str, list[range]]:
     """Per-theory line ranges that contain prose to skip during identifier search.
 
-    Combines top-level ``text \\<open>...\\<close>`` blocks and per-entry
-    preambles, so a name mention inside a comment isn't classified as a
-    proof-body call.  Used by both single-name search (`_find_callers`)
-    and bulk graph construction (`_build_call_graph`).
+    Combines top-level ``text \\<open>...\\<close>`` blocks, multi-line
+    ``\\<comment> \\<open>...\\<close>`` annotations, and per-entry preambles, so a
+    name written in documentation — a `text` block, a margin/roadmap comment,
+    or a preamble — is not classified as a proof-body call.  Used by both
+    single-name search (`_find_callers`) and bulk graph construction
+    (`_build_call_graph`), so both treat ``\\<comment>`` mentions exactly as
+    `grep`/`methods` already do.
     """
     text_ranges: dict[str, list[range]] = {}
     for sec in sections:
         ranges: list[range] = []
         for tb_start, tb_end in sec.text_blocks:
             ranges.append(range(tb_start, tb_end + 1))
+        for cb_start, cb_end in sec.comment_ranges:
+            ranges.append(range(cb_start, cb_end + 1))
         # Per-entry preambles (text blocks immediately above entries).
         for e in sec.entries:
             if e.preamble:
