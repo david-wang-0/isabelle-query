@@ -13,8 +13,9 @@ File organisation (section banners below mark each):
   `_build_text_ranges` / `_build_def_sites` provide the per-theory
   exclusion ranges (prose text blocks; definition-site spans) shared by
   single-name search (`_find_callers`) and bulk graph construction
-  (`_build_call_graph`).  `_transitive_closure` is the BFS used by both
-  `callers -r` and `callees -r`.
+  (`_build_call_graph`).  `_bfs_depths` is the single BFS behind every
+  `-r` form (`callers`/`callees` over the call graph, `deps`/`uses` over
+  imports).
 
   Two forward/reverse pairs, at different granularities: entry-level
   `callees` (forward) / `callers` (reverse) over proof-body references;
@@ -1129,8 +1130,8 @@ def load_index() -> list[TheorySection]:
 # ---------------------------------------------------------------------------
 # Call graph and shared filter helpers — `_build_text_ranges` /
 # `_build_def_sites` underpin both single-name search (`_find_callers`)
-# and bulk graph construction (`_build_call_graph`).  `_transitive_closure`
-# drives the -r form for callers and uses, and the unused-cascade.
+# and bulk graph construction (`_build_call_graph`).  `_bfs_depths` is the
+# single BFS behind every -r form (callers/callees, deps/uses).
 # ---------------------------------------------------------------------------
 
 def _build_line_index(sections: list[TheorySection]
@@ -1464,22 +1465,40 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
     return counts, located
 
 
-def _transitive_closure(graph: dict[str, set[str]],
-                        seeds: set[str]) -> dict[str, int]:
-    """BFS from seeds through graph edges.  Returns {name: depth}."""
-    visited: dict[str, int] = {}
-    frontier = seeds
-    depth = 0
+def _bfs_depths(neighbors: Callable[[str], Iterable[str]],
+                seeds: Iterable[str], *, seed_depth: int = 0) -> dict[str, int]:
+    """Breadth-first shortest-path depths from `seeds`, over a graph given as a
+    `neighbors(node) -> iterable of adjacent nodes` callback.
+
+    Returns ``{node: depth}`` *including* the seeds, which sit at ``seed_depth``;
+    each successive ring is one deeper.  The depth convention is the caller's,
+    made explicit by ``seed_depth`` rather than baked in:
+
+      * ``seed_depth=0`` — the seed is depth 0 (the entry-level call closures,
+        ``callers -r`` / ``callees -r``, which pop the seed afterward).
+      * ``seed_depth=-1`` — the seed is a phantom hop so its *direct* neighbours
+        are depth 0 ("direct"), the import-graph convention (``deps -r`` /
+        ``uses -r``, which pop the seed too).
+
+    The callback — rather than a prebuilt map — is what lets one BFS serve both
+    a stored adjacency (the call graph; reverse imports) and a *lazily resolved*
+    one (forward imports, whose resolver records out-of-project edges as a side
+    effect).  Level-synchronised with a visited guard, so it is safe on any
+    graph (DAG or cyclic) and yields true shortest-path depth.
+    """
+    depths: dict[str, int] = {}
+    frontier = list(seeds)
+    depth = seed_depth
     while frontier:
-        next_frontier: set[str] = set()
-        for name in frontier:
-            if name in visited:
+        nxt: list[str] = []
+        for node in frontier:
+            if node in depths:
                 continue
-            visited[name] = depth
-            next_frontier |= graph.get(name, set())
-        frontier = next_frontier - set(visited)
+            depths[node] = depth
+            nxt.extend(neighbors(node))
+        frontier = nxt
         depth += 1
-    return visited
+    return depths
 
 
 # ---------------------------------------------------------------------------
@@ -2077,24 +2096,6 @@ def cmd_defs(sections: list[TheorySection], theory: str,
         print()
 
 
-def _bfs_depths(adj: dict[str, list[str]], start: str) -> dict[str, int]:
-    """Breadth-first distances from *start* over adjacency map *adj*.
-
-    The start node sits at conceptual depth -1, so its immediate
-    neighbours land at depth 0 ("direct").  *start* itself is excluded
-    from the result; the visited guard makes the walk safe on the
-    import DAG regardless."""
-    depths: dict[str, int] = {}
-    queue: list[tuple[str, int]] = [(start, -1)]
-    while queue:
-        node, depth = queue.pop(0)
-        for nxt in adj.get(node, []):
-            if nxt != start and nxt not in depths:
-                depths[nxt] = depth + 1
-                queue.append((nxt, depth + 1))
-    return depths
-
-
 def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
     """Map a raw ``imports``-clause token to the bare in-project theory it
     denotes, or ``None`` if it is external.
@@ -2165,7 +2166,9 @@ def cmd_deps(sections: list[TheorySection], theory: str,
                 if resolved is not None:
                     rev[resolved].append(s.theory)
         if recursive:
-            found = _bfs_depths(rev, target.theory)
+            found = _bfs_depths(lambda n: rev.get(n, []), [target.theory],
+                                seed_depth=-1)
+            found.pop(target.theory, None)
         else:
             found = {name: 0 for name in rev.get(target.theory, [])}
         if not found:
@@ -2181,19 +2184,20 @@ def cmd_deps(sections: list[TheorySection], theory: str,
     in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
     out_of_project: set[str] = set()
     if recursive:
-        queue: list[tuple[str, int]] = [(target.theory, -1)]
-        while queue:
-            name, depth = queue.pop(0)
+        def imports_of(name: str) -> list[str]:
             sec = by_theory.get(name)
             if sec is None:
-                continue
+                return []
+            children: list[str] = []
             for imp in parse_thy_imports(sec.path):
                 child = _resolve_import(imp, by_theory)
                 if child is None:
                     out_of_project.add(imp)
-                elif child not in in_project and child != target.theory:
-                    in_project[child] = depth + 1
-                    queue.append((child, depth + 1))
+                else:
+                    children.append(child)
+            return children
+        in_project = _bfs_depths(imports_of, [target.theory], seed_depth=-1)
+        in_project.pop(target.theory, None)
     else:
         for imp in parse_thy_imports(target.path):
             resolved = _resolve_import(imp, by_theory)
@@ -2652,7 +2656,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
             else:
                 print(f"'{name}' not found in the entry index.")
                 return
-        reachable = _transitive_closure(graph.callers, {name})
+        reachable = _bfs_depths(lambda n: graph.callers.get(n, set()), {name})
         reachable.pop(name, None)
         _render_graph_results(sections, reachable, "caller", name, flags)
         return
@@ -2705,7 +2709,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
             return
 
     if flags.recursive:
-        reachable = _transitive_closure(graph.callees, {name})
+        reachable = _bfs_depths(lambda n: graph.callees.get(n, set()), {name})
         reachable.pop(name, None)
         _render_graph_results(sections, reachable, "dependency", name, flags)
         return
