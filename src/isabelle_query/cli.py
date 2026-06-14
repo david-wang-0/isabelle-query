@@ -10,7 +10,7 @@ File organisation (section banners below mark each):
 * **Parsing** — `Entry` / `TheorySection` / `CallGraph` dataclasses,
   ROOT walking, .thy parsing, span attribution.
 * **Call graph and shared filter helpers** —
-  `_build_text_ranges` / `_build_def_sites` provide the per-theory
+  `_noise_ranges` / `_build_def_sites` provide the per-theory
   exclusion ranges (prose text blocks; definition-site spans) shared by
   single-name search (`_find_callers`) and bulk graph construction
   (`_build_call_graph`).  `_bfs_depths` is the single BFS behind every
@@ -113,8 +113,8 @@ class TheorySection:
         # (per-entry preambles are stored on Entry.preamble).
     comment_ranges: list[tuple[int, int]] = field(default_factory=list)
         # Multi-line ranges for `\<comment> \<open>...\<close>` annotations;
-        # consumed by cmd_grep's live-source filter so a token on a continuation
-        # line of a multi-line \<comment> is not misclassified as live source.
+        # folded into `_noise_spans`, so every search/scan (grep, methods, the
+        # call graph, proof-block drill-down) skips them as non-live source.
         # (Distinct from comment_lines, which records first-line content for the
         # roadmap-attachment feature.)
     is_thy: bool = True
@@ -1128,7 +1128,7 @@ def load_index() -> list[TheorySection]:
 
 
 # ---------------------------------------------------------------------------
-# Call graph and shared filter helpers — `_build_text_ranges` /
+# Call graph and shared filter helpers — `_noise_ranges` /
 # `_build_def_sites` underpin both single-name search (`_find_callers`)
 # and bulk graph construction (`_build_call_graph`).  `_bfs_depths` is the
 # single BFS behind every -r form (callers/callees, deps/uses).
@@ -1190,32 +1190,27 @@ def _entry_by_name(sections: list[TheorySection]
     return by_name
 
 
-def _build_text_ranges(sections: list[TheorySection]
-                       ) -> dict[str, list[range]]:
-    """Per-theory line ranges that contain prose to skip during identifier search.
-
-    Combines top-level ``text \\<open>...\\<close>`` blocks, multi-line
-    ``\\<comment> \\<open>...\\<close>`` annotations, and per-entry preambles, so a
-    name written in documentation — a `text` block, a margin/roadmap comment,
-    or a preamble — is not classified as a proof-body call.  Used by both
-    single-name search (`_find_callers`) and bulk graph construction
-    (`_build_call_graph`), so both treat ``\\<comment>`` mentions exactly as
-    `grep`/`methods` already do.
+def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
+    r"""Inclusive ``[lo, hi]`` line spans of `sec` that are NOT live source:
+    top-level ``text``/``text_raw`` blocks, multi-line ``\<comment>``
+    annotations, and per-entry preambles.  The single definition of "prose,
+    not proof" — `grep`, `methods`, the call graph (via `_noise_ranges`), and
+    the proof-block drill-down all skip exactly these lines, so the notion can
+    no longer drift between them.
     """
-    text_ranges: dict[str, list[range]] = {}
-    for sec in sections:
-        ranges: list[range] = []
-        for tb_start, tb_end in sec.text_blocks:
-            ranges.append(range(tb_start, tb_end + 1))
-        for cb_start, cb_end in sec.comment_ranges:
-            ranges.append(range(cb_start, cb_end + 1))
-        # Per-entry preambles (text blocks immediately above entries).
-        for e in sec.entries:
-            if e.preamble:
-                pr_start, pr_end = e.preamble
-                ranges.append(range(pr_start, pr_end + 1))
-        text_ranges[sec.theory] = ranges
-    return text_ranges
+    return (list(sec.text_blocks) + list(sec.comment_ranges)
+            + [e.preamble for e in sec.entries if e.preamble])
+
+
+def _noise_ranges(sections: list[TheorySection]) -> dict[str, list[range]]:
+    r"""Per-theory ``range`` objects for the non-live (prose) line spans —
+    each section's :func:`_noise_spans` as ``range``s for membership tests.
+    Used by single-name search (`_find_callers`) and bulk graph construction
+    (`_build_call_graph`) — the oracle shares it — so both treat
+    ``text``/``\<comment>``/preamble mentions as documentation, not calls.
+    """
+    return {sec.theory: [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
+            for sec in sections}
 
 
 def _build_def_sites(sections: list[TheorySection],
@@ -1297,8 +1292,8 @@ def _build_call_graph(sections: list[TheorySection],
                       drop_upto: int = _DROP_NAMES_UPTO) -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
-    Uses the shared filtering helpers (`_build_text_ranges`,
-    `_build_def_sites`): skips text blocks, definition sites, and
+    Uses the shared filtering helpers (`_noise_ranges`,
+    `_build_def_sites`): skips text/comment blocks, definition sites, and
     antiquotation-only mentions.  ``drop_upto`` is forwarded to
     :func:`_is_citation_name` — length-1 names (variable collisions) are
     excluded by default; see that function and ``--drop-names-upto``.
@@ -1316,7 +1311,7 @@ def _build_call_graph(sections: list[TheorySection],
 
     # 2. Build def-site and text-block exclusion ranges.
     def_sites = _build_def_sites(sections, name_set)
-    text_ranges = _build_text_ranges(sections)
+    text_ranges = _noise_ranges(sections)
 
     # 3. Build line-to-entry index for caller attribution.
     line_index = _build_line_index(sections)
@@ -1444,9 +1439,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
         # in prose does not register as a method use.  A 1-indexed line mask
         # gives O(1) liveness per line, vs rescanning every noise range (the
         # same flattening the call-graph build uses).
-        spans = (list(sec.text_blocks) + list(sec.comment_ranges)
-                 + [e.preamble for e in sec.entries if e.preamble])
-        noise_mask = _line_mask(len(lines), spans)
+        noise_mask = _line_mask(len(lines), _noise_spans(sec))
         idx = line_index.get(sec.theory, [])
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
@@ -2295,7 +2288,7 @@ def _find_callers(sections: list[TheorySection], name: str,
     # text-block ranges (prose to skip).
     all_def_sites = _build_def_sites(sections, {name})
     def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
-    text_ranges = _build_text_ranges(sections)
+    text_ranges = _noise_ranges(sections)
 
     results: list[tuple[str, int, str]] = []
     for sec in sections:
@@ -2503,8 +2496,7 @@ def _proof_blocks(sec: TheorySection, entry: Entry) -> list[_Block] | None:
         return []
     lines = sec.source()
     end = min(entry.body_end_line or entry.thy_end or len(lines), len(lines))
-    noise = ([range(s, e + 1) for s, e in sec.comment_ranges]
-             + [range(s, e + 1) for s, e in sec.text_blocks])
+    noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
     stack: list[tuple[str, str, int]] = []    # (kw, name, start)
     blocks: list[_Block] = []
     pending: tuple[str, str, int] | None = None   # a goal awaiting its proof
@@ -3066,15 +3058,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
     out: list[tuple[str, int, str, Entry | None, bool, bool]] = []
     for sec in sections:
         lines = sec.source()
-        noise: list[range] = []
-        for tb_start, tb_end in sec.text_blocks:
-            noise.append(range(tb_start, tb_end + 1))
-        for cb_start, cb_end in sec.comment_ranges:
-            noise.append(range(cb_start, cb_end + 1))
-        for e in sec.entries:
-            if e.preamble:
-                ps, pe = e.preamble
-                noise.append(range(ps, pe + 1))
+        noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
         idx = line_index.get(sec.theory, [])
         # Resolve the line window once: no window → the whole file; an open
         # upper bound (`PATH:A..`) → this section's last line (the sink the
