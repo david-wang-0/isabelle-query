@@ -4,6 +4,9 @@ The `query` console command is :func:`isabelle_query.cli.main`; the shared
 ROOT / session parsing lives in :mod:`isabelle_query.common`.  Both compute
 results by parsing the project's ``.thy`` sources on every invocation,
 so output is always in sync with the current theory tree.
-"""
 
-__version__ = "0.1.0"
+The package version is single-sourced in ``pyproject.toml`` and read at
+runtime from the installed distribution metadata (see
+:func:`isabelle_query.cli._resolve_version`); there is deliberately no
+``__version__`` literal here to drift from it.
+"""
