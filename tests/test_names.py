@@ -178,6 +178,80 @@ end
         self.assertEqual(unparsed[0].tag, "LEMMA")
 
 
+class DefinitionalCommands(unittest.TestCase):
+    r"""Every definitional command that introduces a citable constant must be
+    indexed as an entry, not just `definition` / `fun`.
+
+    `function` is the one that bit upstream (todo `[function-defs]`): it is a
+    `thy_goal_defn` — it *defines* a constant and then *proves* its
+    well-definedness (`by pat_completeness auto`, a separate `termination`) — so
+    it was absent from `DECL_RE` and its constant never reached the index.  We
+    tag it `FUN` and route it through the `def` branch like `fun`; the trailing
+    `by` / `termination` proof lines fall into the body span naturally (the def
+    loop only breaks at a blank line, a new command, or a doc block).
+
+    The other three the report *guessed* were affected — `primrec`,
+    `inductive`, `inductive_set` — were already in `DECL_RE`; these assertions
+    pin that, so the scope of the fix stays on record as `function`-only.
+    """
+
+    def tags_of(self, snippet):
+        return tags_by_name(section_from(snippet))
+
+    def test_function_indexes_its_constant(self):
+        snippet = r'''theory T imports Main begin
+function wrap_enc :: "nat \<Rightarrow> nat" where
+  "wrap_enc 0 = 0"
+| "wrap_enc (Suc n) = wrap_enc n"
+  by pat_completeness auto
+termination by lexicographic_order
+end
+'''
+        self.assertEqual(self.tags_of(snippet).get("wrap_enc"), "FUN")
+
+    def test_function_sequential_option_is_stripped(self):
+        snippet = r'''theory T imports Main begin
+function (sequential) merge :: "nat list \<Rightarrow> nat list" where
+  "merge [] = []"
+  by pat_completeness auto
+end
+'''
+        self.assertEqual(self.tags_of(snippet).get("merge"), "FUN")
+
+    def test_function_body_span_covers_the_termination_proof(self):
+        # The cut-planning use case (todo `[src-doc-attribution]`) needs the
+        # body to enclose the whole definition, termination proof included.
+        snippet = r'''theory T imports Main begin
+function f :: "nat \<Rightarrow> nat" where
+  "f 0 = 0"
+  by pat_completeness auto
+termination by lexicographic_order
+
+end
+'''
+        sec = section_from(snippet)
+        f = next(e for e in sec.entries if e.name == "f")
+        self.assertEqual(f.thy_line, 2)
+        self.assertEqual(f.body_end_line, 5)   # through `termination by ...`
+
+    def test_primrec_inductive_already_indexed(self):
+        # Pin the report's three "likely also broken" commands as already-OK,
+        # so the fix's scope (function-only) is documented.
+        snippet = r'''theory T imports Main begin
+primrec plen :: "nat list \<Rightarrow> nat" where
+  "plen [] = 0"
+inductive even2 :: "nat \<Rightarrow> bool" where
+  "even2 0"
+inductive_set Reach :: "nat set" where
+  "0 \<in> Reach"
+end
+'''
+        tags = self.tags_of(snippet)
+        self.assertEqual(tags.get("plen"), "FUN")
+        self.assertEqual(tags.get("even2"), "IND")
+        self.assertEqual(tags.get("Reach"), "INDSET")
+
+
 class ContinuationLineName(unittest.TestCase):
     """A decl whose keyword stands alone carries its name on a following line
     (~1,866 AFP entries).  `extract_entries` peeks forward without consuming

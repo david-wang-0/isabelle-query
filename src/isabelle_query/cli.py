@@ -158,12 +158,12 @@ class CallGraph:
 # It stays a whole-word test (`definitions`/`inductively` do not match), and
 # being zero-width it leaves the `line[len(keyword):]` slicing untouched.
 DECL_RE = re.compile(
-    r"^(definition|abbreviation|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)(?=\s|$)"
+    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)(?=\s|$)"
 )
 
 TAG_MAP = {
     "definition": "DEF", "abbreviation": "ABBREV",
-    "fun": "FUN", "primrec": "FUN",
+    "function": "FUN", "fun": "FUN", "primrec": "FUN",
     "inductive_set": "INDSET", "inductive": "IND",
     "lemma": "LEMMA", "corollary": "LEMMA",
     "theorem": "THEOREM",
@@ -196,8 +196,11 @@ _CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "FUN", "DEF", "ABBREV"})
 #   thy_decl / thy_decl_block / thy_stmt                    (declarations)
 # Proof (prf_*), diagnostic (diag), document, load and quasi_command kinds are
 # intentionally absent: they introduce no citable fact, so they must NOT create
-# an entry.  `thy_goal_defn` both defines and proves (e.g. `function`); we tag
-# it pragmatically as a goal so its name and proof are picked up.
+# an entry.  `thy_goal_defn` both defines and proves; for a *custom* command of
+# that kind we tag it pragmatically as a goal so its name and proof are picked
+# up.  (The built-in `function` is the common `thy_goal_defn`, but it is handled
+# by DECL_RE as a `FUN` definition — like `fun` — so its constant lands in
+# `defs`; the trailing `by`/`termination` proof falls inside the def body span.)
 _KIND_FAMILY = {
     "thy_goal": "THEOREM",
     "thy_goal_stmt": "THEOREM",
