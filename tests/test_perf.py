@@ -130,7 +130,7 @@ class BuildScaling(unittest.TestCase):
 @unittest.skipUnless(_RUN, "set ISABELLE_QUERY_PERF=1 to run perf checks")
 class ParseScaling(unittest.TestCase):
     """The parse phase (`_parse_one`) had its own per-entry O(n^2): both
-    `compute_spans` and `_attach_comments` scanned the whole entry list per
+    `compute_spans` and the comment attachers scanned the whole entry list per
     entry / block / comment.  Harmless on a typical theory, dominant on an
     entry-dense one (a file of thousands of short declarations).  Same guard
     as the build: scale one theory's entry count and require near-linear time.
@@ -145,7 +145,8 @@ class ParseScaling(unittest.TestCase):
             f"parse time scaled {ratio:.1f}x for a {_SCALE}x entry-dense "
             f"theory ({t_small*1e3:.0f}ms -> {t_large*1e3:.0f}ms); "
             f"near-quadratic ({_SCALE**2}x) means a per-entry O(n) scan crept "
-            f"back into the parse (compute_spans / _attach_comments)")
+            f"back into the parse (compute_spans / _attach_preambles / "
+            f"_attach_roadmaps)")
 
 
 if __name__ == "__main__":

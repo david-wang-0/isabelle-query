@@ -71,10 +71,15 @@ class Entry:
     decl_end_line: int = 0  # 1-indexed last line of the declaration
                             # (last header line before proof / blank / next decl)
     proof_line: int = 0     # 1-indexed first line of the proof (0 if no proof)
-    thy_end: int = 0        # 1-indexed structural end (to next entry-or-section,
-                            # minus one).  Includes any trailing inter-lemma
-                            # `text \<open>...\<close>` block — NOT a safe cut
-                            # boundary for relocations (use body_end_line).
+    thy_end: int = 0        # 1-indexed end of this entry's span: the line
+                            # before the *next* entry's src_start (its leading
+                            # `text` preamble, if any, else its declaration) or
+                            # the next section.  Includes this entry's trailing
+                            # blank lines but NOT the following entry's leading
+                            # doc block — that block documents, and belongs to,
+                            # the following entry (see src_start).  For a safe
+                            # relocation cut use body_end_line (which also drops
+                            # the trailing blanks).
     body_end_line: int = 0  # 1-indexed last line that belongs to this entry's
                             # body (the closing `qed`, the terminating `by` /
                             # `.`, or for declarations the last header line).
@@ -96,9 +101,17 @@ class Entry:
         # attribution — resolution happens at the command boundary).
 
     @property
+    def src_start(self) -> int:
+        """First line of this entry's span: the leading `text` preamble's
+        start if one is attached, else the declaration line.  The preamble
+        documents THIS entry, so it counts as part of this entry's extent
+        (and is excluded from the preceding entry's `thy_end`)."""
+        return self.preamble[0] if self.preamble else self.thy_line
+
+    @property
     def line_count(self) -> int:
-        """Inclusive source-span length [thy_line..thy_end]; 0 if unplaced."""
-        return self.thy_end - self.thy_line + 1 if self.thy_line > 0 else 0
+        """Inclusive source-span length [src_start..thy_end]; 0 if unplaced."""
+        return self.thy_end - self.src_start + 1 if self.thy_line > 0 else 0
 
 
 @dataclass
@@ -891,41 +904,49 @@ def compute_spans(entries: list[Entry], section_lines: list[int],
                   total_lines: int) -> None:
     """Set thy_end on each entry to the line before the next entry-or-section.
 
+    The boundary above an entry is the *next entry's* ``src_start`` — its
+    leading `text` preamble if it has one, else its declaration line — so a
+    following entry's docstring is charged to *that* entry, not folded into
+    the preceding entry's span (the `[src-doc-attribution]` fix).  Run after
+    ``_attach_preambles`` so ``src_start`` is known.
+
     ``structural`` is sorted, so the next boundary above an entry is a
     ``bisect`` away — the old ``[s for s in structural if s > e.thy_line]``
     rescanned the whole list per entry, making this O(entries^2).  That is
     invisible on a typical theory but the dominant parse cost on an
     entry-dense one (e.g. a file of thousands of short declarations).
     """
-    structural = sorted({e.thy_line for e in entries} | set(section_lines))
+    structural = sorted({e.src_start for e in entries if e.thy_line > 0}
+                        | set(section_lines))
     n = len(structural)
     for e in entries:
+        # Bisect on the *declaration* line (not src_start): the boundary must
+        # lie strictly after this entry's own decl, so an entry's own preamble
+        # start never reads as its end.
         idx = bisect_right(structural, e.thy_line)
         e.thy_end = (structural[idx] - 1) if idx < n else total_lines
 
 
-def _attach_comments(entries: list[Entry], lines: list[str],
-                     text_blocks: list[tuple[int, int]],
-                     comment_lines: list[tuple[int, str]]) -> None:
-    """Attach text blocks (preambles) and \\<comment> lines (roadmaps) to
-    the entries they belong to.
+def _attach_preambles(entries: list[Entry], lines: list[str],
+                      text_blocks: list[tuple[int, int]]) -> None:
+    """Attach each leading `text` block to the entry it documents (preamble).
 
     Preamble: text block whose `end` line is within ~3 blank lines of an
     entry's `thy_line`.  Avoids attaching a giant top-of-file narrative
     to the very first entry hundreds of lines later.
 
-    Roadmap: \\<comment> line whose line number lies inside the entry's
-    proof span [proof_line+1 .. _proof_extent(...)].
+    Runs *before* ``compute_spans`` — the preamble fixes the entry's
+    ``src_start``, which `compute_spans` then uses as the boundary so the doc
+    is charged to this entry, not the preceding one.
     """
     # --- preambles: text block → next entry, only if adjacent AND small ---
     # Both conditions matter: a 500-line section narrative just before the
     # first definition is NOT that definition's docstring; it's the chapter's
     # introduction.  See UTM.thy lines 28-530 for the canonical example.
     #
-    # entry_starts is sorted, so the entry just below a block (preamble) or
-    # enclosing a comment line (roadmap) is a bisect away — the old per-block /
-    # per-comment linear scans over all entries were O(text_blocks x entries)
-    # and O(comments x entries), quadratic on a theory dense in both.
+    # entry_starts is sorted, so the entry just below a block is a bisect away —
+    # the old per-block linear scan over all entries was O(text_blocks x
+    # entries), quadratic on a theory dense in both.
     PREAMBLE_MAX_LINES = 30
     entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
     starts_keys = [es for es, _ in entry_starts]
@@ -942,9 +963,21 @@ def _attach_comments(entries: list[Entry], lines: list[str],
         if all(not l.strip() for l in gap) and len(gap) <= 3:
             e.preamble = (tb_start, tb_end)
 
-    # --- roadmaps: comment line → containing entry's proof span ---
+
+def _attach_roadmaps(entries: list[Entry],
+                     comment_lines: list[tuple[int, str]]) -> None:
+    """Attach each in-proof \\<comment> line (roadmap) to its owning entry.
+
+    Roadmap: \\<comment> line whose line number lies inside the entry's
+    proof span [proof_line+1 .. thy_end].  Runs *after* ``compute_spans`` —
+    it reads ``thy_end`` to bound the proof body.
+    """
     # Spans are non-overlapping, so the only candidate is the entry whose
     # thy_line is the greatest <= cline; attach iff cline is in its proof body.
+    # entry_starts is sorted, so the enclosing entry is a bisect away (the old
+    # per-comment scan over all entries was O(comments x entries)).
+    entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
+    starts_keys = [es for es, _ in entry_starts]
     for cline, content in comment_lines:
         idx = bisect_right(starts_keys, cline) - 1
         if idx < 0:
@@ -972,8 +1005,12 @@ def _parse_one(thy: str, thy_path: Path,
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)
     comment_lines = extract_comment_lines(lines)
+    # Preambles first: they fix each entry's src_start, which compute_spans
+    # uses as the boundary so a leading doc is charged to the entry it
+    # documents (not the preceding one).  Roadmaps need the resulting thy_end.
+    _attach_preambles(entries, lines, text_blocks)
     compute_spans(entries, [s[2] for s in outline], len(lines))
-    _attach_comments(entries, lines, text_blocks, comment_lines)
+    _attach_roadmaps(entries, comment_lines)
     for e in entries:
         e.theory = thy
     # Compute body_end_line: for entries with a proof, walk forward from
@@ -1139,11 +1176,13 @@ def load_index() -> list[TheorySection]:
 
 def _build_line_index(sections: list[TheorySection]
                       ) -> dict[str, list[tuple[int, int, Entry]]]:
-    """For each theory, build a sorted list of (thy_line, thy_end, Entry)
-    for binary-search lookup of which entry owns a given line."""
+    """For each theory, build a sorted list of (src_start, thy_end, Entry)
+    for binary-search lookup of which entry owns a given line.  The span
+    starts at ``src_start`` (the leading preamble, if any) so a doc line
+    resolves to the entry it documents, not the preceding one."""
     index: dict[str, list[tuple[int, int, Entry]]] = {}
     for sec in sections:
-        spans = [(e.thy_line, e.thy_end, e) for e in sec.entries
+        spans = [(e.src_start, e.thy_end, e) for e in sec.entries
                  if e.thy_line > 0]
         spans.sort()
         index[sec.theory] = spans
@@ -1155,7 +1194,7 @@ _FIRST = itemgetter(0)  # span start, for keyed bisect into a line index
 
 def _entry_at_line(line_index: list[tuple[int, int, Entry]],
                    line_no: int) -> Entry | None:
-    """Binary search for the entry whose [thy_line, thy_end] contains line_no.
+    """Binary search for the entry whose [src_start, thy_end] contains line_no.
 
     `bisect` reads each probed span's start via `key=` (a C-level itemgetter),
     so the search touches O(log n) elements — the old form rebuilt a full
@@ -1509,22 +1548,25 @@ def _bfs_depths(neighbors: Callable[[str], Iterable[str]],
 def _format_extent(entry: Entry) -> str:
     """Format the `[src ...]` extent annotation for an entry.
 
-    Surfaces `body_end_line` separately from `thy_end` when the two
-    diverge (i.e., the entry has a trailing inter-lemma `text` /
-    `\\<comment>` block).  The body end is the safe cut boundary for
-    `bin/move-block.py`; the outline end (`thy_end`) is the structural
+    `src` is the entry's full span ``src_start..thy_end`` — a leading `text`
+    preamble through the trailing blanks before the next entry.  The `body`
+    span ``thy_line..body_end_line`` is surfaced separately whenever it is
+    narrower at either end: a leading doc block (``src_start < thy_line``) or
+    a trailing inter-lemma block (``body_end < thy_end``).  The body end is
+    the safe cut boundary for `bin/move-block.py`; `src` is the
     end-of-region the next entry-or-section starts after.
     """
     if not entry.thy_line:
         return ""
+    src_start = entry.src_start
     span_size = entry.line_count
     body_end = entry.body_end_line or entry.thy_end
-    if body_end < entry.thy_end:
+    if src_start < entry.thy_line or body_end < entry.thy_end:
         body_size = body_end - entry.thy_line + 1
-        return (f"[src {entry.thy_line}..{entry.thy_end}, "
+        return (f"[src {src_start}..{entry.thy_end}, "
                 f"body {entry.thy_line}..{body_end}, "
                 f"{body_size}/{span_size} lines]")
-    return f"[src {entry.thy_line}..{entry.thy_end}, {span_size} lines]"
+    return f"[src {src_start}..{entry.thy_end}, {span_size} lines]"
 
 
 def _format_name_line(sec: TheorySection, entry: Entry) -> str:
@@ -2261,7 +2303,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
         else:
             e: Entry = payload  # type: ignore[assignment]
             size = e.line_count
-            print(f"        {e.tag:<8} {e.name}  ({e.thy_line}..{e.thy_end}, {size} lines)")
+            print(f"        {e.tag:<8} {e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
 
 
 def _find_callers(sections: list[TheorySection], name: str,
@@ -2355,15 +2397,17 @@ def _render_graph_results(sections: list[TheorySection],
 
 
 def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
-    """Return the entry whose [thy_line, thy_end] span contains *line_no*.
+    """Return the entry whose [src_start, thy_end] span contains *line_no*.
 
     Used by ``cmd_callers`` to annotate each hit with its enclosing lemma
     name — answering "which proof is calling this?" in one line rather
     than requiring a follow-up ``show`` invocation — and by ``cmd_enclosing``
-    as the span-containment lookup behind ``query enclosing FILE:LINE``.
+    as the span-containment lookup behind ``query enclosing FILE:LINE``.  The
+    span starts at ``src_start`` so a line in a leading doc block resolves to
+    the entry it documents (not the preceding one).
     """
     for e in sec.entries:
-        if e.thy_line and e.thy_end and e.thy_line <= line_no <= e.thy_end:
+        if e.thy_line and e.thy_end and e.src_start <= line_no <= e.thy_end:
             return e
     return None
 
@@ -2388,7 +2432,7 @@ def _owner_field(owner: Entry | None, span: bool = True) -> str:
     if owner is None or owner.name == "?":
         return "—"
     if span and owner.thy_line and owner.thy_end:
-        return f"{owner.name} ({owner.tag}) {owner.thy_line}..{owner.thy_end}"
+        return f"{owner.name} ({owner.tag}) {owner.src_start}..{owner.thy_end}"
     return f"{owner.name} ({owner.tag})"
 
 
@@ -2426,15 +2470,20 @@ def _parse_locus(token: str) -> tuple[str, int, int | None] | None:
 
 
 def _locus_role(entry: Entry, line_no: int) -> str:
-    """Where in *entry* a line sits: 'in proof', 'in statement', or ''.
+    """Where in *entry* a line sits: 'in preamble', 'in proof', 'in
+    statement', or ''.
 
     Uses the same `proof_line` / `decl_end_line` boundaries the renderer
     slices on, so the answer matches what `show --statement` vs the proof
-    preview would show.  Empty for the rare inter-region line (a blank
-    between a statement and its proof, or trailing text on a def).  The
-    point during a build chase: knowing the failing line is the *statement*
-    vs a *proof step* tells you which to edit.
+    preview would show.  A line before the declaration (`line_no <
+    thy_line`) is in the entry's leading doc block — 'in preamble'.  Empty
+    for the rare inter-region line (a blank between a statement and its
+    proof, or trailing text on a def).  The point during a build chase:
+    knowing the failing line is the *statement* vs a *proof step* tells you
+    which to edit.
     """
+    if entry.thy_line and line_no < entry.thy_line:
+        return "in preamble"
     if entry.proof_line and line_no >= entry.proof_line:
         return "in proof"
     if entry.decl_end_line and line_no <= entry.decl_end_line:
@@ -2627,11 +2676,11 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             else:   # nearest: the innermost enclosing block
                 print(f"{base} ▸ {_block_field(blocks[-1])}{suffix}")
             continue
-        # Range: every entry whose [thy_line, thy_end] overlaps [lo, hi_eff].
+        # Range: every entry whose [src_start, thy_end] overlaps [lo, hi_eff].
         overlap = sorted(
             (e for e in sec.entries if e.thy_line and e.thy_end
-             and not (e.thy_end < lo or e.thy_line > hi_eff)),
-            key=lambda e: e.thy_line)
+             and not (e.thy_end < lo or e.src_start > hi_eff)),
+            key=lambda e: e.src_start)
         if not overlap:
             print(f"{loc} → (no entries overlap — "
                   f"theory header or inter-section gap)")
@@ -2977,7 +3026,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         size = e.line_count
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
-              f"({e.thy_line}..{e.thy_end}, {size} lines){depth_mark}")
+              f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}")
 
 
 def _render_forest(sections: list[TheorySection],
@@ -3287,7 +3336,7 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
     for size, e, s in rows[:top]:
-        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.thy_line}..{e.thy_end})")
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.src_start}..{e.thy_end})")
 
 
 # ---------------------------------------------------------------------------
