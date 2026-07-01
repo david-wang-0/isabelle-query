@@ -163,6 +163,44 @@ per-command), `_add_drop_names_flag`.
 
 ## Done / obsolete
 
+- [x] `[src-doc-attribution]` **Fixed: a leading `text` doc block is charged
+      to the entry it documents, not the preceding one.**  `src` / `thy_end`
+      was `next_entry_thy_line - 1`, so the inter-entry blank *and the
+      following entry's leading docstring* folded into the **preceding** entry:
+      (a) `enclosing FILE:L` for an `L` in a leading doc named the *previous*
+      lemma; (b) `src A..B` (show / find / outline / enclosing) overstated the
+      entry by that trailing doc.  `body` was always correct and is unchanged.
+      Fix: a span is now `src_start..thy_end`, where `src_start` is the entry's
+      leading preamble (if attached) else its declaration line; `compute_spans`
+      bounds each span at the *next* entry's `src_start`, so the doc goes to the
+      entry it precedes and the predecessor's `src` ends at its body + trailing
+      blanks.  `_enclosing_entry` / `_build_line_index` / `cmd_enclosing` range,
+      `_format_extent`, and the outline / largest / unused span columns read
+      `[src_start, thy_end]`; `_locus_role` gains "in preamble"; `line_count`
+      measures the full src span.  Mechanism: `_attach_comments` split into
+      `_attach_preambles` (before `compute_spans`) and `_attach_roadmaps` (after
+      — needs `thy_end`).  Only the existing ≤30-line / ≤3-blank-gap preamble
+      rule is re-homed; a large section narrative stays put.  Tests:
+      `tests/test_src_doc_attribution.py` (preamble ownership, enclosing on a
+      doc line → following entry, extent rendering, end-to-end `enclosing`);
+      `scripts/probe_entry_spans.py` for re-verification.  (Filed from the ndtht
+      repo, 2026-06-22, during the AR Forward split.)
+
+- [x] `[function-defs]` **Fixed: `function` definitions are indexed as
+      entries.**  `function` (a `thy_goal_defn` — defines a constant then proves
+      its well-definedness) was absent from `DECL_RE`, so its principal constant
+      never reached the index (missing from `theory --names`, `defs`, `find`),
+      silently under-covering any per-theory entry list built from `--names`.
+      Fix: add `function` to `DECL_RE` / `TAG_MAP` (tag `FUN`); it routes through
+      the `def` branch like `fun`, the `(sequential)` option is stripped by
+      `_strip_decl_prefix`, and the trailing `by` / `termination` proof falls
+      into the body span.  Scope note: the report's guess that `primrec` /
+      `inductive` / `inductive_set` were also broken was wrong — those were
+      already in `DECL_RE` and index fine (verified, and pinned by a test).
+      Tests: `tests/test_names.py::DefinitionalCommands`;
+      `scripts/probe_entry_spans.py`.  (Filed from the ndtht repo, 2026-06-30,
+      during the shift-wrap retirement dependency analysis.)
+
 - [x] `[open-ranges]` **Added: open-ended line ranges `A..` (to EOF) and
       `..B` (from line 1).**  The range grammar already had a single split
       point — `_parse_line_range` — feeding every surface (`lines`, and the
