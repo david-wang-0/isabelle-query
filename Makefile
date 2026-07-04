@@ -18,7 +18,19 @@ VERSION := $(shell python3 -c "import tomllib; print(tomllib.load(open('pyprojec
 TAG     := v$(VERSION)
 
 .DEFAULT_GOAL := version
-.PHONY: version release
+.PHONY: version release dev test
+
+# Install the package (editable) plus the PEP 735 `test` dependency group
+# into the active environment.  Create and activate a venv first; then a
+# single `make dev` gives a working, test-ready checkout.
+dev:
+	python3 -m pip install -e .
+	python3 -m pip install --group test
+
+# Run the test suite.  Assumes `make dev` (or an equivalent install) has put
+# pytest in the environment.
+test:
+	python3 -m pytest
 
 # Print the tag that `make release` would create.
 version:
