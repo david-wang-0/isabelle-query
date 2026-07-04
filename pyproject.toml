@@ -41,5 +41,11 @@ query = "isabelle_query.cli:main"
 Homepage = "https://github.com/ott2/isabelle-query"
 Source = "https://github.com/ott2/isabelle-query"
 
+# Dev-only tooling (PEP 735). Not a published extra: consumers of
+# isabelle-query never need the test suite's dependencies.
+#   python -m pip install --group test
+[dependency-groups]
+test = ["pytest>=8"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/isabelle_query"]
