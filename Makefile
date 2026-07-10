@@ -1,6 +1,10 @@
 # Makefile for isabelle-query.
 #
-# pyproject.toml's [project].version is the single source of truth for the
+# Development: create and activate a venv, then `make dev` installs the
+# package (editable) plus the PEP 735 `test` dependency group, and
+# `make test` runs the suite.
+#
+# Release: pyproject.toml's [project].version is the single source of truth for the
 # release version. `make release` reads it, creates an annotated git tag
 # v<version> on the current commit, then pushes the current branch and that
 # tag to the remote. GitHub renders a pushed tag as a Release with an
