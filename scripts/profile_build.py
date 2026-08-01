@@ -27,9 +27,9 @@ USAGE
     entry count, not line count (a 44k-line file of long proofs is cheap; a
     file of thousands of short declarations is not) — the `entries`/`lines`
     columns sit side by side so the driver is visible.  Complements
-    ndtht/bin/afp-metrics.py, which ranks by lines and does not parse.
+    an afp-metrics.py script, which ranks by lines and does not parse.
 
-    Defaults: --root from $ISABELLE_QUERY_ROOT, else ~/projects/ndtht/afp/thys.
+    Defaults: --root from $ISABELLE_QUERY_ROOT, else ~/repos/afp/thys.
 """
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=os.environ.get(
         "ISABELLE_QUERY_ROOT",
-        str(Path.home() / "projects" / "ndtht" / "afp" / "thys")))
+        str(Path.home() / "repos" / "afp" / "thys")))
     ap.add_argument("--cprofile", action="store_true",
                     help="also print per-phase cProfile hot functions")
     ap.add_argument("--top", type=int, default=20)

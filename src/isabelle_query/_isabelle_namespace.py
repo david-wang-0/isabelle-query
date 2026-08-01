@@ -1,16 +1,22 @@
-"""Isabelle method / attribute / keyword namespaces — GENERATED, do not edit.
+"""Minimal (Pure) method / attribute / keyword namespace — GENERATED, do not edit.
+
+The committed *fallback* table; the runtime resolves the session-exact table.
 
 Regenerate with::
 
     python3 scripts/extract_isabelle_namespace.py
 
+This is the *minimal* fallback table (the Pure core).  At runtime the router
+resolves the session-exact table from a loaded heap; this ships for when
+Isabelle is unavailable — so it deliberately omits HOL's auto/blast/induct,
+which come from session resolution, not from assuming HOL.
+
 Provenance:
     Isabelle:    Isabelle2025-2
-    Source:      /Users/as456/projects/ndtht/isabelle-src
-    Extracted:   2026-06-05
-    Methods:     243 (method_setup + Method.setup)
-    Attributes:  110 (attribute_setup + Attrib.setup)
-    Keywords:    222 (Pure.thy keyword table + thy_header bootstrap)
+    Extracted:   2026-07-24
+    Methods:     37 (Pure image method name space — ML_process -l Pure)
+    Attributes:  101 (Pure image attribute name space)
+    Keywords:    222 (Pure.thy keyword table + thy_header bootstrap; /Applications/Isabelle2025-2.app/src)
 
 These power isabelle_query's token *router*: a proof-body token is a fact
 citation (a call-graph edge) only if it is none of a proof method, an
@@ -21,83 +27,40 @@ they feed the `methods` query.
 # proof methods (`by simp`, `apply (rule r)`) — never a fact citation, but a
 # method-usage datum.
 PROOF_METHODS = frozenset({
-    'EQgen', 'Fake_insert_simp', 'N', 'NE', 'S43_solve', 'S4_solve',
-    'Seq_Finite_induct', 'Seq_case', 'Seq_case_simp', 'Seq_induct',
-    'T_solve', 'abstraction', 'add_mp', 'algebra', 'all', 'always',
-    'analz_freshCryptK', 'analz_freshK', 'analz_mono_contra',
-    'analz_prepare', 'annhoare', 'approximation', 'argo', 'arith',
-    'arith_rew', 'atomic_spy_analz', 'atomize_elim', 'auto',
-    'auto_invariant', 'basic_possibility', 'best', 'best_dup', 'best_power',
-    'best_safe', 'bestsimp', 'beta_rl', 'blast', 'cartouche', 'case_tac',
-    'cases', 'catch', 'changed', 'clarify', 'clarify_step', 'clarsimp',
-    'clean_ccs', 'cleaning', 'code_simp', 'coherent', 'coinduct',
-    'coinduct3', 'coinduction', 'conjI_tac', 'contradiction', 'cooper',
-    'corec_unique', 'countable_datatype', 'cut_tac', 'deepen', 'defer_tac',
-    'defined', 'depth_solve', 'depth_solve1', 'descending',
-    'descending_setup', 'determ', 'disentangle', 'disjE_tac', 'dlo',
-    'drule_tac', 'enabled', 'ensures', 'ensures_tac', 'eq_coinduct3',
-    'eqintr', 'equal', 'erule_tac', 'eval', 'eventually_elim', 'fails',
-    'fast', 'fast_dup', 'fast_prop', 'fastforce', 'ferrack', 'field',
-    'find_goal', 'finite_guess', 'finite_guess_debug', 'fixrec_simp',
-    'force', 'form', 'fresh_fun_simp', 'fresh_guess', 'fresh_guess_debug',
-    'frpar', 'frpar2', 'frule_tac', 'genIs', 'gen_ccs', 'generate_fresh',
-    'hoare', 'hyp_arith_rew', 'hyp_rew', 'hypsubst', 'hypsubst_thin', 'iff',
-    'incanT', 'ind_cases', 'induct', 'induct_tac', 'induction_schema',
-    'inj_rl', 'injection', 'inst_existentials', 'inst_step', 'interfree_aux',
-    'intr', 'intro_classes', 'intro_locales', 'invariant', 'lem',
-    'lexicographic_order', 'lifting', 'lifting_setup', 'linarith', 'machin',
-    'match', 'merge_act_box', 'merge_box', 'merge_stp_box', 'merge_temp_box',
-    'meson', 'metis', 'metis_exhaust', 'metric', 'mir', 'mkex_induct',
-    'ml_tactic', 'moura', 'mp', 'my_method1', 'my_method2', 'my_method3',
-    'my_simp', "my_simp'", 'my_simp_all', 'ncanT', 'nominal_induct',
-    'normalization', 'ns_induct', 'oghoare', 'order', 'pair', 'pair_induct',
-    'partiality_descending', 'partiality_descending_setup', 'parts_explicit',
-    'parts_prepare', 'pat_completeness', 'pc', 'perm_extend_simp',
-    'perm_extend_simp_debug', 'perm_simp', 'perm_simp_debug', 'possibility',
-    'prefer_last', 'prepare', 'presburger', 'print_headgoal',
-    'print_raw_goal', 'prolog', 'ptac', 'rawsat', 'real_asymp',
-    'record_auto', 'reflection', 'regularize', 'reify', 'relation',
-    'rename_client_map', 'rew', 'rewrite', 'rferrack', 'ring', 'rtrancl',
-    'rtranclp', 'rule', 'rule_tac', 'safe', 'safe_step', 'safety', 'sat',
-    'satx', 'sc_analz_freshK', 'simp', 'simp_all', 'simplesubst',
-    'size_change', 'slow', 'slow_step', 'slowsimp', 'smt', 'sos', 'split',
-    'split_idle', 'spy_analz', 'standard', 'step', 'strip_asms',
-    'subgoal_tac', 'subst', 'succeeds', 'supports_simp',
-    'supports_simp_debug', 'synth_analz_mono_contra', "test_method'",
-    'thin_tac', 'timeit', 'trancl', 'tranclp', 'transfer', "transfer'",
-    'transfer_end', 'transfer_prover', 'transfer_prover_end',
-    'transfer_prover_eq', 'transfer_prover_start', 'transfer_start',
-    "transfer_start'", 'transfer_step', 'typecheck', 'typechk', 'uint_arith',
-    'unat_arith', 'unfold_locales', 'valid_certificate_tac', 'vcg',
-    'vcg_simp', 'vcg_tc', 'vcg_tc_simp', 'vector', 'wfd_strengthen',
+    '-', 'assumption', 'atomize', 'cut_tac', 'drule', 'drule_tac', 'elim',
+    'erule', 'erule_tac', 'fact', 'fail', 'fold', 'frule', 'frule_tac',
+    'goal_cases', 'insert', 'intro', 'intro_classes', 'intro_locales',
+    'raw_tactic', 'rename_tac', 'rotate_tac', 'rule', 'rule_tac', 'simp',
+    'simp_all', 'sleep', 'standard', 'subgoal_tac', 'subproofs', 'succeed',
+    'tactic', 'thin_tac', 'this', 'unfold', 'unfold_locales', 'use',
 })
 
 # attributes (`[OF g]`, `simp del:`, `[simp]`) — modifiers, never citations.
 ATTRIBUTES = frozenset({
-    'TC', 'action_rewrite', 'action_unlift', 'action_use', 'algebra', 'all',
-    'bounded_bilinear', 'bounded_linear', 'cancel_type_definition',
-    'case_product', 'case_translation', 'code', 'code_abbrev',
-    'code_computation_unfold', 'code_post', 'code_pred_intro',
-    'code_preproc_trace', 'code_unfold', 'coercion', 'coercion_args',
-    'coercion_delete', 'coercion_map', 'cong', 'cong_format', 'curry',
-    'dest', 'elim', 'eqvt', 'eqvt_force', 'eventuallized',
-    'extraction_expand', 'extraction_expand_def', 'ferrack', 'flatten',
-    'fundef_cong', 'get_split_rule', 'iff', 'import_const', 'import_type',
-    'ind_realizer', 'int_rewrite', 'int_unlift', 'int_use',
-    'internalize_sort', 'intro', 'langford', 'langfordsimp',
-    'lifting_restore', 'lifting_restore_internal', 'linarith_split', 'mapQ3',
-    'measurable', 'measurable_cong', 'measurable_dest', 'meta', 'mono',
-    'mono_set', 'my_declaration', 'my_rule', 'normalized', 'of',
-    'pred_set_conv', 'presburger', 'quot_del', 'quot_lifted', 'quot_map',
-    'recdef_cong', 'recdef_simp', 'recdef_wf', 'reflection', 'reify',
-    'relator_distr', 'relator_mono', 'rule', 'safe', 'simp', 'simp_break',
-    'simp_trace_new', 'simplified', 'simproc', 'smt_certificates',
-    'smt_solver', 'split', 'split_format', 'split_rule', 'statefun_simp',
-    'swapped', 'sym', 'symmetric', 'temp_rewrite', 'temp_unlift', 'temp_use',
-    'thin', 'to_pred', 'to_set', 'trans', 'transfer_domain_rule',
-    'transfer_intro', 'transfer_refold', 'transfer_rule', 'transfer_unfold',
-    'transferred', 'try_rewrite', 'uncurry', 'unoverload', 'unoverload_type',
-    'unsafe', 'untransferred', 'where', 'z3_rule',
+    'ML_catch_all', 'ML_debugger', 'ML_environment', 'ML_exception_debugger',
+    'ML_exception_trace', 'ML_print_depth', 'ML_read_global',
+    'ML_source_trace', 'ML_write_global', 'OF', 'THEN', 'abs_def', 'atomize',
+    'attribute', 'case_conclusion', 'case_names', 'cases_open', 'cite_macro',
+    'code', 'code_only_single_equation', 'code_prepend_allowed',
+    'code_strict_drop', 'cong', 'cong_format', 'constraints', 'consumes',
+    'defn', 'dest', 'elim', 'elim_format', 'eta_contract',
+    'extraction_expand', 'extraction_expand_def', 'folded', 'goals_limit',
+    'intro', 'kind', 'names_long', 'names_short', 'names_unique', 'no_vars',
+    'of', 'params', 'quick_and_dirty', 'rename_abs', 'rotated', 'rule',
+    'rule_format', 'rule_trace', 'rulify', 'show_abbrevs', 'show_consts',
+    'show_consts_markup', 'show_hyps', 'show_main_goal', 'show_markup',
+    'show_question_marks', 'show_results', 'show_reverted_improvements',
+    'show_sorts', 'show_structs', 'show_tags', 'show_types', 'show_variants',
+    'simp', 'simp_break', 'simp_debug', 'simp_depth_limit', 'simp_trace',
+    'simp_trace_depth_limit', 'simp_trace_new', 'simplified', 'simproc',
+    'sym', 'symmetric', 'syntax_ambiguity_limit', 'syntax_ambiguity_warning',
+    'syntax_ast_stats', 'syntax_ast_trace', 'tagged', 'thy_output_break',
+    'thy_output_cartouche', 'thy_output_display', 'thy_output_indent',
+    'thy_output_margin', 'thy_output_modes', 'thy_output_quotes',
+    'thy_output_source', 'thy_output_source_cartouche', 'trace_locales',
+    'trans', 'unfold_abs_def', 'unfolded', 'unify_search_bound',
+    'unify_trace', 'unify_trace_bound', 'unify_trace_failure',
+    'unify_trace_simp', 'unify_trace_types', 'untagged', 'where',
 })
 
 # outer-syntax keywords (commands, proof language, quasi-commands, bootstrap):

@@ -3,7 +3,7 @@
 Regression for `[deps-qualified]`.  `parse_thy_imports` returns the raw
 `imports`-clause token, but the section index is keyed by **bare** theory
 name.  A same-session import is written bare and matched; a cross-session
-import is session-qualified (`"NDTHT_Base.Substrate"`) and was misrouted —
+import is session-qualified (`"Proj_Base.Substrate"`) and was misrouted —
 `deps` tagged it `[out-of-project]` and `uses` *silently dropped* the
 importer.  `_resolve_import` closes the gap by tail-matching the qualified
 token, while a genuinely external import (`HOL-Library.FuncSet`) still
@@ -46,7 +46,7 @@ TREE = {
         'end\n',
     "ae/EncodingWrap.thy":
         'theory EncodingWrap\n'
-        '  imports "NDTHT_Base.Substrate" "HOL-Library.FuncSet"\n'
+        '  imports "Proj_Base.Substrate" "HOL-Library.FuncSet"\n'
         'begin\n'
         'lemma e_l: "True" by simp\n'
         'end\n',
@@ -84,7 +84,7 @@ class DepsQualified(unittest.TestCase):
         self.assertIn("Substrate", out)
         self.assertIn("[direct]", out)
         # The qualified in-project import must NOT print as its raw token...
-        self.assertNotIn("NDTHT_Base.Substrate", out)
+        self.assertNotIn("Proj_Base.Substrate", out)
 
     def test_external_import_alone_is_out_of_project(self):
         out = self._deps("EncodingWrap")
@@ -124,7 +124,7 @@ class ResolveImportUnit(unittest.TestCase):
 
     def test_qualified_cross_session_resolves_by_tail(self):
         self.assertEqual(
-            cli._resolve_import("NDTHT_Base.Substrate", self.idx), "Substrate")
+            cli._resolve_import("Proj_Base.Substrate", self.idx), "Substrate")
 
     def test_external_qualified_is_none(self):
         self.assertIsNone(cli._resolve_import("HOL-Library.FuncSet", self.idx))

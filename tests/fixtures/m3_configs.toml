@@ -1,0 +1,9 @@
+# M3 configuration-type descriptors for the Shape fixture theory — one table per
+# corpus (keyed by entry / theory name).  See docs/shape-measures.md M3.  A corpus with no
+# table gets frame_ratio = null (recorded in the coverage statistic).
+
+[Shape]
+# The fixture treats pairs (accessed via fst / snd) and lists (accessed via the
+# `!` index, updated via `[i := v]`) as the configuration type.
+constructors = ["Pair"]
+selectors = ["fst", "snd"]

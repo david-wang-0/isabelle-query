@@ -1,7 +1,7 @@
 r"""`[src-doc-attribution]` — a leading `text` doc block belongs to the entry
 it documents, not the preceding one.
 
-The bug (filed from ndtht during the AR Forward split): `src`/`thy_end` was
+The bug (filed during the AR Forward split): `src`/`thy_end` was
 computed as `next_entry_thy_line - 1`, so the inter-entry blank *and the
 following entry's leading `text` docstring* were charged to the **preceding**
 entry.  Two visible symptoms, both reproduced here:

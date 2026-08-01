@@ -66,6 +66,18 @@ resolve_session_theory(session, name)
     Resolve a theory name to its on-disk path within a session,
     honouring the session's `in <subdir>` and `directories` clauses.
 
+classify_import(name, session, stem_index=None)
+    Classify one `imports` target as `in_entry` (a bare import resolving
+    inside the session's directory), `cross_entry` (a dot-qualified theory
+    in another session — another AFP entry), or `infra` (Isabelle
+    distribution / base library).  Name-only; no prover.
+
+session_theories(session, follow_imports=True)
+    The `(name, path)` theories belonging to a session: the ROOT-declared
+    theories, plus (by default) the transitive closure of their *in-entry*
+    imports — so an entry that declares leaf theories and imports the rest
+    is counted in full, without pulling in other entries or base library.
+
 discover_roots(root_dir)
     Walk a directory tree and return every ROOT file found.
 
@@ -641,6 +653,148 @@ def resolve_session_theory(session: SessionInfo,
     return matches[0] if len(matches) == 1 else None
 
 
+# Isabelle *distribution* session names (and unqualified base theories) — an
+# import qualified with one of these, or the bare `Main`/`Pure`/`Complex_Main`,
+# names base-library *infrastructure*, not a corpus theory.  Everything else
+# that is dot-qualified names another *session* (in an AFP census, another
+# entry).  The `HOL` prefix covers the whole `HOL-Library` / `HOL-Analysis` /
+# … family without listing each.
+_INFRA_ROOTS = frozenset({
+    "Pure", "Main", "Complex_Main", "Tools", "Doc",
+    "FOL", "FOLP", "ZF", "CTT", "LCF", "CCL", "Cube", "Sequents",
+})
+
+
+def _import_session(name: str) -> "str | None":
+    """The session prefix of a dot-qualified theory import
+    (``HOL-Library.FuncSet`` -> ``HOL-Library``), or None for a bare,
+    unqualified import (``AODV_Basic``, ``Main``).  Isabelle qualifies a
+    theory as ``<session>.<theory>`` and neither part contains a dot, so the
+    single dot is the split point."""
+    raw = name.strip().strip('"')
+    return raw.rsplit(".", 1)[0] if "." in raw else None
+
+
+def classify_import(name: str, session: SessionInfo,
+                    stem_index: "dict[str, Path] | None" = None,
+                    importer: "Path | None" = None,
+                    ) -> "tuple[str, Path | None]":
+    """Classify an ``imports`` target relative to the session that imports it.
+
+    Returns ``(kind, path)`` where ``kind`` is:
+
+    * ``"in_entry"`` — a theory inside the entry's own ROOT directory,
+      reached as a *bare* name (``Aodv``), a *self-qualified* name
+      (``AODV.Aodv``), or a *relative path* (``"variants/a/Foo"``,
+      ``"../../Aodv_Basic"``); ``path`` is the resolved ``.thy``.
+    * ``"infra"`` — Isabelle distribution / base library (``Pure``, ``Main``,
+      ``Complex_Main``, the ``HOL*`` family, ``FOL``/``ZF``/…), or a bare /
+      path import that resolves nowhere in the entry (an external base).
+    * ``"cross_entry"`` — a dot-qualified theory in *another* (non-distribution)
+      session — in an AFP walk, another entry, which a per-entry census must
+      not double-count (AODV's ``AWN.OClosed_Transfer``, from its parent
+      session).
+
+    Isabelle addresses a *same-entry* theory three ways (bare, self-qualified,
+    or by relative path) and every *cross-session* reference by a
+    ``<session>.<theory>`` qualifier — so the name (plus, for a path import,
+    the importing file's location) classifies without a prover.  ``stem_index``
+    (theory-stem -> path for the entry's directory) resolves bare / qualified
+    names in O(1) when supplied; ``importer`` is the importing theory's path,
+    used to resolve relative-path imports and confined to the entry's ROOT
+    directory so a ``../`` cannot escape into a sibling entry.
+    """
+    raw = name.strip().strip('"')
+    entry_root = session.root_path.parent
+
+    if "/" in raw:  # relative-path import (quoted), e.g. "../JVM/JVMExec"
+        base_dir = importer.parent if importer is not None else session.session_dir
+        cand = (base_dir / f"{raw}.thy").resolve()
+        if cand.exists() and entry_root in cand.parents:
+            return ("in_entry", cand)
+        # Fall back to the leaf theory name within the entry's own tree.
+        leaf = Path(raw).name
+        q = stem_index.get(leaf) if stem_index is not None else None
+        return ("in_entry", q) if q is not None else ("infra", None)
+
+    sess = _import_session(raw)
+    if sess is None:  # bare: an in-entry theory, or an unqualified base
+        if raw in _INFRA_ROOTS:
+            return ("infra", None)
+        p = (stem_index.get(raw) if stem_index is not None
+             else resolve_session_theory(session, raw))
+        return ("in_entry", p) if p is not None else ("infra", None)
+
+    if sess == session.name:  # self-qualified sibling (AODV.Aodv within AODV)
+        thy = raw.rsplit(".", 1)[1]
+        p = (stem_index.get(thy) if stem_index is not None
+             else resolve_session_theory(session, thy))
+        return ("in_entry", p) if p is not None else ("infra", None)
+    if sess in _INFRA_ROOTS or sess.startswith("HOL"):
+        return ("infra", None)
+    return ("cross_entry", None)
+
+
+def session_theories(session: SessionInfo, *,
+                     follow_imports: bool = True,
+                     ) -> list[tuple[str, Path]]:
+    """The ``(name, path)`` theories that belong to a session.
+
+    Always includes the theories declared in the session's ROOT ``theories``
+    block (resolved via :func:`resolve_session_theory`).  When
+    ``follow_imports`` (the default), also includes the transitive closure of
+    their **in-entry** imports — bare-name imports that resolve to a ``.thy``
+    within the session's own directory — so a session that declares a few
+    leaf theories and pulls the rest in via ``imports`` (common in the AFP:
+    ``AODV`` declares 1, builds 73) is counted in full.
+
+    Cross-entry (dot-qualified, another session) and infrastructure
+    (``HOL*``/``Pure``/…) imports are **not** followed: over the whole AFP
+    each entry then contributes its own theories exactly once, with no
+    double-counting of shared dependency entries or the base library.
+
+    Import-reachability, not a bare ``*.thy`` glob, bounds the set — so
+    orphan / scratch / WIP theories that no declared root imports are
+    excluded, matching what ``isabelle build`` actually compiles.  BFS order
+    from the declared roots; deduplicated by resolved path.
+    """
+    stem_index: dict[str, Path] = {}
+    base = session.session_dir
+    if follow_imports and base.is_dir():
+        # One directory scan → O(1) in-entry resolution for every bare import.
+        for p in base.rglob("*.thy"):
+            stem_index.setdefault(p.stem, p)
+
+    out: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    frontier: list[Path] = []
+    for entry in session.theories:
+        p = resolve_session_theory(session, entry)
+        if p is None:
+            continue
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        seen.add(rp)
+        out.append((entry[0], p))
+        frontier.append(p)
+
+    if follow_imports:
+        while frontier:
+            p = frontier.pop()
+            for imp in parse_thy_imports(p):
+                kind, q = classify_import(imp, session, stem_index, importer=p)
+                if kind != "in_entry" or q is None:
+                    continue
+                rq = q.resolve()
+                if rq in seen:
+                    continue
+                seen.add(rq)
+                out.append((q.stem, q))
+                frontier.append(q)
+    return out
+
+
 def discover_roots(root_dir: Path) -> list[Path]:
     """Find the ROOT files under `root_dir`, matching `isabelle build -D`.
 
@@ -722,3 +876,66 @@ def iter_sessions(root_dir: Path) -> list[SessionInfo]:
     for root_path in discover_roots(root_dir):
         out.extend(parse_root_sessions(root_path))
     return out
+
+
+def resolve_base_logic(name: str, parents: dict[str, str]) -> str:
+    """Follow `name`'s parent chain in `parents` (session → parent session) to
+    its **root** — the first ancestor that is not itself a key, i.e. a
+    distribution session not defined in the corpus (`HOL`, `HOL-Analysis`,
+    `ZF-Constructible`, `Pure`, …).
+
+    Corpus-wide: `parents` must map every corpus session to its declared parent
+    (build it once from `iter_sessions`), so a session two hops from its base
+    (`Forcing` → `ZF-Constructible`, `Independence_CH` → `Transitive_Models` →
+    … → `ZF-Constructible`) resolves to the *root*, not the immediate parent —
+    the classification an immediate-parent test gets wrong.  Cycle-guarded.
+    """
+    seen: set[str] = set()
+    cur = name
+    while cur in parents and parents[cur] and parents[cur] not in seen:
+        seen.add(cur)
+        cur = parents[cur]
+    return cur
+
+
+def is_hol_base(base: str) -> bool:
+    """Whether a base logic (a `resolve_base_logic` root) is HOL-family.
+
+    Stated as a HOL **allowlist**: every HOL session name begins `HOL` (`HOL`,
+    `HOL-Library`, `HOL-Analysis`, and HOL-with-a-ZF-flavour like `HOL-ZF`);
+    `Pure`, `ZF`/`ZF-*`, `FOL`, `CTT`, … are other object logics.  An
+    unrecognised base is therefore treated as **non-HOL** — flagged, never
+    silently HOL — which is the safe direction when the answer gates a
+    HOL-specific table (the notation table behind `const_canon_est`, the census
+    union): over-restrict rather than mis-apply.
+    """
+    return base.startswith("HOL")
+
+
+# The Isabelle-distribution object logics that are *not* HOL — the non-HOL bases a
+# `resolve_base_logic` root can name.  Recognisable by name even from a single
+# session's scope (their names are stable distribution ids, unlike an arbitrary
+# in-corpus parent session), which is what makes `is_known_nonhol_base` robust
+# where `is_hol_base` cannot reach the root (a cross-session parent out of scope).
+# These are the exact non-HOL sessions declared `= Pure +` in the Isabelle2025-2
+# src tree (FOL, ZF, HOL, … are all siblings on the Pure meta-logic; FOL is *not*
+# HOL-based); `Pure` itself is the meta-logic.  ZF and FOL variants (`ZF-*`,
+# `FOLP`) are caught by prefix in `is_known_nonhol_base`.
+_NONHOL_DISTRIBUTION_BASES = frozenset({
+    "Pure", "FOL", "FOLP", "CTT", "Sequents", "CCL", "Cube", "LCF"})
+
+
+def is_known_nonhol_base(base: str) -> bool:
+    """Whether a base logic is a **positively identified** non-HOL object logic.
+
+    The complement of :func:`is_hol_base`'s question, and it defaults the *other*
+    way: `is_hol_base` requires positive HOL evidence (for a HOL-only table that
+    must never mis-apply), whereas this requires positive *non-HOL* evidence — so
+    an unknown base (e.g. an out-of-scope parent *session* name like
+    `Multitape_TM_Substrate`, reached under ``-R <sub-session>``) is **not** flagged
+    non-HOL.  Use this where HOL is the sensible default and only a known non-HOL
+    logic should opt out (the interactive namespace fallback): matches `Pure`,
+    `ZF`/`ZF-*`, `FOL`/`FOLP`, `CTT`, `Sequents`, …; leaves everything else to the
+    HOL default."""
+    return (base in _NONHOL_DISTRIBUTION_BASES
+            or base.startswith("ZF") or base.startswith("FOL"))

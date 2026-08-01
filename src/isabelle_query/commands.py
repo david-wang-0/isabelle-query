@@ -1,0 +1,1629 @@
+"""Command implementations — one ``cmd_*`` per subcommand, plus the lookup,
+locus, and drill-down helpers they share.
+
+The fifth layer of the DAG (above ``render`` / ``graph``, below ``cli``).  Each
+``cmd_*`` takes an already-loaded ``list[TheorySection]`` and prints; it never
+loads the index or parses argv (that is ``cli``'s job), so nothing here imports
+``cli`` and the layering stays acyclic.  Also home to the pieces used by more
+than one command and by the CLI's own routing: theory resolution
+(``_resolve_theory`` / ``_suggest_theory``), the shared ``theory:line`` /
+``theory:A..B`` locus grammar (``_parse_locus`` / ``_parse_line_range``), and
+the proof-block drill-down behind ``enclosing`` (``_proof_blocks`` /
+``_enclosing_blocks``).
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+
+from isabelle_query import graph
+from isabelle_query.common import parse_thy_imports
+from isabelle_query.model import (
+    CallGraph,
+    CmdFlags,  # noqa: F401  (used in string annotations)
+    Entry,
+    TheorySection,
+    _CITABLE_TAGS,
+    _DEFINITION_TAGS,
+)
+from isabelle_query.parsing import _isa_word_pattern
+from isabelle_query.graph import (
+    _bfs_depths,
+    _build_call_graph,
+    _build_def_sites,
+    _build_line_index,
+    _entry_at_line,
+    _entry_by_name,
+    _noise_ranges,
+    _noise_spans,
+    _scan_methods,
+    _sections_by_theory,
+)
+from isabelle_query.render import (
+    _emit_matches,
+    _format_extent,
+    _format_name_line,
+    _statement_text,
+    _strip_text_wrapper,
+    _truncate_preview,
+    render_entry,
+)
+
+
+def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
+    """(#definitions, #lemmas, #theorems) in a section — the D/L/T columns."""
+    d = sum(1 for e in sec.entries if e.tag in _DEFINITION_TAGS)
+    lem = sum(1 for e in sec.entries if e.tag == "LEMMA")
+    thm = sum(1 for e in sec.entries if e.tag == "THEOREM")
+    return d, lem, thm
+
+
+def cmd_summary(sections: list[TheorySection], *,
+                by_session: bool = False,
+                verbose: bool = False,
+                totals_only: bool = False) -> None:
+    """The `summary` command.
+
+    Default: the per-theory overview table (one row per theory).  With
+    ``by_session`` (or ``totals_only``), roll the same counts up past the
+    theory level — an *aggregate* over every theory and session loaded, so
+    the command is useful run against a whole corpus (the AFP), a
+    multi-session entry, or a single session, not just one theory at a time.
+    """
+    if totals_only or by_session:
+        _summary_aggregate(sections, verbose=verbose, totals_only=totals_only)
+        return
+    total = sum(len(s.entries) for s in sections)
+    print("# Theory Index\n")
+    print(f"{total} entries across {len(sections)} theories  "
+          f"(parsed live from .thy files)\n")
+    print("## Theories\n")
+    print("Source-line counts (`.thy` file size), entry counts, and key exports.\n")
+    print("| Theory | Src | D | L | T | Key Exports |")
+    print("|--------|----:|--:|--:|--:|-------------|")
+    for sec in sections:
+        defs = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
+        lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
+        thms = [e for e in sec.entries if e.tag == "THEOREM"]
+
+        key_names: list[str] = []
+        for e in defs:
+            if e.name != "?" and e.name not in key_names:
+                key_names.append(e.name)
+        for e in thms:
+            if e.name != "?" and e.name not in key_names:
+                key_names.append(e.name)
+        if not key_names:
+            for e in lemmas[:3]:
+                if e.name != "?" and e.name not in key_names:
+                    key_names.append(e.name)
+
+        exports = ", ".join(key_names[:6])
+        if len(key_names) > 6:
+            exports += ", ..."
+
+        print(f"| {sec.theory} | {sec.thy_lines} | "
+              f"{len(defs)} | {len(lemmas)} | {len(thms)} | {exports} |")
+
+
+def _summary_aggregate(sections: list[TheorySection], *,
+                       verbose: bool = False,
+                       totals_only: bool = False) -> None:
+    """Roll the per-theory counts up to the session / corpus level.
+
+    Groups the loaded theories by their owning session (first-seen order,
+    which is ROOT-discovery order) and prints one row per session plus a
+    grand-total row — the aggregate the plain per-theory table can't give
+    over a multi-session tree.  ``verbose`` expands each session to its
+    theories (the `wc-theories.py -v` view, with entry counts added);
+    ``totals_only`` prints just the grand-total headline (its terse
+    default).
+
+    ``Src`` is the theory's logical line count (``TheorySection.thy_lines``,
+    = ``wc -l`` for the newline-terminated files Isabelle emits), summed —
+    so a per-session subtotal is directly comparable with a `wc -l` figure
+    over the same build-referenced file set.  A theory reached through
+    several sessions is counted once, under the first (see
+    `TheorySection.session`)."""
+    groups: dict[str, list[TheorySection]] = {}
+    for sec in sections:
+        groups.setdefault(sec.session or "(no session)", []).append(sec)
+
+    tot_thy = len(sections)
+    tot_src = sum(s.thy_lines for s in sections)
+    tot_entries = sum(len(s.entries) for s in sections)
+    tot_d = tot_l = tot_t = 0
+    for sec in sections:
+        d, lem, thm = _tag_counts(sec)
+        tot_d += d
+        tot_l += lem
+        tot_t += thm
+
+    print("# Corpus summary\n")
+    print(f"{tot_entries:,} entries · {tot_src:,} source lines across "
+          f"{tot_thy:,} theories in {len(groups):,} sessions  "
+          f"(parsed live from .thy files)\n")
+    if totals_only:
+        return
+
+    print("Per-session aggregate — `Src` is summed `.thy` line counts "
+          "(`wc -l`-comparable), `D`/`L`/`T` are definition / lemma / theorem "
+          "counts.\n")
+
+    if verbose:
+        for name, secs in groups.items():
+            g_src = sum(s.thy_lines for s in secs)
+            print(f"## {name}  ({len(secs):,} theories, {g_src:,} lines)\n")
+            print("| Theory | Src | D | L | T |")
+            print("|--------|----:|--:|--:|--:|")
+            for sec in secs:
+                d, lem, thm = _tag_counts(sec)
+                print(f"| {sec.theory} | {sec.thy_lines} | {d} | {lem} | {thm} |")
+            print()
+        return
+
+    print("| Session | Thy | Src | D | L | T |")
+    print("|---------|----:|----:|--:|--:|--:|")
+    for name, secs in groups.items():
+        g_src = sum(s.thy_lines for s in secs)
+        g_d = g_l = g_t = 0
+        for sec in secs:
+            d, lem, thm = _tag_counts(sec)
+            g_d += d
+            g_l += lem
+            g_t += thm
+        print(f"| {name} | {len(secs)} | {g_src} | {g_d} | {g_l} | {g_t} |")
+    print(f"| **TOTAL** | {tot_thy} | {tot_src} | "
+          f"{tot_d} | {tot_l} | {tot_t} |")
+
+
+def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection | None:
+    """Resolve a theory by path or by name.
+
+    Two argument forms, so callers can paste either a file path or a
+    bare theory name:
+
+      - **Path form** — the argument carries a path separator or a
+        ``.thy`` suffix (e.g. ``sub/Foo.thy``).
+        Matched against each section's resolved path, so symlinks and
+        relative/absolute spellings all land on the same section.
+      - **Name form** — a bare theory name (e.g.
+        ``Foo``), matched against the section's theory
+        name (exact, then case-insensitive).  This is the convenience
+        spelling: the name is looked up among the sections already
+        discovered through the ``common.py`` ROOT-walking routines.
+    """
+    if name.endswith(".thy") or "/" in name:
+        try:
+            target = Path(name).resolve()
+        except OSError:
+            target = None
+        if target is not None:
+            for s in sections:
+                if s.path.resolve() == target:
+                    return s
+        # Path that doesn't match a known section: fall back to its
+        # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
+        stem = Path(name).stem
+        for s in sections:
+            if s.theory == stem:
+                return s
+        return None
+    for s in sections:
+        if s.theory == name:
+            return s
+    for s in sections:
+        if s.theory.lower() == name.lower():
+            return s
+    return None
+
+
+def _suggest_theory(sections: list[TheorySection], name: str) -> str | None:
+    """Closest theory to `name`, as a cwd-relative `.thy` path suggestion
+    for a 'did you mean ...?' hint; None if nothing is close.
+
+    Matches on the theory *stem*, so a mistyped path
+    (`path/to/Fooo.thy`) is handled like a bare name (`Fooo`)."""
+    import difflib
+    by_name = {s.theory: s for s in sections}
+    matches = difflib.get_close_matches(
+        Path(name).stem, list(by_name), n=1, cutoff=0.6)
+    if not matches:
+        return None
+    sec = by_name[matches[0]]
+    try:
+        return str(sec.path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(sec.path)
+
+
+def _resolve_conjunct(sections: list[TheorySection], name: str) -> str | None:
+    """If `name` is a named conjunct of a multi-`shows` lemma, return the
+    parent lemma name; else None.  Lets callers/callees/show resolve a
+    conjunct to the entry that bundles it."""
+    for sec in sections:
+        for e in sec.entries:
+            if name in e.conjuncts:
+                return e.name
+    return None
+
+
+def cmd_theory(sections: list[TheorySection], name: str,
+               flags: "CmdFlags") -> None:
+    sec = _resolve_theory(sections, name)
+    if sec is None:
+        print(f"Theory '{name}' not found.  Known theories:")
+        for s in sorted(sections, key=lambda x: x.theory):
+            print(f"  {s.theory}")
+        return
+
+    # Terse modes: the theory's namespace as a bare list, no header or
+    # code-fence decoration, so output is greppable / scriptable.
+    if flags.mode == "count":
+        print(len(sec.entries))
+        return
+    if flags.mode == "names":
+        for e in sec.entries:
+            print(_format_name_line(sec, e))
+        return
+
+    print(f"## {sec.theory}.thy  ({sec.thy_lines} src lines, {len(sec.entries)} entries)")
+    if flags.verbatim:
+        for e in sec.entries:
+            print()
+            print(render_entry(sec, e, verbatim=True))
+        return
+
+    # Default: pre-formatted entries, optionally with preamble headers
+    print("```")
+    for e in sec.entries:
+        if flags.comments != "off" and e.preamble:
+            ps, pe = e.preamble
+            body = _strip_text_wrapper(sec.slice(ps, pe))
+            preview, _ = _truncate_preview(body, flags.context)
+            if preview:
+                print()
+                print(f"[preamble {ps}-{pe}]: " + " ".join(
+                    line.strip() for line in preview))
+        print(e.text)
+    print("```")
+
+
+def cmd_find(sections: list[TheorySection], pattern: str,
+             flags: "CmdFlags") -> None:
+    # Shell users often reach for grep-style escaped alternation
+    # ('a\|b\|c'); in Python's re, '\|' is the literal '|' character,
+    # which would silently match nothing.  Preprocess to PCRE-style
+    # alternation so the pattern does what the user expects.
+    pattern = pattern.replace(r"\|", "|")
+    pat = re.compile(pattern, re.IGNORECASE)
+    by_theory = _sections_by_theory(sections)
+    matches: list[Entry] = []
+    if flags.statement:
+        # Statement-slice search: match the regex against the declaration
+        # text (the lemma/def statement, not the proof body) — a token-level
+        # approximation of `find_theorems` ("which entries are *stated about*
+        # this", whatever they're named).  Not term/type-aware.
+        for s in sections:
+            for e in s.entries:
+                if pat.search(_statement_text(s, e)):
+                    matches.append(e)
+    else:
+        for s in sections:
+            for e in s.entries:
+                if pat.search(e.name):
+                    matches.append(e)
+                elif any(pat.search(c) for c in e.conjuncts):
+                    matches.append(e)  # matched via a named `shows` conjunct
+
+    # `--statement` here selects the match locus, not the render: show the
+    # matched entries the usual way (statement + proof preview).
+    _emit_matches(by_theory, matches, pattern, flags)
+
+    if flags.with_comments:
+        # Additionally search inside preamble bodies and roadmap content,
+        # producing context windows.
+        comment_hits = _find_in_comments(sections, pat, flags.context)
+        if comment_hits:
+            print()
+            print(f"--- comment matches for '{pattern}' "
+                  f"({len(comment_hits)} hit(s)) ---")
+            for hit in comment_hits:
+                print(hit)
+
+
+def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
+                      context: int) -> list[str]:
+    """Search inside text blocks and \\<comment> annotations across all
+    theories.  Returns formatted hit strings: filename:line + context window.
+    """
+    hits: list[str] = []
+    for sec in sections:
+        src = sec.source()
+        # Text blocks (preambles + standalone)
+        for tb_start, tb_end in sec.text_blocks:
+            for ln in range(tb_start, tb_end + 1):
+                if ln > len(src):
+                    break
+                line = src[ln - 1]
+                if pat.search(line):
+                    lo = max(tb_start, ln - context)
+                    hi = min(tb_end, ln + context)
+                    snippet = src[lo - 1:hi]
+                    hits.append(f"\n{sec.theory}.thy:{ln} "
+                                f"(in text block {tb_start}..{tb_end}):")
+                    for j, snippet_line in enumerate(snippet, start=lo):
+                        marker = ">" if j == ln else " "
+                        hits.append(f"  {marker} {j}: {snippet_line}")
+        # Inline \<comment> annotations: each entry's roadmap
+        for e in sec.entries:
+            for ln, content in e.roadmap:
+                if pat.search(content):
+                    hits.append(f"\n{sec.theory}.thy:{ln} "
+                                f"(\\<comment> in {e.name}): {content}")
+    return hits
+
+
+def cmd_show(sections: list[TheorySection], name: str,
+             flags: "CmdFlags") -> None:
+    by_theory = _sections_by_theory(sections)
+    matches: list[Entry] = []
+    for s in sections:
+        for e in s.entries:
+            if e.name == name:
+                matches.append(e)
+    if not matches:
+        for s in sections:
+            for e in s.entries:
+                if e.name.lower() == name.lower():
+                    matches.append(e)
+    if not matches:
+        # Conjunct fallback (before substring): NAME may be a named conjunct
+        # of a multi-`shows` lemma; resolve to the parent that bundles it.
+        for s in sections:
+            for e in s.entries:
+                if name in e.conjuncts:
+                    matches.append(e)
+        if matches:
+            parents = ", ".join(sorted({e.name for e in matches}))
+            print(f"# '{name}' is a named conjunct of {parents}:")
+    if not matches:
+        # Substring fallback
+        for s in sections:
+            for e in s.entries:
+                if name.lower() in e.name.lower():
+                    matches.append(e)
+    # On `show`, `--statement` is the render selector: declaration only.
+    _emit_matches(by_theory, matches, name, flags, statement=flags.statement)
+
+
+def cmd_defs(sections: list[TheorySection], theory: str,
+             flags: "CmdFlags") -> None:
+    sec = _resolve_theory(sections, theory)
+    if sec is None:
+        print(f"Theory '{theory}' not found.")
+        return
+    matches = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
+    if not matches:
+        print(f"No definitions found in '{sec.theory}'.")
+        return
+    if flags.mode == "count":
+        print(len(matches))
+        return
+    if flags.mode == "names":
+        for e in matches:
+            print(_format_name_line(sec, e))
+        return
+    for e in matches:
+        print(render_entry(sec, e))
+        print()
+
+
+def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
+    """Map a raw ``imports``-clause token to the bare in-project theory it
+    denotes, or ``None`` if it is external.
+
+    `parse_thy_imports` returns tokens verbatim, but the section index
+    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
+    are written bare (``Substrate``) and match directly; cross-session
+    imports are session-qualified (``Proj_Base.Substrate``) and resolve by
+    their tail after the last ``.``.  A genuinely external import
+    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
+    so it stays ``None`` and the caller keeps the *raw* token for the
+    ``[out-of-project]`` line.
+
+    Tail-matching is correct for every realistic tree: an external leaf-name
+    (``FuncSet``, ``List``) does not collide with a project theory name.  The
+    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
+    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
+    session — is a name collision, the province of `[disambig-names]`; if it
+    ever arises, gate the tail-match on the qualifier naming a known session
+    (`SessionInfo.name`)."""
+    if imp in sec_by_name:
+        return imp
+    if "." in imp:
+        tail = imp.rsplit(".", 1)[1]
+        if tail in sec_by_name:
+            return tail
+    return None
+
+
+def cmd_deps(sections: list[TheorySection], theory: str,
+             reverse: bool = False, recursive: bool = False) -> None:
+    """Theory-level (not entry-level) import dependencies.
+
+    Forward (``reverse=False``): the theories this one imports.
+    Reverse (``reverse=True``): the theories that import this one.
+    Exposed as the ``deps`` (forward) / ``uses`` (reverse) subcommand
+    pair — the theory-graph analogue of the entry-level
+    ``callees`` / ``callers`` pair (brew's ``deps`` / ``uses``
+    convention).
+
+    Direct by default; ``recursive`` (``-r``) gives the transitive
+    closure with per-hop depth labels — matching the direct/``-r``
+    semantics of the entry-level pair."""
+    target = _resolve_theory(sections, theory)
+    if target is None:
+        print(f"Theory '{theory}' not found.")
+        return
+
+    by_theory = _sections_by_theory(sections)
+
+    def emit(found: dict[str, int]) -> None:
+        for name, depth in sorted(found.items(), key=lambda kv: (kv[1], kv[0])):
+            sec = by_theory[name]
+            tag = "  [direct]" if depth == 0 else f"  [depth {depth}]"
+            print(f"  {name}  ({sec.thy_lines} src lines, "
+                  f"{len(sec.entries)} entries){tag}")
+
+    scope = "transitively" if recursive else "directly"
+
+    if reverse:
+        # Invert the in-project import adjacency: child -> theories that
+        # import the child.  The reverse direction needs the whole graph
+        # regardless of depth, so the full scan here is unavoidable.
+        rev: dict[str, list[str]] = {s.theory: [] for s in sections}
+        for s in sections:
+            for imp in parse_thy_imports(s.path):
+                resolved = _resolve_import(imp, by_theory)
+                if resolved is not None:
+                    rev[resolved].append(s.theory)
+        if recursive:
+            found = _bfs_depths(lambda n: rev.get(n, []), [target.theory],
+                                seed_depth=-1)
+            found.pop(target.theory, None)
+        else:
+            found = {name: 0 for name in rev.get(target.theory, [])}
+        if not found:
+            print(f"No in-project theory imports {target.theory} ({scope}).")
+            return
+        print(f"Theories that import {target.theory} ({scope}):")
+        emit(found)
+        return
+
+    # Forward.  Direct: just the target's own import line.  Recursive:
+    # lazy BFS over the imports graph.  Out-of-project imports (e.g.
+    # HOL-Library.*) are direct edges, so they show in both modes.
+    in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
+    out_of_project: set[str] = set()
+    if recursive:
+        def imports_of(name: str) -> list[str]:
+            sec = by_theory.get(name)
+            if sec is None:
+                return []
+            children: list[str] = []
+            for imp in parse_thy_imports(sec.path):
+                child = _resolve_import(imp, by_theory)
+                if child is None:
+                    out_of_project.add(imp)
+                else:
+                    children.append(child)
+            return children
+        in_project = _bfs_depths(imports_of, [target.theory], seed_depth=-1)
+        in_project.pop(target.theory, None)
+    else:
+        for imp in parse_thy_imports(target.path):
+            resolved = _resolve_import(imp, by_theory)
+            if resolved is None:
+                out_of_project.add(imp)
+            elif resolved != target.theory:
+                in_project[resolved] = 0
+
+    if not in_project and not out_of_project:
+        print(f"{target.theory} has no upstream dependencies.")
+        return
+
+    header = ("Import-transitive dependencies" if recursive
+              else "Direct imports")
+    print(f"{header} of {target.theory}:")
+    emit(in_project)
+    for name in sorted(out_of_project):
+        print(f"  {name}  [out-of-project]")
+
+
+def cmd_outline(sections: list[TheorySection], theory: str,
+                flags: "CmdFlags") -> None:
+    sec = _resolve_theory(sections, theory)
+    if sec is None:
+        print(f"Theory '{theory}' not found.")
+        return
+
+    items: list[tuple[int, str, object]] = []
+    for level, title, ln in sec.outline:
+        items.append((ln, "section", (level, title)))
+    for e in sec.entries:
+        if e.thy_line > 0:
+            items.append((e.thy_line, "entry", e))
+    if flags.comments != "off":
+        for tb_start, tb_end in sec.text_blocks:
+            items.append((tb_start, "text", (tb_start, tb_end)))
+    items.sort(key=lambda x: x[0])
+
+    if not items:
+        print(f"No outline data for '{sec.theory}'.")
+        return
+
+    print(f"Outline of {sec.theory}.thy:\n")
+    for ln, kind, payload in items:
+        if kind == "section":
+            level, title = payload  # type: ignore[misc]
+            indent = {"chapter": "", "section": "", "subsection": "  ",
+                      "subsubsection": "    "}[level]
+            print(f"{indent}{level:>14}: {title}  (line {ln})")
+        elif kind == "text":
+            tb_start, tb_end = payload  # type: ignore[misc]
+            block_size = tb_end - tb_start + 1
+            body = _strip_text_wrapper(sec.slice(tb_start, tb_end))
+            preview, _ = _truncate_preview(body, flags.context)
+            preview_text = " ".join(line.strip() for line in preview)
+            if len(preview_text) > 100:
+                preview_text = preview_text[:97] + "..."
+            print(f"        text     [{tb_start}..{tb_end}, {block_size} lines]: "
+                  f"{preview_text}")
+        else:
+            e: Entry = payload  # type: ignore[assignment]
+            size = e.line_count
+            print(f"        {e.tag:<8} {e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
+
+
+def _find_callers(sections: list[TheorySection], name: str,
+                   external: bool = False,
+                   ) -> list[tuple[str, int, str]]:
+    """Find proof-body usages of *name* across all .thy files.
+
+    Returns a list of (theory_name, line_no, line_text) triples, filtering
+    out:
+      - The definition site itself (same theory, within the entry's span).
+      - Lines inside ``text \\<open>...\\<close>`` blocks (prose, not proof).
+      - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
+        ``@{term name}`` where the *only* occurrence of *name* on the line
+        is inside an antiquotation.
+
+    When ``external`` is true, additionally skip every line in the
+    theory(ies) that define *name* — useful for "is anything outside
+    Foo using Foo's primitives?" audits where intra-theory
+    cross-references are noise.
+    """
+    word_re = re.compile(_isa_word_pattern(name))
+    # Antiquotation pattern: @{text/thm/term/const "?name"?}
+    antiq_re = re.compile(
+        r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
+
+    # Shared infrastructure: per-theory def-site ranges (for `name`) and
+    # text-block ranges (prose to skip).
+    all_def_sites = _build_def_sites(sections, {name})
+    def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
+    text_ranges = _noise_ranges(sections)
+
+    results: list[tuple[str, int, str]] = []
+    for sec in sections:
+        # External mode: skip every line in the defining theory(ies),
+        # treating intra-theory cross-references as noise.
+        if external and sec.theory in def_theories:
+            continue
+        lines = sec.source()
+        t_ranges = text_ranges.get(sec.theory, [])
+        d_ranges = all_def_sites.get(sec.theory, {}).get(name, set())
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if not word_re.search(line):
+                continue
+            # Skip definition site.
+            if any(line_no in r for r in d_ranges):
+                continue
+            # Skip text blocks.
+            if any(line_no in r for r in t_ranges):
+                continue
+            # Skip if the only occurrences are inside antiquotations.
+            stripped = antiq_re.sub('', line)
+            if not word_re.search(stripped):
+                continue
+            results.append((sec.theory, line_no, line.rstrip()))
+    return results
+
+
+def _render_graph_results(sections: list[TheorySection],
+                          reachable: dict[str, int],
+                          label: str, seed: str,
+                          flags: 'CmdFlags') -> None:
+    """Shared rendering for callers -r and uses -r."""
+    if flags.mode == "count":
+        print(len(reachable))
+        return
+    if not reachable:
+        print(f"No {label}s found for '{seed}'.")
+        return
+
+    # Build name → (theory, Entry) lookup for rendering.
+    by_name = _entry_by_name(sections)
+
+    if flags.mode == "names":
+        for name in sorted(reachable):
+            if name in by_name:
+                thy, e = by_name[name]
+                print(f"  {name} ({e.tag}) — {thy}")
+            else:
+                print(f"  {name}")
+        return
+
+    print(f"{len(reachable)} transitive {label}(s) of {seed}:\n")
+    for name, depth in sorted(reachable.items(), key=lambda x: (x[1], x[0])):
+        indent = "  " * (depth + 1)
+        if name in by_name:
+            thy, e = by_name[name]
+            print(f"{indent}{name} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"{indent}{name}")
+
+
+def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
+    """Return the entry whose [src_start, thy_end] span contains *line_no*.
+
+    Used by ``cmd_callers`` to annotate each hit with its enclosing lemma
+    name — answering "which proof is calling this?" in one line rather
+    than requiring a follow-up ``show`` invocation — and by ``cmd_enclosing``
+    as the span-containment lookup behind ``query enclosing FILE:LINE``.  The
+    span starts at ``src_start`` so a line in a leading doc block resolves to
+    the entry it documents (not the preceding one).
+    """
+    for e in sec.entries:
+        if e.thy_line and e.thy_end and e.src_start <= line_no <= e.thy_end:
+            return e
+    return None
+
+
+def _owner_field(owner: Entry | None, span: bool = True) -> str:
+    """The owning-entry column for a located hit — ``name (TAG) lo..hi`` (or
+    ``—`` when the line has no owner).
+
+    The single chokepoint for owner rendering, so name/tag/no-owner handling
+    can't drift between commands.  ``span`` is the one *content* choice that
+    legitimately differs by command, so it is a parameter rather than baked
+    in:
+
+      * `callers` / `methods` keep it (the default) — the next move after
+        "who references X" is usually to open the owning lemma, so its
+        ``lo..hi`` extent is the next locus, right there;
+      * `grep` opts out (``span=False``) — a search hit is *already* a
+        precise locus (its own matched line), so the owner's whole-lemma
+        span is constant across the lemma's hits, repetitive, and would blur
+        a content search into a line-owner report.
+    """
+    if owner is None or owner.name == "?":
+        return "—"
+    if span and owner.thy_line and owner.thy_end:
+        return f"{owner.name} ({owner.tag}) {owner.src_start}..{owner.thy_end}"
+    return f"{owner.name} ({owner.tag})"
+
+
+def _parse_locus(token: str) -> tuple[str, int, int | None] | None:
+    """Split a ``FILE:LINE`` or ``FILE:A..B`` locus into ``(file, lo, hi)``.
+
+    The line part is handed to `_parse_line_range`, so a single ``:LINE``
+    yields ``lo == hi`` and a ``:A..B`` range yields the inclusive span —
+    the *same* ``A..B`` grammar `lines` accepts (including the open ``:A..``
+    form, whose ``hi`` comes back ``None`` for the caller to resolve to EOF).
+    That is the round-trip
+    that makes a span printed elsewhere paste back in as a locus.  The file
+    is split off on the *last* colon (``rpartition``), so a path that itself
+    has no colon keeps its separators: ``sub/Foo.thy:8..12`` ->
+    ``("sub/Foo.thy", 8, 12)``, ``Foo:42`` -> ``("Foo", 42, 42)``.
+
+    A single trailing ``:`` or ``-`` is peeled off first: that is
+    ripgrep's match(``:``)/context(``-``) marker, which `callers` and a
+    real ``rg -n`` / ``grep -n`` both emit, so tolerating it lets the
+    tool's own location output (and any grep paste-in) round-trip into
+    `enclosing`.  Returns None when there is no ``:LINE`` suffix or the
+    line part is not a valid range, so the caller reports the malformed
+    locus and carries on instead of aborting the whole batch.
+    """
+    if token[-1:] in ":-":
+        token = token[:-1]
+    file_token, sep, span = token.rpartition(":")
+    if not sep or not file_token or not span:
+        return None
+    try:
+        lo, hi = _parse_line_range(span)
+    except ValueError:
+        return None
+    return file_token, lo, hi
+
+
+def _locus_role(entry: Entry, line_no: int) -> str:
+    """Where in *entry* a line sits: 'in preamble', 'in proof', 'in
+    statement', or ''.
+
+    Uses the same `proof_line` / `decl_end_line` boundaries the renderer
+    slices on, so the answer matches what `show --statement` vs the proof
+    preview would show.  A line before the declaration (`line_no <
+    thy_line`) is in the entry's leading doc block — 'in preamble'.  Empty
+    for the rare inter-region line (a blank between a statement and its
+    proof, or trailing text on a def).  The point during a build chase:
+    knowing the failing line is the *statement* vs a *proof step* tells you
+    which to edit.
+    """
+    if entry.thy_line and line_no < entry.thy_line:
+        return "in preamble"
+    if entry.proof_line and line_no >= entry.proof_line:
+        return "in proof"
+    if entry.decl_end_line and line_no <= entry.decl_end_line:
+        return "in statement"
+    return ""
+
+
+# --- proof-internal block drill-down (enclosing) -------------------------
+#
+# `enclosing` resolves a line to its owning entry; inside a large structured
+# proof the *nearest enclosing syntactic block* (the innermost
+# `proof ... qed` / `{ ... }` the line sits in, as a pasteable `A..B` range)
+# is the more useful answer — often a handful of lines rather than a
+# 500-line lemma.  We find it by a lightweight, on-demand scan of *just* the
+# one resolved entry's proof body — no index/Entry bloat, paid only when a
+# drill-down is asked for.  Deliberately conservative: openers/closers are
+# anchored at line start, so a `proof`/`qed`/`{` buried in a term string or
+# a mid-line set-comprehension is ignored, and only *live* lines are read
+# (comment / text blocks skipped).  If the open/close stack ever goes
+# unbalanced the scan returns None and the caller falls back to the
+# entry-level answer rather than emit a span it isn't sure of.
+_GOAL_INTRO_RE = re.compile(
+    r"^(have|show|hence|thus|obtain|consider)\b"
+    r"(?:\s+([A-Za-z][\w'.]*)\s*:)?")
+_PROOF_OPEN_RE = re.compile(r"^proof\b")
+_QED_RE = re.compile(r"^qed\b")
+# Line-anchored proof *terminators* (a goal proved without opening a block):
+# clears the pending goal so its label can't leak onto a later `proof`.
+_TERMINAL_RE = re.compile(r"^(by|done|sorry|oops)\b|^\.\.?\s*$")
+
+
+@dataclass(frozen=True)
+class _Block:
+    """A nested proof block — a `proof..qed` or a raw `{..}` — labelled by
+    the goal that introduces it.  `start`/`end` are 1-indexed inclusive, so
+    `theory:start..end` is a locus that pastes into `lines` / `enclosing`."""
+    kw: str        # introducing keyword (have/show/...) or "{" for a brace block
+    name: str      # the goal's label (`key` of `have key:`); "" if anonymous
+    start: int
+    end: int
+
+
+def _block_label(b: _Block) -> str:
+    return "{ }" if b.kw == "{" else f"{b.kw} {b.name}".strip()
+
+
+def _block_field(b: _Block) -> str:
+    """`label start..end` — one breadcrumb element; the span round-trips."""
+    return f"{_block_label(b)} {b.start}..{b.end}"
+
+
+def _proof_blocks(sec: TheorySection, entry: Entry) -> list[_Block] | None:
+    """Nested blocks inside *entry*'s proof, or None if the scan went
+    unbalanced (caller then falls back to the entry-level answer).
+
+    The lemma's own outermost `proof` is *not* reported: it is what the
+    entry already represents.  Only blocks strictly inside it — nested
+    `have ... proof ... qed`, raw `{ ... }` — are, since those are the
+    narrower ranges a drill-down is for.
+    """
+    if not entry.proof_line:
+        return []
+    lines = sec.source()
+    end = min(entry.body_end_line or entry.thy_end or len(lines), len(lines))
+    noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
+    stack: list[tuple[str, str, int]] = []    # (kw, name, start)
+    blocks: list[_Block] = []
+    pending: tuple[str, str, int] | None = None   # a goal awaiting its proof
+    main_open = False
+    for ln in range(entry.proof_line, end + 1):
+        if any(ln in r for r in noise):
+            continue
+        stripped = lines[ln - 1].strip()
+        if not stripped:
+            continue
+        gm = _GOAL_INTRO_RE.match(stripped)
+        if gm:
+            pending = (gm.group(1), gm.group(2) or "", ln)
+        if _PROOF_OPEN_RE.match(stripped):
+            if not main_open and not stack:
+                stack.append(("__main__", "", ln))   # the entry's own proof
+                main_open = True
+            else:
+                stack.append(pending or ("proof", "", ln))
+            pending = None
+        elif _QED_RE.match(stripped):
+            if not stack:
+                return None
+            kw, name, start = stack.pop()
+            if kw != "__main__":
+                blocks.append(_Block(kw, name, start, ln))
+            pending = None
+        elif stripped == "{":
+            stack.append(("{", "", ln))
+        elif stripped == "}":
+            if not stack:
+                return None
+            kw, name, start = stack.pop()
+            if kw != "__main__":
+                blocks.append(_Block(kw, name, start, ln))
+            pending = None
+        elif _TERMINAL_RE.match(stripped):
+            pending = None
+    return None if stack else blocks
+
+
+def _enclosing_blocks(blocks: list[_Block], line_no: int) -> list[_Block]:
+    """Blocks containing *line_no*, outermost first — so the last element is
+    the nearest (innermost) enclosing block."""
+    containing = [b for b in blocks if b.start <= line_no <= b.end]
+    containing.sort(key=lambda b: (b.start, -b.end))
+    return containing
+
+
+def cmd_enclosing(sections: list[TheorySection], loci: list[str],
+                  block_mode: str = "nearest") -> None:
+    """Report which entry encloses each ``FILE:LINE`` (or ``FILE:A..B``)
+    locus — inverse of `outline`.
+
+    A build failure surfaces a bare ``file:line``; the first triage move is
+    naming the lemma that owns it.  This is a span-containment lookup over
+    the same ``[thy_line, thy_end]`` spans `outline` prints, so unlike a
+    ``^lemma ``-only ``awk`` scan it also names `definition` / `fun` /
+    `datatype` owners.  A range locus (``FILE:A..B`` — e.g. a diff hunk or a
+    multi-line error) lists *every* entry whose span overlaps it, the
+    "which lemmas does this hunk touch" question.  Each result prints one
+    ``LOCUS -> OWNER`` line (the location is the house ``theory:line`` form,
+    so it round-trips back into `enclosing` / `lines` / an editor); malformed
+    or unresolved loci report to stderr and do not stop the batch.
+
+    For a single line inside a proof, ``block_mode`` drills past the entry to
+    the enclosing *syntactic block* — the narrow range a build error really
+    sits in, appended as ``▸ have key 3705..3740`` (itself a pasteable span):
+      * ``"nearest"`` (default) — the innermost enclosing block, or nothing
+        when the proof is flat (then output is just the entry);
+      * ``"blocks"`` — the full nesting path, entry then each block outer→inner;
+      * ``"entry"`` — no drill-down, the owning entry alone (original output).
+    """
+    for token in loci:
+        parsed = _parse_locus(token)
+        if parsed is None:
+            print(f"{token}: expected FILE:LINE or FILE:A..B "
+                  f"(e.g. Foo.thy:42 or Foo:8..12)", file=sys.stderr)
+            continue
+        file_token, lo, hi = parsed
+        sec = _resolve_theory(sections, file_token)
+        if sec is None:
+            suggestion = _suggest_theory(sections, file_token)
+            hint = f" (did you mean {suggestion}?)" if suggestion else ""
+            print(f"{token}: no such theory '{file_token}'{hint}",
+                  file=sys.stderr)
+            continue
+        # An open upper bound (`FILE:A..`) resolves to the theory's last line
+        # here — the sink the range parser defers a `None` upper to.  The
+        # `lo == hi` point-test stays on the *raw* hi (None never equals lo),
+        # so `A..` is always a range, never mistaken for a single line.
+        hi_eff = sec.thy_lines if hi is None else hi
+        loc = (f"{sec.theory}:{lo}" if lo == hi
+               else f"{sec.theory}:{lo}..{hi_eff}")
+        if lo > sec.thy_lines:
+            print(f"{loc} → (past end of {sec.theory} — "
+                  f"{sec.thy_lines} lines)")
+            continue
+        if lo == hi:
+            entry = _enclosing_entry(sec, lo)
+            if entry is None:
+                print(f"{loc} → (no enclosing entry — "
+                      f"theory header or inter-section gap)")
+                continue
+            role = _locus_role(entry, lo)
+            suffix = f"  ({role})" if role else ""
+            base = (f"{loc} → {entry.name} ({entry.tag}) — {sec.theory} "
+                    f"{_format_extent(entry)}")
+            # Drill into the proof for the nearest/whole-path modes, but only
+            # when the line is actually in a proof.  A flat (`by …`) proof or
+            # an unbalanced scan yields no blocks, so output degrades to the
+            # entry — exactly the `--entry` answer, with no `▸`.
+            blocks: list[_Block] = []
+            if block_mode != "entry" and role == "in proof":
+                blocks = _enclosing_blocks(_proof_blocks(sec, entry) or [], lo)
+            if not blocks:
+                print(f"{base}{suffix}")
+            elif block_mode == "blocks":
+                print(f"{base}{suffix}")
+                indent = " " * (len(loc) + len(" → "))
+                width = max(len(_block_label(b)) for b in blocks)
+                for b in blocks:
+                    print(f"{indent}▸ {_block_label(b):<{width}} "
+                          f"{b.start}..{b.end}")
+            else:   # nearest: the innermost enclosing block
+                print(f"{base} ▸ {_block_field(blocks[-1])}{suffix}")
+            continue
+        # Range: every entry whose [src_start, thy_end] overlaps [lo, hi_eff].
+        overlap = sorted(
+            (e for e in sec.entries if e.thy_line and e.thy_end
+             and not (e.thy_end < lo or e.src_start > hi_eff)),
+            key=lambda e: e.src_start)
+        if not overlap:
+            print(f"{loc} → (no entries overlap — "
+                  f"theory header or inter-section gap)")
+            continue
+        for e in overlap:
+            print(f"{loc} → {e.name} ({e.tag}) — {sec.theory} "
+                  f"{_format_extent(e)}")
+
+
+def cmd_callers(sections: list[TheorySection], name: str,
+                flags: 'CmdFlags') -> None:
+    """Print proof-body usages of a lemma/definition."""
+    if flags.recursive:
+        graph = _build_call_graph(sections, flags.drop_names_upto)
+        if name not in graph.all_names:
+            parent = _resolve_conjunct(sections, name)
+            if parent is not None:
+                print(f"# '{name}' is a named conjunct of {parent}; "
+                      f"recursive caller closure operates at the {parent} "
+                      f"(entry) level.")
+                name = parent
+            else:
+                print(f"'{name}' not found in the entry index.")
+                return
+        reachable = _bfs_depths(lambda n: graph.callers.get(n, set()), {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "caller", name, flags)
+        return
+
+    hits = _find_callers(sections, name, external=flags.external)
+    if flags.mode == "count":
+        print(len(hits))
+        return
+    if not hits:
+        print(f"No callers found for '{name}'.")
+        return
+    # Build theory → section lookup once for enclosing-entry lookup and
+    # trailing-context line access.
+    by_theory = _sections_by_theory(sections)
+    n_after = max(0, flags.context)
+    # Align the match loci into a column; each is a clean `theory:line` that
+    # pastes into `enclosing` / `lines` / an editor (no trailing marker).
+    loc_w = max((len(f"{t}:{ln}") for t, ln, _ in hits), default=0)
+    print(f"{len(hits)} caller(s) of {name}:\n")
+    for theory, line_no, text in hits:
+        sec = by_theory.get(theory)
+        encl = _enclosing_entry(sec, line_no) if sec is not None else None
+        loc = f"{theory}:{line_no}"
+        print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
+        if n_after > 0 and sec is not None:
+            src = sec.source()
+            # 1-indexed line_no → 0-indexed slice start at line_no
+            # (i.e., the line *after* the match).  Context keeps ripgrep's
+            # `-` marker — it flags the line as context, not a match, and
+            # `_parse_locus` strips it so the locus still round-trips.
+            for off, ctx in enumerate(src[line_no:line_no + n_after], start=1):
+                ctx_no = line_no + off
+                print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
+
+
+def cmd_callees(sections: list[TheorySection], name: str,
+                flags: 'CmdFlags') -> None:
+    """Entry-level forward edge: the entries this entry references in
+    its proof body (its callees).  Pairs with `cmd_callers` (reverse).
+    Not to be confused with the theory-level `deps` / `uses` pair."""
+    graph = _build_call_graph(sections, flags.drop_names_upto)
+    if name not in graph.all_names:
+        parent = _resolve_conjunct(sections, name)
+        if parent is not None:
+            print(f"# '{name}' is a named conjunct of {parent}; "
+                  f"reporting {parent}'s callees (shared proof body).")
+            name = parent
+        else:
+            print(f"'{name}' not found in the entry index.")
+            return
+
+    if flags.recursive:
+        reachable = _bfs_depths(lambda n: graph.callees.get(n, set()), {name})
+        reachable.pop(name, None)
+        _render_graph_results(sections, reachable, "dependency", name, flags)
+        return
+
+    by_name = _entry_by_name(sections)
+
+    used = graph.callees.get(name, set())
+    if flags.external:
+        # Mirror of `callers --external`: drop callees defined in NAME's
+        # own theory, leaving only its cross-theory dependencies.
+        own_theory = by_name.get(name, (None,))[0]
+        used = {u for u in used
+                if by_name.get(u, (None,))[0] != own_theory}
+    if flags.mode == "count":
+        print(len(used))
+        return
+    if not used:
+        scope = "cross-theory " if flags.external else ""
+        print(f"No {scope}references found in {name}'s body.")
+        return
+
+    print(f"{len(used)} callee(s) of {name}:\n")
+    for uname in sorted(used):
+        if uname in by_name:
+            thy, e = by_name[uname]
+            print(f"  {uname} ({e.tag}) — {thy} [L{e.thy_line}]")
+        else:
+            print(f"  {uname}")
+
+
+def cmd_methods(sections: list[TheorySection], name: str | None,
+                flags: 'CmdFlags') -> None:
+    """Proof-method usage, the complement of the citation graph.
+
+    ``methods``         — ranked tally of every proof method used, with
+                          occurrence counts and corpus share (``-a`` for the
+                          full list, ``--names`` for names only, ``-c`` for the
+                          distinct-method count).
+    ``methods NAME``    — every live use of method NAME with its location and
+                          owning entry (the method analogue of ``callers``).
+    """
+    counts, located = _scan_methods(sections, only=name)
+
+    if name is None:
+        if flags.mode == "count":
+            print(len(counts))           # number of distinct methods used
+            return
+        if not counts:
+            print("No proof-method uses found.")
+            return
+        ranked = counts.most_common()
+        if flags.mode == "names":
+            for meth, _c in ranked:
+                print(meth)
+            return
+        total = sum(counts.values())
+        shown = ranked if flags.mode == "all" else ranked[:30]
+        suffix = "" if flags.mode == "all" else f" (top {len(shown)})"
+        print(f"{len(counts)} proof methods used across {total} "
+              f"by/apply/proof introducers{suffix}:\n")
+        name_w = max(len(m) for m, _ in shown)
+        for meth, c in shown:
+            print(f"  {meth:<{name_w}}  {c:>8}  {100.0 * c / total:5.1f}%")
+        if flags.mode != "all" and len(ranked) > len(shown):
+            print(f"\n  ... {len(ranked) - len(shown)} more methods "
+                  f"(use -a for all, or `methods NAME` for uses)")
+        return
+
+    # Located form: `methods NAME`.
+    if name not in graph._PROOF_METHODS:
+        print(f"'{name}' is not a known proof method "
+              f"(not in the resolved proof-method namespace).  Try `methods` "
+              f"for the list of methods actually used.")
+        return
+    if flags.mode == "count":
+        print(len(located))
+        return
+    if not located:
+        print(f"No uses of method '{name}' found.")
+        return
+    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in located), default=0)
+    if flags.mode == "names":
+        for theory, ln, owner, _text in located:
+            print(f"  {f'{theory}:{ln}':<{loc_w}}  {_owner_field(owner)}")
+        return
+    print(f"{len(located)} use(s) of method '{name}':\n")
+    for theory, ln, owner, text in located:
+        loc = f"{theory}:{ln}"
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner)}  {text.strip()}")
+
+
+def _compute_unused(graph: CallGraph,
+                    keep: set[str] | None = None) -> set[str]:
+    """Entries with zero callers (directly unused).
+
+    Names in `keep` are treated as live roots — never flagged as unused
+    regardless of caller count.  Use this to exclude top-of-pyramid
+    theorems (e.g. AFP-headline statements) which legitimately have
+    zero callers in the project but should not be pruned.
+    """
+    keep = keep or set()
+    return {n for n in graph.all_names
+            if n not in keep and not graph.callers.get(n, set())}
+
+
+def _compute_unused_recursive(graph: CallGraph,
+                              keep: set[str] | None = None
+                              ) -> dict[str, int]:
+    """Fixed-point cascade: an entry is unused if all its callers are unused.
+
+    Names in `keep` are treated as live roots — never flagged, and
+    entries whose callers include a kept name stay live too (the
+    cascade stops at the live frontier).
+
+    Returns {name: depth} where depth 0 = directly unused (zero callers),
+    depth 1 = became unused when depth-0 entries are removed, etc.
+    """
+    keep = keep or set()
+    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph, keep)}
+    changed = True
+    depth = 1
+    while changed:
+        changed = False
+        for name in graph.all_names - set(unused) - keep:
+            callers = graph.callers.get(name, set())
+            if callers and callers <= set(unused):
+                unused[name] = depth
+                changed = True
+        depth += 1
+    return unused
+
+
+def _compute_forest(graph: CallGraph,
+                    sections: list[TheorySection],
+                    keep: set[str] | None = None
+                    ) -> list[tuple[str, int, int, int, int]]:
+    """Compute the forest of unused roots with exclusive subtree sizes.
+
+    For each root (zero callers, modulo `keep`), compute:
+    - total cone: all entries transitively reachable via callees
+    - exclusive subtree: entries reachable ONLY from this root
+
+    Names in `keep` are treated as live and excluded from the root
+    set; their support cones don't contribute to the forest.
+
+    Returns list of (root_name, exclusive_entries, exclusive_lines,
+    total_entries, total_lines) sorted by exclusive_lines descending.
+    """
+    roots = _compute_unused(graph, keep)
+    keep = keep or set()
+
+    # For each entry, compute the set of roots that can reach it.
+    # An entry is "exclusive" to a root iff its root-set is exactly
+    # {root}.  Include kept (live) roots in the seed so that entries
+    # shared between an unused root and a live root are NOT counted
+    # as exclusive to the unused root — those would survive a prune.
+    #
+    # Fixed-point iteration:
+    #   root_set(X) = {X}                            if X is a root
+    #               = union(root_set(c) for c in callers(X))   else
+    #
+    # A single-pass BFS is INCORRECT here: a node's root-set must
+    # accumulate from ALL its callers, but BFS-via-callees visits each
+    # node once at first discovery, missing later-discovered caller
+    # contributions.  The DAG (no cycles, per Isabelle theory order)
+    # makes fixed-point iteration converge in O(longest-caller-chain)
+    # passes.
+    all_roots = roots | keep
+    root_sets: dict[str, set[str]] = {r: {r} for r in all_roots}
+
+    changed = True
+    while changed:
+        changed = False
+        for name in graph.all_names:
+            if name in all_roots:
+                continue
+            new_rset: set[str] = set()
+            for c in graph.callers.get(name, set()):
+                new_rset |= root_sets.get(c, set())
+            if not new_rset:
+                continue
+            if root_sets.get(name) != new_rset:
+                root_sets[name] = new_rset
+                changed = True
+
+    # Entry line-size lookup.
+    entry_lines: dict[str, int] = {}
+    for sec in sections:
+        for e in sec.entries:
+            if e.name in graph.all_names and e.name not in entry_lines:
+                entry_lines[e.name] = e.line_count
+
+    # For each root, compute exclusive entries (reachable only from it).
+    # Total cone = all entries whose root-set includes this root.
+    result: list[tuple[str, int, int, int, int]] = []
+    for root in sorted(roots):
+        exclusive_entries = 0
+        exclusive_lines = 0
+        total_entries = 0
+        total_lines = 0
+        for name, rset in root_sets.items():
+            if root in rset:
+                sz = entry_lines.get(name, 0)
+                total_entries += 1
+                total_lines += sz
+                if len(rset) == 1:
+                    exclusive_entries += 1
+                    exclusive_lines += sz
+        result.append((root, exclusive_entries, exclusive_lines,
+                        total_entries, total_lines))
+
+    result.sort(key=lambda x: -x[2])  # by exclusive lines desc
+    return result
+
+
+def _render_unused(entries: list[tuple[str, Entry, int]],
+                   flags: 'CmdFlags', recursive: bool) -> None:
+    """Shared rendering for unused and unused -r."""
+    if not entries:
+        print("No unused entries found.")
+        return
+
+    label = "transitively unused" if recursive else "unused"
+    total = len(entries)
+
+    if flags.mode == "count":
+        print(total)
+        return
+
+    if flags.by_theory:
+        theory_entries: dict[str, list[tuple[Entry, int]]] = {}
+        for theory, e, depth in entries:
+            theory_entries.setdefault(theory, []).append((e, depth))
+        counts = Counter({t: len(es) for t, es in theory_entries.items()})
+        total_lines = sum(
+            e.line_count for es in theory_entries.values()
+            for e, _ in es if e.thy_line > 0)
+        print(f"{total} {label} entries across {len(theory_entries)} theories "
+              f"({total_lines} source lines):\n")
+        for theory, count in counts.most_common():
+            tes = theory_entries[theory]
+            lines = sum(e.line_count for e, _ in tes
+                        if e.thy_line > 0)
+            names = ", ".join(e.name for e, _ in tes[:4])
+            if len(tes) > 4:
+                names += f", ... (+{len(tes) - 4})"
+            print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
+        return
+
+    if recursive:
+        direct = sum(1 for _, _, d in entries if d == 0)
+        cascade = total - direct
+        total_lines = sum(
+            e.line_count for _, e, _ in entries
+            if e.thy_line > 0)
+        print(f"{total} {label} entries "
+              f"({direct} direct + {cascade} cascading, "
+              f"{total_lines} source lines):\n")
+    else:
+        print(f"{total} unused entries (zero callers):\n")
+
+    print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
+    for theory, e, depth in entries:
+        size = e.line_count
+        depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
+        print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
+              f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}")
+
+
+def _render_forest(sections: list[TheorySection],
+                   forest: list[tuple[str, int, int, int, int]],
+                   flags: 'CmdFlags') -> None:
+    """Render the forest root summary."""
+    if not forest:
+        print("No unused roots found.")
+        return
+
+    # Entry lookup for theory.
+    by_name = _entry_by_name(sections)
+
+    if flags.mode == "count":
+        print(len(forest))
+        return
+
+    print(f"{len(forest)} unused roots:\n")
+    print(f"  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
+          f"{'Total':>5s}  {'Lines':>6s}  Theory")
+    print(f"  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
+          f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
+    for root, ee, el, te, tl in forest:
+        thy = by_name[root][0] if root in by_name else "?"
+        print(f"  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  {tl:>6d}  {thy}")
+
+
+def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
+    """List entries with zero callers in proof bodies."""
+    # `derived=True` here and nowhere else.  The call graph is over FACTS, and
+    # `foo_def` is a different fact from `foo` — `test_substring_is_not_a_call`
+    # pins exactly that, and `callers foo` keeps meaning `foo`.  Deadness, though,
+    # is a question about the DECLARATION: deleting `definition foo` breaks every
+    # proof citing `foo_def`, so such a proof keeps `foo` alive.  Asking the
+    # fact-level question here would report live definitions as dead.
+    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True)
+
+    keep = set(flags.keep)
+    if keep:
+        unknown = keep - graph.all_names
+        if unknown:
+            print(f"warning: --keep names not found in call graph: "
+                  f"{', '.join(sorted(unknown))}", file=sys.stderr)
+
+    if flags.roots:
+        forest = _compute_forest(graph, sections, keep)
+        _render_forest(sections, forest, flags)
+        return
+
+    if flags.recursive:
+        unused_map = _compute_unused_recursive(graph, keep)
+    else:
+        unused_map = {n: 0 for n in _compute_unused(graph, keep)}
+
+    unused_entries: list[tuple[str, Entry, int]] = []
+    for sec in sections:
+        for e in sec.entries:
+            if e.tag in _CITABLE_TAGS and e.name != "?":
+                if e.name in unused_map:
+                    unused_entries.append((sec.theory, e, unused_map[e.name]))
+
+    _render_unused(unused_entries, flags, flags.recursive)
+
+
+def _grep_sections(sections: list[TheorySection], pat: re.Pattern
+                   ) -> list[tuple[str, int, str, "Entry | None", bool, bool]]:
+    """Walk every section's source and return one tuple per line that
+    matches `pat`.  Each tuple is (loc_name, line_no, line_text,
+    owning_entry, is_live, is_thy), where loc_name is the file's real
+    name (e.g. `Foo.thy`, `notes.md`) so plain non-`.thy`
+    positionals report their actual filename rather than `<stem>.thy`.
+    `is_thy` is False for non-`.thy` positionals (Markdown / prose),
+    which have no Isabelle entries and hence no owning-entry column —
+    `cmd_grep` shows the matched line text directly for those.
+
+    is_live = True iff the line is genuine proof / declaration source —
+    not inside a top-level `text \\<open>...\\<close>` block, not inside
+    a per-entry preamble (a small text block attached to a following
+    declaration), and not inside a multi-line `\\<comment>
+    \\<open>...\\<close>` annotation.
+
+    owning_entry is the lemma/theorem/definition whose span contains the
+    matching line, via binary-search lookup (None if the line is outside
+    any indexed entry — e.g. between top-level declarations).
+    """
+    line_index = _build_line_index(sections)
+    out: list[tuple[str, int, str, Entry | None, bool, bool]] = []
+    for sec in sections:
+        lines = sec.source()
+        noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
+        idx = line_index.get(sec.theory, [])
+        # Resolve the line window once: no window → the whole file; an open
+        # upper bound (`PATH:A..`) → this section's last line (the sink the
+        # range parser defers a `None` upper to).  With no window the bounds
+        # span the file, so the per-line test needs no separate None-guard.
+        window = sec.line_window
+        win_lo, win_hi = window if window is not None else (1, len(lines))
+        if win_hi is None:
+            win_hi = len(lines)
+        for line_no_0, line in enumerate(lines):
+            line_no = line_no_0 + 1
+            if not (win_lo <= line_no <= win_hi):
+                continue
+            if not pat.search(line):
+                continue
+            is_live = not any(line_no in r for r in noise)
+            owner = _entry_at_line(idx, line_no)
+            out.append((sec.path.name, line_no, line.rstrip(), owner,
+                        is_live, sec.is_thy))
+    return out
+
+
+def cmd_grep(sections: list[TheorySection], pattern: str,
+             flags: 'CmdFlags') -> None:
+    """Regex-search live source across all theories.
+
+    Default: only matches in live source (declarations + proof bodies),
+    skipping `text \\<open>...\\<close>` blocks, per-entry preambles, and
+    multi-line `\\<comment> \\<open>...\\<close>` annotations.  Use
+    `--with-comments` to also include prose matches; each non-live hit is
+    tagged.
+
+    Pattern accepts both Python regex syntax (`a|b|c`) and shell-grep-
+    style alternation (`a\\|b\\|c`); the latter is rewritten to the
+    former before compiling, mirroring `cmd_find`'s behaviour.
+    """
+    pattern = pattern.replace(r"\|", "|")
+    try:
+        pat = re.compile(pattern)
+    except re.error as exc:
+        print(f"ERROR: invalid regex '{pattern}': {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    all_hits = _grep_sections(sections, pat)
+    live_hits = [h for h in all_hits if h[4]]
+    dead_hits = [h for h in all_hits if not h[4]]
+    hits = all_hits if flags.with_comments else live_hits
+
+    if flags.mode == "count":
+        print(len(all_hits) if flags.with_comments else len(live_hits))
+        return
+
+    if not hits:
+        print(f"No {'' if flags.with_comments else 'live '}"
+              f"matches for '{pattern}'.")
+        return
+
+    if flags.with_comments:
+        print(f"{len(all_hits)} match(es) for '{pattern}' "
+              f"({len(live_hits)} live, "
+              f"{len(dead_hits)} in comments/text):\n")
+    else:
+        print(f"{len(live_hits)} live match(es) for '{pattern}':\n")
+
+    if flags.mode == "names":
+        # Compact: location + owning entry, no source line.  For a
+        # non-`.thy` positional there is no owning entry, so names mode
+        # would be content-free — fall back to the matched line text.
+        loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
+        for loc_name, ln, text, owner, is_live, is_thy in hits:
+            loc = f"{loc_name}:{ln}"
+            marker = "" if is_live else "  [in comment/text]"
+            if not is_thy:
+                print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
+                continue
+            print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}{marker}")
+        return
+
+    # Default: location + owning entry + matched line text.  Non-`.thy`
+    # positionals have no entry column — show the line inline on one row.
+    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
+    for loc_name, ln, text, owner, is_live, is_thy in hits:
+        loc = f"{loc_name}:{ln}"
+        marker = "" if is_live else "  [in comment/text]"
+        if not is_thy:
+            print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
+            continue
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}{marker}")
+        print(f"    {text.strip()}")
+
+
+def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
+    r"""List open goals: every live `sorry` as its location + owning entry.
+
+    A thin specialisation of `grep` over the fixed `sorry` token, sharing
+    the same `_grep_sections` engine.  Two refinements over a bare
+    `grep '\bsorry\b'`: the boundary is prime-aware (`_isa_word_pattern`,
+    so the identifier `sorry'` is not a false hit, unlike Python's `\b`),
+    and only *live* matches count (a `sorry` inside a `text` / `\<comment>`
+    block is not an open goal).  Replaces both the count-only
+    `grep -c '\bsorry\b'` idiom and the shell sorry-counter formerly in
+    `count-axioms.sh`.  `-c` prints the bare count (build-summary form);
+    otherwise prints `FILE:LINE  entry (TAG)` per goal then a total.
+    """
+    pat = re.compile(_isa_word_pattern("sorry"))
+    hits = [h for h in _grep_sections(sections, pat) if h[4]]
+    if count_only:
+        print(len(hits))
+        return
+    if not hits:
+        print("No sorries.")
+        return
+    loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
+    for loc_name, ln, _text, owner, _live, _is_thy in hits:
+        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {_owner_field(owner, span=False)}")
+    print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
+
+
+def _parse_line_range(spec: str) -> tuple[int, int | None]:
+    """Parse `A..B`, `A..` (to EOF), `..B` (from line 1), or `A` into an
+    inclusive (start, end) pair.  Raises ValueError on malformed input.
+
+    An *open upper* bound (`A..`) comes back as ``end is None``: this parser
+    holds no file, so "to EOF" can only be resolved by the caller that knows
+    the source length.  An open *lower* bound (`..B`) needs no sentinel —
+    the start of a file is always line 1 — so it resolves right here.  Every
+    range surface (`lines`, the `enclosing`/grep `FILE:A..B` locus) funnels
+    through this one split, so the open forms light up everywhere at once;
+    each sink substitutes its own length for a `None` upper bound.
+    """
+    if ".." in spec:
+        a_str, b_str = spec.split("..", 1)
+        a = 1 if a_str == "" else int(a_str)
+        b = None if b_str == "" else int(b_str)
+    else:
+        a = b = int(spec)
+    if a < 1 or (b is not None and b < a):
+        raise ValueError(f"invalid range '{spec}': require 1 <= start <= end")
+    return a, b
+
+
+# The PATH sentinel `-` means "read from standard input".  A piped stream
+# has no on-disk path, so stdin content is carried on this synthetic one;
+# its `.name` (`<stdin>`) is what `grep`/`sorry` print as the location.
+_STDIN_SENTINEL = "-"
+_STDIN_NAME = "<stdin>"
+_STDIN_PATH = Path(_STDIN_NAME)
+
+
+def _read_stdin_lines() -> list[str]:
+    """Read **all** of standard input as a list of lines (the `-` sentinel).
+
+    The whole stream is consumed up front and then numbered from 1, so a
+    caller's `A..B` ranges line up with the piped content's own numbering:
+    `git show REF:FILE | query lines - A..B` sees exactly the line numbers
+    `FILE` had at `REF`.  (The anchor is lost only if the *producer* slices
+    before piping — reading the whole stream here never does.)
+    """
+    return sys.stdin.read().splitlines()
+
+
+def cmd_lines(source_lines: list[str], ranges: list[str]) -> None:
+    """Print the given RANGEs of `source_lines` with `NR| CONTENT` prefix.
+
+    Sandbox-friendly alternative to `awk 'NR>=A && NR<=B {…}'` loops;
+    multiple ranges separated by blank lines (rg-style `--` separators
+    between hunks).  Width of the line-number column adapts to the
+    largest line number requested.
+
+    `lines` is *ignore-syntax* (raw text, no theory parsing), so it takes
+    already-read content rather than a path: token routing — path, the `-`
+    stdin sentinel, or a bare theory name — is the caller's job, done once
+    through the shared `_resolve_file_source` (see `_run_lines`).  Because
+    the whole source is handed over un-sliced, the printed `NR` matches the
+    source's own 1-based numbering.
+    """
+    try:
+        parsed = [_parse_line_range(r) for r in ranges]
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(2)
+    n_lines = len(source_lines)
+    # Resolve an open upper bound (`A..`) to the last line now that the length
+    # is known — this is the sink the parser defers a `None` upper to.  Carry
+    # the open-ness so a diagnostic echoes the spec the user typed (`A..`,
+    # not `A..<n_lines>`).
+    resolved = [(a, n_lines if b is None else b, b is None) for a, b in parsed]
+    max_no = max((b for _, b, _ in resolved), default=1)
+    width = len(str(min(max_no, n_lines)))
+    for i, (a, b, open_end) in enumerate(resolved):
+        if i > 0:
+            print("--")
+        disp = f"{a}.." if open_end else f"{a}..{b}"
+        a_clamped = max(1, a)
+        b_clamped = min(n_lines, b)
+        if a_clamped > n_lines:
+            print(f"# range {disp}: past end of file ({n_lines} lines)",
+                  file=sys.stderr)
+            continue
+        for nr in range(a_clamped, b_clamped + 1):
+            print(f"{nr:>{width}}| {source_lines[nr - 1]}")
+        if b > n_lines:
+            print(f"# range {disp}: truncated at line {n_lines}",
+                  file=sys.stderr)
+
+
+def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
+    # Theory/file scoping is handled upstream by `_load_sections` (the `files`
+    # positionals); here we just rank whatever sections we were handed.
+    rows: list[tuple[int, Entry, TheorySection]] = []
+    for s in sections:
+        for e in s.entries:
+            if e.thy_line > 0:
+                rows.append((e.line_count, e, s))
+
+    rows.sort(key=lambda x: -x[0])
+
+    if not rows:
+        print("No entries found.")
+        return
+
+    print(f"Top {min(top, len(rows))} largest entries:\n")
+    print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
+    for size, e, s in rows[:top]:
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.src_start}..{e.thy_end})")

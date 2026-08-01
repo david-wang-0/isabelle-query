@@ -52,10 +52,10 @@ former entry, **name on a following line**, is now handled — see the
 ## Run the corpus-scale checks
 
 `tests/test_corpus.py` is skipped unless you point it at a tree of `.thy` files
-(an AFP checkout, or your `ndtht/afp/thys`):
+(an AFP checkout, e.g. your local `afp/thys`):
 
 ```sh
-ISABELLE_QUERY_CORPUS=../ndtht/afp/thys python -m unittest tests.test_corpus -v
+ISABELLE_QUERY_CORPUS=~/repos/afp/thys python -m unittest tests.test_corpus -v
 ```
 
 It mirrors `load_index`: it scans every header into the custom-command union

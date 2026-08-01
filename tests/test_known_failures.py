@@ -6,7 +6,7 @@ improved to handle a case, unittest reports an "unexpected success" — a built-
 prompt to delete the marker.  This turns the intricate AFP analysis behind these
 gaps into an executable to-do list toward 100% coverage.
 
-Frequencies are approximate counts over ndtht/afp/thys (~360k entries) at the
+Frequencies are approximate counts over an AFP checkout (~360k entries) at the
 time of writing; see the call-graph/parser commits for the full analysis.
 
 What is *not* here (because it is correct, not a gap): genuinely anonymous

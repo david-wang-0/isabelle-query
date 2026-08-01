@@ -13,7 +13,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from support import cli, section_from  # noqa: E402
+from support import cli, needs_hol_methods, section_from  # noqa: E402
 
 
 def scan(snippet, only=None):
@@ -21,6 +21,7 @@ def scan(snippet, only=None):
 
 
 class ScanMethods(unittest.TestCase):
+    @needs_hol_methods
     def test_introducer_forms_are_counted(self):
         # by / apply / proof, bare and parenthesised
         snippet = r'''theory T imports Main begin
@@ -36,6 +37,21 @@ end
         self.assertEqual(counts["induct"], 1)
         self.assertEqual(counts["blast"], 1)
 
+    @needs_hol_methods
+    def test_induction_method_is_recognised(self):
+        # `induction` (the modern goal-consuming twin of `induct`) is registered
+        # via the `Induct.gen_induct_setup` factory; the namespace extractor now
+        # matches that helper, so its uses are counted here and carry a
+        # `Step.method` — not silently dropped.
+        snippet = r'''theory T imports Main begin
+lemma a: "P" by (induction xs arbitrary: ys)
+lemma b: "Q" proof (induction n) qed
+end
+'''
+        counts, _ = scan(snippet)
+        self.assertEqual(counts["induction"], 2)
+
+    @needs_hol_methods
     def test_method_name_as_a_variable_is_not_counted(self):
         # `N` and `order` are in the method namespace but here they are term
         # variables/constants in the *statement*, never after by/apply/proof.
@@ -52,6 +68,7 @@ end
         self.assertNotIn("N", counts)
         self.assertNotIn("order", counts)
 
+    @needs_hol_methods
     def test_combinator_tail_is_undercounted_not_miscounted(self):
         # documented trade-off: only the *initial* method of an introducer is
         # counted, so the trailing `auto` of `by (induct x) auto` is missed.
@@ -64,6 +81,7 @@ end
         self.assertEqual(counts["induct"], 1)
         self.assertNotIn("auto", counts)
 
+    @needs_hol_methods
     def test_prose_and_comments_are_skipped(self):
         # an `apply simp` mentioned in a text block / preamble is prose, not a
         # method use — the live-source filter excludes it.

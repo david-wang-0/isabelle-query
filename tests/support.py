@@ -12,10 +12,12 @@ pinning it to the oracle on fixtures guards against the fast path silently
 drifting from the slow-but-clearly-correct one.
 """
 
+import functools
 import os
 import re
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
@@ -23,6 +25,47 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from isabelle_query import cli  # noqa: E402
+from isabelle_query import _namespace_resolve as _nsr  # noqa: E402
+from isabelle_query import graph  # noqa: E402
+
+
+# The shipped committed table is the minimal Pure core; HOL's auto / blast /
+# induct / induction are NOT in it (they are resolved per-session at runtime).
+# So a test that asserts on the recognition of HOL proof methods validates
+# against a runtime-resolved HOL table when Isabelle can supply one, and is
+# skipped — never failed — otherwise, so the suite stays green on a bare
+# no-Isabelle CI while still exercising the real table on a developer machine.
+_HOL_TABLE_CACHE: list = []
+
+
+def _hol_table():
+    """The HOL method/attribute table from Isabelle, or ``None`` if unavailable.
+    Resolved at most once per process (``auto``'s presence distinguishes a real
+    HOL dump from the Pure fallback)."""
+    if not _HOL_TABLE_CACHE:
+        r = _nsr.resolve_namespace("HOL")
+        _HOL_TABLE_CACHE.append(r if "auto" in r["methods"] else None)
+    return _HOL_TABLE_CACHE[0]
+
+
+def needs_hol_methods(test_fn):
+    """Bind the runtime HOL proof-method table for the wrapped test (restoring
+    the shipped default after), or ``skipTest`` when Isabelle cannot supply it.
+
+    For the handful of tests about recognising HOL methods (auto/blast/induct),
+    which the minimal shipped Pure table deliberately does not carry."""
+    @functools.wraps(test_fn)
+    def wrapper(self, *args, **kwargs):
+        table = _hol_table()
+        if table is None:
+            self.skipTest("HOL proof-method table unavailable — no Isabelle / "
+                          "HOL heap (the shipped table is the minimal Pure core)")
+        saved = (graph._PROOF_METHODS, graph._ATTRIBUTES, graph._KEYWORDS)
+        self.addCleanup(lambda: graph.configure_namespace(*saved))
+        graph.configure_namespace(table["methods"], table["attributes"],
+                                  graph._KEYWORDS)
+        return test_fn(self, *args, **kwargs)
+    return wrapper
 
 
 def section_from(snippet, theory="Test"):
@@ -59,7 +102,8 @@ def tags_by_name(section):
 _ANTIQ_RE = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
 
 
-def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO):
+def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
+                           derived=False):
     """Reference O(lines x names) call-graph builder used as a test oracle.
 
     Mirrors ``cli._build_call_graph`` semantics (text-block skip,
@@ -67,10 +111,18 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO):
     via the naive per-name boundary search rather than tokenisation.
     ``drop_upto`` is forwarded to ``cli._is_citation_name`` exactly as the
     fast builder forwards it, so the two stay in parity at any threshold.
+
+    ``derived`` mirrors the fast builder likewise: with it set, Isabelle's
+    definitional spellings (``foo_def``, ``foo_defs``) count as citations of
+    ``foo`` unless that spelling is itself an indexed entry.
     """
     name_set = {e.name for s in sections for e in s.entries
                 if e.tag in cli._CITABLE_TAGS
                 and e.name != "?" and cli._is_citation_name(e.name, drop_upto)}
+    # Spellings searched for each name: itself, plus its derived forms.
+    spellings = {n: [n] + ([s for s in (n + "_def", n + "_defs")
+                            if s not in name_set] if derived else [])
+                 for n in name_set}
     def_sites = cli._build_def_sites(sections, name_set)
     text_ranges = cli._noise_ranges(sections)
     line_index = cli._build_line_index(sections)
@@ -87,15 +139,18 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO):
                 continue
             stripped = _ANTIQ_RE.sub("", line)
             for name in name_set:
-                if name not in stripped:
-                    continue
-                if not re.search(cli._isa_word_pattern(name), stripped):
+                if not any(sp in stripped
+                           and re.search(cli._isa_word_pattern(sp), stripped)
+                           for sp in spellings[name]):
                     continue
                 if any(line_no in r for r in d_map.get(name, set())):
                     continue
                 ce = cli._entry_at_line(idx, line_no)
-                if ce is None or ce.name == "?":
+                if ce is not None and ce.name == "?":
                     continue
-                callers[name].add(ce.name)
-                callees.setdefault(ce.name, set()).add(name)
+                # An entryless citation is a top-level command (`instance`,
+                # `lemmas`, `export_code`): a real use with no owning entry.
+                caller = ce.name if ce is not None else f"{sec.theory}:<toplevel>"
+                callers[name].add(caller)
+                callees.setdefault(caller, set()).add(name)
     return cli.CallGraph(callers=callers, callees=callees, all_names=name_set)

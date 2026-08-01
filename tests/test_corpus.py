@@ -1,6 +1,6 @@
 """Corpus-scale robustness checks — skipped unless ``ISABELLE_QUERY_CORPUS``
-points at a directory tree of ``.thy`` files (e.g. an AFP checkout or your
-ndtht/afp/thys).  These are the "intricate" tests: they re-run the full-tree
+points at a directory tree of ``.thy`` files (e.g. an AFP checkout).
+These are the "intricate" tests: they re-run the full-tree
 measurements that motivated the parser and call-graph work.
 
     ISABELLE_QUERY_CORPUS=/path/to/afp/thys python -m unittest tests.test_corpus

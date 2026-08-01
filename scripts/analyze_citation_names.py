@@ -19,7 +19,7 @@ WHY THIS EXISTS
 USAGE
     python3 scripts/analyze_citation_names.py [--root DIR] [--top N]
 
-    Defaults: --root from $ISABELLE_QUERY_ROOT, else ~/projects/ndtht/afp/thys.
+    Defaults: --root from $ISABELLE_QUERY_ROOT, else ~/repos/afp/thys.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=os.environ.get(
         "ISABELLE_QUERY_ROOT",
-        str(Path.home() / "projects" / "ndtht" / "afp" / "thys")),
+        str(Path.home() / "repos" / "afp" / "thys")),
         help="Isabelle session dir to analyse (the call-graph corpus).")
     ap.add_argument("--top", type=int, default=25,
                     help="how many hubs to list per section (default 25)")
