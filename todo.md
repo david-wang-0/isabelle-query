@@ -61,7 +61,31 @@ referencing in commits/PRs.
       content already degrades gracefully (every line reads as live, so all
       matches still show; only the owner column goes `—`).
 
-- [ ] `[graph-export]` Machine-readable export of the reference graph
+- [ ] `[grep-n-noop]` **(regression)** Restore `-n` as a silent no-op on
+      `grep` (and any other verb that is a natural target of grep muscle
+      memory).  Currently `query grep -n PAT FILE` dies with
+      `error: unrecognized arguments: -n` and a usage dump.  `-n` is a real
+      flag *elsewhere* in `query` (the `-n`/`--names` overload — see the
+      `[feature-audit]` note), so grep can't make `-n` *mean* line-numbers;
+      the fix is to **swallow** it (accept-and-ignore) so the ingrained
+      `grep -n` reflex doesn't error.  Why it matters beyond cosmetics: an
+      LLM caller (and humans) read the argparse error as "query grep is the
+      wrong tool" and **fall back to raw `grep`/`rg`**, which is exactly the
+      substitution `query` exists to prevent — the error actively
+      de-reinforces adoption.  `grep` already prints `path:line` locations,
+      so `-n` is redundant there anyway.  This was previously a deliberate
+      no-op and appears to have regressed; re-add it (and a
+      `tests/test_cli_parser.py` case pinning `grep -n` = `grep`).
+      Considered alternative (rejected): *don't print line numbers by
+      default, let `-n` turn them on* (grep-faithful).  Rejected because the
+      line isn't a grep-`-n` prefix here — it's the `theory.thy:LINE  owner`
+      **locus**, load-bearing for navigation and the `theory:line`
+      round-trip (`enclosing`/`at`/`lines`; see `[disambig-names]`).
+      Dropping it by default is a functional regression, and the always-on
+      locus is *why* the no-op works: swallowing `-n` already yields the
+      line the reflex wanted.  The genuine tension — global `-n` = `--names`
+      vs grep-brain `-n` = line-numbers — belongs to the `[feature-audit]`
+      `-n`/`--names` overload question, not to a grep default change.
       (`callers`/`callees` adjacency) and the import graph
       (`deps`/`uses`) as `--json` and/or DOT, for piping into `jq`,
       Graphviz, or external analysis.  Lowest effort of the open items —
@@ -108,12 +132,12 @@ referencing in commits/PRs.
       theory-entry graph.  As an Isabelle/Isar project accretes design
       docs, you periodically need to know which docs are stale
       (last-touched, commit churn) and which are actually referenced — and
-      critically, *from where*.  Load-bearing lesson (NDTHT
-      `insights/155`): a doc's real coupling often lives **outside the
+      critically, *from where*.  Load-bearing lesson: a doc's real
+      coupling often lives **outside the
       prose** — a `ROOT` description, a `.thy` `\<comment>`, a sibling
       test-harness's relative link — so a markdown-only "who cites this?"
       scan undercounts; the citer scan must span the whole tracked tree.
-      Concrete prototype: `ndtht:bin/doc-audit.py` — two modes, a per-file
+      Concrete prototype: a `doc-audit.py` — two modes, a per-file
       table (LASTCOMMIT / commit-count / lines / REF-A [cites from the
       active steering docs] / REF-ALL [cites anywhere in the tree]) and a
       `--refs FILE` location dump (`path:line`).
@@ -129,6 +153,25 @@ referencing in commits/PRs.
       (citation rollup) but over a different node set (files, not
       entries).  Record the need; don't build until the scope call is
       made.
+
+- [ ] `[find-conjunction]` Conjunctive multi-pattern on `find` (esp.
+      `find --statement`).  Today multiple `PATTERN`s run as **separate**
+      searches ("run each search in turn, blank-line separated") — an OR /
+      one-report-per-pattern.  The common find_theorems-style query is the
+      **AND**: "the entry whose statement mentions *all* of these."  Real
+      episode: hunting a length lemma in a large proof corpus,
+      `query find --statement 'length' 'encode_entry'` is useless — pattern
+      1 alone returns ~180 hits (every `length` in the corpus) — so the
+      user falls back to `query find 'encode' | grep length` or `outline THY
+      | grep`, exactly the pipe-to-grep the tool is meant to replace.
+      Proposal: an `--all`-patterns / `-A` / `--and` flag that keeps only
+      entries matched by **every** PATTERN (intersect the per-pattern hit
+      sets), reported once.  Composes with `--statement` (the high-value
+      case: `find --statement --and 'length' 'encode_entry'` ≈
+      `find_theorems "length _ = _" name:encode`), and with `--names`/`-c`.
+      Keep the current OR default (it's the "run a batch of searches"
+      idiom); `--and` is opt-in.  Small, self-contained; the OR machinery
+      already collects per-pattern sets, so this is a fold + flag.
 
 ## CLI contract (follow when adding or changing commands)
 
@@ -183,8 +226,8 @@ per-command), `_add_drop_names_flag`.
       rule is re-homed; a large section narrative stays put.  Tests:
       `tests/test_src_doc_attribution.py` (preamble ownership, enclosing on a
       doc line → following entry, extent rendering, end-to-end `enclosing`);
-      `scripts/probe_entry_spans.py` for re-verification.  (Filed from the ndtht
-      repo, 2026-06-22, during the AR Forward split.)
+      `scripts/probe_entry_spans.py` for re-verification.  (Filed
+      2026-06-22, during the AR Forward split.)
 
 - [x] `[function-defs]` **Fixed: `function` definitions are indexed as
       entries.**  `function` (a `thy_goal_defn` — defines a constant then proves
@@ -198,7 +241,7 @@ per-command), `_add_drop_names_flag`.
       `inductive` / `inductive_set` were also broken was wrong — those were
       already in `DECL_RE` and index fine (verified, and pinned by a test).
       Tests: `tests/test_names.py::DefinitionalCommands`;
-      `scripts/probe_entry_spans.py`.  (Filed from the ndtht repo, 2026-06-30,
+      `scripts/probe_entry_spans.py`.  (Filed 2026-06-30,
       during the shift-wrap retirement dependency analysis.)
 
 - [x] `[open-ranges]` **Added: open-ended line ranges `A..` (to EOF) and
@@ -228,7 +271,7 @@ per-command), `_add_drop_names_flag`.
       `imports`-clause token, but the section index is keyed by **bare**
       theory name (`{s.theory: s}`), so same-session imports (bare
       `Substrate`) matched while cross-session ones
-      (`"NDTHT_Base.Substrate"`) missed: `deps` tagged them
+      (`"Proj_Base.Substrate"`) missed: `deps` tagged them
       `[out-of-project]` and `uses` *silently dropped* the importer — the
       worse half, since a "collect importers" loop turns a missed match into
       a confident, wrong "No in-project theory imports X".  Fix: a
@@ -250,7 +293,7 @@ per-command), `_add_drop_names_flag`.
       `tests/test_deps_qualified.py` (two-dir fixture — qualified import →
       `[direct]` not `[out-of-project]`, reverse lists the importer, the
       external import stays out-of-project, recursive reaches the qualified
-      child; plus `_resolve_import` unit cases).  (Filed from the ndtht repo,
+      child; plus `_resolve_import` unit cases).  (Filed
       2026-06-13, during the AFP-refactor dependency survey.)
 
 - [x] `[multi-name]` Single-name lookup verbs take a **list**, so a
@@ -299,7 +342,7 @@ per-command), `_add_drop_names_flag`.
       modes on an outer→inner spectrum: `-e/--entry` (entry only, the
       original output), default (nearest/innermost block), `-b/--blocks`
       (full nesting path, entry then each block outer→inner).  Motivated by
-      the NDTHT AR port — a build failure deep in a 588-line proof resolves
+      a large proof port — a build failure deep in a 588-line proof resolves
       to the `have key` block, not just the lemma.
       **How:** a lightweight, on-demand `_proof_blocks` scan of *just* the
       one resolved entry's proof body (no index/Entry bloat) — a stack of

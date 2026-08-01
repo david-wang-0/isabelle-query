@@ -11,5 +11,21 @@ dist/
 venv/
 
 # Editor / OS / agent
-.claude/
+.claude/*
+!.claude/memory/
 .DS_Store
+
+# Reference papers (not distributed with the tool)
+papers/
+
+# End-of-session handoff scratchpad — rewritten each session, survives compaction.
+prompt.md
+
+# Generated data from batch runs — never tracked (regenerable, and bulky).
+data/
+
+# namespace_cache.py prototype scratch cache (QUERY_CACHE_DIR demo target).
+.nscache/
+
+# Scratch file for commit message bodies (see .claude/memory)
+.commit-msg

@@ -1,0 +1,15 @@
+# M3 configuration-type descriptors for AFP corpora (see docs/shape-measures.md M3).  One
+# `[corpus]` table per entry, keyed by AFP entry / theory name.  `constructors`,
+# `selectors`, and `relations` are per-corpus name lists; the `!` list index and
+# `:=` update are universal Isabelle syntax and are always counted.  A corpus
+# with no table here gets frame_ratio = null (recorded as coverage).
+
+[Cook_Levin]
+# config = state \<times> tape list ;  tape = (nat \<Rightarrow> symbol) \<times> nat.
+# Configs are read with the generic tuple projections fst/snd (state vs tapes,
+# and the tape head-function vs head-position), tapes indexed by `!`, and updated
+# by `:=`.  NB: fst/snd are generic, so applicability is broad here — the
+# coverage statistic reflects that Cook_Levin encodes configs as bare tuples
+# rather than a record with dedicated selectors.
+constructors = []
+selectors = ["fst", "snd"]

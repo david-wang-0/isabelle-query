@@ -1,0 +1,21 @@
+# Memory index
+
+- [András Salamon (user)](user-andras-salamon.md) — Isabelle/Isar complexity-theory researcher who builds his own tooling
+- [Authorship credit](authorship-credit.md) — credit "András Salamon, with Claude Opus 4.6, 4.7, and 4.8" on isabelle-query artifacts
+- [isabelle-query correctness approach](isabelle-query-correctness-approach.md) — verify against Isabelle semantics not old behavior; oracle tests + @expectedFailure corner-case catalogue
+- [Small frequent commits](small-frequent-commits.md) — split by concern into small semantically-coherent commits; hunk-split via git apply --cached
+- [No redundant cd](no-redundant-cd.md) — don't cd into the already-current working dir; it trips the permission gate
+- [Scratch files in repo, not /tmp](scratch-files-in-repo-not-tmp.md) — /tmp is permission-gated; write temp/commit-message files in the repo working tree and rm after
+- [Verify AFP size assumptions](verify-afp-size-assumptions.md) — don't assume theory size/shape; check afp-metrics.py (massive, entry-dense theories exist)
+- [Release versioning policy](release-versioning-policy.md) — alpha now: breaking CLI changes ship as patch bumps; switch to major-for-breaking once the CLI settles
+- [Query driven by real usage](query-driven-by-real-usage.md) — an upstream formalization workflow now exercises query in composed ways; real usage drives feature priorities
+- [Bare tool invocation](bare-tool-invocation.md) — run pytest/pip/query by bare name; the project venv is already active
+- [Fix root not workaround](fix-root-not-workaround.md) — fix stale tooling (e.g. reinstall the editable shim) instead of routing around it
+- [Routing vs parse policy](routing-vs-parse-policy.md) — share FILES-token routing across commands; parse mode is a per-command property, extension only evidence for ambiguous grep
+- [Prefer head over sed](prefer-head-over-sed.md) — view file lines with `head -N` (sed is permission-gated); better, use the Read tool
+- [Prefer scripts over inline python](prefer-scripts-over-inline-python.md) — write a script file (scripts/ for probes) instead of piping `python3 -c` to bash; keep them, they're reusable
+- [Reuse query's parser for tooling](reuse-query-parser-for-tooling.md) — corpus/tooling scans reuse `cli._parse_one` + width primitives, don't roll a mini-parser
+- [AFP checkout location](afp-checkout-location.md) — `~/repos/afp` (Isabelle2025-2), thys/ ~962 entries; the width census corpus
+- [Memory tracked in repo](memory-tracked-in-repo.md) — query's memory dir is in-repo at .claude/memory (symlinked from system path), version-controlled; commit changes
+- [Namespace extractor misses induction](namespace-extractor-misses-induction.md) — `induction` registers via the Induct.gen_induct_setup factory not Method.setup; extractor now matches it (fixed at root); regen from the 2025-2 bundle symlink, not ~/repos/isabelle (HEAD)
+- [Reuse infrastructure, don't reinvent](reuse-infrastructure-not-reinvent.md) — the steer is NOT "reduce regex" (regex is often right); it's don't reinvent tables Isabelle/query already own — enumerate methods from a running Isabelle offline, keep the declarative keyword-block scan; runtime stays pure-Python
