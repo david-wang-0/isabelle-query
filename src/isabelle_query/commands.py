@@ -1389,8 +1389,10 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
     is_live = True iff the line is genuine proof / declaration source —
     not inside a top-level `text \\<open>...\\<close>` block, not inside
     a per-entry preamble (a small text block attached to a following
-    declaration), and not inside a multi-line `\\<comment>
-    \\<open>...\\<close>` annotation.
+    declaration), not inside a multi-line `\\<comment>
+    \\<open>...\\<close>` annotation, and not inside one of the lexical
+    non-Isar regions (`(* ... *)`, `\\<^cancel>`, legacy `{* ... *}`
+    verbatim, an ML body — `parsing.extract_nonisar_ranges`).
 
     owning_entry is the lemma/theorem/definition whose span contains the
     matching line, via binary-search lookup (None if the line is outside

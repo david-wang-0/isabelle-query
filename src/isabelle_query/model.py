@@ -90,6 +90,13 @@ class TheorySection:
         # call graph, proof-block drill-down) skips them as non-live source.
         # (Distinct from comment_lines, which records first-line content for the
         # roadmap-attachment feature.)
+    nonisar_ranges: list[tuple[int, int]] = field(default_factory=list)
+        # Lines holding no live Isar text: `(* ... *)` comments (which nest),
+        # `\<^cancel>` regions, legacy `{* ... *}` verbatim, and ML bodies.
+        # Lexical, not grammatical — see `parsing.extract_nonisar_ranges`.
+        # Folded into `_noise_spans` (so no scan reads them as proof text) and
+        # into the span-boundary mask (so a commented-out `end` does not cut
+        # the declaration above it).
     is_thy: bool = True
         # False for a non-`.thy` path passed as a trailing grep positional
         # (e.g. `query grep PAT notes.md`).  Such a section is parsed

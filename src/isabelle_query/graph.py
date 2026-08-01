@@ -98,12 +98,15 @@ def _entry_by_name(sections: list[TheorySection]
 def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
     r"""Inclusive ``[lo, hi]`` line spans of `sec` that are NOT live source:
     top-level ``text``/``text_raw`` blocks, multi-line ``\<comment>``
-    annotations, and per-entry preambles.  The single definition of "prose,
-    not proof" — `grep`, `methods`, the call graph (via `_noise_ranges`), and
-    the proof-block drill-down all skip exactly these lines, so the notion can
-    no longer drift between them.
+    annotations, per-entry preambles, and the lexical non-Isar regions
+    (``(* ... *)`` comments, ``\<^cancel>``, legacy ``{* ... *}`` verbatim and
+    ML bodies — `parsing.extract_nonisar_ranges`).  The single definition of
+    "prose, not proof" — `grep`, `methods`, the call graph (via
+    `_noise_ranges`), and the proof-block drill-down all skip exactly these
+    lines, so the notion can no longer drift between them.
     """
     return (list(sec.text_blocks) + list(sec.comment_ranges)
+            + list(sec.nonisar_ranges)
             + [e.preamble for e in sec.entries if e.preamble])
 
 

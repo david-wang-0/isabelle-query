@@ -606,6 +606,208 @@ def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
     return _scan_balanced_blocks(lines, lambda ln: "\\<comment>" in ln)
 
 
+# Outer-syntax regions that are not Isar proof text, and the commands that
+# introduce them.  These are LEXICAL: the isar-ref manual specifies them
+# completely and a user cannot extend them (unlike the command grammar, which
+# `scan_keywords` reads from each theory header).  A name mentioned inside one
+# is not a fact citation, and a command word inside one is not a command.
+_CART_OPEN = ("\\<open>", "‹")
+_CART_CLOSE = ("\\<close>", "›")
+_CANCEL = "\\<^cancel>"
+# Commands whose body is an ML cartouche.  ML source has its own namespace, so
+# an identifier there never cites an Isabelle fact.
+_ML_BODY_COMMANDS = frozenset({
+    "ML", "ML_prf", "ML_val", "ML_command", "ML_export",
+    "setup", "local_setup", "declaration", "syntax_declaration",
+    "attribute_setup", "method_setup", "simproc_setup", "oracle",
+    "parse_translation", "print_translation", "typed_print_translation",
+    "parse_ast_translation", "print_ast_translation",
+})
+# ML brought in by path rather than by cartouche: no body to redact, but still
+# a command, so it ends the span above it (`_SPAN_BOUNDARY_COMMANDS`).  Kept
+# out of `_ML_BODY_COMMANDS` so it never arms a cartouche it does not own.
+_ML_FILE_COMMANDS = frozenset({
+    "ML_file", "ML_file_debug", "ML_file_no_debug",
+    "SML_file", "SML_export", "SML_import",
+})
+_LEADING_TOKEN_RE = re.compile(r"^\s*([A-Za-z][A-Za-z_0-9']*)")
+# States in which the characters being scanned are not live Isar text.  Note
+# `term` (a live cartouche) is deliberately absent: it is tracked, not redacted.
+_NOISE_STATES = frozenset({"comment", "verbatim", "cartouche"})
+
+# One compiled alternation per state, giving the next position that can change
+# it.  The scan jumps region to region rather than stepping character by
+# character: it runs over every theory on every invocation, so the constant
+# factor is the difference between a free check and a visible one.
+_CANCEL_OPEN_RE = r'\\<\^cancel>\s*(?:\\<open>|‹)'
+# Every token that can change the state, in ONE alternation, so a line costs a
+# single pass of the regex engine and Python-level work only per token found.
+# Order matters: `\\` and `\"` precede `"` so an escaped quote inside a string
+# is consumed rather than read as the closing delimiter, and the `\<^cancel>`
+# form (which swallows its cartouche) precedes the bare `\<open>`.
+_SCAN_RE = re.compile(
+    r'\(\*|\*\)|\{\*|\*\}|\\\\|\\"|"|'
+    + _CANCEL_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
+# Nothing to redact unless one of these appears somewhere in the theory.  Most
+# of the cost is skipped outright on a file with no comment and no ML.
+_ANY_REGION_RE = re.compile(r'\(\*|\{\*|\\<\^cancel>')
+
+
+def _leads_with_ml(line: str) -> bool:
+    """True if `line` opens with a command whose body is an ML cartouche."""
+    m = _LEADING_TOKEN_RE.match(line)
+    return m is not None and m.group(1) in _ML_BODY_COMMANDS
+
+
+def _opens_ml_body(lines: list[str], i: int, pos: int) -> bool:
+    r"""Is the cartouche at ``lines[i][pos]`` an ML command's body?
+
+    Asked only where a cartouche actually opens, rather than tested on every
+    line: the command keyword is what separates an ML body from a term, and
+    cartouche openings are a few thousand per corpus where lines are millions.
+
+    True when the command is on the same line (``ML \<open>``, ``method_setup
+    foo = \<open>``), or when the cartouche starts its own line and the nearest
+    preceding non-blank line is the command (a body written under its keyword).
+    """
+    line = lines[i]
+    if _leads_with_ml(line):
+        return True
+    if line[:pos].strip():
+        return False  # something else on this line owns the cartouche
+    k = i - 1
+    while k >= 0 and not lines[k].strip():
+        k -= 1
+    return k >= 0 and _leads_with_ml(lines[k])
+
+
+def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
+    r"""Per-line ``[(start_col, end_col)]`` half-open character spans that are
+    NOT live Isar text: ``(* ... *)`` comments (which nest), legacy ``{* ... *}``
+    verbatim, ``\<^cancel>\<open>...\<close>`` regions, and ML command bodies.
+
+    A character-level state machine, because none of this is a regular language:
+    comments nest, so the end needs a depth counter (a non-greedy match to the
+    first ``*)`` stops early), and a ``(*`` inside a ``"..."`` term does not open
+    a comment at all, so string context must be tracked.
+
+    ``"..."`` regions are tracked but NEVER reported: a double-quoted region
+    holds an inner-syntax term, so the `mono` in ``lemma "mono f"`` is a real
+    citation that the call graph must keep.  Likewise a bare cartouche is left
+    live — only the cartouche of an ML command is a body, and the command
+    keyword decides that, exactly as `TEXT_OPEN_RE` decides it for `text`.
+    """
+    spans: list[list[tuple[int, int]]] = [[] for _ in lines]
+    state = "text"
+    depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
+    start = -1   # column where the current noise region began on this line
+    for i, line in enumerate(lines):
+        n = len(line)
+        if state in _NOISE_STATES:
+            start = 0  # region continues from the previous line
+        for m in _SCAN_RE.finditer(line):
+            tok, pos = m.group(), m.start()
+            if state == "text":
+                if tok == "(*":
+                    state, depth, start = "comment", 1, pos
+                elif tok == "{*":
+                    state, start = "verbatim", pos
+                elif tok == '"':
+                    state = "string"
+                elif tok.startswith(_CANCEL):  # `\<^cancel>` plus its cartouche
+                    state, depth, start = "cartouche", 1, pos
+                elif tok in _CART_OPEN:
+                    if _opens_ml_body(lines, i, pos):  # ML body: redact it
+                        state, depth, start = "cartouche", 1, pos
+                    else:  # a term / prose cartouche: one token, but kept live
+                        state, depth = "term", 1
+                # a stray `*)` / `*}` / `\<close>` in text is not a delimiter
+            elif state == "string":
+                if tok == '"':          # `\"` and `\\` consume themselves
+                    state = "text"
+            elif state == "comment":
+                if tok == "(*":
+                    depth += 1
+                elif tok == "*)":
+                    depth -= 1
+                    if depth <= 0:
+                        spans[i].append((start, m.end()))
+                        state, start = "text", -1
+            elif state == "verbatim":
+                if tok == "*}":         # legacy verbatim does not nest
+                    spans[i].append((start, m.end()))
+                    state, start = "text", -1
+            elif state == "term":
+                # A live cartouche (a term, or `text` prose).  Isabelle scans a
+                # cartouche as ONE token, so a `(*` inside it — the operator
+                # section in `\<open>fold (*) xs\<close>` is the everyday case —
+                # opens no comment.  Tracked only to skip past it; never redacted.
+                if tok in _CART_OPEN:
+                    depth += 1
+                elif tok in _CART_CLOSE:
+                    depth -= 1
+                    if depth <= 0:
+                        state = "text"
+            else:  # cartouche body (ML, or cancelled text)
+                if tok in _CART_OPEN:
+                    depth += 1
+                elif tok in _CART_CLOSE:
+                    depth -= 1
+                    if depth <= 0:
+                        spans[i].append((start, m.end()))
+                        state, start = "text", -1
+        if state in _NOISE_STATES and 0 <= start < n:
+            spans[i].append((start, n))
+        # Every state persists to the next line.  A ``"..."`` term routinely
+        # spans lines, and dropping string state at the newline is not a small
+        # error: the continuation line of a multi-line term is where `map2 (*)`
+        # sits, and reading that operator section as a comment opener silently
+        # swallows the rest of the proof.  (Being wrong in this direction only
+        # ever leaves noise unrecognised; being wrong in the other deletes live
+        # source, so an unbalanced quote costs missed comments, nothing more.)
+    return spans
+
+
+def extract_nonisar_ranges(lines: list[str]) -> list[tuple[int, int]]:
+    r"""Return ``[(start_line, end_line)]`` (1-indexed inclusive) for lines that
+    hold no live Isar text — every non-blank character lies inside a comment,
+    a ``\<^cancel>`` region, legacy verbatim, or an ML body.
+
+    Deliberately conservative: a line with live code *outside* such a region
+    (``by simp (* see foo *)``) is NOT reported.  `_noise_spans` is line
+    granular, so reporting that line would blank its live half and drop a real
+    citation — a false negative, which is worse than the false positive it
+    would cure and is the harder kind to notice.  Closing that gap needs
+    column-accurate redaction rather than whole-line skipping.
+    """
+    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
+            and not any(_leads_with_ml(ln) for ln in lines):
+        return []  # no comment, no verbatim, no cancel, no ML: nothing to find
+    marked: list[int] = []
+    for i, (line, sp) in enumerate(zip(lines, _scan_nonisar_spans(lines)), 1):
+        if not sp:
+            continue
+        live, prev = [], 0
+        for a, b in sp:
+            live.append(line[prev:a])
+            prev = max(prev, b)
+        live.append(line[prev:])
+        if not "".join(live).strip():
+            marked.append(i)
+    out: list[tuple[int, int]] = []
+    for ln in marked:
+        # Extend across an intervening blank run as well as directly: a blank
+        # line inside an ML body carries no citation and no command either way,
+        # and coalescing keeps the range list short (the membership tests in
+        # `grep` are linear in it).
+        if out and all(not lines[k - 1].strip()
+                       for k in range(out[-1][1] + 1, ln)):
+            out[-1] = (out[-1][0], ln)
+        else:
+            out.append((ln, ln))
+    return out
+
+
 def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
     """Return [(line_no, content)] for in-proof `\\<comment> \\<open>...\\<close>`
     annotations.  `content` is the prose text inside the `\\<open>...\\<close>`
@@ -799,19 +1001,25 @@ def extract_entries(lines: list[str],
 #     end
 #
 # where `equal_foo` swallows the very `instance` proof that cites it.
+#
+# The ML family belongs here for the same reason: an `ML \<open>...\<close>`
+# block after a lemma is a command in its own right, so leaving it out let the
+# lemma's span run on through the ML body and report it as part of the proof.
 _SPAN_BOUNDARY_COMMANDS = frozenset({
     "begin", "end", "instance", "instantiation", "interpretation",
     "sublocale", "locale", "context", "declare", "lemmas", "notation",
     "no_notation", "syntax", "no_syntax", "translations",
     "code_printing", "export_code", "code_datatype", "code_reflect",
     "typedecl", "typedef", "consts", "print_translation",
-})
-_LEADING_CMD_RE = re.compile(r"^([a-z][a-z_0-9]*)")
+}) | _ML_BODY_COMMANDS | _ML_FILE_COMMANDS
+# Uppercase-initial too: the ML commands (`ML`, `ML_file`, `SML_file`) are
+# boundaries, and a lowercase-only anchor would never see them.
+_LEADING_CMD_RE = re.compile(r"^([A-Za-z][A-Za-z_0-9]*)")
 
 
 def _structural_command_lines(
         lines: list[str],
-        comment_ranges: list[tuple[int, int]] | None = None) -> list[int]:
+        noise_ranges: list[tuple[int, int]] | None = None) -> list[int]:
     """1-indexed lines that open a span-bounding outer command.
 
     Fed to :func:`compute_spans` alongside the section lines, so a declaration
@@ -819,12 +1027,15 @@ def _structural_command_lines(
     See ``_SPAN_BOUNDARY_COMMANDS``.
 
     Boundary commands are matched in column 0 only, so an indented `end` closing
-    a nested proof does not cut anything.  Lines inside a ``\\<comment>`` range
-    are skipped — a commented-out command is prose, not a boundary (a ``(* end
-    *)`` never matches the column-0 lowercase anchor to begin with).
+    a nested proof does not cut anything.  Lines in `noise_ranges` are skipped —
+    a commented-out command is prose, not a boundary.  Those ranges must cover
+    ``(* ... *)`` comments (see `extract_nonisar_ranges`) and not merely
+    ``\\<comment>`` annotations: a ``(*`` block is exactly where a superseded
+    ``end`` sits at column 0, and reading it as a real command truncates the
+    live declaration above it.
     """
     masked: set[int] = set()
-    for start, end in (comment_ranges or []):
+    for start, end in (noise_ranges or []):
         masked.update(range(start, end + 1))
     out: list[int] = []
     for line_no_0, line in enumerate(lines):
@@ -949,6 +1160,7 @@ def _parse_one(thy: str, thy_path: Path,
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)
+    nonisar_ranges = extract_nonisar_ranges(lines)
     comment_lines = extract_comment_lines(lines)
     # Preambles first: they fix each entry's src_start, which compute_spans
     # uses as the boundary so a leading doc is charged to the entry it
@@ -956,7 +1168,8 @@ def _parse_one(thy: str, thy_path: Path,
     _attach_preambles(entries, lines, text_blocks)
     compute_spans(entries,
                   [s[2] for s in outline]
-                  + _structural_command_lines(lines, comment_ranges),
+                  + _structural_command_lines(
+                      lines, comment_ranges + nonisar_ranges),
                   len(lines))
     _attach_roadmaps(entries, comment_lines)
     for e in entries:
@@ -975,7 +1188,8 @@ def _parse_one(thy: str, thy_path: Path,
             e.body_end_line = e.decl_end_line or e.thy_line
     sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                         outline=outline, text_blocks=text_blocks,
-                        comment_ranges=comment_ranges)
+                        comment_ranges=comment_ranges,
+                        nonisar_ranges=nonisar_ranges)
     if from_memory:
         # No disk path to lazily re-read (stdin); pin the source we already have.
         sec._source_cache = lines
