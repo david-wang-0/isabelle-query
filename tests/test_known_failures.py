@@ -19,7 +19,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from support import section_from  # noqa: E402
+from support import cli, section_from  # noqa: E402
 
 
 def names_of(snippet):
@@ -39,6 +39,29 @@ abbreviation "x \<oplus> y \<equiv> plus x y"
 end
 '''
         self.assertIn(r"\<oplus>", names_of(snippet))
+
+    @unittest.expectedFailure
+    def test_trailing_comment_is_not_a_citation(self):
+        r"""A `(* ... *)` comment sharing its line with live proof text.
+
+        `extract_nonisar_ranges` finds the region, but `_noise_spans` is line
+        granular, so a line is skipped only when it holds NO live text.  Here
+        the comment trails a real `by`, and skipping the whole line would drop
+        the genuine citation of `helper` with the phantom one — trading a false
+        positive for a false negative, which is the worse error and the harder
+        to notice.  The residual defect is therefore deliberate.
+
+        Closing it needs column-accurate redaction (a live copy of the source
+        with non-Isar regions blanked in place, preserving every line and
+        column) rather than whole-line skipping — issue #3.
+        """
+        sec = section_from(r'''theory T imports Main begin
+lemma helper: "True" by simp
+lemma other: "True" by simp
+lemma user: "True" using helper by (simp) (* not other *)
+end
+''')
+        self.assertEqual(cli._build_call_graph([sec]).callers["other"], set())
 
     # NOTE: two cases once listed here are now handled and have moved to
     # tests/test_names.py as passing tests:
