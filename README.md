@@ -56,6 +56,13 @@ The two examples above are the tool's two kinds of question:
 The call graph used by usage scans is constructed only when needed, so
 most commands stay fast.
 
+Both kinds of scan read **only live Isar text**. A name inside a `(* ... *)`
+comment, a `\<^cancel>` region, a `text` block or an `ML` body is not a
+citation, so it never invents a caller or hides a dead lemma; and a command
+word inside one is not a command, so a commented-out `end` does not truncate
+the declaration above it. `grep --with-comments` shows the non-live matches
+too, marked as such.
+
 **Aggregating across a corpus.** `summary --by-session` rolls the per-theory
 counts up to the **session** and **corpus** level — one row per session plus a
 grand total — so it is useful run against a whole corpus (`query -R AFP/thys
