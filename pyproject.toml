@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isabelle-query"
-version = "0.4.1"
+version = "0.5.0"
 description = "Query the live theory index of an Isabelle/Isar project — entries, call graph, dependencies, and dead code — by parsing .thy files on every invocation."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -41,8 +41,9 @@ query = "isabelle_query.cli:main"
 Homepage = "https://github.com/ott2/isabelle-query"
 Source = "https://github.com/ott2/isabelle-query"
 
-# Dev-only tooling (PEP 735). Not a published extra: consumers of
-# isabelle-query never need the test suite's dependencies.
+# Dev-only tooling (PEP 735). Not published extras: consumers of isabelle-query
+# never need these — the shipped `query` CLI is pure-Python with zero runtime
+# dependencies and emits raw census JSONL.
 #   python -m pip install --group test
 [dependency-groups]
 test = ["pytest>=8"]
