@@ -59,7 +59,7 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
         except Exception:  # noqa: BLE001
             continue
         n_thy += 1
-        _spans, note_starts, _inner = parsing.scan_regions(lines)
+        _spans, note_starts, _inner, _open = parsing.scan_regions(lines)
         placed = sorted((e.thy_line, e) for e in sec.entries if e.thy_line > 0)
         keys = [k for k, _ in placed]
         from bisect import bisect_right

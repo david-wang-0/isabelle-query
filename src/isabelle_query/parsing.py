@@ -119,16 +119,12 @@ PROOF_RE = re.compile(
 # The same introducers, but anywhere on a line rather than at its start — for
 # the one-liner `lemma foo: "P" by simp`, whose proof shares the declaration
 # line and so is invisible to a scan that begins on the line BELOW it.
-# Applied only after inner syntax has been stripped (`_INNER_SYNTAX_RE`), so
-# the `by` of a constant named in a term cannot be mistaken for the proof.
+# Applied to the OUTER view of a line, so the `by` of a constant named in a
+# term cannot be mistaken for the proof.
 _PROOF_INLINE_RE = re.compile(
     r"(?:^|\s)(?:proof\b|by\b|sorry\b|oops\b|using\b"
     r"|unfolding\b|apply\b|\.\.\s*$|\.\s*$)"
 )
-# `"..."` terms and cartouches: one token to Isabelle, and the only place a
-# proof keyword could appear without being the proof.
-_INNER_SYNTAX_RE = re.compile(r'"[^"]*"|\\<open>.*?\\<close>|‹.*?›')
-_QUOTE_RE = re.compile(r'(?<!\\)"')
 # Isar keywords that CONTINUE a goal statement.  A long `assumes ... and ...`
 # list is often broken up with blank lines for readability, so a blank is not
 # reliable evidence that the statement has ended — but one of these starting
@@ -138,15 +134,6 @@ _STATEMENT_CONT_RE = re.compile(
     r"|where|if|for)\b")
 
 
-def _quote_parity(line: str) -> int:
-    """1 if `line` leaves a ``"..."`` term open, 0 if it closes what it opens.
-
-    A statement's term routinely spans lines, and a BLANK line inside one is
-    not the end of the statement — `Shuffle.thy` writes a `do { ... }` block
-    with blank lines between its rounds.  Tracking parity is what stops the
-    proof search giving up there.
-    """
-    return len(_QUOTE_RE.findall(line)) % 2
 BLANK_RE = re.compile(r"^\s*$")
 TOPLEVEL_RE = re.compile(r"^[a-z]")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
@@ -515,6 +502,18 @@ def _match_decl(line: str, table: dict[str, str]
     return None
 
 
+def _is_boundary_at(outer_line: str) -> bool:
+    """Does this OUTER-syntax line open a span-bounding command?
+
+    The terminator a declaration scan actually wants.  A blank line ends
+    nothing in Isar — it is whitespace — but `end`, `context`, `lemmas`,
+    `declare`, an `ML` block and the rest of `_SPAN_BOUNDARY_COMMANDS` all
+    genuinely close whatever preceded them.
+    """
+    m = _LEADING_CMD_RE.match(outer_line.lstrip())
+    return m is not None and m.group(1) in _SPAN_BOUNDARY_COMMANDS
+
+
 def _match_decl_at(outer_line: str, table: dict[str, str]
                    ) -> tuple[tuple[str, str, str] | None, int]:
     """:func:`_match_decl` on the first command token of an OUTER-syntax line.
@@ -780,6 +779,11 @@ def _scan_nonisar_spans(
     # machine already knows this; it just never said so.
     inner: list[list[tuple[int, int]]] = [[] for _ in lines] if want_inner else []
     inner_start = -1
+    # Per line: was the scanner mid-region when the line began?  A term, string
+    # or comment carries across newlines, so this is the one thing the spans
+    # cannot say — a wholly-inside-a-term line and a wholly-blank line both
+    # have empty outer content, and only this tells them apart.
+    open_at = bytearray(len(lines))
     state = "text"
     depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
     start = -1   # column where the current noise region began on this line
@@ -791,6 +795,7 @@ def _scan_nonisar_spans(
             start = 0  # region continues from the previous line
         if want_inner:
             inner_start = -1 if state == "text" else 0
+            open_at[i] = state != "text"
         for m in _SCAN_RE.finditer(line):
             tok, pos = m.group(), m.start()
             was_text = state == "text"
@@ -899,16 +904,17 @@ def _scan_nonisar_spans(
         # swallows the rest of the proof.  (Being wrong in this direction only
         # ever leaves noise unrecognised; being wrong in the other deletes live
         # source, so an unbalanced quote costs missed comments, nothing more.)
-    return spans, notes, inner
+    return spans, notes, inner, open_at
 
 
 def scan_regions(lines: list[str], want_inner: bool = False,
                  ) -> tuple[dict[int, list[tuple[int, int]]],
                             dict[int, set[int]],
-                            dict[int, list[tuple[int, int]]]]:
-    r"""One tokenizer pass, all three of its outputs.
+                            dict[int, list[tuple[int, int]]],
+                            bytearray]:
+    r"""One tokenizer pass, all four of its outputs.
 
-    Returns ``(spans, note_starts, inner_spans)``:
+    Returns ``(spans, note_starts, inner_spans, open_at)``:
 
     * ``spans`` — ``{line_no: [(lo, hi)]}``, the non-Isar character spans;
     * ``note_starts`` — ``{line_no: {col}}``, where a genuine ``\<comment>``
@@ -921,6 +927,12 @@ def scan_regions(lines: list[str], want_inner: bool = False,
       complement is command position, which is what the declaration grammar
       wants to know and has been approximating with a column-0 anchor.  Empty
       unless ``want_inner``.
+    * ``open_at`` — 0-indexed by line, 1 where the line BEGAN inside a region
+      (a term, string or comment carried over the newline).  The spans cannot
+      say this: a line wholly inside a term and a wholly blank line both have
+      empty outer content.  Telling them apart is what replaces the quote-parity
+      counting the statement scans used to do by hand.  Zeroed unless
+      ``want_inner``.
 
     ``want_inner`` is a flag rather than always-on because the two outputs have
     very different densities: noise is rare, inner syntax is on 49% of all
@@ -937,11 +949,12 @@ def scan_regions(lines: list[str], want_inner: bool = False,
     """
     if not want_inner and not any(_ANY_REGION_RE.search(ln) for ln in lines) \
             and not any(_leads_with_ml(ln) for ln in lines):
-        return {}, {}, {}   # no comment, verbatim, cancel, note or ML
-    spans, notes, inner = _scan_nonisar_spans(lines, want_inner)
+        return {}, {}, {}, bytearray(len(lines))
+    spans, notes, inner, open_at = _scan_nonisar_spans(lines, want_inner)
     return ({i: sp for i, sp in enumerate(spans, 1) if sp},
             notes,
-            {i: sp for i, sp in enumerate(inner, 1) if sp})
+            {i: sp for i, sp in enumerate(inner, 1) if sp},
+            open_at)
 
 
 def extract_nonisar_spans(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
@@ -1078,6 +1091,7 @@ def extract_entries(lines: list[str],
                     custom: dict[str, str] | None = None,
                     nonisar_ranges: list[tuple[int, int]] | None = None,
                     outer: list[str] | None = None,
+                    open_at: bytearray | None = None,
                     ) -> list[Entry]:
     r"""Parse `lines` into entries.
 
@@ -1094,7 +1108,10 @@ def extract_entries(lines: list[str],
     entries: list[Entry] = []
     i = 0
     if outer is None:
-        outer = blank_all(lines, scan_regions(lines, want_inner=True)[2])
+        _sp, _nt, _inner, open_at = scan_regions(lines, want_inner=True)
+        outer = blank_all(lines, _inner)
+    if open_at is None:
+        open_at = bytearray(len(lines))
 
     # Recognised custom commands: this theory's own header declarations, the
     # active root's scanned union (_CUSTOM_COMMANDS, set by load_index), and an
@@ -1195,27 +1212,35 @@ def extract_entries(lines: list[str],
             buf = [f"{tag} {rest}"]
             decl_end_line = decl_line
             i += 1
-            open_quotes = rest.count('"') % 2
             past_where = False  # for `definition`/`abbreviation`: tracks whether
                                 # the body's quoted RHS has begun, so we don't
                                 # break at the type signature's closing quote.
             while i < len(lines):
                 cline = lines[i]
-                if BLANK_RE.match(cline):
+                # Nothing terminates a declaration from INSIDE its own term.
+                # A `do { ... }` definition body is routinely written with
+                # blank lines between its rounds and annotated line by line,
+                # and both used to cut the declaration short.
+                inside = open_at[i]
+                if BLANK_RE.match(cline) and not inside:
                     break
-                if _match_decl_at(outer[i], table)[0]:
+                if _match_decl_at(outer[i], table)[0] \
+                        or (not inside and _is_boundary_at(outer[i])):
                     break
                 stripped = cline.strip()
-                if stripped.startswith("\\<comment>") or stripped.startswith("text "):
+                if not inside and (stripped.startswith("\\<comment>")
+                                   or stripped.startswith("text ")):
                     break
                 where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
                 buf.append(f"  {stripped}")
-                open_quotes = (open_quotes + stripped.count('"')) % 2
                 i += 1
                 decl_end_line = i  # 1-indexed line just appended
                 if keyword in ("definition", "abbreviation"):
-                    # Break when the body's quoted RHS closes (after `where`).
-                    if past_where and open_quotes == 0 and '"' in stripped:
+                    # The body's quoted RHS has closed when the NEXT line no
+                    # longer begins inside a term.  This was a hand-rolled
+                    # quote parity that could not see escapes or cartouches.
+                    if past_where and '"' in stripped \
+                            and not (i < len(lines) and open_at[i]):
                         break
                     if where_on_this_line:
                         past_where = True
@@ -1245,36 +1270,38 @@ def extract_entries(lines: list[str],
             # the search — that is a statement resuming (`shows ...`), and
             # guessing further would risk claiming a later entry's proof.
             saw_blank = False
-            open_quote = _quote_parity(line)   # the declaration line's own term
             while i < len(lines):
                 cline = lines[i]
                 stripped = cline.strip()
+                oline = outer[i]
+                inside = open_at[i]
                 if BLANK_RE.match(cline):
                     # Only a blank OUTSIDE a term ends the statement: a `do {`
                     # block is routinely written with blank lines between its
                     # steps, and treating those as the end abandoned the search
                     # halfway through the statement.
-                    saw_blank = not open_quote
+                    saw_blank = not inside
                     i += 1
                     continue
-                if not open_quote and PROOF_RE.match(cline):
+                if PROOF_RE.match(oline.lstrip()):
                     proof_line = i + 1
                     break
-                # NOT gated on `open_quote`, deliberately.  `_match_decl` is
-                # column-0 anchored, so a declaration here really does start a
-                # new command — and if the parity count is ever wrong, this is
-                # what bounds the damage to one entry instead of letting the
-                # scan swallow the rest of the file.  It did exactly that
-                # before this guard: `Berlekamp_Hensel` lost 15 consecutive
-                # lemmas to one mis-parsed statement.
-                if _match_decl_at(outer[i], table)[0]:
+                if _match_decl_at(oline, table)[0] \
+                        or (not inside and _is_boundary_at(oline)):
                     break
-                if stripped.startswith("\\<comment>"):
-                    # A note can carry the term's closing quote —
-                    # `and "...\n  \<comment> \<open>note\<close>"` — so parity
-                    # must be updated on the way past, not just when the line
-                    # is accumulated.
-                    open_quote ^= _quote_parity(cline)
+                if skip[i + 1] and not oline.strip():
+                    # Wholly prose — a marginal note or a comment — so not
+                    # statement text.  A line that is wholly TERM text has an
+                    # empty outer view too, and must still be accumulated, which
+                    # is why this asks the noise mask rather than the outer view
+                    # alone.
+                    #
+                    # `Berlekamp_Hensel:64` is the case that broke the parity
+                    # counting this replaces: the term's closing quote sits ON
+                    # a `\<comment>` line, so the line is not wholly prose, the
+                    # note is skipped and the quote is not — and a scan that
+                    # skipped the whole line never saw the term close, then
+                    # swallowed the following 15 lemmas.
                     i += 1
                     continue
                 if saw_blank:
@@ -1283,12 +1310,10 @@ def extract_entries(lines: list[str],
                     # LOOKING for the proof, but do not resume accumulating:
                     # `decl_end_line` still stops at the blank, so `show
                     # --statement` renders exactly what it rendered before.
-                    if open_quote or _STATEMENT_CONT_RE.match(cline):
-                        open_quote ^= _quote_parity(cline)
+                    if inside or _STATEMENT_CONT_RE.match(stripped):
                         i += 1
                         continue
                     break
-                open_quote ^= _quote_parity(cline)
                 if SHOWS_AT_START_RE.match(stripped):
                     in_shows = True
                 if in_shows:
@@ -1306,25 +1331,15 @@ def extract_entries(lines: list[str],
             # proof body at all as far as the drill-down, `shape` and the
             # roadmap were concerned.
             if not proof_line:
-                # `_INNER_SYNTAX_RE` removes COMPLETE `"..."` pairs, so a quote
-                # left in the result is an unmatched one — and tracking whether
-                # it opens or closes says which part of the line is term text
-                # and which could be the proof.  `... as bs" by (simp_all)`
-                # closes the term and then proves; `"length as = ...` opens one
-                # and everything after is inner syntax.
-                par = 0
+                # Whatever is left of the line once inner syntax is blanked IS
+                # the outer part, so the proof keyword can simply be searched
+                # for.  This replaced a hand-rolled reconstruction of the same
+                # idea — strip complete `"..."` pairs, then track whether a
+                # leftover quote opened or closed the term to decide which
+                # half of the line was proof text — which had to be right about
+                # escapes and cartouches, and was not.
                 for k in range(decl_line, decl_end_line + 1):
-                    raw = lines[k - 1]
-                    red = _INNER_SYNTAX_RE.sub(" ", raw)
-                    opens = _quote_parity(raw)
-                    if par and opens:        # the term ends here
-                        red = red[red.rindex('"') + 1:] if '"' in red else red
-                    elif par:                # wholly inside the term
-                        red = ""
-                    elif opens:              # the term starts here and runs on
-                        red = red[:red.index('"')] if '"' in red else red
-                    par ^= opens
-                    if red and _PROOF_INLINE_RE.search(red):
+                    if _PROOF_INLINE_RE.search(outer[k - 1]):
                         proof_line = k
                         break
 
@@ -1561,12 +1576,12 @@ def _parse_one(thy: str, thy_path: Path,
     # (for `live_source`), the whole-noise lines derived from them (for the
     # line-granular masks), and the declaration scan, which must not read a
     # commented-out `definition` or an ML `fun` as an entry.
-    nonisar_spans, note_starts, inner_spans = scan_regions(lines,
-                                                          want_inner=True)
+    nonisar_spans, note_starts, inner_spans, open_at = scan_regions(
+        lines, want_inner=True)
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     outer = blank_all(lines, inner_spans)
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges,
-                              outer=outer)
+                              outer=outer, open_at=open_at)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)

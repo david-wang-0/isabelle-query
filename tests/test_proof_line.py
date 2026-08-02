@@ -11,7 +11,7 @@ least of them:
     `enclosing -b` silently offers no drill-down;
   * `_proof_extent` / `body_end_line` falls back to the declaration end;
   * `shape` contributes no steps for the proof;
-  * `_attach_roadmaps` cannot bound the proof body.
+  * `_attach_annotations` cannot bound the proof body.
 
 Three shapes defeated the original scan, which started on the line BELOW the
 declaration and stopped at the first blank line.  Each is asserted here, and
@@ -138,17 +138,16 @@ class DoesNotOverrun(unittest.TestCase):
     def test_a_note_carrying_the_terms_closing_quote(self):
         r"""`Berlekamp_Hensel:64` — the closing `"` is on a `\<comment>` line.
 
-        When the comment-skip path did not count quotes on the way past, the
-        term never closed, every later `lemma` was read as part of this
+        The scan used to count quotes by hand to know whether it was inside a
+        term.  The comment-skip path did not count the ones it skipped past, so
+        the term never closed, every later `lemma` was read as part of this
         statement, and 15 consecutive entries vanished — caught by a corpus
         diff of the entry set, not by any unit test.
 
-        TWO mechanisms now prevent it, and each is independently sufficient:
-        the comment path updates the parity, and the `_match_decl` break is not
-        gated on parity at all (it is column-0 anchored, so it bounds any
-        parity error to one entry).  Neither can be isolated by this test —
-        remove either and it still passes.  Remove BOTH and `two` and `three`
-        disappear, which is the failure this pins.
+        There is no parity to desynchronise now: the tokenizer closes the term,
+        and the line is skipped only if it is WHOLLY prose.  Here it is not —
+        the note is prose and the closing quote beside it is not — so the line
+        is read as statement text and the term ends where Isabelle says it does.
         """
         sec = section_from('theory A imports Main begin\n'
                            'theorem one:\n'
@@ -231,6 +230,61 @@ class RoadmapBoundary(unittest.TestCase):
                            '  by simp\n'
                            'end\n')
         self.assertEqual(self.contents(sec, "foo"), [])
+
+
+class TermTracking(unittest.TestCase):
+    r"""Where a term ends is the tokenizer's answer, not a quote count.
+
+    Three separate hand-rolled trackers used to answer it — a `"` parity in the
+    definition route, another in the goal route, and a strip-complete-pairs
+    reconstruction for the one-liner scan.  Each had to be right about escapes,
+    cartouches and notes, and none was.  All three now ask the scan, which
+    tracked the same states all along.
+    """
+
+    def test_proof_on_the_line_the_term_closes(self):
+        r"""`Berlekamp_Zassenhaus/Mahler_Measure:257` — `...)" proof -`.
+
+        The old scan missed it and took line 262's NESTED `proof(induct ...)`
+        as the proof of the outer lemma.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'lemma foo:\n'
+                           '  shows "True \\<and>\n'
+                           '     True" proof -\n'
+                           '  show "True \\<and> True"\n'
+                           '  proof (induct x)\n'
+                           '  qed auto\n'
+                           'qed\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "foo").proof_line, 4)
+
+    def test_a_cartouche_body_with_a_blank_line(self):
+        r"""`CVM_Distinct_Elements/CVM_Original_Algorithm:66` — a `fun` whose
+        `\<open>...\<close>` body holds a `do { ... }` with a blank line in it.
+
+        The declaration stopped at the blank, three lines before the cartouche
+        actually closed.  A blank line is whitespace; it ends nothing.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'fun f :: \\<open>nat \\<Rightarrow> nat\\<close> where\n'
+                           '  \\<open>f a =\n'
+                           '    do {\n'
+                           '      let x = a;\n'
+                           '\n'
+                           '      return x\n'
+                           '    }\\<close>\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "f").decl_end_line, 8)
+
+    def test_an_escaped_quote_does_not_open_a_term(self):
+        # A `\"` inside a string is not a delimiter.  Counting quotes by regex
+        # had to special-case that; the scan consumes it as one token.
+        sec = section_from('theory A imports Main begin\n'
+                           'lemma foo: "s = CHR 0x22 @ \\"x\\""\n'
+                           '  by simp\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "foo").proof_line, 3)
 
 
 if __name__ == "__main__":
