@@ -151,7 +151,9 @@ BLANK_RE = re.compile(r"^\s*$")
 TOPLEVEL_RE = re.compile(r"^[a-z]")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
 TEXT_OPEN_RE = re.compile(r"^\s*(text|text_raw)\s*\\<open>")
-COMMENT_LINE_RE = re.compile(r"\\<comment>\s*\\<open>(.*)$")
+# Both cartouche spellings, so this agrees with the tokenizer's
+# `_MARKER_OPEN_RE` — a note it recognises is a note this extracts.
+COMMENT_LINE_RE = re.compile(r"\\<comment>\s*(?:\\<open>|‹)(.*)$")
 LATEX_LINE_RE = re.compile(
     r"\\(begin|end|caption|node|draw|newlength|newcommand|settowidth|settoheight|scalebox|label)\b"
 )
@@ -936,15 +938,49 @@ def extract_nonisar_ranges(
     return out
 
 
+_CART_TOKEN_RE = re.compile(r"\\<open>|‹|\\<close>|›")
+
+
+def _cartouche_body(rest: str) -> str:
+    r"""`rest` up to the `\<close>` matching the cartouche already open.
+
+    Cartouches NEST, and a marginal note nests one more often than not: an
+    assumption gloss names the term it is about, and naming a term means
+    quoting it.  `Lifschitz_Consistency:102`::
+
+        \<comment> \<open>For a sound system \<open>\<Sigma>\<close>\<close>
+
+    Cutting at the first `\<close>` stops after `\<open>\<Sigma>`, which loses
+    the end of the sentence and leaves an unbalanced cartouche in the output.
+    6,014 of the AFP's 21,683 notes (27.7%) nest, so this is the common case
+    rather than a corner: they concentrate in exactly the statement glosses
+    that only became visible once annotations were tagged and attached.
+
+    The inner markers are KEPT: `query` prints Isabelle's notation as the
+    author wrote it everywhere else (`\<^cite>\<open>...\<close>` in a preamble
+    preview), and a note is not the place to start paraphrasing it.
+    """
+    depth = 1
+    for m in _CART_TOKEN_RE.finditer(rest):
+        if m.group() in ("\\<open>", "‹"):
+            depth += 1
+            continue
+        depth -= 1
+        if depth == 0:
+            return rest[:m.start()]
+    return rest   # the note runs past this line: take the rest of it
+
+
 def extract_comment_lines(lines: list[str],
                           notes: dict[int, set[int]] | None = None,
                           ) -> list[tuple[int, str]]:
-    r"""Return [(line_no, content)] for in-proof `\<comment> \<open>...\<close>`
-    annotations.  `content` is the prose text inside the `\<open>...\<close>`
-    on the comment's first line (truncated at the first `\<close>` if present).
+    r"""Return [(line_no, content)] for `\<comment> \<open>...\<close>`
+    annotations.  `content` is the prose inside the cartouche, on the note's
+    first line, cut at the `\<close>` that MATCHES its opening (see
+    :func:`_cartouche_body`) — or the rest of the line if the note runs on.
 
-    These become `Entry.roadmap` — the note is charged BACKWARD, to the proof
-    it sits inside, because a marginal note is about the step it follows.
+    These become `Entry.annotations` — the note is charged BACKWARD, to the
+    entry it sits inside, because a marginal note is about the text it follows.
 
     ``notes`` (the second half of :func:`scan_regions`) filters out a
     ``\<comment>`` that is itself inside a commented-out block or an ML body.
@@ -962,10 +998,7 @@ def extract_comment_lines(lines: list[str],
             continue
         if notes is not None and m.start() not in notes.get(i, ()):
             continue
-        rest = m.group(1)
-        close_idx = rest.find("\\<close>")
-        content = rest[:close_idx] if close_idx >= 0 else rest
-        out.append((i, content.strip()))
+        out.append((i, _cartouche_body(m.group(1)).strip()))
     return out
 
 

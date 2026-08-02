@@ -195,5 +195,54 @@ class Unowned(unittest.TestCase):
         self.assertEqual([c for _, c, _ in entry(sec, "foo").annotations], [])
 
 
+class NoteContent(unittest.TestCase):
+    r"""Cartouches nest, and a note's content has to survive that.
+
+    6,014 of the AFP's 21,683 notes (27.7%) contain a nested cartouche, because
+    glossing a statement means naming the term it is about.  Cutting at the
+    first `\<close>` truncated every one of them mid-sentence.
+    """
+
+    def content(self, line):
+        sec = section_from('theory A imports Main begin\n'
+                           'lemma foo: "True" by simp  ' + line + '\n'
+                           'end\n')
+        return entry(sec, "foo").annotations[0][1]
+
+    def test_a_nested_cartouche_is_kept_whole(self):
+        # `Lifschitz_Consistency:109` — cut at the first close this read
+        # "We have that \<open>f(as)", losing the predicate of the sentence.
+        self.assertEqual(
+            self.content(r'\<comment> \<open>We have that '
+                         r'\<open>f(as)\<close> is applicable\<close>'),
+            r"We have that \<open>f(as)\<close> is applicable")
+
+    def test_a_flat_note_is_unchanged(self):
+        self.assertEqual(self.content(NOTE.format("plain prose")),
+                         "plain prose")
+
+    def test_two_nested_cartouches_in_a_row(self):
+        self.assertEqual(
+            self.content(r'\<comment> \<open>\<open>a\<close> and '
+                         r'\<open>b\<close>\<close>'),
+            r"\<open>a\<close> and \<open>b\<close>")
+
+    def test_a_note_running_past_its_line_takes_the_rest(self):
+        # No matching close on this line, so there is nothing to cut at.
+        self.assertEqual(self.content(r'\<comment> \<open>starts here'),
+                         "starts here")
+
+    def test_the_unicode_cartouche_spelling_is_extracted(self):
+        r"""The tokenizer accepts `‹`, so the extractor must too.
+
+        The AFP normalises to the ASCII spelling (0 occurrences of
+        `\<comment> ‹` in the whole corpus), so this costs nothing there — but
+        a note the tokenizer recognises and the extractor drops is a silent
+        hole, and `query` reads working trees, not just the AFP.
+        """
+        self.assertEqual(self.content('\\<comment> ‹hand-written›'),
+                         "hand-written")
+
+
 if __name__ == "__main__":
     unittest.main()
