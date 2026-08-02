@@ -812,13 +812,33 @@ def _add_root_flag(p: argparse.ArgumentParser, *, suppress_default: bool) -> Non
         **kwargs)
 
 
+def _add_version_flag(p: argparse.ArgumentParser, *, short: bool) -> None:
+    """Attach ``--version`` to ``p``, with the ``-V`` alias iff `short`.
+
+    On every (sub)parser for the same reason as ``-R``: a user who has already
+    typed a subcommand should not have to retype the line to ask which version
+    they are running.  `_VersionAction` fires while the arguments are being
+    read and exits, so it overrides whatever else is on the line — including a
+    missing required positional — exactly as ``--help`` does.  It writes
+    nothing to the namespace (dest/default are both SUPPRESS), so a subparser
+    copy cannot clobber anything.
+
+    ``-V`` is top-level only: on `show` / `find` it is the long-standing short
+    form of ``--verbatim``, and silently repointing an existing flag at a
+    different feature is worse than having the alias in one place.  The long
+    ``--version`` is accepted everywhere, so nothing is unreachable.
+    """
+    names = ("-V", "--version") if short else ("--version",)
+    p.add_argument(*names, action=_VersionAction)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
         prog="query",
         description="Query the theory index — computed live from .thy files.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     _add_root_flag(top, suppress_default=False)
-    top.add_argument("--version", action=_VersionAction)
+    _add_version_flag(top, short=True)
 
     sub = top.add_subparsers(dest="command", title="commands")
 
@@ -1179,8 +1199,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # (methods/method, enclosing/at) — adding -R twice to one parser conflicts.
     for subp in set(sub.choices.values()):
         _add_root_flag(subp, suppress_default=True)
+        _add_version_flag(subp, short=False)
     for subp in set(wsub.choices.values()):
         _add_root_flag(subp, suppress_default=True)
+        _add_version_flag(subp, short=False)
 
     return top
 

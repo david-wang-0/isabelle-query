@@ -46,5 +46,51 @@ class VersionFlag(unittest.TestCase):
         self.assertTrue(cli._resolve_version())
 
 
+class VersionPosition(unittest.TestCase):
+    """`--version` is accepted wherever the user has got to on the line.
+
+    Asking which version you are running should not require retyping the
+    command, so the flag rides on every subparser the way `-R/--root` does —
+    including the nested `shape` verbs.  It fires while arguments are being
+    read, so it wins over the rest of the line, a missing required positional
+    included (the same contract as `--help`).
+    """
+
+    def setUp(self):
+        self.parser = cli._build_parser()
+
+    def _version_of(self, argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as cm:
+                self.parser.parse_args(argv)
+        return cm.exception.code, buf.getvalue().strip()
+
+    def test_short_form_at_top_level(self):
+        self.assertEqual(self._version_of(["-V"]),
+                         (0, f"query {cli._resolve_version()}"))
+
+    def test_after_a_subcommand(self):
+        code, out = self._version_of(["callers", "foo", "--version"])
+        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+
+    def test_after_a_nested_shape_verb(self):
+        code, out = self._version_of(["shape", "census", "--version"])
+        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+
+    def test_wins_over_a_missing_required_positional(self):
+        # `callers` needs a NAME; --version still reports and exits 0 rather
+        # than erroring out with usage.
+        code, out = self._version_of(["callers", "--version"])
+        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+
+    def test_short_form_still_means_verbatim_on_show(self):
+        # `-V` is `--verbatim` on show/find and predates the version alias, so
+        # it must NOT have been repointed: silently changing an existing flag's
+        # meaning is a worse break than confining the alias to the top level.
+        ns = self.parser.parse_args(["show", "foo", "-V"])
+        self.assertTrue(ns.verbatim)
+
+
 if __name__ == "__main__":
     unittest.main()
