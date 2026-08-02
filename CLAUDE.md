@@ -36,8 +36,15 @@ with `common` (session/ROOT discovery, import closure), `shape` + `shape_cmds`
 (the proof-shape family), and `scripts/` (offline table-generation + dev
 utilities) as siblings.
 
-- `model` — dataclasses (`Entry`, `TheorySection`, `CallGraph`).
-- `parsing` — `.thy` → entry DB; the `_sections_from_dir` loader.
+- `model` — dataclasses (`Entry`, `TheorySection`, `CallGraph`), plus the two
+  redacted views every scanner reads: `live_source()` (noise blanked, terms
+  kept — a citation scan must see `mono` in `lemma "mono f"`) and
+  `outer_source()` (terms blanked too — command position, which is where a
+  declaration may start).
+- `parsing` — `.thy` → entry DB; the `_sections_from_dir` loader.  One
+  tokenizer pass (`scan_regions`) feeds all of it: noise spans, genuine
+  `\<comment>` starts, inner-syntax spans, and `open_at` (did this line begin
+  mid-term).  Nothing in the grammar uses indentation as evidence.
 - `graph` — usage analysis + the shared step-scanner primitives.
 - `render` / `commands` / `cli` — formatting, the `cmd_*` handlers, the argparse
   facade (which re-exports lower-layer names so tests reach `cli.X`).

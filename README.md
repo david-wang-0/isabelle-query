@@ -53,6 +53,13 @@ The two examples above are the tool's two kinds of question:
   `theory`, `find`, `show`, `outline`, and its inverse `enclosing`).
 - **Usage** — *which facts cite which* (`callers`, `callees`, `unused`).
 
+Layout carries no meaning. Isar is whitespace-insensitive, so a declaration is
+recognised wherever a *command* can start, at any indentation and at any block
+depth — inside a `locale`, a `context`, or a theory body that its author simply
+chose to indent. Declarations likewise end at a real terminator (the next
+command, or an `end` / `context` / `lemmas` / `ML`), never at a blank line,
+which in Isar ends nothing.
+
 The call graph used by usage scans is constructed only when needed, so
 most commands stay fast.
 
@@ -73,6 +80,28 @@ its line with real proof text loses only itself. In
 `by (simp add: foo) (* not bar *)`, `foo` is a citation and `bar` is not; and
 `using foo by simp \<comment> \<open>note\<close>` keeps both the citation and
 the `simp` that `query methods` counts.
+
+### The prose view
+
+`show <name> --comments-only` prints what the author *wrote about* an entry
+rather than the entry: its leading `text` preamble, plus every `\<comment>`
+note inside its span, grouped by which part of the entry each one annotates.
+
+```
+--- annotations (\<comment>) ---
+  statement:
+    | line 102: For a sound system \<open>\<Sigma>\<close>
+    | line 109: We have that \<open>f(\<alpha>s)\<close> is applicable
+  proof:
+    | line 202: the induction is on the plan, not the state
+```
+
+The grouping is the content: a note on the statement says what is being
+claimed, one in the proof says how it is reached. `definition`s have no proof
+and so only ever have the first kind — which is exactly where a definition's
+construction gets narrated, round by round in a `do { ... }` body.
+`find --with-comments` searches all of it, and reports which part each hit is
+in.
 
 Isabelle's method and attribute names overlap ordinary fact names — `insert`,
 `trans`, `mono`, `cases` and even `finally` are all real Isabelle tokens *and*
