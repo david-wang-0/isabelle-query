@@ -26,6 +26,10 @@ from isabelle_query import cli, parsing  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 120
+# A second argument names one bucket to dump in FULL, so a small category can
+# be read case by case instead of sampled — which is how you tell a parser gap
+# from a category that genuinely does not belong.
+DUMP = sys.argv[2] if len(sys.argv) > 2 else None
 MAX_SAMPLES = 4
 
 kinds: Counter = Counter()
@@ -37,7 +41,7 @@ n_thy = n_notes = 0
 def note(kind, thy, line_no, lines, e=None):
     kinds[kind] += 1
     bucket = samples.setdefault(kind, [])
-    if len(bucket) >= MAX_SAMPLES:
+    if len(bucket) >= MAX_SAMPLES and not (DUMP and DUMP in kind):
         return
     ctx = f"  {thy}:{line_no}"
     if e is not None:
@@ -76,6 +80,11 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                 # notes are dropped for the wrong reason.
                 proofless_tags[e.tag] += 1
                 note("entry has no proof_line", thy_path.stem, line_no, lines, e)
+                if e.tag in ("LEMMA", "THEOREM"):
+                    # The parser-gap subset: a fact WITH a proof whose
+                    # `proof_line` was never found.  Small enough to read.
+                    note(f"no proof_line but tag={e.tag}", thy_path.stem,
+                         line_no, lines, e)
             elif line_no == e.proof_line:
                 note("ON the proof line", thy_path.stem, line_no, lines, e)
             elif line_no < e.proof_line:
