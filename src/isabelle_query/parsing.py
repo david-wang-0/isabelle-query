@@ -36,7 +36,7 @@ from isabelle_query.common import (
     parse_root_sessions,
     session_theories,
 )
-from isabelle_query.model import Entry, TheorySection
+from isabelle_query.model import Entry, TheorySection, blank_all
 
 # `(?=\s|$)` (a token boundary), not a consumed `\s`, so a keyword standing
 # ALONE on its line — the "name on a following line" form — still matches.
@@ -515,6 +515,30 @@ def _match_decl(line: str, table: dict[str, str]
     return None
 
 
+def _match_decl_at(outer_line: str, table: dict[str, str]
+                   ) -> tuple[tuple[str, str, str] | None, int]:
+    """:func:`_match_decl` on the first command token of an OUTER-syntax line.
+
+    Returns ``(match, indent)`` — `indent` being the column the keyword starts
+    at, so a caller can slice the RAW line at the same offset and read what the
+    command says.  The two views are length-preserving, so one index serves
+    both.
+
+    This is where the column-0 anchor used to live.  Isar is
+    whitespace-insensitive, so the anchor answered "is this a command?" with
+    "is it flush left?", which is a different question: `Error_Monad_Add`
+    indents its whole theory body and had 0 of its 14 declarations recognised,
+    while 91 AFP theories reported no entries at all.  Asking the outer view
+    instead keeps the protection the anchor was really providing — a `lemma`
+    written inside a term or a comment is blanked there, so it cannot match —
+    without tying recognition to layout.
+    """
+    stripped = outer_line.lstrip()
+    if not stripped:
+        return None, 0
+    return _match_decl(stripped, table), len(outer_line) - len(stripped)
+
+
 # A decl keyword may stand alone on its line with the name on a *following*
 # line (~1,866 AFP entries):
 #     inductive_set
@@ -527,7 +551,7 @@ _NAME_LOOKAHEAD_LINES = 3
 
 
 def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
-                    parse_fn) -> str:
+                    parse_fn, outer: list[str] | None = None) -> str:
     r"""The name for a decl whose keyword stood alone: scan forward from the
     0-indexed line ``start``, skipping blank / ``\<comment>`` / ``text`` lines,
     and parse the name from the **first content line** with ``parse_fn``.
@@ -548,7 +572,8 @@ def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
                 or TEXT_OPEN_RE.match(lines[j]):
             j += 1
             continue
-        if _match_decl(lines[j], table):     # next command — no name here
+        probe = outer[j] if outer is not None else lines[j]
+        if _match_decl_at(probe, table)[0]:  # next command — no name here
             return "?"
         return parse_fn(stripped)            # first content line is the name
     return "?"
@@ -1052,9 +1077,24 @@ def extract_comment_lines(lines: list[str],
 def extract_entries(lines: list[str],
                     custom: dict[str, str] | None = None,
                     nonisar_ranges: list[tuple[int, int]] | None = None,
+                    outer: list[str] | None = None,
                     ) -> list[Entry]:
+    r"""Parse `lines` into entries.
+
+    `outer` is the outer-syntax view (`TheorySection.outer_source`), used to
+    decide WHERE a command starts; the raw `lines` are used to read what it
+    says.  That split is the point: a declaration's name can live inside a term
+    (`definition "lift_opt m e \<equiv> ..."`), which `outer` blanks, so
+    recognition and extraction genuinely need different views.
+
+    Computed here when not supplied, rather than falling back to a column-0
+    anchor — one recognition rule, so a caller that omits it gets the same
+    answer more slowly rather than a different answer.
+    """
     entries: list[Entry] = []
     i = 0
+    if outer is None:
+        outer = blank_all(lines, scan_regions(lines, want_inner=True)[2])
 
     # Recognised custom commands: this theory's own header declarations, the
     # active root's scanned union (_CUSTOM_COMMANDS, set by load_index), and an
@@ -1095,12 +1135,15 @@ def extract_entries(lines: list[str],
         if skip[i + 1]:
             i += 1
             continue
-        md = _match_decl(line, table)
+        md, indent = _match_decl_at(outer[i], table)
         if md is None:
             i += 1
             continue
 
         keyword, tag, route = md
+        # The keyword occupies the same columns in `outer` as in `line` — the
+        # views are length-preserving — so the raw text after it starts here.
+        line = line[indent:]
         decl_line = i + 1  # 1-indexed source line
 
         # --- Simple one-concept declarations ---
@@ -1110,7 +1153,7 @@ def extract_entries(lines: list[str],
             name = _parse_typedecl_name(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=True):
                 name = _lookahead_name(lines, i + 1, table,
-                                       _parse_typedecl_name)
+                                       _parse_typedecl_name, outer)
             e = Entry(tag, name, f"{tag} {rest}",
                       thy_line=decl_line, decl_end_line=decl_line)
             entries.append(e)
@@ -1148,7 +1191,7 @@ def extract_entries(lines: list[str],
                         else _parse_name)
             name = parse_fn(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=False):
-                name = _lookahead_name(lines, i + 1, table, parse_fn)
+                name = _lookahead_name(lines, i + 1, table, parse_fn, outer)
             buf = [f"{tag} {rest}"]
             decl_end_line = decl_line
             i += 1
@@ -1160,7 +1203,7 @@ def extract_entries(lines: list[str],
                 cline = lines[i]
                 if BLANK_RE.match(cline):
                     break
-                if _match_decl(cline, table):
+                if _match_decl_at(outer[i], table)[0]:
                     break
                 stripped = cline.strip()
                 if stripped.startswith("\\<comment>") or stripped.startswith("text "):
@@ -1224,7 +1267,7 @@ def extract_entries(lines: list[str],
                 # scan swallow the rest of the file.  It did exactly that
                 # before this guard: `Berlekamp_Hensel` lost 15 consecutive
                 # lemmas to one mis-parsed statement.
-                if _match_decl(cline, table):
+                if _match_decl_at(outer[i], table)[0]:
                     break
                 if stripped.startswith("\\<comment>"):
                     # A note can carry the term's closing quote —
@@ -1513,7 +1556,9 @@ def _parse_one(thy: str, thy_path: Path,
     nonisar_spans, note_starts, inner_spans = scan_regions(lines,
                                                           want_inner=True)
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
-    entries = extract_entries(lines, nonisar_ranges=nonisar_ranges)
+    outer = blank_all(lines, inner_spans)
+    entries = extract_entries(lines, nonisar_ranges=nonisar_ranges,
+                              outer=outer)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)

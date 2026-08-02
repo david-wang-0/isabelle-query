@@ -45,6 +45,25 @@ def _blank_spans(line: str, spans: list[tuple[int, int]]) -> str:
     return "".join(out)
 
 
+def blank_all(lines: list[str],
+              spans_by_line: dict[int, list[tuple[int, int]]]) -> list[str]:
+    """`lines` with every span in `spans_by_line` (1-indexed) replaced by
+    spaces — the shared body of `live_source` / `outer_source`.
+
+    Returns the input list itself when there is nothing to blank, so the common
+    case costs no copy.  Lives here rather than in `parsing` because `model` is
+    the bottom of the DAG: `parsing` needs the same operation while building a
+    section, and a second copy of it is a second thing to keep in step.
+    """
+    if not spans_by_line:
+        return lines
+    out = list(lines)
+    for line_no, spans in spans_by_line.items():
+        if 1 <= line_no <= len(out):
+            out[line_no - 1] = _blank_spans(out[line_no - 1], spans)
+    return out
+
+
 @dataclass
 class Entry:
     tag: str            # DEF, FUN, LEMMA, THEOREM, DATATYPE, TYPE, RECORD, AXIOM
@@ -230,16 +249,7 @@ class TheorySection:
         the user's comment is.
         """
         if self._live_cache is None:
-            lines = self.source()
-            if not self.nonisar_spans:
-                self._live_cache = lines   # nothing to redact: share the list
-            else:
-                live = list(lines)
-                for line_no, spans in self.nonisar_spans.items():
-                    if 1 <= line_no <= len(live):
-                        live[line_no - 1] = _blank_spans(live[line_no - 1],
-                                                         spans)
-                self._live_cache = live
+            self._live_cache = blank_all(self.source(), self.nonisar_spans)
         return self._live_cache
 
     def outer_source(self) -> list[str]:
@@ -264,16 +274,7 @@ class TheorySection:
         this purpose rather than merely unhelpful, so populate them.
         """
         if self._outer_cache is None:
-            lines = self.source()
-            if not self.inner_spans:
-                self._outer_cache = lines
-            else:
-                outer = list(lines)
-                for line_no, spans in self.inner_spans.items():
-                    if 1 <= line_no <= len(outer):
-                        outer[line_no - 1] = _blank_spans(outer[line_no - 1],
-                                                          spans)
-                self._outer_cache = outer
+            self._outer_cache = blank_all(self.source(), self.inner_spans)
         return self._outer_cache
 
     def slice(self, start: int, end: int) -> list[str]:
