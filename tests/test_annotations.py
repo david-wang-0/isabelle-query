@@ -23,7 +23,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from support import section_from  # noqa: E402
+from support import cli, section_from  # noqa: E402
 
 NOTE = r'\<comment> \<open>{}\<close>'
 
@@ -242,6 +242,60 @@ class NoteContent(unittest.TestCase):
         """
         self.assertEqual(self.content('\\<comment> ‹hand-written›'),
                          "hand-written")
+
+
+class ProseView(unittest.TestCase):
+    """`show --comments-only` is the prose view; it must show the prose."""
+
+    def test_a_definition_has_a_prose_view_at_all(self):
+        # Before tagging, this printed "(no comment context for this entry)":
+        # a definition has no proof, so it could never have a roadmap.
+        sec = section_from('theory A imports Main begin\n'
+                           'definition f :: "nat \\<Rightarrow> nat" where\n'
+                           '  "f x = x"  ' + NOTE.format("identity") + '\n'
+                           'end\n')
+        out = cli.render_entry(sec, entry(sec, "f"), comments="only")
+        self.assertIn("identity", out)
+        self.assertNotIn("no comment context", out)
+
+    def test_kinds_are_grouped_and_labelled(self):
+        sec = section_from('theory A imports Main begin\n'
+                           'theorem foo:\n'
+                           '  assumes a: "True"  ' + NOTE.format("what") + '\n'
+                           '  shows "True"\n'
+                           'proof -\n'
+                           '  show "True" by simp  ' + NOTE.format("how") + '\n'
+                           'qed\n'
+                           'end\n')
+        out = cli.render_entry(sec, entry(sec, "foo"), comments="only")
+        self.assertLess(out.index("statement:"), out.index("what"))
+        self.assertLess(out.index("what"), out.index("proof:"))
+        self.assertLess(out.index("proof:"), out.index("how"))
+
+    def test_the_default_view_does_not_repeat_a_visible_note(self):
+        """A definition's body is printed in full, notes included.
+
+        Previewing them underneath would print the same prose twice, so the
+        preview is limited to notes past `decl_end_line` — the ones the slice
+        does not already show.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'definition f :: "nat \\<Rightarrow> nat" where\n'
+                           '  "f x = x"  ' + NOTE.format("identity") + '\n'
+                           'end\n')
+        out = cli.render_entry(sec, entry(sec, "f"), comments="on")
+        self.assertEqual(out.count("identity"), 1)
+
+    def test_comments_off_still_suppresses_annotations(self):
+        sec = section_from('theory A imports Main begin\n'
+                           'theorem foo:\n'
+                           '  shows "True"\n'
+                           'proof -\n'
+                           '  show "True" by simp  ' + NOTE.format("how") + '\n'
+                           'qed\n'
+                           'end\n')
+        out = cli.render_entry(sec, entry(sec, "foo"), comments="off")
+        self.assertNotIn("| line", out)
 
 
 if __name__ == "__main__":

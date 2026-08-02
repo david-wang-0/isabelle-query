@@ -327,8 +327,8 @@ def cmd_find(sections: list[TheorySection], pattern: str,
     _emit_matches(by_theory, matches, pattern, flags)
 
     if flags.with_comments:
-        # Additionally search inside preamble bodies and roadmap content,
-        # producing context windows.
+        # Additionally search inside preamble bodies and annotation
+        # content, producing context windows.
         comment_hits = _find_in_comments(sections, pat, flags.context)
         if comment_hits:
             print()
@@ -361,12 +361,16 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
                     for j, snippet_line in enumerate(snippet, start=lo):
                         marker = ">" if j == ln else " "
                         hits.append(f"  {marker} {j}: {snippet_line}")
-        # Inline \<comment> annotations: each entry's roadmap
+        # Inline \<comment> annotations: every note owned by an entry, not
+        # just the proof-tagged ones.  A definition's notes are only reachable
+        # this way — it has no proof, so it never had a roadmap to search.
+        # The tag rides along in the locus so a hit says which part of the
+        # entry the prose is about.
         for e in sec.entries:
-            for ln, content in e.roadmap:
+            for ln, content, kind in e.annotations:
                 if pat.search(content):
                     hits.append(f"\n{sec.theory}.thy:{ln} "
-                                f"(\\<comment> in {e.name}): {content}")
+                                f"(\\<comment> in {e.name} {kind}): {content}")
     return hits
 
 

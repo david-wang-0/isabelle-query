@@ -2,7 +2,7 @@
 
 The fourth layer of the DAG (above ``parsing``, below ``commands``).  Pure
 formatting: the ``[src ...]`` extent annotation (``_format_extent``), preamble
-and roadmap previews, the single-entry renderer (``render_entry``) with its
+and annotation previews, the single-entry renderer (``render_entry``) with its
 statement / verbatim / comments modes, and the shared verbosity-mode dispatch
 (``_emit_matches``) that every match-listing command funnels through.
 
@@ -16,7 +16,12 @@ from __future__ import annotations
 
 import re
 
-from isabelle_query.model import CmdFlags, Entry, TheorySection
+from isabelle_query.model import (
+    _ANNOTATION_KINDS,
+    CmdFlags,
+    Entry,
+    TheorySection,
+)
 from isabelle_query.parsing import LATEX_LINE_RE, _proof_extent
 
 def _format_extent(entry: Entry) -> str:
@@ -132,30 +137,49 @@ def _render_preamble(sec: TheorySection, preamble: tuple[int, int],
     return "\n".join(preview) + suffix
 
 
-def _render_roadmap(roadmap: list[tuple[int, str]], context: int,
-                    proof_remaining: int, mode: str) -> str:
-    """Render a proof roadmap (extracted \\<comment> annotations).
+_KIND_LABELS = {
+    "decl": "declaration",
+    "statement": "statement",
+    "proof": "proof",
+}
 
-    mode='summary': first `context` annotations + "...(N total of M proof lines)"
-    mode='full':    all annotations
+
+def _render_annotations(annotations: list[tuple[int, str, str]], context: int,
+                        proof_remaining: int, mode: str) -> str:
+    """Render an entry's \\<comment> annotations.
+
+    mode='summary': first `context` notes, flat + "...(N more)" — an inline
+                    preview beside the statement, where the surrounding output
+                    already says which part of the entry is in view.
+    mode='full':    every note, GROUPED by which part of the entry it
+                    annotates.  This is the dedicated prose view
+                    (`--comments-only`), and there the grouping is the content:
+                    a note on the statement says what is being claimed, one in
+                    the proof says how it is reached, and running the two
+                    together loses the only thing that distinguishes them.
     """
-    if not roadmap:
+    if not annotations:
         # Fallback: show the existing "+N more proof lines" count line.
         if proof_remaining > 0:
             return (f"  [+{proof_remaining} more proof line"
                     f"{'s' if proof_remaining != 1 else ''}]")
         return ""
-    if mode == "full":
-        shown = roadmap
-    else:
-        shown = roadmap[:max(1, context)]
     out = []
-    for ln, content in shown:
+    if mode == "full":
+        for kind in _ANNOTATION_KINDS:
+            of_kind = [(ln, c) for ln, c, k in annotations if k == kind]
+            if not of_kind:
+                continue
+            out.append(f"  {_KIND_LABELS[kind]}:")
+            out.extend(f"    | line {ln}: {content}" for ln, content in of_kind)
+        return "\n".join(out)
+    shown = annotations[:max(1, context)]
+    for ln, content, _kind in shown:
         out.append(f"  | line {ln}: {content}")
-    if mode != "full" and len(roadmap) > len(shown):
-        rest = len(roadmap) - len(shown)
+    if len(annotations) > len(shown):
+        rest = len(annotations) - len(shown)
         if rest == 1:
-            ln, content = roadmap[len(shown)]
+            ln, content, _kind = annotations[len(shown)]
             out.append(f"  | line {ln}: {content}")
         else:
             out.append(f"  | ...({rest} more annotations "
@@ -187,10 +211,11 @@ def render_entry(sec: TheorySection, entry: Entry, *,
                      (the statement, no proof) — the narrowest view
     verbatim:        full source slice [thy_line..thy_end]
     comments='on':   preamble (truncated) + header + statement + proof preview
-                     + roadmap (truncated)
+                     + annotations (truncated)
     comments='off':  header + statement + proof preview only (current default)
-    comments='only': preamble (full) + header + roadmap (full), no statement
-    context:         lines of preamble preview / roadmap entries shown
+    comments='only': preamble (full) + header + annotations (full, grouped by
+                     which part of the entry each one annotates), no statement
+    context:         lines of preamble preview / annotations shown
 
     `statement` and `verbatim` are opposite ends of the slice spectrum
     (declaration-only vs declaration+proof); `show` declares them mutually
@@ -226,13 +251,11 @@ def render_entry(sec: TheorySection, entry: Entry, *,
     out_parts.append(header)
 
     if comments == "only":
-        # Skip statement + proof; show only roadmap (full).
-        if entry.roadmap:
-            out_parts.append("--- roadmap (\\<comment> annotations) ---")
-            proof_end = _proof_extent(sec, entry.proof_line, entry.thy_end) \
-                if entry.proof_line else entry.thy_end
-            out_parts.append(_render_roadmap(entry.roadmap, context,
-                                             proof_end - entry.proof_line, "full"))
+        # Skip statement + proof; show every annotation, grouped by part.
+        if entry.annotations:
+            out_parts.append("--- annotations (\\<comment>) ---")
+            out_parts.append(_render_annotations(entry.annotations, context,
+                                                 0, "full"))
         elif not entry.preamble:
             out_parts.append("(no comment context for this entry)")
         return "\n".join(out_parts)
@@ -244,9 +267,9 @@ def render_entry(sec: TheorySection, entry: Entry, *,
         proof_end = _proof_extent(sec, entry.proof_line, entry.thy_end)
         remaining = max(0, proof_end - entry.proof_line)
         out_parts.append("\n".join(statement + first_proof))
-        if comments != "off" and entry.roadmap:
-            out_parts.append(_render_roadmap(entry.roadmap, context,
-                                             remaining, "summary"))
+        if comments != "off" and entry.annotations:
+            out_parts.append(_render_annotations(entry.annotations, context,
+                                                 remaining, "summary"))
         elif remaining == 1:
             extra = sec.slice(entry.proof_line + 1, entry.proof_line + 1)
             out_parts.append("\n".join(extra))
@@ -254,8 +277,17 @@ def render_entry(sec: TheorySection, entry: Entry, *,
             out_parts.append(f"  [+{remaining} more proof lines]")
     else:
         # No proof captured → just the declaration as recorded by the parser.
+        # A `definition` lands here, and its marginal notes are the only prose
+        # it can ever have.  Preview only the notes the slice does NOT already
+        # show: this branch prints the whole declaration, so a note inside it
+        # is on screen already, and repeating it underneath is noise.  (The
+        # proof branch above has the opposite problem — it prints one line of
+        # the proof, so its preview is the only sight of the rest.)
         body_lines = sec.slice(entry.thy_line, entry.decl_end_line)
         out_parts.append("\n".join(body_lines))
+        unseen = [a for a in entry.annotations if a[0] > entry.decl_end_line]
+        if comments != "off" and unseen:
+            out_parts.append(_render_annotations(unseen, context, 0, "summary"))
 
     return "\n".join(out_parts)
 
