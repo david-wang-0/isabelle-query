@@ -44,7 +44,7 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
         except Exception:  # noqa: BLE001
             continue
         n_thy += 1
-        _spans, note_starts = parsing.scan_regions(lines)
+        _spans, note_starts, _inner = parsing.scan_regions(lines)
         notes = parsing.extract_comment_lines(lines, note_starts)
         n_notes += len(notes)
 

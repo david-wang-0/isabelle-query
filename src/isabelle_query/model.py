@@ -162,6 +162,16 @@ class TheorySection:
         # when its spans cover every non-blank character, whereas a line that
         # merely ENDS in a comment appears only here.  Consumed by
         # `live_source`.
+    inner_spans: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+        # Everything that is NOT outer syntax, at character granularity:
+        # `nonisar_spans` PLUS the `"..."` terms and live cartouches that scan
+        # deliberately keeps.  Consumed by `outer_source`.
+        #
+        # A superset of `nonisar_spans`, and the two are not redundant: a term
+        # is live Isar that a citation scan must read, and simultaneously not a
+        # place a COMMAND can start.  Which of the two a caller wants depends on
+        # the question — "what does this proof cite" wants live_source, "where
+        # does this command begin" wants outer_source.
     is_thy: bool = True
         # False for a non-`.thy` path passed as a trailing grep positional
         # (e.g. `query grep PAT notes.md`).  Such a section is parsed
@@ -186,6 +196,7 @@ class TheorySection:
         # them, so `largest Foo:1..9` errors rather than silently ignoring).
     _source_cache: list[str] | None = None
     _live_cache: list[str] | None = None
+    _outer_cache: list[str] | None = None
 
     def source(self) -> list[str]:
         if self._source_cache is None:
@@ -230,6 +241,40 @@ class TheorySection:
                                                          spans)
                 self._live_cache = live
         return self._live_cache
+
+    def outer_source(self) -> list[str]:
+        r"""The source with everything that is not OUTER SYNTAX blanked.
+
+        Same shape contract as :meth:`live_source` — line count and every
+        column preserved — but a stricter view: `live_source` keeps ``"..."``
+        terms and cartouches because they hold citable names, while this blanks
+        them too, because a term is not a place a command can start.
+
+        This is what "command position" means in Isar, and it is the thing the
+        declaration grammar has been approximating with a column-0 anchor.  The
+        anchor is a proxy for the same idea and a poor one: Isar is
+        whitespace-insensitive, so an author who indents a theory body drops out
+        of the index entirely, while a `lemma` written inside a term would be
+        read as a declaration if the anchor ever moved.  Asking the tokenizer
+        removes both errors at once, since it already tracks the states that
+        decide it.
+
+        Empty `inner_spans` means the section was parsed without
+        ``want_inner``; the result then equals `source()`, which is WRONG for
+        this purpose rather than merely unhelpful, so populate them.
+        """
+        if self._outer_cache is None:
+            lines = self.source()
+            if not self.inner_spans:
+                self._outer_cache = lines
+            else:
+                outer = list(lines)
+                for line_no, spans in self.inner_spans.items():
+                    if 1 <= line_no <= len(outer):
+                        outer[line_no - 1] = _blank_spans(outer[line_no - 1],
+                                                          spans)
+                self._outer_cache = outer
+        return self._outer_cache
 
     def slice(self, start: int, end: int) -> list[str]:
         """Return 1-indexed inclusive line range from the .thy source."""

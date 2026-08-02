@@ -719,7 +719,10 @@ def _opens_ml_body(lines: list[str], i: int, pos: int) -> bool:
     return k >= 0 and _leads_with_ml(lines[k])
 
 
-def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
+def _scan_nonisar_spans(
+        lines: list[str], want_inner: bool = True,
+) -> tuple[list[list[tuple[int, int]]], dict[int, set[int]],
+           list[list[tuple[int, int]]]]:
     r"""Per-line ``[(start_col, end_col)]`` half-open character spans that are
     NOT live Isar text: ``(* ... *)`` comments (which nest), legacy ``{* ... *}``
     verbatim, ``\<^cancel>\<open>...\<close>`` regions, ``\<comment>
@@ -745,6 +748,13 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     # this distinction — a note annotating commented-out text annotates
     # nothing, and must not be charged to the proof the region sits in.
     notes: dict[int, set[int]] = {}
+    # Per-line spans that are NOT outer syntax — the noise above PLUS the
+    # `"..."` terms and live cartouches the noise scan deliberately keeps.
+    # `state == "text"` is precisely Isar's command position, so the complement
+    # of these spans is where a command keyword can legitimately appear.  The
+    # machine already knows this; it just never said so.
+    inner: list[list[tuple[int, int]]] = [[] for _ in lines] if want_inner else []
+    inner_start = -1
     state = "text"
     depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
     start = -1   # column where the current noise region began on this line
@@ -754,8 +764,11 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
         n = len(line)
         if state in _NOISE_STATES:
             start = 0  # region continues from the previous line
+        if want_inner:
+            inner_start = -1 if state == "text" else 0
         for m in _SCAN_RE.finditer(line):
             tok, pos = m.group(), m.start()
+            was_text = state == "text"
             if state == "text":
                 if tok == "(*":
                     state, depth, start = "comment", 1, pos
@@ -839,8 +852,21 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                         spans[i].append((start, m.end()))
                         state, start = resume, -1
                         depth, resume, resume_depth = resume_depth, "text", 0
+            # The outer-syntax boundary, maintained in ONE place rather than a
+            # line in each of the eight arms above that can cross it — the arms
+            # are where this scanner has historically drifted, and a rule
+            # stated once cannot disagree with itself.
+            if not want_inner:
+                continue
+            if was_text and state != "text":
+                inner_start = pos
+            elif not was_text and state == "text":
+                inner[i].append((inner_start, m.end()))
+                inner_start = -1
         if state in _NOISE_STATES and 0 <= start < n:
             spans[i].append((start, n))
+        if want_inner and state != "text" and 0 <= inner_start < n:
+            inner[i].append((inner_start, n))
         # Every state persists to the next line.  A ``"..."`` term routinely
         # spans lines, and dropping string state at the newline is not a small
         # error: the continuation line of a multi-line term is where `map2 (*)`
@@ -848,15 +874,16 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
         # swallows the rest of the proof.  (Being wrong in this direction only
         # ever leaves noise unrecognised; being wrong in the other deletes live
         # source, so an unbalanced quote costs missed comments, nothing more.)
-    return spans, notes
+    return spans, notes, inner
 
 
-def scan_regions(lines: list[str],
+def scan_regions(lines: list[str], want_inner: bool = False,
                  ) -> tuple[dict[int, list[tuple[int, int]]],
-                            dict[int, set[int]]]:
-    r"""One tokenizer pass, both of its outputs.
+                            dict[int, set[int]],
+                            dict[int, list[tuple[int, int]]]]:
+    r"""One tokenizer pass, all three of its outputs.
 
-    Returns ``(spans, note_starts)``:
+    Returns ``(spans, note_starts, inner_spans)``:
 
     * ``spans`` — ``{line_no: [(lo, hi)]}``, the non-Isar character spans;
     * ``note_starts`` — ``{line_no: {col}}``, where a genuine ``\<comment>``
@@ -864,12 +891,32 @@ def scan_regions(lines: list[str],
       an ML body is absent, because the scanner never reaches it in a live
       state — which is the distinction `extract_comment_lines` cannot make from
       the text alone, since the two are spelled identically.
+    * ``inner_spans`` — ``{line_no: [(lo, hi)]}``, everything that is NOT outer
+      syntax: the noise above, plus ``"..."`` terms and live cartouches.  Its
+      complement is command position, which is what the declaration grammar
+      wants to know and has been approximating with a column-0 anchor.  Empty
+      unless ``want_inner``.
+
+    ``want_inner`` is a flag rather than always-on because the two outputs have
+    very different densities: noise is rare, inner syntax is on 49% of all
+    lines, so recording it costs +18% of the scan (+5.8% of a whole parse,
+    `scripts/probe_fastpath.py`).  Worth paying where command position is
+    wanted, not worth paying to answer "where are the comments".
+
+    It also disables the early return, which is only sound for the noise
+    outputs: every theory has terms, so a theory taking that path would report
+    "no inner syntax" and hand its ``"..."`` back as command position — exactly
+    the false positive the anchor exists to prevent.  (The early return earns
+    little regardless: 7% of theories, 2.7% of lines, and its own gate scans
+    every line twice to decide.)
     """
-    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
+    if not want_inner and not any(_ANY_REGION_RE.search(ln) for ln in lines) \
             and not any(_leads_with_ml(ln) for ln in lines):
-        return {}, {}  # no comment, verbatim, cancel, note or ML: nothing here
-    spans, notes = _scan_nonisar_spans(lines)
-    return {i: sp for i, sp in enumerate(spans, 1) if sp}, notes
+        return {}, {}, {}   # no comment, verbatim, cancel, note or ML
+    spans, notes, inner = _scan_nonisar_spans(lines, want_inner)
+    return ({i: sp for i, sp in enumerate(spans, 1) if sp},
+            notes,
+            {i: sp for i, sp in enumerate(inner, 1) if sp})
 
 
 def extract_nonisar_spans(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
@@ -1463,7 +1510,8 @@ def _parse_one(thy: str, thy_path: Path,
     # (for `live_source`), the whole-noise lines derived from them (for the
     # line-granular masks), and the declaration scan, which must not read a
     # commented-out `definition` or an ML `fun` as an entry.
-    nonisar_spans, note_starts = scan_regions(lines)
+    nonisar_spans, note_starts, inner_spans = scan_regions(lines,
+                                                          want_inner=True)
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges)
     outline = extract_sections(lines)
@@ -1498,7 +1546,8 @@ def _parse_one(thy: str, thy_path: Path,
                         outline=outline, text_blocks=text_blocks,
                         comment_ranges=comment_ranges,
                         nonisar_ranges=nonisar_ranges,
-                        nonisar_spans=nonisar_spans)
+                        nonisar_spans=nonisar_spans,
+                        inner_spans=inner_spans)
     if from_memory:
         # No disk path to lazily re-read (stdin); pin the source we already have.
         sec._source_cache = lines

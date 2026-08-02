@@ -17,11 +17,10 @@ This checks that claim where it matters — against 962 entries of real Isabelle
 — by asking whether the count balances, and how often it goes negative (which
 would mean the model is wrong, not merely incomplete).
 
-APPROXIMATE: inner syntax is blanked with a local scan over `"..."` and
-cartouches rather than by the parser's tokenizer, which does not yet expose
-term spans.  Unbalanced files are dumped so the failures can be read — a
-failure here is either a bad approximation or a bad model, and the samples say
-which.
+Reads `TheorySection.outer_source()` — the parser's own notion of command
+position.  It first ran against a local approximation of that, and the answer
+did not change when the real primitive replaced it, which is the check worth
+having: the model was not an artifact of how the probe blanked inner syntax.
 
 Usage:  probe_block_structure.py [N_ENTRIES]
 """
@@ -41,45 +40,6 @@ LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 120
 # `@` joins the left boundary class: auto2 spells its proof-block closer
 # `@end`, which is its own token and not Isar's `end`.
 _BLOCK_RE = re.compile(r"(?<![A-Za-z_0-9'@])(begin|end)(?![A-Za-z_0-9'])")
-_TOK_RE = re.compile(r'\\\\|\\"|"|\\<open>|‹|\\<close>|›')
-
-
-def outer_only(live: list[str]) -> list[str]:
-    """`live` with `"..."` strings and cartouches blanked, across lines."""
-    out, state, depth = [], "text", 0
-    for line in live:
-        buf, keep = list(line), (state == "text")
-        prev = 0
-        for m in _TOK_RE.finditer(line):
-            tok, pos = m.group(), m.start()
-            if tok in ("\\\\", '\\"'):
-                continue
-            if state == "text":
-                if tok == '"':
-                    state = "string"
-                elif tok in ("\\<open>", "‹"):
-                    state, depth = "cart", 1
-                else:
-                    continue
-                prev = pos
-            elif state == "string":
-                if tok == '"':
-                    buf[prev:m.end()] = " " * (m.end() - prev)
-                    state = "text"
-            else:
-                if tok in ("\\<open>", "‹"):
-                    depth += 1
-                elif tok in ("\\<close>", "›"):
-                    depth -= 1
-                    if depth == 0:
-                        buf[prev:m.end()] = " " * (m.end() - prev)
-                        state = "text"
-        if state != "text":                    # runs on past this line
-            buf[prev:] = " " * (len(line) - prev)
-        out.append("".join(buf) if keep or state == "text" else "")
-    return out
-
-
 def main() -> None:
     depths: Counter = Counter()
     unbalanced: list[str] = []
@@ -90,7 +50,7 @@ def main() -> None:
         for thy_path in sorted(ent.rglob("*.thy")):
             try:
                 sec = cli._parse_one(thy_path.stem, thy_path)
-                live = outer_only(sec.live_source())
+                live = sec.outer_source()
             except Exception:  # noqa: BLE001
                 continue
             n_thy += 1
