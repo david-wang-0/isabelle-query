@@ -404,6 +404,73 @@ end
         self.assertEqual(graph_of(sec).callers["helper"], {"user"})
 
 
+class NoPhantomOnAPartialLine(unittest.TestCase):
+    r"""The other half of `PartialLines`: the redacted name cites nothing.
+
+    Whole-line skipping could not do this.  `_noise_spans` marks a line or does
+    not, so a line holding both a real citation and a commented-out one forced a
+    choice between keeping both and losing both — and losing a true edge is the
+    worse, quieter error, so the phantom was kept deliberately.
+    `TheorySection.live_source` removes the choice: the comment is blanked in
+    place and the citation beside it is untouched.
+
+    Each test therefore asserts BOTH directions on the SAME line.  Asserting
+    only the absence would be satisfied by blanking the whole line, which is
+    the regression this pairing exists to catch.
+    """
+
+    def graph_of_body(self, body):
+        return graph_of(section_from(
+            'theory A\nimports Main\nbegin\n\n'
+            'lemma helper: "True" by simp\n\n'
+            'lemma other: "True" by simp\n\n'
+            + body + '\n\nend\n', "A"))
+
+    def test_trailing_comment_is_not_a_citation(self):
+        # Moved here from test_known_failures once `live_source` landed: the
+        # residual this documented is closed.
+        g = self.graph_of_body(
+            'lemma user: "True" using helper by (simp) (* not other *)')
+        self.assertEqual(g.callers["other"], set())
+        self.assertEqual(g.callers["helper"], {"user"})
+
+    def test_inline_cancel_is_not_a_citation(self):
+        g = self.graph_of_body(
+            r'lemma user: "True" using helper'
+            r' \<^cancel>\<open>other\<close> by simp')
+        self.assertEqual(g.callers["other"], set())
+        self.assertEqual(g.callers["helper"], {"user"})
+
+    def test_inline_ml_body_is_not_a_citation(self):
+        # An ML cartouche opened and closed on its command's own line: real in
+        # the AFP (`attribute_setup ... = \<open>Scan.succeed ...\<close>`), and
+        # never fully-noise, so only column redaction reaches it.
+        g = self.graph_of_body(
+            'lemma user: "True" using helper by simp\n'
+            r'ML \<open>val msg = "other";\<close>')
+        self.assertEqual(g.callers["other"], set())
+        self.assertEqual(g.callers["helper"], {"user"})
+
+    def test_comment_that_opens_and_runs_on_is_not_a_citation(self):
+        g = self.graph_of_body(
+            'lemma user: "True" using helper by simp (* why\n'
+            '   other would not do\n'
+            '*)')
+        self.assertEqual(g.callers["other"], set())
+        self.assertEqual(g.callers["helper"], {"user"})
+
+    def test_oracle_agrees_on_a_partial_line(self):
+        # The brute-force reference reads the same redacted view, so parity is
+        # a real check here rather than two copies of one bug.
+        sec = section_from('theory A\nimports Main\nbegin\n\n'
+                           'lemma helper: "True" by simp\n\n'
+                           'lemma other: "True" by simp\n\n'
+                           'lemma user: "True" using helper by simp'
+                           ' (* not other *)\n\nend\n', "A")
+        self.assertEqual(graph_of(sec).callers,
+                         brute_force_call_graph([sec]).callers)
+
+
 class Ranges(unittest.TestCase):
     """Unit-level: the line ranges the scanner reports."""
 

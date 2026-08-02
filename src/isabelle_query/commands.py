@@ -636,7 +636,11 @@ def _find_callers(sections: list[TheorySection], name: str,
         # treating intra-theory cross-references as noise.
         if external and sec.theory in def_theories:
             continue
-        lines = sec.source()
+        # Decide on the redacted view, report the raw one: a mention inside a
+        # comment / `\<^cancel>` / inline ML body is not a use even when live
+        # proof text shares its line, but the hit we print is the user's line.
+        lines = sec.live_source()
+        raw = sec.source()
         t_ranges = text_ranges.get(sec.theory, [])
         d_ranges = all_def_sites.get(sec.theory, {}).get(name, set())
         for line_no_0, line in enumerate(lines):
@@ -656,7 +660,7 @@ def _find_callers(sections: list[TheorySection], name: str,
             # A name shared with a proof method earns its mention positionally.
             if shadowed and not _shadowed_uses_on_line(line, {name}):
                 continue
-            results.append((sec.theory, line_no, line.rstrip()))
+            results.append((sec.theory, line_no, raw[line_no_0].rstrip()))
     return results
 
 

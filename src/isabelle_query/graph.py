@@ -362,7 +362,13 @@ def _build_call_graph(sections: list[TheorySection],
     quoted_findall = quoted_re.findall
 
     for sec in sections:
-        lines = sec.source()
+        # The redacted view (`live_source`), not the raw source: a comment, an
+        # `\<^cancel>` region or an inline ML body that SHARES its line with
+        # live proof text is blanked in place, so `by simp (* see foo *)` stops
+        # citing `foo`.  Nothing else in this loop changes — the redaction
+        # preserves every line and column, so the mask below and the 1-indexed
+        # arithmetic still address the same characters.
+        lines = sec.live_source()
         t_ranges = text_ranges.get(sec.theory, [])
         d_map = def_sites.get(sec.theory, {})
         idx = line_index.get(sec.theory, [])
@@ -467,7 +473,11 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
     line_index = _build_line_index(sections)
     intro_finditer = _METHOD_INTRO_RE.finditer
     for sec in sections:
-        lines = sec.source()
+        # Scan the redacted view, report the real one: `by simp (* or apply
+        # auto *)` must not count `auto` as a method use, but the located hit
+        # has to show the user their actual line, blanks included nowhere.
+        lines = sec.live_source()
+        raw = sec.source()
         # "Live" = not inside a text block, multi-line \<comment>, or preamble
         # (the same notion `_grep_sections` uses), so an `apply`/`by` mentioned
         # in prose does not register as a method use.  A 1-indexed line mask
@@ -493,7 +503,8 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
                         hit_only = True
             if hit_only:
                 located.append((sec.theory, line_no,
-                                _entry_at_line(idx, line_no), line.rstrip()))
+                                _entry_at_line(idx, line_no),
+                                raw[line_no_0].rstrip()))
     return counts, located
 
 

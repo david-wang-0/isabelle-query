@@ -132,7 +132,9 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
     callers = {n: set() for n in name_set}
     callees = {}
     for sec in sections:
-        lines = sec.source()
+        # Mirrors the fast builder: both read the redacted view, so a comment
+        # sharing its line with proof text cites nothing in either.
+        lines = sec.live_source()
         t_ranges = text_ranges.get(sec.theory, [])
         d_map = def_sites.get(sec.theory, {})
         idx = line_index.get(sec.theory, [])

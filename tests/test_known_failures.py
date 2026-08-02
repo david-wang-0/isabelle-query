@@ -19,7 +19,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
-from support import cli, section_from  # noqa: E402
+from support import section_from  # noqa: E402
 
 
 def names_of(snippet):
@@ -40,31 +40,15 @@ end
 '''
         self.assertIn(r"\<oplus>", names_of(snippet))
 
-    @unittest.expectedFailure
-    def test_trailing_comment_is_not_a_citation(self):
-        r"""A `(* ... *)` comment sharing its line with live proof text.
-
-        `extract_nonisar_ranges` finds the region, but `_noise_spans` is line
-        granular, so a line is skipped only when it holds NO live text.  Here
-        the comment trails a real `by`, and skipping the whole line would drop
-        the genuine citation of `helper` with the phantom one — trading a false
-        positive for a false negative, which is the worse error and the harder
-        to notice.  The residual defect is therefore deliberate.
-
-        Closing it needs column-accurate redaction (a live copy of the source
-        with non-Isar regions blanked in place, preserving every line and
-        column) rather than whole-line skipping — issue #3.
-        """
-        sec = section_from(r'''theory T imports Main begin
-lemma helper: "True" by simp
-lemma other: "True" by simp
-lemma user: "True" using helper by (simp) (* not other *)
-end
-''')
-        self.assertEqual(cli._build_call_graph([sec]).callers["other"], set())
-
-    # NOTE: two cases once listed here are now handled and have moved to
-    # tests/test_names.py as passing tests:
+    # NOTE: three cases once listed here are now handled and have moved to
+    # passing tests.  In tests/test_nonisar_regions.py:
+    #   * a `(* ... *)` comment sharing its line with live proof text — the
+    #     line-granular scan could only keep both the real citation and the
+    #     phantom or lose both, so the residual was deliberate.  Column-
+    #     accurate redaction (`TheorySection.live_source`, issue #3) removes
+    #     the phantom in place and leaves the citation beside it; the case is
+    #     now `NoPhantomOnAPartialLine.test_trailing_comment_is_not_a_citation`.
+    # In tests/test_names.py:
     #   * custom fact-command keywords (AOT's `AOT_theorem`) — the header
     #     keyword scanner (tests/test_keywords.py) reads the `keywords "X" ::
     #     kind` clause that *is* Isabelle's keyword table;
