@@ -63,6 +63,13 @@ word inside one is not a command, so a commented-out `end` does not truncate
 the declaration above it. `grep --with-comments` shows the non-live matches
 too, marked as such.
 
+Isabelle's method and attribute names overlap ordinary fact names — `insert`,
+`trans`, `mono`, `cases` and even `finally` are all real Isabelle tokens *and*
+real declared names. Where a project declares one, usage scans decide by
+**position**: `using foo`, `by (rule foo)` and a mention inside a statement all
+count as uses of the entry, while `by simp`, `auto simp: h` and `[symmetric]`
+are the method or attribute of that name and count as nothing.
+
 **Aggregating across a corpus.** `summary --by-session` rolls the per-theory
 counts up to the **session** and **corpus** level — one row per session plus a
 grand total — so it is useful run against a whole corpus (`query -R AFP/thys
