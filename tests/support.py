@@ -117,8 +117,11 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
     ``foo`` unless that spelling is itself an indexed entry.
     """
     name_set = {e.name for s in sections for e in s.entries
-                if e.tag in cli._CITABLE_TAGS
-                and e.name != "?" and cli._is_citation_name(e.name, drop_upto)}
+                if e.tag in cli._CITABLE_TAGS and e.name != "?"
+                and len(e.name) > drop_upto and not e.name.isdigit()}
+    # Names that are also a proof method / attribute / keyword earn their edges
+    # positionally rather than being dropped; mirrors the fast builder.
+    shadowed = {n for n in name_set if n in graph._NON_CITATION}
     # Spellings searched for each name: itself, plus its derived forms.
     spellings = {n: [n] + ([s for s in (n + "_def", n + "_defs")
                             if s not in name_set] if derived else [])
@@ -145,6 +148,9 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
                     continue
                 if any(line_no in r for r in d_map.get(name, set())):
                     continue
+                if name in shadowed and name not in graph._shadowed_uses_on_line(
+                        line, {name}, derived):
+                    continue  # `by simp`, not a use of a `definition simp`
                 ce = cli._entry_at_line(idx, line_no)
                 if ce is not None and ce.name == "?":
                     continue

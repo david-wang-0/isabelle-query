@@ -226,6 +226,43 @@ def _is_citation_name(name: str, drop_upto: int = _DROP_NAMES_UPTO) -> bool:
             and name not in _NON_CITATION and not name.isdigit())
 
 
+_WORD_RE = re.compile(r"[\w']+")
+
+
+def _shadowed_uses_on_line(line: str, names: set[str],
+                           derived: bool = False) -> set[str]:
+    """Which of `names` this line genuinely USES.
+
+    `names` are declared entries whose spelling is also a proof method or
+    attribute (`lemma foo` where `foo` is an Eisbach method; `definition simp`).
+    The position-blind scan cannot tell `by simp` from a use of such an entry,
+    which is why these names were once dropped from the graph altogether — at
+    the cost of every real citation of them.  Position settles it, and only for
+    this rare subset, so the line is re-read only when one is present.
+
+    A mention counts as a use when it is either
+
+    * an explicit fact citation — `using foo`, `by (rule foo)`, `simp add: foo`
+      (:func:`_cited_facts_on_line`, which reads fact-argument positions only), or
+    * inside a quoted proposition or cartouche — `lemma "simp x = y"` — where
+      the token is a constant or statement text, never a method invocation.
+
+    Everything else — `by simp`, `apply (auto simp: h)`, `[symmetric]` — is the
+    method or attribute of that name doing its job, and mints no edge.
+    """
+    cited, _ = _cited_facts_on_line(line)
+    if derived:
+        cited = cited | {n for n in names
+                         if n + "_def" in cited or n + "_defs" in cited}
+    used = names & cited
+    rest = names - used
+    if rest and ('"' in line or "\\<open>" in line):
+        terms = " ".join(a or b for a, b in _PROP_TEXT_RE.findall(line))
+        if terms:
+            used = used | (rest & set(_WORD_RE.findall(terms)))
+    return used
+
+
 def _build_call_graph(sections: list[TheorySection],
                       drop_upto: int = _DROP_NAMES_UPTO,
                       derived: bool = False) -> CallGraph:
@@ -243,16 +280,27 @@ def _build_call_graph(sections: list[TheorySection],
     :func:`commands.cmd_unused` turns it on, where the question is whether the
     DECLARATION is dead.  See the note there.
     """
-    # 1. Collect candidate names (same filter as cmd_dead).  A name that is a
-    #    proof method / attribute / keyword / numeral — or too short to tell
-    #    from a term variable — is not a citable fact, so `by simp` and the
-    #    universal variable `x` alike don't mint spurious edges.
+    # 1. Collect candidate names.  A name too short to tell from a term
+    #    variable, or a bare numeral, is not a citable fact, so the universal
+    #    variable `x` mints no edges.
+    #
+    #    A name that is ALSO a proof method / attribute / keyword is admitted,
+    #    but into `shadowed`: its mentions are checked positionally below.  It
+    #    used to be dropped outright, which stopped `by simp` minting edges to a
+    #    `definition simp` — but also erased every genuine citation of any entry
+    #    whose name collides with the bound table.  The table is a union over
+    #    sessions, and `HOL-Eisbach` exports the methods of its own `Tests`
+    #    theory, so `lemma foo` disappeared from `callers` and `unused`
+    #    entirely.  Position tells the two apart; a name never can.
     name_set: set[str] = set()
+    shadowed: set[str] = set()
     for sec in sections:
         for e in sec.entries:
-            if (e.tag in _CITABLE_TAGS
-                    and e.name != "?" and _is_citation_name(e.name, drop_upto)):
+            if (e.tag in _CITABLE_TAGS and e.name != "?"
+                    and len(e.name) > drop_upto and not e.name.isdigit()):
                 name_set.add(e.name)
+                if e.name in _NON_CITATION:
+                    shadowed.add(e.name)
 
     # 1b. Derived-fact spellings.  Isabelle mints `foo_def` from `definition
     #     foo`, and citing it IS a use of `foo` — often the only one, since an
@@ -352,6 +400,15 @@ def _build_call_graph(sections: list[TheorySection],
                 cand |= ns_inter(quoted_findall(stripped))
             if not cand:
                 continue
+            # A candidate whose name is also a method/attribute has to earn its
+            # edge positionally.  Guarded so the ordinary line pays one set
+            # intersection, not the re-read.
+            if shadowed:
+                sh = cand & shadowed
+                if sh:
+                    cand = (cand - sh) | _shadowed_uses_on_line(line, sh, derived)
+                    if not cand:
+                        continue
             caller_entry = _entry_at_line(idx, line_no)
             if caller_entry is not None and caller_entry.name == "?":
                 continue
@@ -566,6 +623,10 @@ _ATTR_FACT_WORDS = frozenset({"OF", "THEN", "unfolded", "folded", "simplified"})
 # mistaken for cited facts (`have "using x" by ...` cites nothing from the term).
 _DQUOTE_STRIP_RE = re.compile(r'"[^"]*"')
 _CARTOUCHE_STRIP_RE = re.compile(r"\\<open>.*?\\<close>")
+# The same two regions, captured rather than blanked: the *term* text of a line.
+# A name occurring here is being used as a constant or in a statement, which is
+# a real use even when that name also happens to be a proof method.
+_PROP_TEXT_RE = re.compile(r'"([^"]*)"|\\<open>(.*?)\\<close>')
 # Token stream for the fact walk: names (with internal dots for qualified
 # spellings), the `..` proof, and the structural chars that delimit method args.
 _FACT_TOK_RE = re.compile(

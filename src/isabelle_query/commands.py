@@ -42,7 +42,9 @@ from isabelle_query.graph import (
     _noise_spans,
     _scan_methods,
     _sections_by_theory,
+    _shadowed_uses_on_line,
 )
+from isabelle_query import graph as _graph
 from isabelle_query.render import (
     _emit_matches,
     _format_extent,
@@ -602,6 +604,13 @@ def _find_callers(sections: list[TheorySection], name: str,
       - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
         ``@{term name}`` where the *only* occurrence of *name* on the line
         is inside an antiquotation.
+      - When *name* is also a proof method or attribute (`simp`, `insert`,
+        `mono`), lines that merely INVOKE it — `by simp`, `apply (auto simp:
+        h)`, `[symmetric]`.  A method invocation is not a reference to the
+        entry that happens to share its name, and reporting it as one made
+        every such entry look heavily used.  The same positional rule the
+        call graph applies (:func:`graph._shadowed_uses_on_line`), so
+        `callers` and `unused` agree on what a use is.
 
     When ``external`` is true, additionally skip every line in the
     theory(ies) that define *name* — useful for "is anything outside
@@ -618,6 +627,8 @@ def _find_callers(sections: list[TheorySection], name: str,
     all_def_sites = _build_def_sites(sections, {name})
     def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
     text_ranges = _noise_ranges(sections)
+    # Read late: the namespace table is bound by the CLI after import.
+    shadowed = name in _graph._NON_CITATION
 
     results: list[tuple[str, int, str]] = []
     for sec in sections:
@@ -641,6 +652,9 @@ def _find_callers(sections: list[TheorySection], name: str,
             # Skip if the only occurrences are inside antiquotations.
             stripped = antiq_re.sub('', line)
             if not word_re.search(stripped):
+                continue
+            # A name shared with a proof method earns its mention positionally.
+            if shadowed and not _shadowed_uses_on_line(line, {name}):
                 continue
             results.append((sec.theory, line_no, line.rstrip()))
     return results
