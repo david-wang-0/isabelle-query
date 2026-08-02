@@ -1420,6 +1420,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
     out: list[tuple[str, int, str, Entry | None, bool, bool]] = []
     for sec in sections:
         lines = sec.source()
+        live_lines = sec.live_source()
         noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
         idx = line_index.get(sec.theory, [])
         # Resolve the line window once: no window → the whole file; an open
@@ -1436,7 +1437,14 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
                 continue
             if not pat.search(line):
                 continue
-            is_live = not any(line_no in r for r in noise)
+            # Live iff the match survives redaction, not merely iff the LINE
+            # does.  `by simp \<comment> \<open>see foo\<close>` is a live line
+            # holding a prose-only match, and a line-granular test would report
+            # that `foo` as source.  Searching the redacted copy asks the
+            # question at the right granularity — the raw line is still what
+            # gets matched first, so `--with-comments` still finds prose.
+            is_live = (not any(line_no in r for r in noise)
+                       and bool(pat.search(live_lines[line_no_0])))
             owner = _entry_at_line(idx, line_no)
             out.append((sec.path.name, line_no, line.rstrip(), owner,
                         is_live, sec.is_thy))
@@ -1448,8 +1456,10 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     """Regex-search live source across all theories.
 
     Default: only matches in live source (declarations + proof bodies),
-    skipping `text \\<open>...\\<close>` blocks, per-entry preambles, and
-    multi-line `\\<comment> \\<open>...\\<close>` annotations.  Use
+    skipping `text \\<open>...\\<close>` blocks, per-entry preambles, and every
+    lexical non-Isar region — `(* ... *)`, `\\<comment>` notes, `\\<^cancel>`,
+    legacy verbatim, ML bodies.  The test is per MATCH, not per line, so a hit
+    that sits only inside a note trailing live proof text is prose.  Use
     `--with-comments` to also include prose matches; each non-live hit is
     tagged.
 

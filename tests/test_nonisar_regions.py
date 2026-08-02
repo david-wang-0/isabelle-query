@@ -22,6 +22,7 @@ other test here asserts the ABSENCE of an edge.
 """
 
 import os
+import re
 import sys
 import unittest
 
@@ -692,6 +693,103 @@ definition kept :: "nat" where "kept = 0"
 
 end
 '''), ["kept"])
+
+
+class Attribution(unittest.TestCase):
+    r"""Which entry a comment is charged to — and it is DIRECTIONAL.
+
+    Three rules, none of which the non-Isar work was meant to change:
+
+      * a `text \<open>...\<close>` block PRECEDES the entry it documents and is
+        charged forward to it (`Entry.preamble`, which moves `src_start`);
+      * a `\<comment>` note FOLLOWS the step it annotates and is charged
+        backward, into the enclosing proof (`Entry.roadmap`);
+      * a plain `(* ... *)` block between two declarations falls in the
+        PRECEDING entry's span, because spans run to the next declaration.
+
+    Gating the declaration scan does move spans, in one specific way: a
+    commented-out declaration used to be an entry, and an entry is a span
+    BOUNDARY, so the entry above it now runs through the region instead of
+    stopping at it.  That is the third rule finally applying to a region that
+    was previously carved out by a declaration Isabelle never saw — but it is a
+    change, so it is pinned here rather than left to be discovered.
+    """
+
+    # A note is a roadmap step only STRICTLY inside the proof body
+    # (`proof_line < line`), so the live note goes on a `show`, not on the
+    # proof's own first line.  That rule predates this work and is unchanged.
+    SNIPPET = r'''theory A
+imports Main
+begin
+
+lemma first: "True"
+  proof -
+    show "True" by simp \<comment> \<open>a real note\<close>
+  qed
+
+(*
+definition old :: "nat" where "old = 0"
+  \<comment> \<open>a note about deleted text\<close>
+*)
+
+text \<open>Documents second.\<close>
+lemma second: "True" by simp
+
+end
+'''
+
+    def test_preceding_entry_absorbs_the_commented_out_region(self):
+        sec = section_from(self.SNIPPET, "A")
+        first = entry(sec, "first")
+        # Runs through the comment block, stopping before `second`'s preamble.
+        self.assertEqual(first.thy_end, 14)
+
+    def test_the_next_entry_keeps_its_forward_attributed_doc(self):
+        # The `text` block still belongs to the entry BELOW it: the growth of
+        # `first` must stop at `second`'s src_start, not swallow its docstring.
+        sec = section_from(self.SNIPPET, "A")
+        second = entry(sec, "second")
+        self.assertEqual(second.preamble, (15, 15))
+        self.assertEqual(second.src_start, 15)
+
+    def test_note_in_a_live_proof_is_a_roadmap_step(self):
+        sec = section_from(self.SNIPPET, "A")
+        self.assertEqual([c for _, c in entry(sec, "first").roadmap],
+                         ["a real note"])
+
+    def test_note_inside_a_commented_out_block_is_not(self):
+        # It annotates text that is not there.  Now that the region falls
+        # inside `first`'s span, nothing but the scanner's own state can tell
+        # this note from the live one above — they are spelled identically.
+        sec = section_from(self.SNIPPET, "A")
+        self.assertNotIn("a note about deleted text",
+                         [c for _, c in entry(sec, "first").roadmap])
+
+    def test_grep_classifies_a_match_not_a_line(self):
+        r"""A hit inside a trailing note is prose, though its line is live.
+
+        `_noise_spans` is line-granular, so once `\<comment>` left it, a
+        line-level liveness test would have called this match source.  The test
+        is per match — the pattern has to survive redaction.
+        """
+        sec = section_from('theory A\nimports Main\nbegin\n\n'
+                           'lemma one: "True" by simp'
+                           r' \<comment> \<open>could use helper\<close>'
+                           '\n\n'
+                           'lemma two: "True" using helper by simp\n\nend\n',
+                           "A")
+        hits = {ln: live for _f, ln, _t, _o, live, _ in
+                cli._grep_sections([sec], re.compile("helper"))}
+        self.assertEqual(hits, {5: False, 7: True})
+
+    def test_enclosing_a_commented_out_line_gives_the_entry_above(self):
+        # `query enclosing` on a line in the region: the answer is the entry
+        # whose span covers it, which is the rule a plain `(* ... *)` block has
+        # always followed.  Previously it was the phantom `old`.
+        sec = section_from(self.SNIPPET, "A")
+        e = enclosing(sec, 9)
+        self.assertIsNotNone(e)
+        self.assertEqual(e.name, "first")
 
 
 class Ranges(unittest.TestCase):

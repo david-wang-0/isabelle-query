@@ -704,6 +704,14 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     keyword decides that, exactly as `TEXT_OPEN_RE` decides it for `text`.
     """
     spans: list[list[tuple[int, int]]] = [[] for _ in lines]
+    # Columns at which a GENUINE `\<comment>` note opens, per 1-indexed line.
+    # The scan is the only thing that can tell those apart from a `\<comment>`
+    # written inside a `(* ... *)` block or an ML body: the latter is never
+    # tokenised as a marker at all, because the machine is in `comment` /
+    # `cartouche` state when it goes past.  `_attach_roadmaps` needs exactly
+    # this distinction — a note annotating commented-out text annotates
+    # nothing, and must not be charged to the proof the region sits in.
+    notes: dict[int, set[int]] = {}
     state = "text"
     depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
     start = -1   # column where the current noise region began on this line
@@ -726,6 +734,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     # `\<^cancel>` (deleted text) or `\<comment>` (a marginal
                     # note) plus the cartouche it owns — matched as one token.
                     state, depth, start = "cartouche", 1, pos
+                    if tok.startswith(_MARGINAL):
+                        notes.setdefault(i + 1, set()).add(pos)
                 elif tok in _CART_OPEN:
                     if _opens_ml_body(lines, i, pos):  # ML body: redact it
                         state, depth, start = "cartouche", 1, pos
@@ -745,6 +755,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     # open a comment that swallows the proof.
                     state, resume, resume_depth = "cartouche", "string", depth
                     depth, start = 1, pos
+                    if tok.startswith(_MARGINAL):
+                        notes.setdefault(i + 1, set()).add(pos)
             elif state == "comment":
                 if tok == "(*":
                     depth += 1
@@ -777,6 +789,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     # would resume at the note's depth.
                     state, resume, resume_depth = "cartouche", "term", depth
                     depth, start = 1, pos
+                    if tok.startswith(_MARGINAL):
+                        notes.setdefault(i + 1, set()).add(pos)
                 elif tok.endswith(_CART_OPEN):
                     depth += 1
                 elif tok in _CART_CLOSE:
@@ -801,7 +815,28 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
         # swallows the rest of the proof.  (Being wrong in this direction only
         # ever leaves noise unrecognised; being wrong in the other deletes live
         # source, so an unbalanced quote costs missed comments, nothing more.)
-    return spans
+    return spans, notes
+
+
+def scan_regions(lines: list[str],
+                 ) -> tuple[dict[int, list[tuple[int, int]]],
+                            dict[int, set[int]]]:
+    r"""One tokenizer pass, both of its outputs.
+
+    Returns ``(spans, note_starts)``:
+
+    * ``spans`` — ``{line_no: [(lo, hi)]}``, the non-Isar character spans;
+    * ``note_starts`` — ``{line_no: {col}}``, where a genuine ``\<comment>``
+      note opens.  A ``\<comment>`` written *inside* a ``(* ... *)`` block or
+      an ML body is absent, because the scanner never reaches it in a live
+      state — which is the distinction `extract_comment_lines` cannot make from
+      the text alone, since the two are spelled identically.
+    """
+    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
+            and not any(_leads_with_ml(ln) for ln in lines):
+        return {}, {}  # no comment, verbatim, cancel, note or ML: nothing here
+    spans, notes = _scan_nonisar_spans(lines)
+    return {i: sp for i, sp in enumerate(spans, 1) if sp}, notes
 
 
 def extract_nonisar_spans(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
@@ -814,15 +849,12 @@ def extract_nonisar_spans(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
     nothing to redact, which `TheorySection.live_source` uses to hand back the
     original list rather than a copy.
 
-    This is the tokenizer's *full* output.  :func:`extract_nonisar_ranges`
+    The span half of :func:`scan_regions`.  :func:`extract_nonisar_ranges`
     narrows it to whole lines; the column detail is what
     :meth:`model.TheorySection.live_source` needs, so a comment trailing live
     proof text can be blanked without taking the proof text with it.
     """
-    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
-            and not any(_leads_with_ml(ln) for ln in lines):
-        return {}  # no comment, no verbatim, no cancel, no ML: nothing to find
-    return {i: sp for i, sp in enumerate(_scan_nonisar_spans(lines), 1) if sp}
+    return scan_regions(lines)[0]
 
 
 def extract_nonisar_ranges(
@@ -873,15 +905,31 @@ def extract_nonisar_ranges(
     return out
 
 
-def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
-    """Return [(line_no, content)] for in-proof `\\<comment> \\<open>...\\<close>`
-    annotations.  `content` is the prose text inside the `\\<open>...\\<close>`
-    on the comment's first line (truncated at the first `\\<close>` if present).
+def extract_comment_lines(lines: list[str],
+                          notes: dict[int, set[int]] | None = None,
+                          ) -> list[tuple[int, str]]:
+    r"""Return [(line_no, content)] for in-proof `\<comment> \<open>...\<close>`
+    annotations.  `content` is the prose text inside the `\<open>...\<close>`
+    on the comment's first line (truncated at the first `\<close>` if present).
+
+    These become `Entry.roadmap` — the note is charged BACKWARD, to the proof
+    it sits inside, because a marginal note is about the step it follows.
+
+    ``notes`` (the second half of :func:`scan_regions`) filters out a
+    ``\<comment>`` that is itself inside a commented-out block or an ML body.
+    Text alone cannot tell those apart — they are spelled identically — but the
+    scanner can, because it never reads one in a live state.  The distinction
+    became load-bearing when commented-out declarations stopped being entries:
+    the region is now inside the preceding entry's span, so without this filter
+    a note annotating deleted proof text would be reported as a roadmap step of
+    a proof that never mentions it.
     """
     out = []
     for i, line in enumerate(lines, 1):
         m = COMMENT_LINE_RE.search(line)
         if not m:
+            continue
+        if notes is not None and m.start() not in notes.get(i, ()):
             continue
         rest = m.group(1)
         close_idx = rest.find("\\<close>")
@@ -1244,13 +1292,13 @@ def _parse_one(thy: str, thy_path: Path,
     # (for `live_source`), the whole-noise lines derived from them (for the
     # line-granular masks), and the declaration scan, which must not read a
     # commented-out `definition` or an ML `fun` as an entry.
-    nonisar_spans = extract_nonisar_spans(lines)
+    nonisar_spans, note_starts = scan_regions(lines)
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)
-    comment_lines = extract_comment_lines(lines)
+    comment_lines = extract_comment_lines(lines, note_starts)
     # Preambles first: they fix each entry's src_start, which compute_spans
     # uses as the boundary so a leading doc is charged to the entry it
     # documents (not the preceding one).  Roadmaps need the resulting thy_end.
