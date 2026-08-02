@@ -170,5 +170,64 @@ class DoesNotOverrun(unittest.TestCase):
         self.assertEqual(names(sec), ["g", "h"])
 
 
+class SpanBoundaries(unittest.TestCase):
+    r"""`_structural_command_lines` reads command position too.
+
+    It was anchored at column 0 on the stated grounds that "an indented `end`
+    closing a nested proof does not cut anything" — but `end` does not close a
+    proof (`qed` does), and an indented `end` closes a nested `context`, which
+    is exactly a boundary worth reporting.  The anchor suppressed real cuts
+    inside every indented block AND accepted false ones from prose.
+
+    Over 120 AFP entries the change moved 847 spans: 840 shrank (a block close
+    now cuts) and 6 GREW — each of those a false boundary removed, which is the
+    more interesting direction and is why both are pinned here.
+    """
+
+    def span(self, snippet, name):
+        sec = section_from(snippet)
+        e = next(x for x in sec.entries if x.name == name)
+        return e.src_start, e.thy_end
+
+    def test_an_indented_end_closes_the_span(self):
+        # `foo` must not run on through the `end` that closes its context.
+        _start, end = self.span('theory A imports Main begin\n'
+                                'locale L begin\n'
+                                '  context begin\n'
+                                '    lemma foo: "True" by simp\n'
+                                '  end\n'
+                                '  lemma bar: "True" by simp\n'
+                                'end\n'
+                                'end\n', "foo")
+        self.assertEqual(end, 4)
+
+    def test_prose_beginning_with_a_command_word_is_not_a_boundary(self):
+        r"""`BytecodeLogicJmlTypes/Logic:152` — a `text` block whose line
+        begins with the English word "context"; `Belief_Revision/AGM_Logic:302`
+        begins with "lemmas".  Both truncated the declaration above them."""
+        _start, end = self.span('theory A imports Main begin\n'
+                                'definition g where "g x = x"\n'
+                                'text \\<open>\n'
+                                'context is discharged in the proof below, and\n'
+                                'lemmas are stated without complex inferences\n'
+                                '\\<close>\n'
+                                'end\n', "g")
+        self.assertGreaterEqual(end, 5)
+
+    def test_verbatim_code_is_not_a_boundary(self):
+        r"""`AutoCorres2/open_struct:1314` — C source inside a
+        `\<^verbatim>\<open>...\<close>` cartouche, beginning `typedef struct`.
+        `typedef` is an Isabelle span-boundary command; that C is not it."""
+        _start, end = self.span('theory A imports Main begin\n'
+                                'definition g where "g x = x"\n'
+                                'text \\<open>\n'
+                                '\\<^verbatim>\\<open>\n'
+                                'typedef struct foo { int x; };\n'
+                                '\\<close>\n'
+                                '\\<close>\n'
+                                'end\n', "g")
+        self.assertGreaterEqual(end, 5)
+
+
 if __name__ == "__main__":
     unittest.main()

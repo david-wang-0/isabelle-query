@@ -10,7 +10,12 @@ dance (git stash is permission-gated here):
     python3 scripts/dump_entries.py 60 > .before.txt
     git checkout HEAD -- . ; diff .before.txt .after.txt
 
-Usage:  dump_entries.py [N_ENTRIES]
+`--spans` widens each record with the computed extents, for changes that move
+where entries END rather than which entries exist — a span change is invisible
+to the default record, and spans drive `enclosing`, `largest`, `outline` and
+the call graph's def-site ranges.
+
+Usage:  dump_entries.py [N_ENTRIES] [--spans]
 """
 import sys
 from pathlib import Path
@@ -21,7 +26,8 @@ sys.path.insert(0, str(_ROOT / "src"))
 from isabelle_query import cli  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
-LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 60
+LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 60
+SPANS = "--spans" in sys.argv
 
 for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
     for thy_path in sorted(ent.rglob("*.thy")):
@@ -30,4 +36,9 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
         except Exception:  # noqa: BLE001
             continue
         for e in sec.entries:
-            print(f"{ent.name}/{thy_path.stem}:{e.thy_line}:{e.tag}:{e.name}")
+            rec = f"{ent.name}/{thy_path.stem}:{e.thy_line}:{e.tag}:{e.name}"
+            if SPANS:
+                rec += (f":src={e.src_start}-{e.thy_end}"
+                        f":decl_end={e.decl_end_line}:proof={e.proof_line}"
+                        f":body_end={e.body_end_line}")
+            print(rec)

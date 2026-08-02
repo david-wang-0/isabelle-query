@@ -1374,20 +1374,27 @@ _LEADING_CMD_RE = re.compile(r"^([A-Za-z][A-Za-z_0-9]*)")
 
 def _structural_command_lines(
         lines: list[str],
-        noise_ranges: list[tuple[int, int]] | None = None) -> list[int]:
+        noise_ranges: list[tuple[int, int]] | None = None,
+        outer: list[str] | None = None) -> list[int]:
     """1-indexed lines that open a span-bounding outer command.
 
     Fed to :func:`compute_spans` alongside the section lines, so a declaration
     ends where the next outer command begins rather than running on through it.
     See ``_SPAN_BOUNDARY_COMMANDS``.
 
-    Boundary commands are matched in column 0 only, so an indented `end` closing
-    a nested proof does not cut anything.  Lines in `noise_ranges` are skipped —
-    a commented-out command is prose, not a boundary.  Those ranges must cover
-    ``(* ... *)`` comments (see `extract_nonisar_ranges`) and not merely
-    ``\\<comment>`` annotations: a ``(*`` block is exactly where a superseded
-    ``end`` sits at column 0, and reading it as a real command truncates the
-    live declaration above it.
+    Matched at command position via ``outer`` — the same rule the declaration
+    grammar uses, and for the same reason.  This was anchored at column 0, whose
+    stated purpose was that "an indented `end` closing a nested proof does not
+    cut anything"; but `end` does not close a proof (`qed` does), and an
+    indented `end` closes a nested `context` or `locale`, which is exactly a
+    boundary this should report.  The anchor was suppressing real cuts inside
+    every indented block.
+
+    Lines in `noise_ranges` are still skipped.  That is now belt-and-braces —
+    the outer view already blanks a commented-out command — but it costs
+    nothing and the failure it guards against is quiet: a ``(*`` block is
+    exactly where a superseded ``end`` sits, and reading one as a real command
+    truncates the live declaration above it.
     """
     masked: set[int] = set()
     for start, end in (noise_ranges or []):
@@ -1397,7 +1404,8 @@ def _structural_command_lines(
         line_no = line_no_0 + 1
         if line_no in masked:
             continue
-        m = _LEADING_CMD_RE.match(line)  # column 0: introducer position
+        probe = (outer[line_no_0] if outer is not None else line).lstrip()
+        m = _LEADING_CMD_RE.match(probe)
         if m is None or m.group(1) not in _SPAN_BOUNDARY_COMMANDS:
             continue
         # Report the boundary at the head of any blank run before the command,
@@ -1570,7 +1578,7 @@ def _parse_one(thy: str, thy_path: Path,
     compute_spans(entries,
                   [s[2] for s in outline]
                   + _structural_command_lines(
-                      lines, comment_ranges + nonisar_ranges),
+                      lines, comment_ranges + nonisar_ranges, outer),
                   len(lines))
     _attach_annotations(entries, comment_lines)
     for e in entries:
