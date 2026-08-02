@@ -471,6 +471,87 @@ class NoPhantomOnAPartialLine(unittest.TestCase):
                          brute_force_call_graph([sec]).callers)
 
 
+class MarginalComments(unittest.TestCase):
+    r"""`\<comment> \<open>...\<close>` — the note that trails live proof text.
+
+    This one failed in the FALSE-NEGATIVE direction, which is the worse one.
+    A marginal note normally shares its line with the step it annotates
+    (`by simp \<comment> \<open>why\<close>`), and the line-granular
+    `comment_ranges` marked the whole line — so the `by simp` vanished from the
+    method census and any citation beside it vanished from the graph.  The
+    tokenizer reports the note by column instead, so only the note goes.
+    """
+
+    def test_note_does_not_take_the_step_with_it(self):
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+lemma helper: "True" by simp
+
+lemma other: "True" by simp
+
+lemma user: "True" using helper by simp \<comment> \<open>other is weaker\<close>
+
+end
+''', "A")
+        g = graph_of(sec)
+        self.assertEqual(g.callers["helper"], {"user"})   # the live half
+        self.assertEqual(g.callers["other"], set())       # the note
+
+    def test_note_line_still_counts_its_method(self):
+        # `_scan_methods` skipped the whole line, so this `simp` was invisible.
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+lemma user: "True" by simp \<comment> \<open>could use auto\<close>
+
+end
+''', "A")
+        counts, _ = cli._scan_methods([sec])
+        self.assertEqual(counts["simp"], 1)
+        self.assertEqual(counts["auto"], 0)
+
+    def test_note_alone_on_its_line_is_wholly_non_isar(self):
+        self.assertEqual(ranges(r'  \<comment> \<open>round 1\<close>'), [(1, 1)])
+
+    def test_multi_line_note_body_is_covered(self):
+        self.assertEqual(ranges(r'''lemma a: "True"
+  \<comment> \<open>a note that
+     runs over two lines\<close>
+  by simp'''), [(2, 3)])
+
+    def test_note_inside_a_quoted_term_is_covered(self):
+        # Isabelle's INNER syntax takes cartouche comments too, and a note
+        # inside a multi-line `"..."` definition body is a real AFP shape.
+        # The tokenizer is in `string` state there, so it has to recognise the
+        # marker without leaving the term.
+        self.assertEqual(ranges(r'''definition d where
+  "d x = (do {
+     let y = f x;
+     \<comment> \<open>round 1\<close>
+     return y
+  })"'''), [(4, 4)])
+
+    def test_note_nested_in_a_live_cartouche_does_not_end_it(self):
+        # The marker and its cartouche match as ONE token that ENDS in an
+        # opener.  If the enclosing cartouche did not count that as nesting, the
+        # note's own `\<close>` would close the TERM a level early — and the
+        # `(*)` after it would then open a comment that swallows `baz`.
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+lemma bar: \<open>x \<comment> \<open>note\<close> = fold (*) xs\<close> by simp
+
+lemma baz: "True" by simp
+
+end
+''', "A")
+        self.assertEqual({e.name for e in sec.entries}, {"bar", "baz"})
+
+
 class NoPhantomDeclarations(unittest.TestCase):
     r"""A declaration inside a non-Isar region is not a declaration.
 

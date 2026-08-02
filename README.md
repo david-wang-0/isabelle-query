@@ -57,8 +57,8 @@ The call graph used by usage scans is constructed only when needed, so
 most commands stay fast.
 
 Both kinds of scan read **only live Isar text**. A name inside a `(* ... *)`
-comment, a `\<^cancel>` region, a `text` block or an `ML` body is not a
-citation, so it never invents a caller or hides a dead lemma; a command word
+comment, a `\<comment>` note, a `\<^cancel>` region, a `text` block or an `ML`
+body is not a citation, so it never invents a caller or hides a dead lemma; a command word
 inside one is not a command, so a commented-out `end` does not truncate the
 declaration above it; and a *declaration* inside one is not a declaration, so
 a superseded `definition` left behind in a comment, or an ML `fun` (Isabelle
@@ -68,9 +68,11 @@ shows the non-live matches too, marked as such.
 The regions are found by a character-level scan rather than by line, because
 none of this is line-oriented: comments nest, and a `(*` inside a `"..."` term
 — HOL's multiplication section, `fold (*) xs` — opens nothing at all. Scans
-then read the source with exactly those characters blanked, so a comment
-sharing its line with real proof text loses only itself: in
-`by (simp add: foo) (* not bar *)`, `foo` is a citation and `bar` is not.
+then read the source with exactly those characters blanked, so a region sharing
+its line with real proof text loses only itself. In
+`by (simp add: foo) (* not bar *)`, `foo` is a citation and `bar` is not; and
+`using foo by simp \<comment> \<open>note\<close>` keeps both the citation and
+the `simp` that `query methods` counts.
 
 Isabelle's method and attribute names overlap ordinary fact names — `insert`,
 `trans`, `mono`, `cases` and even `finally` are all real Isabelle tokens *and*

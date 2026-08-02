@@ -109,18 +109,24 @@ class TheorySection:
         # All top-level text blocks in the theory, used for `outline` rendering
         # (per-entry preambles are stored on Entry.preamble).
     comment_ranges: list[tuple[int, int]] = field(default_factory=list)
-        # Multi-line ranges for `\<comment> \<open>...\<close>` annotations;
-        # folded into `_noise_spans`, so every search/scan (grep, methods, the
-        # call graph, proof-block drill-down) skips them as non-live source.
+        # Multi-line ranges for `\<comment> \<open>...\<close>` annotations.
+        # NOT part of `_noise_spans` any more: these notes usually trail live
+        # proof text, and marking the whole line dropped the step with the
+        # note.  The tokenizer reports the same regions by column, so
+        # `nonisar_ranges`/`nonisar_spans` cover them properly; this stays as
+        # the span-boundary belt-and-braces (it also catches a `\<comment>`
+        # with no cartouche, which the tokenizer does not match).
         # (Distinct from comment_lines, which records first-line content for the
         # roadmap-attachment feature.)
     nonisar_ranges: list[tuple[int, int]] = field(default_factory=list)
         # Lines holding no live Isar text: `(* ... *)` comments (which nest),
-        # `\<^cancel>` regions, legacy `{* ... *}` verbatim, and ML bodies.
+        # `\<^cancel>` regions, `\<comment>` marginal notes, legacy `{* ... *}`
+        # verbatim, and ML bodies.
         # Lexical, not grammatical — see `parsing.extract_nonisar_ranges`.
-        # Folded into `_noise_spans` (so no scan reads them as proof text) and
-        # into the span-boundary mask (so a commented-out `end` does not cut
-        # the declaration above it).
+        # Folded into `_noise_spans` (so no scan reads them as proof text), into
+        # the span-boundary mask (so a commented-out `end` does not cut the
+        # declaration above it), and into the declaration scan (so a
+        # commented-out `definition` does not mint an entry).
     nonisar_spans: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
         # The same regions at CHARACTER granularity: {line_no: [(lo, hi)]},
         # half-open columns, sparse (absent line = nothing to redact).  The
@@ -172,12 +178,13 @@ class TheorySection:
         worse and quieter error.
 
         Redacts only what `parsing`'s tokenizer reports — comments (which
-        nest), ``\<^cancel>`` regions, legacy ``{* ... *}`` verbatim and ML
-        bodies.  A ``"..."`` term and a bare cartouche are deliberately NOT
-        redacted: they hold inner syntax, so the `mono` in ``lemma "mono f"``
-        is a real citation.  Line-level prose (``text`` blocks, ``\<comment>``
-        annotations, per-entry preambles) is not redacted either — callers keep
-        masking those through `graph._noise_spans`.
+        nest), ``\<^cancel>`` regions, ``\<comment>`` marginal notes, legacy
+        ``{* ... *}`` verbatim and ML bodies.  A ``"..."`` term and a bare
+        cartouche are deliberately NOT redacted: they hold inner syntax, so the
+        `mono` in ``lemma "mono f"`` is a real citation.  ``text`` blocks and
+        per-entry preambles are not redacted either — those are introduced by a
+        command rather than by a lexical marker, so callers keep masking them
+        at line level through `graph._noise_spans`.
 
         `source()` stays authoritative for display: a caller that shows a
         matched line must print the real one, or it would show blanks where

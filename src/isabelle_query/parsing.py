@@ -614,6 +614,11 @@ def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
 _CART_OPEN = ("\\<open>", "‹")
 _CART_CLOSE = ("\\<close>", "›")
 _CANCEL = "\\<^cancel>"
+_MARGINAL = "\\<comment>"
+# Markers that OWN the cartouche following them, so its body is prose or
+# deleted text rather than live Isar — as opposed to a bare cartouche, whose
+# owner is the command in front of it and which is usually a term.
+_REDACTING_MARKERS = (_CANCEL, _MARGINAL)
 # Commands whose body is an ML cartouche.  ML source has its own namespace, so
 # an identifier there never cites an Isabelle fact.
 _ML_BODY_COMMANDS = frozenset({
@@ -639,18 +644,18 @@ _NOISE_STATES = frozenset({"comment", "verbatim", "cartouche"})
 # it.  The scan jumps region to region rather than stepping character by
 # character: it runs over every theory on every invocation, so the constant
 # factor is the difference between a free check and a visible one.
-_CANCEL_OPEN_RE = r'\\<\^cancel>\s*(?:\\<open>|‹)'
+_MARKER_OPEN_RE = r'\\<(?:\^cancel|comment)>\s*(?:\\<open>|‹)'
 # Every token that can change the state, in ONE alternation, so a line costs a
 # single pass of the regex engine and Python-level work only per token found.
 # Order matters: `\\` and `\"` precede `"` so an escaped quote inside a string
-# is consumed rather than read as the closing delimiter, and the `\<^cancel>`
-# form (which swallows its cartouche) precedes the bare `\<open>`.
+# is consumed rather than read as the closing delimiter, and the marker forms
+# (which swallow their cartouche) precede the bare `\<open>`.
 _SCAN_RE = re.compile(
     r'\(\*|\*\)|\{\*|\*\}|\\\\|\\"|"|'
-    + _CANCEL_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
+    + _MARKER_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
 # Nothing to redact unless one of these appears somewhere in the theory.  Most
 # of the cost is skipped outright on a file with no comment and no ML.
-_ANY_REGION_RE = re.compile(r'\(\*|\{\*|\\<\^cancel>')
+_ANY_REGION_RE = re.compile(r'\(\*|\{\*|\\<\^cancel>|\\<comment>')
 
 
 def _leads_with_ml(line: str) -> bool:
@@ -684,7 +689,8 @@ def _opens_ml_body(lines: list[str], i: int, pos: int) -> bool:
 def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     r"""Per-line ``[(start_col, end_col)]`` half-open character spans that are
     NOT live Isar text: ``(* ... *)`` comments (which nest), legacy ``{* ... *}``
-    verbatim, ``\<^cancel>\<open>...\<close>`` regions, and ML command bodies.
+    verbatim, ``\<^cancel>\<open>...\<close>`` regions, ``\<comment>
+    \<open>...\<close>`` marginal notes, and ML command bodies.
 
     A character-level state machine, because none of this is a regular language:
     comments nest, so the end needs a depth counter (a non-greedy match to the
@@ -701,6 +707,7 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     state = "text"
     depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
     start = -1   # column where the current noise region began on this line
+    resume = "text"  # state to return to when the current marker cartouche ends
     for i, line in enumerate(lines):
         n = len(line)
         if state in _NOISE_STATES:
@@ -714,7 +721,9 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     state, start = "verbatim", pos
                 elif tok == '"':
                     state = "string"
-                elif tok.startswith(_CANCEL):  # `\<^cancel>` plus its cartouche
+                elif tok.startswith(_REDACTING_MARKERS):
+                    # `\<^cancel>` (deleted text) or `\<comment>` (a marginal
+                    # note) plus the cartouche it owns — matched as one token.
                     state, depth, start = "cartouche", 1, pos
                 elif tok in _CART_OPEN:
                     if _opens_ml_body(lines, i, pos):  # ML body: redact it
@@ -725,6 +734,15 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
             elif state == "string":
                 if tok == '"':          # `\"` and `\\` consume themselves
                     state = "text"
+                elif tok.startswith(_REDACTING_MARKERS):
+                    # Isabelle's INNER syntax takes cartouche comments too, so
+                    # a `\<comment> \<open>round 1\<close>` sitting inside a
+                    # multi-line `"..."` term is prose, not part of the term.
+                    # It resumes the string afterwards rather than dropping to
+                    # `text`, or the rest of the term would be read as outer
+                    # syntax — which is how a `(*` in the term below it would
+                    # open a comment that swallows the proof.
+                    state, depth, start, resume = "cartouche", 1, pos, "string"
             elif state == "comment":
                 if tok == "(*":
                     depth += 1
@@ -742,20 +760,26 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                 # cartouche as ONE token, so a `(*` inside it — the operator
                 # section in `\<open>fold (*) xs\<close>` is the everyday case —
                 # opens no comment.  Tracked only to skip past it; never redacted.
-                if tok in _CART_OPEN:
+                #
+                # `endswith`, not membership: a nested `\<comment>\<open>` is
+                # matched as ONE token that ENDS in an opener, and testing
+                # membership would miss the nesting while still counting its
+                # `\<close>` — closing the enclosing cartouche a level early and
+                # letting the rest of its body back into live text.
+                if tok.endswith(_CART_OPEN):
                     depth += 1
                 elif tok in _CART_CLOSE:
                     depth -= 1
                     if depth <= 0:
                         state = "text"
-            else:  # cartouche body (ML, or cancelled text)
-                if tok in _CART_OPEN:
+            else:  # cartouche body (ML, a marginal note, or cancelled text)
+                if tok.endswith(_CART_OPEN):
                     depth += 1
                 elif tok in _CART_CLOSE:
                     depth -= 1
                     if depth <= 0:
                         spans[i].append((start, m.end()))
-                        state, start = "text", -1
+                        state, start, resume = resume, -1, "text"
         if state in _NOISE_STATES and 0 <= start < n:
             spans[i].append((start, n))
         # Every state persists to the next line.  A ``"..."`` term routinely

@@ -97,16 +97,23 @@ def _entry_by_name(sections: list[TheorySection]
 
 def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
     r"""Inclusive ``[lo, hi]`` line spans of `sec` that are NOT live source:
-    top-level ``text``/``text_raw`` blocks, multi-line ``\<comment>``
-    annotations, per-entry preambles, and the lexical non-Isar regions
-    (``(* ... *)`` comments, ``\<^cancel>``, legacy ``{* ... *}`` verbatim and
-    ML bodies — `parsing.extract_nonisar_ranges`).  The single definition of
-    "prose, not proof" — `grep`, `methods`, the call graph (via
-    `_noise_ranges`), and the proof-block drill-down all skip exactly these
-    lines, so the notion can no longer drift between them.
+    top-level ``text``/``text_raw`` blocks, per-entry preambles, and the
+    lexical non-Isar regions (``(* ... *)`` comments, ``\<^cancel>``,
+    ``\<comment>`` marginal notes, legacy ``{* ... *}`` verbatim and ML bodies
+    — `parsing.extract_nonisar_ranges`).  The single definition of "prose, not
+    proof" — `grep`, `methods`, the call graph (via `_noise_ranges`), and the
+    proof-block drill-down all skip exactly these lines, so the notion can no
+    longer drift between them.
+
+    ``sec.comment_ranges`` is deliberately NOT unioned in, though it names the
+    same ``\<comment>`` annotations: it is line-granular, and a marginal note
+    normally TRAILS live proof text (``by simp \<comment> \<open>why\<close>``).
+    Including it dropped the `by simp` with the note — a true citation lost,
+    the direction this project treats as the worse one.  The tokenizer reports
+    the same regions by column, so `nonisar_ranges` covers the lines that are
+    wholly a note and `live_source` blanks the rest in place.
     """
-    return (list(sec.text_blocks) + list(sec.comment_ranges)
-            + list(sec.nonisar_ranges)
+    return (list(sec.text_blocks) + list(sec.nonisar_ranges)
             + [e.preamble for e in sec.entries if e.preamble])
 
 
