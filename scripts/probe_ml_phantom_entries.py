@@ -46,6 +46,7 @@ def covering_kind(lines, ranges, line_no):
                 return "ml-body"
             pos, kind = max((lines[k].rfind("(*"), "comment"),
                             (lines[k].rfind("{*"), "verbatim"),
+                            (lines[k].rfind("\\<comment>"), "marginal"),
                             (lines[k].rfind("\\<^cancel>"), "cancel"))
             if pos >= 0:
                 return kind

@@ -534,6 +534,39 @@ end
      return y
   })"'''), [(4, 4)])
 
+    def test_note_inside_a_cartouche_term_is_covered(self):
+        # The commoner inner-syntax case, and the one that needs the enclosing
+        # term's nesting depth stashed: a `definition ... where \<open>...`
+        # body annotated line by line, with the note itself nesting cartouches.
+        self.assertEqual(ranges(
+            r'''definition d :: \<open>bool\<close> where
+  \<open>d \<equiv>
+    \<comment> \<open>\<open>M1\<close> has a non-empty domain\<close>
+    W \<noteq> {}\<close>'''), [(3, 3)])
+
+    def test_term_resumes_after_a_note_at_the_right_depth(self):
+        # The enclosing term's nesting depth is stashed while the note is
+        # scanned, and restored after.  Observing that needs the term NESTED
+        # (depth 2) when the note appears: at depth 1 — the everyday shape —
+        # restoring 1 and restoring 0 both leave the next `\<close>` ending the
+        # term, so this fixture is deliberately synthetic rather than typical.
+        # Restore 0 instead, and the inner `\<close>` drops out to outer syntax,
+        # where the `(*)` after it opens a comment that eats `baz`.
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+definition d :: "nat" where
+  \<open>d = \<open>inner
+    \<comment> \<open>a note\<close>
+    xs\<close> then fold (*) ys\<close>
+
+lemma baz: "True" by simp
+
+end
+''', "A")
+        self.assertEqual({e.name for e in sec.entries}, {"d", "baz"})
+
     def test_note_nested_in_a_live_cartouche_does_not_end_it(self):
         # The marker and its cartouche match as ONE token that ENDS in an
         # opener.  If the enclosing cartouche did not count that as nesting, the

@@ -707,7 +707,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     state = "text"
     depth = 0    # nesting depth: comment `(*`, or cartouche `\<open>`
     start = -1   # column where the current noise region began on this line
-    resume = "text"  # state to return to when the current marker cartouche ends
+    resume = "text"   # state to return to when the current marker cartouche ends
+    resume_depth = 0  # ...and the nesting depth that state was at
     for i, line in enumerate(lines):
         n = len(line)
         if state in _NOISE_STATES:
@@ -742,7 +743,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     # `text`, or the rest of the term would be read as outer
                     # syntax — which is how a `(*` in the term below it would
                     # open a comment that swallows the proof.
-                    state, depth, start, resume = "cartouche", 1, pos, "string"
+                    state, resume, resume_depth = "cartouche", "string", depth
+                    depth, start = 1, pos
             elif state == "comment":
                 if tok == "(*":
                     depth += 1
@@ -766,7 +768,16 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                 # membership would miss the nesting while still counting its
                 # `\<close>` — closing the enclosing cartouche a level early and
                 # letting the rest of its body back into live text.
-                if tok.endswith(_CART_OPEN):
+                if tok.startswith(_REDACTING_MARKERS):
+                    # A note inside a cartouche TERM — the same inner-syntax
+                    # case as inside `"..."`, and the commoner one, since a
+                    # `definition foo :: \<open>...\<close> where \<open>...`
+                    # body is annotated line by line.  The enclosing term's own
+                    # nesting depth is stashed and restored, or resuming it
+                    # would resume at the note's depth.
+                    state, resume, resume_depth = "cartouche", "term", depth
+                    depth, start = 1, pos
+                elif tok.endswith(_CART_OPEN):
                     depth += 1
                 elif tok in _CART_CLOSE:
                     depth -= 1
@@ -779,7 +790,8 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
                     depth -= 1
                     if depth <= 0:
                         spans[i].append((start, m.end()))
-                        state, start, resume = resume, -1, "text"
+                        state, start = resume, -1
+                        depth, resume, resume_depth = resume_depth, "text", 0
         if state in _NOISE_STATES and 0 <= start < n:
             spans[i].append((start, n))
         # Every state persists to the next line.  A ``"..."`` term routinely
