@@ -217,7 +217,7 @@ pip install -e .
 
 ## Authors & license
 
-By András Salamon, with Claude Opus 4.6, 4.7, and 4.8. Extracted with its
+By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5. Extracted with its
 git history from a larger Isabelle/Isar formalisation of computational
 complexity results. [MIT](LICENSE).
 

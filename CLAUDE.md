@@ -73,7 +73,7 @@ matter every session:
   green after every change.
 - **Commits.** Small, single-concern, frequent — commit often, don't push unless
   asked. Trailer, verbatim:
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
+  `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
   Write commit bodies to a `.commit-msg` scratch file in the working tree (not
   `/tmp`, which is gated); `rm` it after.
 - **Reuse over re-roll.** Corpus/tooling scans reuse `cli._parse_one` +
@@ -81,9 +81,9 @@ matter every session:
 
 ## Release status
 
-The released version tracks `pyproject.toml` (currently **0.5.0**). Versioning is
+The released version tracks `pyproject.toml` (currently **0.5.1**). Versioning is
 alpha: breaking CLI changes ship as patch bumps for now.
 
 ## Credit
 
-Artifacts are credited "By András Salamon, with Claude Opus 4.6, 4.7, and 4.8."
+Artifacts are credited "By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5."
