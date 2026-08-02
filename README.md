@@ -58,10 +58,19 @@ most commands stay fast.
 
 Both kinds of scan read **only live Isar text**. A name inside a `(* ... *)`
 comment, a `\<^cancel>` region, a `text` block or an `ML` body is not a
-citation, so it never invents a caller or hides a dead lemma; and a command
-word inside one is not a command, so a commented-out `end` does not truncate
-the declaration above it. `grep --with-comments` shows the non-live matches
-too, marked as such.
+citation, so it never invents a caller or hides a dead lemma; a command word
+inside one is not a command, so a commented-out `end` does not truncate the
+declaration above it; and a *declaration* inside one is not a declaration, so
+a superseded `definition` left behind in a comment, or an ML `fun` (Isabelle
+and ML spell it the same), is not reported as an entry. `grep --with-comments`
+shows the non-live matches too, marked as such.
+
+The regions are found by a character-level scan rather than by line, because
+none of this is line-oriented: comments nest, and a `(*` inside a `"..."` term
+— HOL's multiplication section, `fold (*) xs` — opens nothing at all. Scans
+then read the source with exactly those characters blanked, so a comment
+sharing its line with real proof text loses only itself: in
+`by (simp add: foo) (* not bar *)`, `foo` is a citation and `bar` is not.
 
 Isabelle's method and attribute names overlap ordinary fact names — `insert`,
 `trans`, `mono`, `cases` and even `finally` are all real Isabelle tokens *and*

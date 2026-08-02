@@ -471,6 +471,115 @@ class NoPhantomOnAPartialLine(unittest.TestCase):
                          brute_force_call_graph([sec]).callers)
 
 
+class NoPhantomDeclarations(unittest.TestCase):
+    r"""A declaration inside a non-Isar region is not a declaration.
+
+    The declaration scan used to skip only `text` blocks, so it read the
+    grammar inside comments and ML bodies too.  Both mint entries Isabelle
+    never sees: authors supersede a `definition` and leave the old one in a
+    `(* ... *)`, and ML declares its own functions with `fun`, which Isabelle
+    spells identically.  Such an entry inflates `summary`, shows up in `theory`
+    and `find`, and reads as dead code in `unused` that cannot be deleted
+    because it already has been.
+
+    The guards matter as much: gating on the tokenizer means a false positive
+    now DELETES a real declaration instead of merely adding a phantom, so the
+    last two tests pin the lines that must keep declaring.
+    """
+
+    def names(self, snippet):
+        return [e.name for e in section_from(snippet, "A").entries]
+
+    def test_commented_out_definition_is_not_an_entry(self):
+        self.assertEqual(self.names(r'''theory A
+imports Main
+begin
+
+(*
+definition old :: "nat" where "old = 0"
+*)
+
+definition live :: "nat" where "live = 1"
+
+end
+'''), ["live"])
+
+    def test_ml_fun_is_not_an_entry(self):
+        # ML's `fun` and Isabelle's `fun` are the same word; only the enclosing
+        # command tells them apart.
+        self.assertEqual(self.names(r'''theory A
+imports Main
+begin
+
+ML \<open>
+fun helper ctxt = ctxt
+\<close>
+
+fun real_fun :: "nat \<Rightarrow> nat" where "real_fun n = n"
+
+end
+'''), ["real_fun"])
+
+    def test_superseded_declaration_resolves_to_the_live_one(self):
+        # The AFP case that found this: the old definition is commented out and
+        # a new one with the SAME name follows.  First-wins lookup used to
+        # return the commented-out line.
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+(*
+definition thing :: "nat" where "thing = 0"
+*)
+
+definition thing :: "nat" where "thing = 1"
+
+end
+''', "A")
+        self.assertEqual([e.name for e in sec.entries], ["thing"])
+        self.assertEqual(entry(sec, "thing").thy_line, 9)
+
+    def test_comment_opening_mid_line_still_hides_what_follows(self):
+        # The opener need not start its line: `... oops (* TODO` swallows the
+        # declarations under it, and that is a real AFP shape.
+        self.assertEqual(self.names(r'''theory A
+imports Main
+begin
+
+lemma stub: "True" oops (* TODO: revisit
+lemma hidden: "True" by simp
+*)
+
+lemma live: "True" by simp
+
+end
+'''), ["stub", "live"])
+
+    def test_declaration_with_a_trailing_comment_still_declares(self):
+        # The guard.  Only WHOLLY non-Isar lines are gated; a declaration that
+        # merely ends in a comment must survive, or the gate would delete real
+        # entries — the quieter and worse failure.
+        self.assertEqual(self.names(r'''theory A
+imports Main
+begin
+
+definition kept :: "nat" where "kept = 0" (* still a definition *)
+
+end
+'''), ["kept"])
+
+    def test_declaration_after_a_closed_comment_still_declares(self):
+        self.assertEqual(self.names(r'''theory A
+imports Main
+begin
+
+(* prose about the next one *)
+definition kept :: "nat" where "kept = 0"
+
+end
+'''), ["kept"])
+
+
 class Ranges(unittest.TestCase):
     """Unit-level: the line ranges the scanner reports."""
 

@@ -855,7 +855,9 @@ def extract_comment_lines(lines: list[str]) -> list[tuple[int, str]]:
 
 
 def extract_entries(lines: list[str],
-                    custom: dict[str, str] | None = None) -> list[Entry]:
+                    custom: dict[str, str] | None = None,
+                    nonisar_ranges: list[tuple[int, int]] | None = None,
+                    ) -> list[Entry]:
     entries: list[Entry] = []
     i = 0
 
@@ -868,17 +870,34 @@ def extract_entries(lines: list[str],
     if custom:
         table.update(custom)
 
-    # Prose inside a `text \<open>...\<close>` / `text_raw` cartouche is a single
-    # token to Isabelle, never outer syntax.  A column-0 line *inside* such a
-    # block that happens to begin with a command name — notably a one-letter
-    # command such as Isabelle_C's `C` — is prose, not a declaration, so we
-    # skip those lines and never mint a phantom entry (or phantom span
-    # boundary) from them.  (1-indexed; in_text[i+1] guards source line i+1.)
-    in_text = _line_mask(len(lines), extract_text_blocks(lines))
+    # Lines the declaration grammar must not be applied to, because they are
+    # not outer syntax at all:
+    #
+    #  * prose inside a `text \<open>...\<close>` / `text_raw` cartouche, which
+    #    is a single token to Isabelle.  A column-0 line there that happens to
+    #    begin with a command name — notably a one-letter command such as
+    #    Isabelle_C's `C` — is prose, not a declaration;
+    #  * the lexical non-Isar regions.  A commented-out declaration is the
+    #    common case and it is not rare: authors supersede a `definition` and
+    #    leave the old one in a `(* ... *)`, and ML bodies declare ML functions
+    #    with `fun`, which Isabelle spells the same way.  Reading either as a
+    #    declaration mints an entry that does not exist — it inflates `summary`
+    #    counts, appears in `theory` and `find`, and (once its equally phantom
+    #    ML citations went) turns up in `unused` as dead code the user cannot
+    #    delete, because it is already deleted.
+    #
+    # Only *wholly* non-Isar lines are excluded, which is the right granularity
+    # here: a declaration is recognised at the start of its line, so a line
+    # that opens with live code and merely ends in a comment still declares.
+    # (1-indexed; skip[i+1] guards source line i+1.)
+    if nonisar_ranges is None:
+        nonisar_ranges = extract_nonisar_ranges(lines)
+    skip = _line_mask(len(lines),
+                      list(extract_text_blocks(lines)) + list(nonisar_ranges))
 
     while i < len(lines):
         line = lines[i]
-        if in_text[i + 1]:
+        if skip[i + 1]:
             i += 1
             continue
         md = _match_decl(line, table)
@@ -1185,14 +1204,16 @@ def _parse_one(thy: str, thy_path: Path,
     from_memory = lines is not None
     if lines is None:
         lines = thy_path.read_text().splitlines()
-    entries = extract_entries(lines)
+    # The tokenizer runs FIRST: one pass feeds three consumers — the columns
+    # (for `live_source`), the whole-noise lines derived from them (for the
+    # line-granular masks), and the declaration scan, which must not read a
+    # commented-out `definition` or an ML `fun` as an entry.
+    nonisar_spans = extract_nonisar_spans(lines)
+    nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
+    entries = extract_entries(lines, nonisar_ranges=nonisar_ranges)
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)
-    # One tokenizer pass feeds both views: the columns (for `live_source`) and
-    # the whole-noise lines derived from them (for the line-granular masks).
-    nonisar_spans = extract_nonisar_spans(lines)
-    nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     comment_lines = extract_comment_lines(lines)
     # Preambles first: they fix each entry's src_start, which compute_spans
     # uses as the boundary so a leading doc is charged to the entry it

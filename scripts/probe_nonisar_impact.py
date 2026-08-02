@@ -61,7 +61,7 @@ tot_lines = tot_marked = n_thy = 0
 span_changed = entry_count_changed = 0
 runaways: list[tuple[float, str, int]] = []
 swallowed: list[tuple[str, int, str]] = []
-ml_fun = 0
+ml_fun = entries_dropped = 0
 t_fix = t_base = 0.0
 
 for ent in entries:
@@ -110,6 +110,7 @@ for ent in entries:
 
         if len(sec_fix.entries) != len(sec_base.entries):
             entry_count_changed += 1
+            entries_dropped += len(sec_base.entries) - len(sec_fix.entries)
         a, b = spans(sec_fix), spans(sec_base)
         if a != b:
             span_changed += 1
@@ -126,7 +127,11 @@ print(f"lines marked non-Isar: {tot_marked:,} "
       f"({100 * tot_marked / max(tot_lines, 1):.2f}%)")
 print(f"theories with changed spans:  {span_changed}")
 print(f"theories with changed entry counts: {entry_count_changed} "
-      "(expected 0 — the scan does not gate entry extraction)")
+      f"({entries_dropped:,} phantom entries dropped)")
+print("  the scan DOES gate entry extraction now, so this is no longer 0: a "
+      "commented-out\n  declaration and an ML `fun` stop minting entries.  "
+      "Audit them with\n  probe_ml_phantom_entries.py, which explains each "
+      "removal by its covering construct.")
 print(f"parse time: with fix {t_fix:.2f}s   without {t_base:.2f}s   "
       f"({100 * (t_fix - t_base) / max(t_base, 1e-9):+.1f}%)")
 print(f"\nranges starting on an ML `fun` (normal — an ML body): {ml_fun}")
