@@ -1149,9 +1149,12 @@ def extract_entries(lines: list[str],
 
     while i < len(lines):
         line = lines[i]
-        if skip[i + 1]:
-            i += 1
-            continue
+        # No line-level mask here: the outer view already blanks comments, ML
+        # bodies, cancelled text and `text`-block prose, so a declaration
+        # written in any of them cannot match.  Verified by corpus diff — the
+        # entry set is identical with the mask removed.  `skip` is still read
+        # in the goal route, where it draws a distinction the outer view alone
+        # cannot: a line that is wholly PROSE versus one that is wholly TERM.
         md, indent = _match_decl_at(outer[i], table)
         if md is None:
             i += 1
