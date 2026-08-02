@@ -337,11 +337,71 @@ end
         self.assertEqual(ranges(r'lemma bar: "x = (*) 1 2" by simp'), [])
 
     def test_trailing_comment_keeps_its_line_live(self):
-        # Deliberately conservative: `_noise_spans` is line granular, so
-        # reporting this line would blank its live half and drop the real
-        # citation of `foo`.  The phantom citation from the comment survives
-        # (see `test_known_failures`); losing a true edge would be worse.
+        # `extract_nonisar_ranges` reports only lines with NO live text, so a
+        # line whose comment merely trails real proof text is not in it.  That
+        # is what keeps the citation of `foo` below; column-accurate redaction
+        # is what removes the phantom `bar` without touching it.
         self.assertEqual(ranges('  by (simp add: foo) (* not bar *)'), [])
+
+
+class PartialLines(unittest.TestCase):
+    r"""Lines that hold live proof text AND a non-Isar region.
+
+    These are the lines column-accurate redaction exists for, and the ones it
+    can most easily break: blanking such a line wholesale removes the phantom
+    citation *and* the real one beside it.  Every test here asserts the real
+    edge SURVIVES, so an over-eager redaction fails loudly rather than quietly
+    shrinking the graph.  The complementary "phantom is gone" assertions live
+    in `NoPhantomOnAPartialLine`.
+    """
+
+    def callers_of(self, body, name):
+        sec = section_from('theory A\nimports Main\nbegin\n\n'
+                           'lemma helper: "True" by simp\n\n'
+                           'lemma other: "True" by simp\n\n'
+                           + body + '\n\nend\n', "A")
+        return graph_of(sec).callers[name]
+
+    def test_citation_before_a_trailing_comment(self):
+        self.assertEqual(
+            self.callers_of('lemma user: "True" using helper by simp'
+                            ' (* not other *)', "helper"), {"user"})
+
+    def test_citation_before_a_comment_that_runs_on(self):
+        # The comment opens on the citing line and closes two lines later.
+        self.assertEqual(
+            self.callers_of('lemma user: "True" using helper by simp (* why\n'
+                            '   other would not do\n'
+                            '*)', "helper"), {"user"})
+
+    def test_citation_after_a_comment_closes(self):
+        # The mirror image: the live text follows the `*)` on its line.  The
+        # declaration stays at column 0 — a `*) lemma user:` would not be read
+        # as a declaration at all, but that is command recognition (which is
+        # deliberately column-anchored), not redaction.
+        self.assertEqual(
+            self.callers_of('lemma user: "True"\n'
+                            '(* other would not do\n'
+                            '*) using helper by simp', "helper"), {"user"})
+
+    def test_citation_beside_an_inline_cancel(self):
+        self.assertEqual(
+            self.callers_of(r'lemma user: "True" using helper'
+                            r' \<^cancel>\<open>and other\<close> by simp',
+                            "helper"), {"user"})
+
+    def test_citation_in_a_term_beside_a_comment(self):
+        sec = section_from(r'''theory A
+imports Main
+begin
+
+definition helper :: "nat" where "helper = 0"
+
+lemma user: "helper = 0" by simp (* other would work too *)
+
+end
+''', "A")
+        self.assertEqual(graph_of(sec).callers["helper"], {"user"})
 
 
 class Ranges(unittest.TestCase):
