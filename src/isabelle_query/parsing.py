@@ -768,27 +768,56 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     return spans
 
 
-def extract_nonisar_ranges(lines: list[str]) -> list[tuple[int, int]]:
+def extract_nonisar_spans(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
+    r"""Return ``{line_no: [(start_col, end_col)]}`` — the non-Isar character
+    spans of each line that has any, 1-indexed by line and half-open by column.
+
+    Sparse on purpose: most lines carry no region at all, and the map is held
+    for the lifetime of the `TheorySection`, so an entry per line would cost
+    more memory than the source itself.  An empty result means the theory has
+    nothing to redact, which `TheorySection.live_source` uses to hand back the
+    original list rather than a copy.
+
+    This is the tokenizer's *full* output.  :func:`extract_nonisar_ranges`
+    narrows it to whole lines; the column detail is what
+    :meth:`model.TheorySection.live_source` needs, so a comment trailing live
+    proof text can be blanked without taking the proof text with it.
+    """
+    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
+            and not any(_leads_with_ml(ln) for ln in lines):
+        return {}  # no comment, no verbatim, no cancel, no ML: nothing to find
+    return {i: sp for i, sp in enumerate(_scan_nonisar_spans(lines), 1) if sp}
+
+
+def extract_nonisar_ranges(
+        lines: list[str],
+        spans: dict[int, list[tuple[int, int]]] | None = None,
+        ) -> list[tuple[int, int]]:
     r"""Return ``[(start_line, end_line)]`` (1-indexed inclusive) for lines that
     hold no live Isar text — every non-blank character lies inside a comment,
     a ``\<^cancel>`` region, legacy verbatim, or an ML body.
 
     Deliberately conservative: a line with live code *outside* such a region
-    (``by simp (* see foo *)``) is NOT reported.  `_noise_spans` is line
-    granular, so reporting that line would blank its live half and drop a real
-    citation — a false negative, which is worse than the false positive it
-    would cure and is the harder kind to notice.  Closing that gap needs
-    column-accurate redaction rather than whole-line skipping.
+    (``by simp (* see foo *)``) is NOT reported.  These ranges drive
+    line-granular consumers (`_noise_spans`, the span-boundary mask), and
+    reporting that line to them would blank its live half and drop a real
+    citation — a false negative, worse than the false positive it would cure
+    and harder to notice.  The scanners get the columns instead, via
+    :meth:`model.TheorySection.live_source`.
+
+    ``spans`` accepts an :func:`extract_nonisar_spans` result already computed
+    by the caller, so `_parse_one` tokenises each theory once rather than twice.
     """
-    if not any(_ANY_REGION_RE.search(ln) for ln in lines) \
-            and not any(_leads_with_ml(ln) for ln in lines):
-        return []  # no comment, no verbatim, no cancel, no ML: nothing to find
+    if spans is None:
+        spans = extract_nonisar_spans(lines)
+    # Only the lines the tokenizer touched can qualify, and they are a few
+    # per cent of the file — walking the sparse map is a scan of those, not of
+    # every line in the theory.
     marked: list[int] = []
-    for i, (line, sp) in enumerate(zip(lines, _scan_nonisar_spans(lines)), 1):
-        if not sp:
-            continue
+    for i in sorted(spans):
+        line = lines[i - 1]
         live, prev = [], 0
-        for a, b in sp:
+        for a, b in spans[i]:
             live.append(line[prev:a])
             prev = max(prev, b)
         live.append(line[prev:])
@@ -1160,7 +1189,10 @@ def _parse_one(thy: str, thy_path: Path,
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)
-    nonisar_ranges = extract_nonisar_ranges(lines)
+    # One tokenizer pass feeds both views: the columns (for `live_source`) and
+    # the whole-noise lines derived from them (for the line-granular masks).
+    nonisar_spans = extract_nonisar_spans(lines)
+    nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     comment_lines = extract_comment_lines(lines)
     # Preambles first: they fix each entry's src_start, which compute_spans
     # uses as the boundary so a leading doc is charged to the entry it
@@ -1189,7 +1221,8 @@ def _parse_one(thy: str, thy_path: Path,
     sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                         outline=outline, text_blocks=text_blocks,
                         comment_ranges=comment_ranges,
-                        nonisar_ranges=nonisar_ranges)
+                        nonisar_ranges=nonisar_ranges,
+                        nonisar_spans=nonisar_spans)
     if from_memory:
         # No disk path to lazily re-read (stdin); pin the source we already have.
         sec._source_cache = lines

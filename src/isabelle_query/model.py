@@ -21,6 +21,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+def _blank_spans(line: str, spans: list[tuple[int, int]]) -> str:
+    """`line` with each half-open ``[lo, hi)`` column span replaced by spaces.
+
+    Length-preserving by construction — every removed character is replaced by
+    exactly one space — which is the whole contract of
+    :meth:`TheorySection.live_source`: a column index into the result addresses
+    the same character it addressed in the original.
+
+    `spans` arrive sorted and disjoint (the tokenizer emits them as regions
+    close, left to right), but the clamping here is written not to rely on it.
+    """
+    out: list[str] = []
+    prev = 0
+    for lo, hi in spans:
+        lo, hi = max(lo, prev), min(hi, len(line))
+        if hi <= lo:
+            continue
+        out.append(line[prev:lo])
+        out.append(" " * (hi - lo))
+        prev = hi
+    out.append(line[prev:])
+    return "".join(out)
+
+
 @dataclass
 class Entry:
     tag: str            # DEF, FUN, LEMMA, THEOREM, DATATYPE, TYPE, RECORD, AXIOM
@@ -97,6 +121,13 @@ class TheorySection:
         # Folded into `_noise_spans` (so no scan reads them as proof text) and
         # into the span-boundary mask (so a commented-out `end` does not cut
         # the declaration above it).
+    nonisar_spans: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+        # The same regions at CHARACTER granularity: {line_no: [(lo, hi)]},
+        # half-open columns, sparse (absent line = nothing to redact).  The
+        # superset `nonisar_ranges` is derived from — a line appears there only
+        # when its spans cover every non-blank character, whereas a line that
+        # merely ENDS in a comment appears only here.  Consumed by
+        # `live_source`.
     is_thy: bool = True
         # False for a non-`.thy` path passed as a trailing grep positional
         # (e.g. `query grep PAT notes.md`).  Such a section is parsed
@@ -120,11 +151,50 @@ class TheorySection:
         # it (largest/sorry) never see a window (the suffix isn't parsed for
         # them, so `largest Foo:1..9` errors rather than silently ignoring).
     _source_cache: list[str] | None = None
+    _live_cache: list[str] | None = None
 
     def source(self) -> list[str]:
         if self._source_cache is None:
             self._source_cache = self.path.read_text().splitlines()
         return self._source_cache
+
+    def live_source(self) -> list[str]:
+        r"""The source with every non-Isar *character* replaced by a space.
+
+        Same number of lines, and each line the same length, so a line number
+        and a column index mean exactly what they mean in :meth:`source`: a
+        scanner switches to this view and changes nothing else — its regexes,
+        its 1-indexed arithmetic and its line masks all still hold.
+
+        This is what lets `by (simp add: foo) (* not bar *)` drop `bar` while
+        keeping `foo`.  Whole-line skipping cannot: it has only the choice
+        between keeping both and losing both, and losing a true citation is the
+        worse and quieter error.
+
+        Redacts only what `parsing`'s tokenizer reports — comments (which
+        nest), ``\<^cancel>`` regions, legacy ``{* ... *}`` verbatim and ML
+        bodies.  A ``"..."`` term and a bare cartouche are deliberately NOT
+        redacted: they hold inner syntax, so the `mono` in ``lemma "mono f"``
+        is a real citation.  Line-level prose (``text`` blocks, ``\<comment>``
+        annotations, per-entry preambles) is not redacted either — callers keep
+        masking those through `graph._noise_spans`.
+
+        `source()` stays authoritative for display: a caller that shows a
+        matched line must print the real one, or it would show blanks where
+        the user's comment is.
+        """
+        if self._live_cache is None:
+            lines = self.source()
+            if not self.nonisar_spans:
+                self._live_cache = lines   # nothing to redact: share the list
+            else:
+                live = list(lines)
+                for line_no, spans in self.nonisar_spans.items():
+                    if 1 <= line_no <= len(live):
+                        live[line_no - 1] = _blank_spans(live[line_no - 1],
+                                                         spans)
+                self._live_cache = live
+        return self._live_cache
 
     def slice(self, start: int, end: int) -> list[str]:
         """Return 1-indexed inclusive line range from the .thy source."""
