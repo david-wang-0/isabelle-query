@@ -116,6 +116,37 @@ PROOF_RE = re.compile(
     r"^\s*(proof\b|by\b|sorry\b|oops\b|using\b"
     r"|unfolding\b|apply\b|\.\.\s*$)"
 )
+# The same introducers, but anywhere on a line rather than at its start — for
+# the one-liner `lemma foo: "P" by simp`, whose proof shares the declaration
+# line and so is invisible to a scan that begins on the line BELOW it.
+# Applied only after inner syntax has been stripped (`_INNER_SYNTAX_RE`), so
+# the `by` of a constant named in a term cannot be mistaken for the proof.
+_PROOF_INLINE_RE = re.compile(
+    r"(?:^|\s)(?:proof\b|by\b|sorry\b|oops\b|using\b"
+    r"|unfolding\b|apply\b|\.\.\s*$|\.\s*$)"
+)
+# `"..."` terms and cartouches: one token to Isabelle, and the only place a
+# proof keyword could appear without being the proof.
+_INNER_SYNTAX_RE = re.compile(r'"[^"]*"|\\<open>.*?\\<close>|‹.*?›')
+_QUOTE_RE = re.compile(r'(?<!\\)"')
+# Isar keywords that CONTINUE a goal statement.  A long `assumes ... and ...`
+# list is often broken up with blank lines for readability, so a blank is not
+# reliable evidence that the statement has ended — but one of these starting
+# the next line is reliable evidence that it has not.
+_STATEMENT_CONT_RE = re.compile(
+    r"^\s*(?:and|shows|assumes|fixes|obtains|defines|notes"
+    r"|where|if|for)\b")
+
+
+def _quote_parity(line: str) -> int:
+    """1 if `line` leaves a ``"..."`` term open, 0 if it closes what it opens.
+
+    A statement's term routinely spans lines, and a BLANK line inside one is
+    not the end of the statement — `Shuffle.thy` writes a `do { ... }` block
+    with blank lines between its rounds.  Tracking parity is what stops the
+    proof search giving up there.
+    """
+    return len(_QUOTE_RE.findall(line)) % 2
 BLANK_RE = re.compile(r"^\s*$")
 TOPLEVEL_RE = re.compile(r"^[a-z]")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
@@ -1084,19 +1115,57 @@ def extract_entries(lines: list[str],
                 CONJUNCT_RE.findall(rest) if in_shows else [])
             i += 1
 
+            # A blank line ends the STATEMENT but not the search for the proof:
+            # `lemma foo:` / statement / blank / `proof -` is ordinary Isar, and
+            # breaking here left `proof_line` at 0 for 656 AFP facts.  After a
+            # blank, any live line that is neither the proof nor a comment ends
+            # the search — that is a statement resuming (`shows ...`), and
+            # guessing further would risk claiming a later entry's proof.
+            saw_blank = False
+            open_quote = _quote_parity(line)   # the declaration line's own term
             while i < len(lines):
                 cline = lines[i]
                 stripped = cline.strip()
                 if BLANK_RE.match(cline):
-                    break
-                if PROOF_RE.match(cline):
+                    # Only a blank OUTSIDE a term ends the statement: a `do {`
+                    # block is routinely written with blank lines between its
+                    # steps, and treating those as the end abandoned the search
+                    # halfway through the statement.
+                    saw_blank = not open_quote
+                    i += 1
+                    continue
+                if not open_quote and PROOF_RE.match(cline):
                     proof_line = i + 1
                     break
+                # NOT gated on `open_quote`, deliberately.  `_match_decl` is
+                # column-0 anchored, so a declaration here really does start a
+                # new command — and if the parity count is ever wrong, this is
+                # what bounds the damage to one entry instead of letting the
+                # scan swallow the rest of the file.  It did exactly that
+                # before this guard: `Berlekamp_Hensel` lost 15 consecutive
+                # lemmas to one mis-parsed statement.
                 if _match_decl(cline, table):
                     break
                 if stripped.startswith("\\<comment>"):
+                    # A note can carry the term's closing quote —
+                    # `and "...\n  \<comment> \<open>note\<close>"` — so parity
+                    # must be updated on the way past, not just when the line
+                    # is accumulated.
+                    open_quote ^= _quote_parity(cline)
                     i += 1
                     continue
+                if saw_blank:
+                    # The statement may simply resume — a blank between two
+                    # `and c_i:` assumptions is ordinary formatting.  Keep
+                    # LOOKING for the proof, but do not resume accumulating:
+                    # `decl_end_line` still stops at the blank, so `show
+                    # --statement` renders exactly what it rendered before.
+                    if open_quote or _STATEMENT_CONT_RE.match(cline):
+                        open_quote ^= _quote_parity(cline)
+                        i += 1
+                        continue
+                    break
+                open_quote ^= _quote_parity(cline)
                 if SHOWS_AT_START_RE.match(stripped):
                     in_shows = True
                 if in_shows:
@@ -1104,6 +1173,37 @@ def extract_entries(lines: list[str],
                 buf.append(f"  {stripped}")
                 i += 1
                 decl_end_line = i
+
+            # One-liner: `lemma foo: "P" by simp` puts the proof on the same
+            # line as the statement, where a scan that starts on the line BELOW
+            # the declaration never looks.  It is not always the declaration
+            # line — `lemma symcl_converse:` / `"..." by auto` puts it on the
+            # statement's continuation — so every line of the statement is
+            # checked, earliest first.  1,857 AFP facts, each of which had no
+            # proof body at all as far as the drill-down, `shape` and the
+            # roadmap were concerned.
+            if not proof_line:
+                # `_INNER_SYNTAX_RE` removes COMPLETE `"..."` pairs, so a quote
+                # left in the result is an unmatched one — and tracking whether
+                # it opens or closes says which part of the line is term text
+                # and which could be the proof.  `... as bs" by (simp_all)`
+                # closes the term and then proves; `"length as = ...` opens one
+                # and everything after is inner syntax.
+                par = 0
+                for k in range(decl_line, decl_end_line + 1):
+                    raw = lines[k - 1]
+                    red = _INNER_SYNTAX_RE.sub(" ", raw)
+                    opens = _quote_parity(raw)
+                    if par and opens:        # the term ends here
+                        red = red[red.rindex('"') + 1:] if '"' in red else red
+                    elif par:                # wholly inside the term
+                        red = ""
+                    elif opens:              # the term starts here and runs on
+                        red = red[:red.index('"')] if '"' in red else red
+                    par ^= opens
+                    if red and _PROOF_INLINE_RE.search(red):
+                        proof_line = k
+                        break
 
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
@@ -1257,8 +1357,25 @@ def _attach_roadmaps(entries: list[Entry],
     """Attach each in-proof \\<comment> line (roadmap) to its owning entry.
 
     Roadmap: \\<comment> line whose line number lies inside the entry's
-    proof span [proof_line+1 .. thy_end].  Runs *after* ``compute_spans`` —
+    proof span [proof_line .. thy_end].  Runs *after* ``compute_spans`` —
     it reads ``thy_end`` to bound the proof body.
+
+    The proof's own first line counts.  It used to be excluded, which sounds
+    like an off-by-one but was structural: a proof that IS one line — the
+    commonest kind — has no line strictly inside it, so no single-line proof
+    could ever contribute a roadmap step whatever its note said.  `AVL2:140`
+    is the case that made this concrete::
+
+        lemma is_bal_l_bal:
+          "..."
+          by (cases l) (auto, auto split: tree\\<^sub>0.split)
+            \\<comment> \\<open>separating the two auto's is just for speed\\<close>
+
+    A note on the STATEMENT (above the proof) is still not a roadmap step: it
+    annotates what is being proved, not how.  So is a note in an entry with no
+    proof at all — a `definition`'s body.  Both are real annotations and both
+    are deliberately left out until the display side has a way to tell them
+    apart; see `scripts/probe_roadmap_positions.py` for the distribution.
     """
     # Spans are non-overlapping, so the only candidate is the entry whose
     # thy_line is the greatest <= cline; attach iff cline is in its proof body.
@@ -1271,7 +1388,7 @@ def _attach_roadmaps(entries: list[Entry],
         if idx < 0:
             continue
         e = entry_starts[idx][1]
-        if e.proof_line and e.proof_line < cline <= e.thy_end:
+        if e.proof_line and e.proof_line <= cline <= e.thy_end:
             e.roadmap.append((cline, content))
 
 

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 r"""Corpus probe: where do `\<comment>` notes actually sit, and which attach?
 
-`_attach_roadmaps` attaches a note to an entry only when
+`_attach_roadmaps` attaches a note to an entry when
 
-    entry.proof_line < line <= entry.thy_end
+    entry.proof_line <= line <= entry.thy_end
 
-so a note ON the proof's first line — `by simp \<comment> \<open>why\<close>` —
-is dropped, as is one on the declaration line, one in the statement above the
-proof, and every note in an entry the parser found no `proof_line` for.
+so a note on the declaration line, one in the statement above the proof, and
+every note in an entry with no `proof_line` are all dropped.
 
 Whether that is right is a judgement about what a roadmap IS, so this reports
 the real distribution with samples of each position rather than arguing from
-one constructed case.
+one constructed case.  It is also how the boundary got fixed: the rule was once
+`proof_line < line`, which excluded not 9 notes but every SINGLE-LINE proof,
+since such a proof has no line strictly inside it.
 
 Usage:  probe_roadmap_positions.py [N_ENTRIES]
 """
@@ -86,7 +87,7 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                     note(f"no proof_line but tag={e.tag}", thy_path.stem,
                          line_no, lines, e)
             elif line_no == e.proof_line:
-                note("ON the proof line", thy_path.stem, line_no, lines, e)
+                note("ON the proof line (ATTACHED)", thy_path.stem, line_no, lines, e)
             elif line_no < e.proof_line:
                 note("in the statement", thy_path.stem, line_no, lines, e)
             else:
