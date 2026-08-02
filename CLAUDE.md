@@ -61,9 +61,16 @@ excluded.
 | doc | what |
 |---|---|
 | `README.md` | user-facing: the subcommands, the shape metric table, examples |
+| `CONTRIBUTING.md` | **normative**: the CLI contract, and where design decisions are recorded |
+| `todo.md` | **open work only** — not a changelog; completed work lives in its commit messages |
 | `src/isabelle_query/shape.py` | **authoritative** metric definitions and approximations |
 | `.claude/memory/` | granular working rules + project facts (auto-loaded index) |
 | `prompt.md` | **gitignored** end-of-session handoff (survives compaction; not the design) |
+
+Design decisions are recorded **in commit messages**, cross-referenced by a
+stable `[tag]`: `git log --grep='\[locus-roundtrip\]'`.  There is no changelog
+and no design-decision archive — a summary of a commit drifts from it, and the
+commit does not.
 
 ## Working essentials
 
