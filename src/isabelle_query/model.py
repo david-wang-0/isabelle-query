@@ -74,15 +74,43 @@ class Entry:
     preamble: tuple[int, int] | None = None
         # (start, end) of the `text \<open>...\<close>` block immediately
         # preceding this entry, if one exists within ~3 blank lines.
-    roadmap: list[tuple[int, str]] = field(default_factory=list)
-        # (line_no, content) for `\<comment> \<open>...\<close>` annotations
-        # found inside this entry's proof body.
+    annotations: list[tuple[int, str, str]] = field(default_factory=list)
+        # (line_no, content, kind) for every `\<comment> \<open>...\<close>`
+        # marginal note inside this entry's span [thy_line .. thy_end], tagged
+        # by WHERE in the entry it sits — see `_ANNOTATION_KINDS`.
+        #
+        # These notes are the author's prose about this entry, and an entry is
+        # decl line + statement + proof, so the note's position is what says
+        # which of the three it is talking about.  Only `proof` notes used to
+        # be kept; that dropped ~74% of the corpus's marginal notes, and for a
+        # `definition` — which has no proof at all — it dropped every one, so
+        # the feature could never say anything about a definition.  The tag is
+        # carried rather than flattened away because the display decision (show
+        # which kinds, under what heading) is still open, and tagging is the
+        # reversible choice.
+        #
+        # Notes OUTSIDE any entry's span are still unowned: theory-level prose
+        # above the first declaration, and the `end \<comment> \<open>Context
+        # of ...\<close>` notes that close a locale.  The latter want locale
+        # structure modelled before they have anywhere to go.
     conjuncts: list[str] = field(default_factory=list)
         # Named conjuncts of a multi-`shows` lemma (e.g. mttm_step_src's
         # mttm_step_src_neq_t).  Each is a citable fact that resolves to
         # this entry under show / find / callers / callees, but is not a
         # separate Entry (so it never inflates counts or splits call-graph
         # attribution — resolution happens at the command boundary).
+
+    @property
+    def roadmap(self) -> list[tuple[int, str]]:
+        """The proof-tagged annotations, in the pre-`annotations` shape.
+
+        A *roadmap* is the narration of a derivation, so it is exactly the
+        subset of :attr:`annotations` that sits at or below ``proof_line``.
+        Kept as a derived view rather than a second field: there is one place
+        notes are attached, and no way for the two to drift.
+        """
+        return [(ln, content) for ln, content, kind in self.annotations
+                if kind == "proof"]
 
     @property
     def src_start(self) -> int:
@@ -225,6 +253,23 @@ class CallGraph:
 # definitions but never call-graph nodes; lemmas/theorems are the reverse).
 _DEFINITION_TAGS = frozenset(
     {"DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE"})
+
+# The three parts of an entry a marginal note can be talking about, in source
+# order.  An entry is: the declaration line, then its statement, then (for a
+# fact) its proof — so a note's line number relative to `thy_line` and
+# `proof_line` decides the tag, with no text inspection at all.
+#
+#   decl       on the declaration line itself — a gloss on the whole entry
+#              (`type_synonym hash = ... \<comment> \<open>Type of hashes\<close>`)
+#   statement  below the declaration, above the proof: what is being stated.
+#              For an entry with NO proof (a `definition`'s body, a `fun`'s
+#              equations) this is everything below the declaration line, which
+#              is right — such an entry is all statement.
+#   proof      at or below `proof_line`: how it is derived.  This is the
+#              historical `Entry.roadmap`.
+#
+# Ordered, so a display can iterate them in the order they appear in source.
+_ANNOTATION_KINDS = ("decl", "statement", "proof")
 _CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "FUN", "DEF", "ABBREV"})
 
 

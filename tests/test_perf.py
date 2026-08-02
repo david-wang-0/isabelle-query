@@ -146,7 +146,7 @@ class ParseScaling(unittest.TestCase):
             f"theory ({t_small*1e3:.0f}ms -> {t_large*1e3:.0f}ms); "
             f"near-quadratic ({_SCALE**2}x) means a per-entry O(n) scan crept "
             f"back into the parse (compute_spans / _attach_preambles / "
-            f"_attach_roadmaps)")
+            f"_attach_annotations)")
 
 
 if __name__ == "__main__":

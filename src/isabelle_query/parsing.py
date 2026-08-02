@@ -5,7 +5,7 @@ The second layer of the module DAG (above ``model``, below everything else).
 Everything here is a *pure function of source text*: the declaration grammar
 (``DECL_RE`` and the name-extraction helpers), the custom outer-syntax keyword
 scanner, span attribution (``compute_spans`` / ``_attach_preambles`` /
-``_attach_roadmaps``), the per-theory parse (``_parse_one`` / ``_parse_plain``),
+``_attach_annotations``), the per-theory parse (``_parse_one`` / ``_parse_plain``),
 and the ROOT-walking enumeration (``_sections_from_dir``).  No dependency on
 the call graph, rendering, or the CLI, so the whole tree can be parsed without
 touching any of them.
@@ -739,7 +739,7 @@ def _scan_nonisar_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
     # The scan is the only thing that can tell those apart from a `\<comment>`
     # written inside a `(* ... *)` block or an ML body: the latter is never
     # tokenised as a marker at all, because the machine is in `comment` /
-    # `cartouche` state when it goes past.  `_attach_roadmaps` needs exactly
+    # `cartouche` state when it goes past.  `_attach_annotations` needs exactly
     # this distinction — a note annotating commented-out text annotates
     # nothing, and must not be charged to the proof the region sits in.
     notes: dict[int, set[int]] = {}
@@ -1352,33 +1352,47 @@ def _attach_preambles(entries: list[Entry], lines: list[str],
             e.preamble = (tb_start, tb_end)
 
 
-def _attach_roadmaps(entries: list[Entry],
-                     comment_lines: list[tuple[int, str]]) -> None:
-    """Attach each in-proof \\<comment> line (roadmap) to its owning entry.
+def _attach_annotations(entries: list[Entry],
+                        comment_lines: list[tuple[int, str]]) -> None:
+    """Attach each \\<comment> line to its owning entry, tagged by position.
 
-    Roadmap: \\<comment> line whose line number lies inside the entry's
-    proof span [proof_line .. thy_end].  Runs *after* ``compute_spans`` —
-    it reads ``thy_end`` to bound the proof body.
+    A note is owned by the entry whose span [thy_line .. thy_end] contains it,
+    and tagged by which PART of that entry it sits in — ``decl`` (the
+    declaration line), ``statement`` (below the declaration, above the proof),
+    or ``proof`` (at or below ``proof_line``).  See ``model._ANNOTATION_KINDS``.
+    Runs *after* ``compute_spans``, which is what fixes ``thy_end``.
 
-    The proof's own first line counts.  It used to be excluded, which sounds
-    like an off-by-one but was structural: a proof that IS one line — the
-    commonest kind — has no line strictly inside it, so no single-line proof
-    could ever contribute a roadmap step whatever its note said.  `AVL2:140`
-    is the case that made this concrete::
+    Only ``proof`` notes used to be attached.  That is the right rule for a
+    *roadmap* and the wrong one for the feature that grew around it: ``show
+    --comments-only`` prints preamble + notes with no statement and no proof,
+    i.e. it is already the prose view of an entry, and the prose view was
+    discarding roughly three quarters of the prose.  Worst of all for a
+    ``definition``, which has no proof at all, so no annotation of one could
+    ever be shown — and a definition's marginal notes are exactly where its
+    construction gets narrated (`Shuffle:54`)::
 
-        lemma is_bal_l_bal:
-          "..."
-          by (cases l) (auto, auto split: tree\\<^sub>0.split)
-            \\<comment> \\<open>separating the two auto's is just for speed\\<close>
+        ((\\<zeta>a,x',\\<pi>a), a) \\<leftarrow> aby3_do_permute Party1 x;
+            \\<comment> \\<open>1st round\\<close>
 
-    A note on the STATEMENT (above the proof) is still not a roadmap step: it
-    annotates what is being proved, not how.  So is a note in an entry with no
-    proof at all — a `definition`'s body.  Both are real annotations and both
-    are deliberately left out until the display side has a way to tell them
-    apart; see `scripts/probe_roadmap_positions.py` for the distribution.
+    Statement notes gloss the specification rather than the derivation
+    (`Lifschitz_Consistency:100` annotates every assumption of the theorem),
+    which is a genuinely different thing to say about an entry — hence a tag
+    and not a flattened list.
+
+    The ``proof`` test is deliberately made BEFORE the ``decl`` one, so the
+    ``roadmap`` view this replaces is preserved exactly.  The commonest fact in
+    the AFP is a one-liner, ``lemma foo: "P" by simp \\<comment> ...``, whose
+    declaration line *is* its proof line; testing ``decl`` first would retag
+    every one of those and silently empty the roadmap of the shape that needs
+    it most.
+
+    Notes outside every span stay unowned: theory-level prose above the first
+    declaration, and the locale-closing ``end \\<comment> \\<open>Context of
+    ...\\<close>`` notes, which need locale structure modelled first.  See
+    `scripts/probe_roadmap_positions.py` for the distribution.
     """
     # Spans are non-overlapping, so the only candidate is the entry whose
-    # thy_line is the greatest <= cline; attach iff cline is in its proof body.
+    # thy_line is the greatest <= cline; attach iff cline is within its span.
     # entry_starts is sorted, so the enclosing entry is a bisect away (the old
     # per-comment scan over all entries was O(comments x entries)).
     entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
@@ -1386,10 +1400,17 @@ def _attach_roadmaps(entries: list[Entry],
     for cline, content in comment_lines:
         idx = bisect_right(starts_keys, cline) - 1
         if idx < 0:
-            continue
+            continue          # above the first declaration: theory-level prose
         e = entry_starts[idx][1]
-        if e.proof_line and e.proof_line <= cline <= e.thy_end:
-            e.roadmap.append((cline, content))
+        if cline > e.thy_end:
+            continue          # in the gap past the span (locale structure)
+        if e.proof_line and cline >= e.proof_line:
+            kind = "proof"
+        elif cline == e.thy_line:
+            kind = "decl"
+        else:
+            kind = "statement"
+        e.annotations.append((cline, content, kind))
 
 
 def _parse_one(thy: str, thy_path: Path,
@@ -1425,7 +1446,7 @@ def _parse_one(thy: str, thy_path: Path,
                   + _structural_command_lines(
                       lines, comment_ranges + nonisar_ranges),
                   len(lines))
-    _attach_roadmaps(entries, comment_lines)
+    _attach_annotations(entries, comment_lines)
     for e in entries:
         e.theory = thy
     # Compute body_end_line: for entries with a proof, walk forward from
