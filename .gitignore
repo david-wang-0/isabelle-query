@@ -29,3 +29,7 @@ data/
 
 # Scratch file for commit message bodies (see .claude/memory)
 .commit-msg
+
+# Drafted issue replies, written to be pasted into GitHub and then deleted.
+# Ignored so a `git add -A` cannot sweep one into a commit.
+.issue-*.md
