@@ -283,7 +283,13 @@ def render_entry(sec: TheorySection, entry: Entry, *,
     # Statement + proof preview
     if entry.proof_line and entry.proof_line >= entry.decl_end_line:
         statement = sec.slice(entry.thy_line, entry.decl_end_line)
-        first_proof = sec.slice(entry.proof_line, entry.proof_line)
+        # `lemma a: "P" by simp` puts the proof ON the last statement line, so
+        # the statement slice has already printed it and a "first proof line"
+        # would print it a second time.  The same holds when a multi-line
+        # declaration ends with its proof (`shows "P g" by simp`), which is why
+        # this compares against `decl_end_line` and not `thy_line`.
+        first_proof = ([] if entry.proof_line <= entry.decl_end_line
+                       else sec.slice(entry.proof_line, entry.proof_line))
         proof_end = _proof_extent(sec, entry.proof_line, entry.thy_end)
         remaining = max(0, proof_end - entry.proof_line)
         out_parts.append("\n".join(statement + first_proof))
