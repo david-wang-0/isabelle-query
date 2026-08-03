@@ -905,7 +905,7 @@ class StepRecord(unittest.TestCase):
         self.assertTrue(rec["consumes"])
 
     def test_estimator_columns_carry_est_suffix(self):
-        # The `_est` suffix marks a token-heuristic column (docs/shape-measures.md); the exact
+        # The `_est` suffix marks a token-heuristic column; the exact
         # source metrics (w2_src, fanin, live) do not carry it.
         rec = self._records("redundant")[0]
         est = {k for k in rec if k.endswith("_est")}

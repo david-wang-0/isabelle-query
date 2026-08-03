@@ -1,5 +1,5 @@
 # M3 configuration-type descriptors for the Shape fixture theory — one table per
-# corpus (keyed by entry / theory name).  See docs/shape-measures.md M3.  A corpus with no
+# corpus (keyed by entry / theory name).  See `shape.frame_ratio`.  A corpus with no
 # table gets frame_ratio = null (recorded in the coverage statistic).
 
 [Shape]

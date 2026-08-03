@@ -1,4 +1,4 @@
-# M3 configuration-type descriptors for AFP corpora (see docs/shape-measures.md M3).  One
+# M3 configuration-type descriptors for AFP corpora (see `shape.frame_ratio`).  One
 # `[corpus]` table per entry, keyed by AFP entry / theory name.  `constructors`,
 # `selectors`, and `relations` are per-corpus name lists; the `!` list index and
 # `:=` update are universal Isabelle syntax and are always counted.  A corpus

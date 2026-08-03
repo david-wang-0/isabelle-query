@@ -11,7 +11,7 @@ WHY AFP, NOT ISABELLE SOURCE
     AFP is also the deployment corpus for the shape census, so calibrating on it
     matches the distribution the estimator will actually see.
 
-THE SIGNAL (docs/shape-measures.md's corpus-frequency prior, sharpened)
+THE SIGNAL (the corpus-frequency prior, sharpened)
     Document frequency alone cannot separate a constant (`map`) from a
     conventional free variable (`xs`): both recur across hundreds of entries.
     The discriminator is *binding behaviour*: a constant is essentially never

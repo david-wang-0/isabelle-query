@@ -14,6 +14,15 @@ Cross-reference a body of work with a stable `[tag]` handle, and recover it with
 `todo.md` holds only *open* work — things not yet done. It is not a changelog.
 If you want to know why something is the way it is, read the commits.
 
+**Cite only what a reader of this repo can open.** Comments, docstrings and
+config headers must not reference paths outside it — a pointer the reader cannot
+resolve is worse than no pointer, and the design material it names may be
+unpublished. For the proof-shape metrics the public authority is
+`src/isabelle_query/shape.py` itself (definitions at each metric) plus the
+`M1`–`M6` table in `README.md`. Check with:
+
+    grep -rn 'docs/' --include='*.py' --include='*.toml' src tests scripts configs
+
 ## CLI contract (follow when adding or changing commands)
 
 Two families, each matching an external convention; a command's primary

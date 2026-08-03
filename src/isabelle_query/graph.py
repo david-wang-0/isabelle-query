@@ -581,10 +581,10 @@ def _bfs_depths(neighbors: Callable[[str], Iterable[str]],
 # width fan-in metric (M5a) aggregates it per step, and a future per-step
 # `callers` view can reuse it.  It is deliberately conservative — it counts only
 # high-confidence fact positions and flags any method shape it cannot classify,
-# so a census can report method-syntax coverage (docs/shape-measures.md's M5a `null` +
-# coverage requirement).
+# so a census can report method-syntax coverage (M5a records `null` rather than
+# guessing, and the census sums the coverage).
 
-# The four Isar proof-command families (docs/shape-measures.md's "Definitions").  Defined
+# The four Isar proof-command families (see the `shape` module docstring).  Defined
 # here in the shared analysis layer so both the width step classifier and the
 # fact extractor read one list.
 GOAL_KEYWORDS = frozenset({
@@ -737,7 +737,7 @@ def _cited_facts_on_line(line: str) -> tuple[set[str], bool]:
     ``covered`` is ``False`` when the line applies a method that is neither a
     known rule-method nor a known term-arg method *and* passes bare arguments —
     i.e. a shape whose arguments cannot be classified as facts-or-not.  The
-    census sums this into a method-syntax coverage statistic (docs/shape-measures.md).
+    census sums this into a method-syntax coverage statistic.
     """
     toks = _FACT_TOK_RE.findall(_strip_props(line))
     facts: set[str] = set()

@@ -1,8 +1,8 @@
 r"""Proof-shape metrics — per-step measurements over Isar proof bodies.
 
-The ``shape`` subcommand family (see docs/shape-measures.md) measures the *shape* of
-individual proof steps across six incomparable axes — length, width, space,
-redundancy, automation, and framing.  Proof *width* (how many symbols a stated
+The ``shape`` subcommand family measures the *shape* of individual proof steps
+across seven incomparable axes — length, depth, width, space, redundancy,
+automation, and framing.  Proof *width* (how many symbols a stated
 proposition mentions) is only one of them; the family also counts how many facts
 are simultaneously live, how many are cited per step, how much is re-said, and
 how goals are discharged.  Width here is the proof-complexity analog of line
@@ -20,7 +20,7 @@ The existing parser sees a proof body as an opaque span (``Entry.proof_line`` ..
 Neither resolves the individual Isar commands — the ``have`` / ``show`` /
 ``from`` / ``by`` lines — that width metrics attach to.  :func:`_scan_steps`
 adds exactly that: it walks the live lines of one proof body and classifies each
-into one of four kinds (following docs/shape-measures.md's "Definitions"):
+into one of four kinds (the keyword sets are shared with ``graph``):
 
 * **goal**  — states or derives a proposition: ``have`` ``show`` ``hence``
   ``thus`` ``obtain`` ``consider`` ``also`` ``finally`` ``interpret``.
@@ -41,6 +41,13 @@ plumbing / trailing closing are recorded on the goal :class:`Step` as fan-in
 sources.  A multi-command physical line is attributed to its goal command; the
 undercount of genuinely multi-*statement* lines matches the ethos of
 ``_scan_methods`` (undercount, never overcount).
+
+This module is the authoritative reference for the metric definitions.  The
+exact-vs-estimator split, the reference (elaborated-term) semantics standing
+behind each estimator, and the known approximations are stated at each metric
+below; ``README.md`` decodes the ``M1``–``M6`` identifiers and groups them into
+axes.  Definitions live here rather than in prose because a separate document
+drifts from the code and this one cannot.
 
 Depends only on ``model``, ``parsing`` (source tokenisation primitives), and
 ``graph`` (``_noise_spans`` for the prose skip) — never on rendering or the CLI.
@@ -74,7 +81,7 @@ from isabelle_query._notation import NOTATION
 
 # --- step classification ---------------------------------------------------
 #
-# The four command families of docs/shape-measures.md's "Definitions" are defined once in
+# The four command families are defined once in
 # `graph` (the shared analysis layer, where the fact extractor also reads them)
 # and imported above.  They are *bare* leading keywords of a proof-body command;
 # a keyword only counts in command position (before the proposition), never
@@ -360,7 +367,7 @@ def _line_set(spans: list[tuple[int, int]]) -> set[int]:
 # --- metrics ---------------------------------------------------------------
 #
 # Each metric is a deterministic function of a Step (and, for later metrics,
-# corpus context).  Per docs/shape-measures.md, source-level *estimator* values carry an
+# corpus context).  Source-level *estimator* values carry an
 # `_est` suffix in the JSONL schema; exact source-level values (like w2_src) do
 # not.  This section grows one metric at a time.
 
@@ -427,7 +434,7 @@ def annotate_fanin(steps: list[Step], sec: TheorySection) -> None:
     related figure is the **conditional** fan-in — the mean over goal steps that
     cite ≥1 — which the census exposes via
     the ``fanin_cited`` count (see :func:`summarize`); do not equate the flat
-    ``fanin_mean`` with the field anchor.  See ``docs/shape-measures.md`` (M5a).
+    ``fanin_mean`` with the field anchor.
     """
     lines = sec.source()
     pending: set[str] = set()      # facts from plumbing lines not yet consumed
@@ -509,7 +516,7 @@ def introduces(step: Step) -> bool:
 def consumes(step: Step, sec: TheorySection) -> bool:
     """**M5c denominator** — whether ``step`` cites at least one fact, via the
     M5a positional extractor on the step's own line.  Implicit ``this``-chaining
-    is *not* counted here (docs/shape-measures.md ties consumption to explicit citation)."""
+    is *not* counted here — M5c ties consumption to *explicit* citation."""
     return bool(_line_facts(step, sec.source())[0])
 
 
@@ -585,7 +592,7 @@ def live_fact_space(steps: list[Step],
 #
 # The ratio of fact-introducing to fact-consuming lines, plus the disjoint
 # three-way split (introduce-only / consume-only / both) that the bare ratio
-# hides.  Per docs/shape-measures.md the ratio is fairly constrained in well-formed Isar (an
+# hides.  The ratio is fairly constrained in well-formed Isar (an
 # introduced fact is eventually consumed), so the split and the M5a fan-in
 # distribution carry most of the signal.
 
@@ -931,7 +938,7 @@ def summarize_inductions(inductions: list[Induction]) -> InductionSummary:
 # statement, (2) separates statement-local binder-bound names and schematic
 # `?vars` into their own columns, and (3) classifies each remaining identifier as
 # variable-or-constant with a layered heuristic, recording the *provenance* of
-# each decision so estimator error is auditable (docs/shape-measures.md).
+# each decision so estimator error is auditable.
 #
 # The layered classifier (in precedence order):
 #   context  -> var    a `fix`/`for`/binder-bound name is authoritatively a
@@ -1475,7 +1482,7 @@ def extension_curve(steps: list[Step], ctx: ClassifyCtx,
     each ``k`` in ``ks``.
 
     A heuristic *upper* bound on removable width: the extracted definitions' own
-    width is not charged back (docs/shape-measures.md), so the curve shows the best case for
+    width is not charged back, so the curve shows the best case for
     naming.  ``k=0`` reproduces the raw summed widths.  Blocks with no goal
     statement are skipped.
     """
@@ -1527,11 +1534,11 @@ def removable_w2_at_8(steps: list[Step], ctx: ClassifyCtx) -> float:
     The cross-corpus reduction of the M6 curve to one per-proof scalar (the full
     per-block curve stays in the ``lemma`` view).  Summed over blocks — all
     stated width in the denominator, each block's own extraction in the numerator
-    (M6 never crosses a block, per docs/shape-measures.md) — so a proof whose width is mostly
+    (M6 never crosses a block) — so a proof whose width is mostly
     non-redundant single goals scores near ``0``.  ``0.0`` when the proof states
     no width.  Uses only ``k \in {0, 8}`` (two extraction passes, not the full
     six-point curve).  A heuristic *upper* bound: the extracted definitions' own
-    width is not charged back (docs/shape-measures.md non-goal)."""
+    width is not charged back (an explicit non-goal)."""
     curves = extension_curve(steps, ctx, ks=(0, 8))
     w2_0 = sum(c.w2[0] for c in curves)
     w2_8 = sum(c.w2[1] for c in curves)
@@ -1546,8 +1553,8 @@ def removable_w2_at_8(steps: list[Step], ctx: ClassifyCtx) -> float:
 # Delta-tracing style (write out the whole config, change one component) gives a
 # large ratio; framing style (state only the delta) gives a ratio near 1.
 #
-# Purely syntactic and heuristic (source parsing cannot resolve types), so — per
-# docs/shape-measures.md — the "configuration type" degrades to a per-corpus TABLE of names,
+# Purely syntactic and heuristic (source parsing cannot resolve types), so the
+# "configuration type" degrades to a per-corpus TABLE of names,
 # and a step whose proposition shows no configuration signal yields `None` (a
 # coverage statistic, never a guess).  There is no estimator/reference split: the
 # source computation *is* the definition.
@@ -2006,8 +2013,9 @@ def summary_record(ps: ProofSummary) -> dict:
         "ratio": ps.ratio,
         "trivial_frac": ps.trivial_frac,
         # `_est`: removability is measured over estimator bracket-chunks, so it
-        # is an estimate of the true removable width (docs/shape-measures.md's never-conflate
-        # rule) — unlike `trivial_frac`, which reads exact method names.
+        # is an estimate of the true removable width (the never-conflate rule: an
+        # estimator never shares a column with an exact value) — unlike
+        # `trivial_frac`, which reads exact method names.
         "removable_w2_est_at_8": ps.removable_w2,
         # The automation axis's method-kind histogram (fixed keys, a per-proof
         # reduction — the one structured field, kept grouped rather than spread
