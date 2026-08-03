@@ -62,7 +62,7 @@ from typing import NamedTuple
 
 from isabelle_query import graph
 from isabelle_query.model import Entry, TheorySection
-from isabelle_query.parsing import _balanced_end
+from isabelle_query.parsing import PROOF_RE, _PROOF_INLINE_RE, _balanced_end
 from isabelle_query.graph import (
     CLOSING_KEYWORDS as _CLOSING_KEYWORDS,
     CONTEXT_KEYWORDS as _CONTEXT_KEYWORDS,
@@ -267,20 +267,103 @@ def _balance_cartouche(lines: list[str], start_idx: int, open_col: int,
     return start_idx + 1, start_idx + 1, ""
 
 
+def _inline_proof_col(sec: TheorySection, entry: Entry) -> int:
+    r"""Column at which the proof begins on a line it SHARES with the goal
+    statement (``lemma foo: "P" by simp``), or 0 when nothing but whitespace
+    precedes it and the line can be read from column 0 as it always was.
+
+    Located on the OUTER view with the same :data:`_PROOF_INLINE_RE` ``parsing``
+    used to set ``proof_line``, so this re-finds that exact match rather than
+    inventing a second rule, and a ``by`` inside a term cannot be mistaken for
+    the proof.
+
+    Blanking the prefix is only safe if it is *statement*, never a command that
+    would form a step of its own — masking the ` by` of ``from a have b: "P" by
+    simp`` would delete a goal.  Two kinds of evidence establish that, and both
+    are checked because the three spellings split across them:
+
+    * **inside the declaration** (``proof_line <= decl_end_line``) — the text is
+      the statement by construction.  Covers the one-liner ``lemma a: "P" by
+      simp`` and, since ``parsing`` scans the whole declaration span rather than
+      just its first line, the 74 AFP facts whose proof sits on a later
+      ``assumes``/``shows`` line.
+    * **blank in the outer view** — the prefix is entirely inner syntax, and a
+      term is never command position.  This is the case the declaration span
+      cannot see: in ``lemma c:`` / ``"P" by auto`` the outer view of the second
+      line *starts* with ``by``, so ``PROOF_RE`` claims it through the ordinary
+      branch and ``decl_end_line`` is never extended over it.  324 AFP facts.
+
+    Those two are **defence in depth, not load-bearing**: dropping both changes
+    the answer for 0 of 43,828 AFP proofs, because a ``proof_line`` whose prefix
+    is command text is not currently reachable — the ordinary branch demands the
+    proof keyword at the *start* of the outer line, which puts the column at 0,
+    and the inline branch only fires inside the declaration.  That invariant
+    lives in ``parsing``'s two branches rather than here, so it is checked here
+    rather than assumed: if it ever weakens, this must undercount, not silently
+    delete steps.
+    """
+    if not entry.proof_line:
+        return 0
+    src = sec.source()
+    if entry.proof_line > len(src):
+        return 0
+    line = src[entry.proof_line - 1]
+    # Fast path for the 96%: "statement text precedes the proof" is the exact
+    # negation of "the line begins with the proof", which `PROOF_RE` already
+    # decides — and decides with an ANCHORED match, against the unanchored
+    # whole-line scan below.  Asked first, it keeps this off the hot path: the
+    # scan runs on every proof in the corpus, and searching all 43,828 cost 13%
+    # of the step scan to serve 1,870.
+    if PROOF_RE.match(line):
+        return 0
+    oline = sec.outer_source()[entry.proof_line - 1]
+    m = _PROOF_INLINE_RE.search(oline)
+    if m is None or m.start() == 0:
+        return 0
+    col = m.start()
+    if not line[:col].strip():
+        return 0  # only whitespace — nothing to blank, and no copy to make
+    if entry.proof_line <= (entry.decl_end_line or entry.thy_line):
+        return col
+    return col if not oline[:col].strip() else 0
+
+
 def _scan_steps(sec: TheorySection, entry: Entry) -> list[Step]:
     r"""Classify the Isar commands in ``entry``'s proof body into a flat list of
     :class:`Step`, in source order.
 
     Walks live lines from ``proof_line`` to ``body_end_line`` (skipping
     ``text`` / ``\<comment>`` prose via ``_noise_spans``), tracking proof-block
-    nesting for each step's ``depth``.  Returns ``[]`` for an entry with no
-    proof (a bare definition) or a one-liner ``by`` proof with no structured
-    steps.  The entry's own outermost ``proof`` is depth-0 scaffolding and is
-    not itself a step.
+    nesting for each step's ``depth``.  Returns ``[]`` only for an entry with no
+    proof at all (a bare definition).  The entry's own outermost ``proof`` is
+    depth-0 scaffolding and is not itself a step.
+
+    A proof written on the statement's own line is scanned from the column the
+    proof starts at, so ``lemma a: "P" by simp`` yields the same lone ``closing``
+    step as the same proof written on the next line.  Reading such a line from
+    column 0 instead gave ``_command_prefix`` the text up to the statement's
+    first quote — ``lemma a: `` — which leads no step family, so the scan
+    returned no steps and the entry dropped out of every ``shape`` verb: 1,525
+    proofs over 120 AFP entries, 79% of all drops, and *trivial* proofs
+    specifically, which biased every aggregate rather than thinning it evenly.
+
+    The statement half is blanked rather than sliced off to keep this module's
+    line view column-identical to ``source()``, the same contract
+    ``live_source`` / ``outer_source`` hold.  Nothing today can tell the two
+    apart — :func:`_extract_statement` reads the mutated list, so a slice would
+    be self-consistent as well — but every :class:`Step` line number is resolved
+    against the real source by its consumers, and a view that silently shifts
+    columns is the kind of thing that is correct until one caller correlates the
+    two.
     """
     if not entry.proof_line:
         return []
     lines = sec.source()
+    col = _inline_proof_col(sec, entry)
+    if col:
+        lines = list(lines)
+        lines[entry.proof_line - 1] = (
+            " " * col + lines[entry.proof_line - 1][col:])
     end = min(entry.body_end_line or entry.thy_end or len(lines), len(lines))
     noise = _line_set(_noise_spans(sec))
     steps: list[Step] = []
@@ -878,9 +961,10 @@ def scan_inductions(sec: TheorySection, entry: Entry) -> list[Induction]:
     reduced by :func:`_parse_induction` to an :class:`Induction`.
 
     Scans the proof-region *source* directly rather than :func:`_scan_steps`
-    steps, because the two most common induction forms are not steps at all: the
-    one-line ``lemma foo: "..." by (induction ...)`` produces no step, and the
+    steps, because a common induction form is not a step at all: the
     ``proof (induction ...)`` block-opener is depth scaffolding, not a step.
+    (The one-line ``lemma foo: "..." by (induction ...)`` is now a closing step,
+    but reading the source keeps this independent of that.)
     Anchored on the ``by`` / ``apply`` / ``proof`` introducer
     (:data:`_INDUCT_INTRO_RE`), so an induction-method *name* appearing in a
     statement never registers; ``text`` / ``\<comment>`` noise lines are skipped.
@@ -1727,8 +1811,10 @@ def analyze_proof(sec: TheorySection, entry: Entry,
                   ) -> ProofMetrics | None:
     """Run the full per-proof shape pipeline once, in dependency order
     (fan-in and live-fact annotation mutate ``steps``, so they precede any
-    per-step record).  Returns ``None`` for an entry with no structured proof
-    body (a bare definition, or a one-liner ``by`` with no steps)."""
+    per-step record).  Returns ``None`` for an entry with no proof body at all —
+    a bare definition.  A one-liner ``by`` proof DOES yield a record (its lone
+    closing step); it did not before, which is what dropped 3.5% of AFP proofs
+    from the census, trivial ones first."""
     steps = _scan_steps(sec, entry)
     if not steps:
         return None
