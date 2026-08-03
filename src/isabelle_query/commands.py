@@ -48,6 +48,7 @@ from isabelle_query import graph as _graph
 from isabelle_query.render import (
     _emit_matches,
     _format_extent,
+    _format_target,
     _format_name_line,
     _statement_text,
     _strip_text_wrapper,
@@ -961,7 +962,9 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
                 continue
             role = _locus_role(entry, lo)
             suffix = f"  ({role})" if role else ""
-            base = (f"{loc} → {entry.name} ({entry.tag}) — {sec.theory} "
+            target = _format_target(entry)
+            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            base = (f"{loc} → {entry.name} ({entry.tag}) — {scope} "
                     f"{_format_extent(entry)}")
             # Drill into the proof for the nearest/whole-path modes, but only
             # when the line is actually in a proof.  A flat (`by …`) proof or
@@ -992,7 +995,9 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
                   f"theory header or inter-section gap)")
             continue
         for e in overlap:
-            print(f"{loc} → {e.name} ({e.tag}) — {sec.theory} "
+            target = _format_target(e)
+            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            print(f"{loc} → {e.name} ({e.tag}) — {scope} "
                   f"{_format_extent(e)}")
 
 

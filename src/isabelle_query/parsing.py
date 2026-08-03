@@ -1355,6 +1355,10 @@ def extract_entries(lines: list[str],
 
         i += 1
 
+    # A post-pass rather than threading through five Entry constructions: the
+    # block chain is a property of the line an entry starts on, so it can be
+    # read off once the entries exist and their start lines are known.
+    _attach_targets(entries, outer)
     return entries
 
 
@@ -1435,6 +1439,131 @@ def _structural_command_lines(
             b -= 1
         out.append(b)
     return out
+
+
+# --- target blocks (which locale does this declaration belong to?) ---------
+#
+# Isar makes this unusually cheap.  Every *target* block — `locale`, `class`,
+# `context`, `instantiation`, `overloading`, `bundle`, `experiment`, `notepad`,
+# and the theory itself — is opened by the token `begin` and closed by `end`,
+# whatever command introduced it.  There is no opener→closer table: ONE pair,
+# counted at outer-syntax position (100.00% balanced over 1,662 AFP theories,
+# max nesting depth 5 — `scripts/probe_block_structure.py`).
+#
+# A `begin` does not name itself and the opening command may sit several lines
+# above it (`locale foo =` / `fixes ...` / `assumes ...` / `begin`), so the rule
+# is: remember the most recent target-opening command; the next `begin` consumes
+# it.  Overwriting on each opener is what makes a merely-*declared* locale
+# (`locale A = fixes x`, never opened) harmless — the next real opener replaces
+# it before any `begin` arrives.  Attribution measured at 4,003/4,003
+# (`scripts/probe_locale_naming.py`).
+#
+# A custom block-opener (AutoCorres2's `if_architecture_context`, declared
+# `keywords "..." :: thy_decl_block`) needs no special handling here: the push
+# happens on the `begin` token regardless of whether the opener was recognised,
+# so nesting stays balanced and the block is simply anonymous — which it is.
+_BLOCK_TOKEN_RE = re.compile(r"(?<![A-Za-z_0-9'@])(begin|end)(?![A-Za-z_0-9'])")
+# `@` joins the left boundary class: auto2 spells its proof closer `@end`,
+# which is its own token and not Isar's `end`.
+
+_TARGET_OPEN_RE = re.compile(
+    r"^(theory|locale|class|context|instantiation|overloading"
+    r"|bundle|open_bundle|experiment|notepad)(?![A-Za-z_0-9'])\s*(.*)$")
+_TARGET_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9'.]*")
+# First letters of the opener keywords above — a one-character prefilter:
+# bundle, class/context, experiment, instantiation, locale, notepad,
+# overloading/open_bundle, theory.
+_OPENER_FIRST_CHARS = frozenset("bceilnot")
+
+# Kinds worth reporting as an enclosing target.  `bundle` groups declarations
+# but retargets nothing, and `theory` is excluded because every entry is in one.
+_TARGET_KINDS = frozenset({"locale", "class", "context", "instantiation"})
+# Openers that never carry a name.
+_ANON_OPENERS = frozenset({"overloading", "experiment", "notepad"})
+# A word here after `context` opens the block or starts an element — it is a
+# locale *element*, not the name of an existing locale being reopened.
+_NOT_A_TARGET_NAME = frozenset({
+    "begin", "fixes", "assumes", "notes", "defines", "includes",
+    "constrains", "obtains",
+})
+
+# `lemma (in foo) bar: ...` — the target modifier, written on the declaration.
+_IN_TARGET_RE = re.compile(r"\(\s*in\s+([A-Za-z_][A-Za-z_0-9'.]*)\s*\)")
+
+
+def _target_opener(segment: str) -> tuple[str, str] | None:
+    """`(kind, name)` if `segment` opens a target block, else None.
+
+    `name` is '' for an opener that carries none (`notepad`, `context fixes x`).
+    """
+    m = _TARGET_OPEN_RE.match(segment.lstrip())
+    if not m:
+        return None
+    kind, rest = m.group(1), m.group(2)
+    if kind in _ANON_OPENERS:
+        return kind, ""
+    mn = _TARGET_NAME_RE.match(rest)
+    if not mn or mn.group(0) in _NOT_A_TARGET_NAME:
+        return kind, ""
+    return kind, mn.group(0)
+
+
+def _block_stacks(outer: list[str]) -> list[tuple[tuple[str, str], ...]]:
+    """Per line (0-indexed), the chain of enclosing *named target* blocks.
+
+    Openers and `begin`/`end` are read in POSITIONAL order rather than
+    line-at-a-time, because `Big_Step_Sterm` writes `context srules begin
+    context begin` on one line and a line-granular scan would attribute the
+    second block to the first opener.
+
+    The returned tuples are shared between consecutive unchanged lines, so this
+    allocates one tuple per block boundary, not one per line.
+    """
+    stacks: list[tuple[tuple[str, str], ...]] = []
+    stack: list[tuple[str, str]] = []
+    cur: tuple[tuple[str, str], ...] = ()
+    pending: tuple[str, str] | None = None
+    for line in outer:
+        stacks.append(cur)
+        # Two prefilters, because this runs on every line of every theory.
+        # `begin`/`end` appear on ~2 lines per theory, so the token scan is
+        # skipped by a substring test; and an opener keyword has one of eight
+        # first letters, so most remaining lines skip the alternation too.
+        if "begin" in line or "end" in line:
+            pos = 0
+            for m in _BLOCK_TOKEN_RE.finditer(line):
+                op = _target_opener(line[pos:m.start()])
+                if op is not None:
+                    pending = op
+                pos = m.end()
+                if m.group(1) == "begin":
+                    stack.append(pending or ("?", ""))
+                    pending = None
+                elif stack:
+                    stack.pop()
+            op = _target_opener(line[pos:])
+            if op is not None:
+                pending = op
+            cur = tuple(b for b in stack if b[1] and b[0] in _TARGET_KINDS)
+            continue
+        s = line.lstrip()
+        if s[:1] in _OPENER_FIRST_CHARS:
+            op = _target_opener(s)
+            if op is not None:
+                pending = op
+    return stacks
+
+
+def _attach_targets(entries: list[Entry], outer: list[str]) -> None:
+    """Record each entry's enclosing named blocks and its `(in foo)` target."""
+    stacks = _block_stacks(outer)
+    for e in entries:
+        idx = e.thy_line - 1
+        if 0 <= idx < len(stacks):
+            e.blocks = stacks[idx]
+            mt = _IN_TARGET_RE.search(outer[idx])
+            if mt:
+                e.in_target = mt.group(1)
 
 
 def compute_spans(entries: list[Entry], section_lines: list[int],

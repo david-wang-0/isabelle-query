@@ -24,6 +24,26 @@ from isabelle_query.model import (
 )
 from isabelle_query.parsing import LATEX_LINE_RE, _proof_extent
 
+def _format_target(entry: Entry) -> str:
+    """Format an entry's enclosing locale/class as a scope step: ``context hpk``.
+
+    Rendered by the caller as ``THEORY ▸ context hpk`` — a narrowing scope path,
+    the same ``▸`` idiom the proof-block drill-down uses.  Deliberately NOT
+    ``(in locale hpk)``: `enclosing` already appends a role parenthetical
+    (``(in proof)``, ``(in statement)``), and two adjacent parentheticals both
+    starting with "in" read as one thing said twice.
+
+    Empty when the entry sits at theory level, which is the common case — the
+    annotation appears only when it has something to say.  An explicit
+    ``(in foo)`` modifier prints as ``target foo`` without a kind, because the
+    source does not say whether `foo` is a locale or a class and guessing would
+    be worse than reporting exactly what is written.
+    """
+    if entry.in_target:
+        return f"target {entry.in_target}"
+    return " ▸ ".join(f"{k} {n}" for k, n in entry.blocks)
+
+
 def _format_extent(entry: Entry) -> str:
     """Format the `[src ...]` extent annotation for an entry.
 

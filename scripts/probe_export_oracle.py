@@ -286,7 +286,17 @@ def _compare(db: Path, theory: str,
     line_starts, _ = _symbol_maps(text)
     export_lines = {n: bisect_right(line_starts, o) for n, o in ents.items()}
 
-    ours = {e.name: e.thy_line for e in sec.entries if e.name and e.name != "?"}
+    # Isabelle qualifies an entity by its enclosing target: `K0` declared in
+    # `locale hpk` exports as `hpk.K0`.  Since [locale-naming] `query` knows the
+    # target too, so a name matches under either spelling.
+    ours: dict[str, int] = {}
+    for e in sec.entries:
+        if not e.name or e.name == "?":
+            continue
+        key = e.name
+        if e.target and f"{e.target}.{e.name}" in ents:
+            key = f"{e.target}.{e.name}"
+        ours[key] = e.thy_line
     anon = sum(1 for e in sec.entries if not e.name or e.name == "?")
     matched = set(ours) & set(export_lines)
     line_ok = sum(1 for n in matched if ours[n] == export_lines[n])

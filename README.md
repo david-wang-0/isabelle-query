@@ -45,6 +45,24 @@ tool's output is valid input: a locus from `callers` / `sorry` pastes into
 `enclosing`, and a span from `outline` / `largest` — or a proof block from
 `enclosing`'s own drill-down (`▸ have key 11..14`) — pastes into `lines`.
 
+### Locale scope
+
+A declaration inside a `locale` / `class` / `context` / `instantiation` block
+belongs to that target, and `enclosing` names it as a narrowing scope path:
+
+```
+HaltingProblems_K_aux:30 → K0 (DEF) — HaltingProblems_K_aux ▸ context hpk [src 28..32, ...]
+```
+
+Nothing is printed for a theory-level declaration, which is the common case
+(31.4% of AFP entries have a target: 27.0% by lexical nesting, 4.5% by an
+explicit `(in foo)` modifier). Where both are present and disagree, `(in foo)`
+wins — it retargets the declaration, which is what Isabelle does.
+
+Blocks are found structurally, not by indentation: every target block opens with
+the token `begin` and closes with `end`, whichever command introduced it, so
+there is one pair to track rather than a table of openers and closers.
+
 ## Why two kinds of scan
 
 The two examples above are the tool's two kinds of question:

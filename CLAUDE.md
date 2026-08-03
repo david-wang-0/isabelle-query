@@ -17,7 +17,8 @@ the committed table when Isabelle is absent — never a build; see
 [[reuse-infrastructure-not-reinvent]].) It answers three kinds of question:
 
 - **Structure** — *what is declared, and where*: `summary`, `theory`, `find`,
-  `show`, `largest`, `outline`, and its inverse `enclosing`.
+  `show`, `largest`, `outline`, and its inverse `enclosing` (which also names
+  the enclosing locale/class target).
 - **Usage** — *which facts cite which*: `callers`, `callees`, `deps`, `unused`
   (built on a call graph constructed only when needed).
 - **Shape** — *the proof-complexity shape of individual steps*: `query shape`
@@ -44,7 +45,9 @@ utilities) as siblings.
 - `parsing` — `.thy` → entry DB; the `_sections_from_dir` loader.  One
   tokenizer pass (`scan_regions`) feeds all of it: noise spans, genuine
   `\<comment>` starts, inner-syntax spans, and `open_at` (did this line begin
-  mid-term).  Nothing in the grammar uses indentation as evidence.
+  mid-term).  Nothing in the grammar uses indentation as evidence.  Block
+  structure comes from the `begin`/`end` pair every target block shares
+  (`_block_stacks`), which is what gives an entry its `blocks` / `in_target`.
 - `graph` — usage analysis + the shared step-scanner primitives.
 - `render` / `commands` / `cli` — formatting, the `cmd_*` handlers, the argparse
   facade (which re-exports lower-layer names so tests reach `cli.X`).

@@ -110,14 +110,42 @@ class Entry:
         #
         # Notes OUTSIDE any entry's span are still unowned: theory-level prose
         # above the first declaration, and the `end \<comment> \<open>Context
-        # of ...\<close>` notes that close a locale.  The latter want locale
-        # structure modelled before they have anywhere to go.
+        # of ...\<close>` notes that close a locale (134 of 3,912 over 120 AFP
+        # entries).  The blocker on the latter is gone — `blocks` below now
+        # models locale structure, so the closing `end` has an owner to name —
+        # but they still attach to nothing, because an annotation's owner is
+        # an Entry and a block is not one.
     conjuncts: list[str] = field(default_factory=list)
         # Named conjuncts of a multi-`shows` lemma (e.g. mttm_step_src's
         # mttm_step_src_neq_t).  Each is a citable fact that resolves to
         # this entry under show / find / callers / callees, but is not a
         # separate Entry (so it never inflates counts or splits call-graph
         # attribution — resolution happens at the command boundary).
+    blocks: tuple[tuple[str, str], ...] = ()
+        # (kind, name) for each NAMED target block lexically enclosing this
+        # entry, outermost first — `(("locale", "hpk"),)` for a lemma inside
+        # `locale hpk ... begin`.  The theory's own block is excluded (every
+        # entry is in it, so it carries no information), as are anonymous
+        # blocks (`notepad`, `context fixes x`), which have nothing to report
+        # even though they still nest.
+    in_target: str = ""
+        # The `(in foo)` modifier written on this declaration itself.  It is
+        # NOT the same evidence as `blocks`: lexical nesting says where the
+        # text sits, `(in foo)` says where the declaration goes regardless of
+        # where it sits, and Isabelle lets the two disagree.  Both are kept;
+        # `target` below decides.
+
+    @property
+    def target(self) -> str:
+        """The locale / class this entry actually belongs to, '' if none.
+
+        An explicit ``(in foo)`` wins over lexical nesting because that is
+        what Isabelle does — the modifier *retargets* the declaration, so a
+        `lemma (in bar)` written inside `locale foo` belongs to `bar`.
+        Otherwise the innermost enclosing named block."""
+        if self.in_target:
+            return self.in_target
+        return self.blocks[-1][1] if self.blocks else ""
 
     @property
     def roadmap(self) -> list[tuple[int, str]]:
