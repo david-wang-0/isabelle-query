@@ -45,6 +45,21 @@ tool's output is valid input: a locus from `callers` / `sorry` pastes into
 `enclosing`, and a span from `outline` / `largest` — or a proof block from
 `enclosing`'s own drill-down (`▸ have key 11..14`) — pastes into `lines`.
 
+### Exit status
+
+`0` the command ran; `1` the request could not be resolved (unknown theory or
+path, no subcommand); `2` bad usage — an argparse error, or **a root that could
+not be read** (missing, not a directory, or holding no session). A root that
+yields no theories is always reported on stderr and never as an empty success,
+so a script can tell a broken run from an honestly empty one:
+
+```
+$ query -R /typo/path shape census
+query: /typo/path: no such directory (given to -R/--root)
+$ echo $?
+2
+```
+
 ### Locale scope
 
 A declaration inside a `locale` / `class` / `context` / `instantiation` block

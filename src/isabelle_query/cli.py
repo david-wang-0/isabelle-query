@@ -194,15 +194,77 @@ def active_t_dir() -> Path:
     return _ROOT_OVERRIDE if _ROOT_OVERRIDE is not None else default_t_dir()
 
 
+# Exit status for a root that cannot be read.  Distinct from 1 (a command that
+# ran and found nothing) precisely because that is the distinction the silent
+# failure destroyed.
+_EXIT_BAD_ROOT = 2
+
+
+def _fail_root(root: Path, why: str) -> None:
+    """Report an unusable root on stderr and exit non-zero.
+
+    An empty result printed silently is indistinguishable from a legitimate
+    "nothing found", so a wrapper script cannot tell a broken run from a true
+    zero — which is how a shell path-expansion bug produced a whole run of
+    zero-record censuses that all looked valid.  Every path that can yield an
+    empty index therefore names the directory it read and says why it came
+    back empty.
+    """
+    print(f"query: {root}: {why}", file=sys.stderr)
+    sys.exit(_EXIT_BAD_ROOT)
+
+
+def _diagnose_empty_root(root: Path) -> str:
+    """Why did this root yield no theories?
+
+    Only ever called once the index has already come back empty, so the ROOT
+    re-scan it does costs nothing on a normal run.  Ordered narrowest-cause
+    first: each check assumes the previous one passed.
+    """
+    if not root.exists():
+        return "no such directory"
+    if not root.is_dir():
+        return "not a directory"
+    roots = discover_roots(root)
+    # A rootless directory is NOT automatically empty: `_sections_from_dir`
+    # falls back to a recursive `*.thy` glob, so a bare directory of theories
+    # still loads.  Reaching here without a ROOT therefore means there was
+    # nothing to glob either — say that, rather than blaming the missing ROOT.
+    if not roots:
+        thy = next(root.rglob("*.thy"), None)
+        if thy is None:
+            return ("no ROOT or ROOTS file, and no .thy files — "
+                    "not an Isabelle session directory")
+        return (f"no ROOT or ROOTS file, and the .thy files present "
+                f"(e.g. {thy.name}) yielded no theory")
+    sessions = iter_sessions(root)
+    if not sessions:
+        return (f"{len(roots)} ROOT file(s) found, but none declares a "
+                f"session")
+    shown = ", ".join(s.name for s in sessions[:3])
+    more = "" if len(sessions) <= 3 else f", +{len(sessions) - 3} more"
+    return (f"{len(sessions)} session(s) declared ({shown}{more}) but no "
+            f"theory resolved — check ROOT's `theories` / `directories` "
+            f"clauses")
+
+
 def load_index() -> list[TheorySection]:
     """Walk the active session directory, parsing each declared theory.
     Searches at the session root and in any sub-directory declared by
     ROOT's `directories` clause.  See :func:`active_t_dir` for how the
-    directory is resolved (`--root` / `$ISABELLE_QUERY_ROOT` / cwd discovery)."""
+    directory is resolved (`--root` / `$ISABELLE_QUERY_ROOT` / cwd discovery).
+
+    An empty index is always an error here, not a result: no real Isabelle
+    project has zero theories, so reaching this point means the root was
+    wrong, unreadable, or not a session — see :func:`_fail_root`.
+    """
     sections: list[TheorySection] = []
     seen_paths: set[Path] = set()
     _CUSTOM_COMMANDS.clear()  # rebuilt per load from the active root's headers
-    _sections_from_dir(active_t_dir(), seen_paths, sections)
+    root = active_t_dir()
+    _sections_from_dir(root, seen_paths, sections)
+    if not sections:
+        _fail_root(root, _diagnose_empty_root(root))
     return sections
 
 
@@ -1389,7 +1451,17 @@ def main():
     parser = _build_parser()
     ns = parser.parse_args()
     if ns.root:
-        _ROOT_OVERRIDE = Path(ns.root).expanduser().resolve()
+        # Checked here, before any command runs, because an explicit -R is an
+        # assertion by the caller: they said this is a root, so if it is not
+        # one that is an error rather than an empty answer.  (A root reached by
+        # cwd discovery is still checked, but only once the index comes back
+        # empty — see load_index.)
+        root = Path(ns.root).expanduser()
+        if not root.exists():
+            _fail_root(root, "no such directory (given to -R/--root)")
+        if not root.is_dir():
+            _fail_root(root, "not a directory (given to -R/--root)")
+        _ROOT_OVERRIDE = root.resolve()
     if not hasattr(ns, "func"):
         parser.print_help()
         sys.exit(1)

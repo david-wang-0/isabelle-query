@@ -41,6 +41,13 @@ positional decides which one it is.
   `grep`, `largest`, `sorry` (and `find` once it gains PATH/`--theory`
   scope under `[theory-refs]`).
 
+**Never return an empty success for a question you could not ask.** A silent
+zero is indistinguishable from an honest zero, so a caller cannot tell a broken
+run from a real one — `query -R /typo shape census` once printed nothing and
+exited 0, and a shell path-expansion bug turned that into a run of plausible
+zero-record censuses. A root that cannot be read reports on stderr and exits
+`2`, a code deliberately distinct from `1`.
+
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
 inline:
