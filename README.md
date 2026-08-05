@@ -204,7 +204,11 @@ method-defining entries; **fan-in and width are unaffected** (measured Δ=0). A
 more precise, per-session census is in progress. The per-project table verbs
 (`callers`/`callees`/`unused`/`methods`/`shape`) instead resolve a **session-
 exact** table from a loaded Isabelle heap when one is built (cached; never a
-build), falling back to the committed table (with a warning) otherwise.
+build), falling back to the committed table (with a warning) otherwise. Heaps
+are looked for where Isabelle looks: `$ISABELLE_HEAPS` (your locally built
+sessions) first, then `$ISABELLE_HEAPS_SYSTEM` (the ones shipped prebuilt with
+the release) — so a stock install with nothing built locally still resolves the
+exact table from the distribution's own `HOL`.
 
 A second, smaller committed table works the same way: `const_canon_est`
 canonicalises operator glyphs to their Isabelle constant (`\<le>` → `less_eq`)

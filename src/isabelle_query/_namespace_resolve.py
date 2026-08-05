@@ -121,26 +121,68 @@ def _version_id(isabelle: str) -> str:
     return m.group(0) if m else "unknown"
 
 
-def _heaps_dir(version_id: str) -> str:
-    """The heaps directory: $ISABELLE_HEAPS, else `~/.isabelle/<vid>/heaps`."""
-    return os.environ.get("ISABELLE_HEAPS") or str(
+def _isabelle_home(isabelle: str | None = None) -> Path:
+    """``$ISABELLE_HOME`` — the distribution root, which is the parent of the
+    ``bin/`` holding the resolved ``isabelle`` script.  ``.resolve()`` first, so
+    the usual ``~/.local/bin/isabelle`` symlink into the installed tree lands on
+    the tree and not on ``~/.local``."""
+    return Path(isabelle or _isabelle_bin()).resolve().parent.parent
+
+
+def _heaps_dirs(version_id: str, isabelle: str | None = None) -> list[str]:
+    """The heap search path, in Isabelle's own order — USER heaps first, then
+    the DISTRIBUTION heaps.  Both names come from ``etc/settings``::
+
+        ISABELLE_HEAPS="$ISABELLE_HOME_USER/heaps"
+        ISABELLE_HEAPS_SYSTEM="$ISABELLE_HOME/heaps"
+
+    and the order mirrors ``Store.input_dirs``, which reads the user directory
+    ahead of the system one — so a locally rebuilt session shadows the shipped
+    heap, as it does for Isabelle itself.
+
+    Only the first was consulted before, which made every session shipped
+    *prebuilt* with the distribution invisible: on a stock install nothing has
+    ever been built into the user directory, so `HOL` is not found, no heap can
+    be dumped, and the router silently falls back to the committed table.  The
+    machine this was written on cannot show the bug — it has `HOL` **and**
+    `Pure` in both directories — which is why the tests build synthetic trees
+    and never reach for a real heap.
+
+    Reading both never weakens the no-build guarantee: this only ever *detects*
+    heaps that already exist, and finding more of them can only turn a spawn
+    that was refused into one that is safe.  Isabelle's ``system_heaps`` option
+    (search the system directory alone) is not modelled — it is not visible
+    without a spawn, and the difference only matters for a session built in both
+    places, where the two heaps are the same session either way.
+    """
+    user = os.environ.get("ISABELLE_HEAPS") or str(
         Path.home() / ".isabelle" / version_id / "heaps")
+    system = os.environ.get("ISABELLE_HEAPS_SYSTEM") or str(
+        _isabelle_home(isabelle) / "heaps")
+    return [user] if system == user else [user, system]
 
 
-def _heap_file(version_id: str, session: str) -> Path | None:
-    """The session heap file, located by pure globbing (no spawn).  Honours
-    $ISABELLE_HEAPS; else the default `~/.isabelle/<version_id>/heaps`.  Returns
-    the first match under any ML-platform subdir, or None if unbuilt/absent."""
-    hits = sorted(glob.glob(os.path.join(_heaps_dir(version_id), "*", session)))
-    return Path(hits[0]) if hits else None
+def _heap_file(version_id: str, session: str,
+               isabelle: str | None = None) -> Path | None:
+    """The session heap file, located by pure globbing (no spawn).  Searches
+    every directory in :func:`_heaps_dirs`, in order, and returns the first
+    match under any ML-platform subdir — or None if unbuilt/absent."""
+    for d in _heaps_dirs(version_id, isabelle):
+        hits = sorted(glob.glob(os.path.join(d, "*", session)))
+        if hits:
+            return Path(hits[0])
+    return None
 
 
-def _built_sessions(version_id: str) -> set[str]:
+def _built_sessions(version_id: str, isabelle: str | None = None) -> set[str]:
     """The set of session names with a built heap — **one** glob of
-    ``<heaps>/*/*`` (no spawn), so augmenting a project with N declared sessions
-    costs one directory scan and a set intersection, not N per-session globs."""
+    ``<heaps>/*/*`` per heap directory (no spawn), so augmenting a project with
+    N declared sessions costs a directory scan and a set intersection, not N
+    per-session globs.  The union across directories: a session counts as built
+    wherever its heap lives."""
     return {os.path.basename(p)
-            for p in glob.glob(os.path.join(_heaps_dir(version_id), "*", "*"))
+            for d in _heaps_dirs(version_id, isabelle)
+            for p in glob.glob(os.path.join(d, "*", "*"))
             if os.path.isfile(p)}
 
 
@@ -156,7 +198,10 @@ def isabelle_fingerprint(session: str = "HOL",
         return ""
     vid = _version_id(isabelle)
     parts = [vid, session]
-    heap = _heap_file(vid, session)
+    # Pass the binary on rather than letting `_heap_file` re-resolve one: a
+    # caller that named an Isabelle must be fingerprinted against THAT
+    # distribution's heaps, not against whatever is on PATH.
+    heap = _heap_file(vid, session, isabelle)
     if heap is not None:
         st = heap.stat()
         parts += [str(heap), str(st.st_size), str(st.st_mtime_ns)]
