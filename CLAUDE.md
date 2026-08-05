@@ -98,7 +98,7 @@ matter every session:
 
 ## Release status
 
-The released version tracks `pyproject.toml` (currently **0.6.1**). Versioning is
+The released version tracks `pyproject.toml` (currently **0.6.2**). Versioning is
 alpha: breaking CLI changes ship as patch bumps for now.
 
 ## Credit
