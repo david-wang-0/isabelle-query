@@ -45,7 +45,7 @@ undercount of genuinely multi-*statement* lines matches the ethos of
 This module is the authoritative reference for the metric definitions.  The
 exact-vs-estimator split, the reference (elaborated-term) semantics standing
 behind each estimator, and the known approximations are stated at each metric
-below; ``README.md`` decodes the ``M1``–``M6`` identifiers and groups them into
+below; ``METRICS.md`` decodes the ``M1``–``M6`` identifiers and groups them into
 axes.  Definitions live here rather than in prose because a separate document
 drifts from the code and this one cannot.
 

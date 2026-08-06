@@ -63,7 +63,9 @@ excluded.
 
 | doc | what |
 |---|---|
-| `README.md` | user-facing: the subcommands, the shape metric table, examples |
+| `README.md` | user-facing entry point: what the tool is, the subcommands, examples, install. Kept **short** — it is the GitHub landing page |
+| `SCANNING.md` | user-facing: how a project is read — live-text scanning, locale scope, method-vs-fact names, session discovery, the prose view |
+| `METRICS.md` | user-facing: the `query shape` **command reference** and the `M1`–`M6` table. Deliberately not motivation — the research framing for these metrics lives outside this repo |
 | `CONTRIBUTING.md` | **normative**: the CLI contract, and where design decisions are recorded |
 | `todo.md` | **open work only** — not a changelog; completed work lives in its commit messages |
 | `src/isabelle_query/shape.py` | **authoritative** metric definitions and approximations |

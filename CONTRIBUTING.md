@@ -1,7 +1,9 @@
 # Contributing to isabelle-query
 
 Normative rules for changing the tool. Orientation (what `query` is, how the
-package is laid out) is in `CLAUDE.md`; user-facing behaviour is in `README.md`.
+package is laid out) is in `CLAUDE.md`. User-facing docs are `README.md` (the
+CLI surface), `SCANNING.md` (what counts as a declaration, a citation and a
+session) and `METRICS.md` (the `query shape` reference).
 
 ## Where design decisions are recorded
 
@@ -19,7 +21,7 @@ config headers must not reference paths outside it — a pointer the reader cann
 resolve is worse than no pointer, and the design material it names may be
 unpublished. For the proof-shape metrics the public authority is
 `src/isabelle_query/shape.py` itself (definitions at each metric) plus the
-`M1`–`M6` table in `README.md`. Check with:
+`M1`–`M6` table in `METRICS.md`. Check with:
 
     grep -rn 'docs/' --include='*.py' --include='*.toml' src tests scripts configs
 
