@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from isabelle_query.common import (
+    SessionInfo,
     discover_roots,
     parse_root_sessions,
     session_theories,
@@ -1876,6 +1877,38 @@ def _sections_from_dir(root_dir: Path,
     for name, thy_path in pairs:
         _add_one_section(name, thy_path, seen_paths, sections,
                          session=session_of.get(thy_path.resolve()))
+
+
+def sections_for_session(session: SessionInfo,
+                         seen_paths: set[Path]) -> list[TheorySection]:
+    """Parse exactly one session's theories — the unit of work for a batch
+    (single-process) corpus run.
+
+    Same three phases as :func:`_sections_from_dir`, scoped to one session:
+    reset the custom-command union, pre-scan this session's headers into it,
+    then parse.  Resetting matters for equivalence — a batch run must produce
+    what the per-invocation runs it replaces produced, and those each saw only
+    their own root's keywords.  (Measured: across 992 AFP sessions, 191 distinct
+    custom commands and **no** name declared with conflicting kinds, so a
+    corpus-wide union would not in fact change any parse today.  The scoping is
+    for equivalence and for not depending on that staying true.)
+
+    ``seen_paths`` is the caller's dedup set and must be **shared across
+    sessions**, exactly as ``_sections_from_dir`` shares one set across a whole
+    root: 47 AFP theory files are referenced by two sessions (``AutoCorres2``
+    and ``CParser``), and a per-session set would parse and emit each twice —
+    silent duplicate records that inflate every corpus aggregate.  Sharing it
+    keeps the same "first session to reference a theory owns it" rule, so the
+    session tag on a shared theory matches a whole-root load.
+    """
+    _CUSTOM_COMMANDS.clear()
+    pairs = list(session_theories(session))
+    _populate_custom_commands(pairs)
+    sections: list[TheorySection] = []
+    for name, thy_path in pairs:
+        _add_one_section(name, thy_path, seen_paths, sections,
+                         session=session.name)
+    return sections
 
 
 def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:

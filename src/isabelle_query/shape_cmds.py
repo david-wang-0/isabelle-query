@@ -88,6 +88,8 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable, Iterable
+from typing import NamedTuple
 
 from isabelle_query import shape
 from isabelle_query._corpus_constants import CORPUS_CONSTANTS
@@ -392,6 +394,78 @@ def cmd_shape_census(sections: list[TheorySection], resume: str | None = None,
         rec = shape.summary_record(shape.summarize(pm))
         sys.stdout.write(json.dumps(rec) + "\n")
         sys.stdout.flush()
+
+
+class CensusOutcome(NamedTuple):
+    """What a batch census actually managed to do.  Returned rather than
+    exited on, because the exit code is ``cli``'s to choose (it owns
+    ``_EXIT_BAD_ROOT`` and the #7 contract)."""
+    sessions: int    # sessions offered
+    loaded: int      # sessions that parsed without raising
+    skipped: int     # sessions that raised (and were reported on stderr)
+    records: int     # records emitted
+
+
+def cmd_shape_census_by_session(
+        groups: "Iterable[tuple[str, Callable[[], list[TheorySection]]]]",
+        resume: str | None = None,
+        corpus_consts: frozenset[str] = CORPUS_CONSTANTS) -> CensusOutcome:
+    """Stream the census one **session** at a time, in a single process.
+
+    ``groups`` yields ``(session_name, load)`` pairs where ``load`` is a
+    *thunk* — deliberately not a ready-made section list.  Two things follow
+    from that and neither is available if the caller hands over parsed
+    sections:
+
+    * **Memory stays bounded by the largest single session.**  Each session's
+      sections are built inside the loop and dropped at the end of it, so a
+      whole-corpus run holds one session at a time.  Loading the AFP in one go
+      is a different program: measured on 12 entries (173 theories) it already
+      traced 29 MB / 84 MB RSS, which extrapolates to gigabytes over ~9,600
+      theories, while per-session peaks stay in single-digit MB.
+    * **A session that cannot be parsed is isolated.**  The thunk is called
+      inside the ``try``, so a failure to *load* is caught alongside a failure
+      to *analyse*.  One unparseable session must not lose the other 991.
+
+    Skips are reported on stderr (never stdout — stdout is the JSONL stream and
+    must stay machine-readable), and counted.  The caller decides what a run of
+    nothing means; see :class:`CensusOutcome`.
+    """
+    done = _load_done(resume) if resume else set()
+    sessions = loaded = skipped = records = 0
+    for name, load in groups:
+        sessions += 1
+        try:
+            sections = load()
+            for pm in shape.analyze_sections(sections, corpus_consts):
+                if (pm.theory, pm.lemma) in done:
+                    continue
+                rec = shape.summary_record(shape.summarize(pm))
+                sys.stdout.write(json.dumps(rec) + "\n")
+                records += 1
+            # Flush per session, not per record: a killed run still leaves a
+            # valid JSONL prefix, but a whole-AFP run does not pay a syscall
+            # per proof.
+            sys.stdout.flush()
+            loaded += 1
+        except BrokenPipeError:
+            # NOT a session failure — the consumer went away.  `census
+            # --by-session | head` is the ordinary way to eyeball a corpus run,
+            # and swallowing this reported every remaining session as "skipped"
+            # and then exited 2 for a run that had worked perfectly.  Let it
+            # reach `main`, which ends the stream the way a Unix filter should.
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # Broad on purpose.  A census exists to survive a corpus, and the
+            # failures are open-ended (unreadable file, decoding error, a
+            # scanner tripping on one pathological theory).  Narrowing this
+            # would trade a named exception for losing every later session.
+            skipped += 1
+            print(f"query: session {name!r} skipped: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        finally:
+            sections = None  # noqa: F841 — drop the session before the next
+    return CensusOutcome(sessions, loaded, skipped, records)
 
 
 def _load_done(path: str) -> set[tuple[str, str]]:

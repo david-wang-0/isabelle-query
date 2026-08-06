@@ -49,7 +49,9 @@ tool's output is valid input: a locus from `callers` / `sorry` pastes into
 
 `0` the command ran; `1` the request could not be resolved (unknown theory or
 path, no subcommand); `2` bad usage — an argparse error, or **a root that could
-not be read** (missing, not a directory, or holding no session). A root that
+not be read** (missing, not a directory, or holding no session); `141` a
+downstream reader closed the pipe (`query shape census | head`), matching what a
+shell reports for a process killed by SIGPIPE. A root that
 yields no theories is always reported on stderr and never as an empty success,
 so a script can tell a broken run from an honestly empty one:
 
@@ -182,7 +184,28 @@ query shape steps [THEORY[:A..B]] [--json]  # per-step records
 query shape lemma <name>                    # one proof: every step + M6 curve
 query shape widest [-N n] [--metric M]      # the widest steps (M = w2|w1|fanin|live)
 query shape census                          # stream per-proof JSONL over a corpus
+query shape census -S/--by-session          # ... one session at a time, in ONE process
 ```
+
+**Batch a whole-corpus census with `-S/--by-session`.** Driving a corpus with a
+shell loop (`for d in thys/*; do query -R $d shape census; done`) pays
+interpreter and process startup once per entry, which dominates the run —
+measured over 40 AFP entries, 28.1s for the loop against 5.5s in one process,
+for byte-identical output (19,057 records either way). The whole AFP is 992
+sessions and 292,343 records in a single process. `--by-session` iterates
+sessions rather than loading the corpus at once, so:
+
+- **memory is bounded by the largest single session** (worst AFP session 29 MB;
+  93 MB peak RSS for the whole run) rather than by the corpus — loading all
+  ~9,600 theories at once is a gigabyte-scale program;
+- **a session that fails to parse is reported on stderr and skipped**, not
+  fatal, so one bad entry does not cost the other 991;
+- every record carries its `session` (see the JSONL schema), which a corpus run
+  needs because AFP theory names are not unique across entries.
+
+Exit status follows the same rule as everywhere else: `2` if no session could be
+read at all (nothing was measured), `0` with a stderr summary if some were
+skipped, and `0` in silence for an honest zero.
 
 Every metric is **source-level** — computed by parsing `.thy` text, with **no
 Isabelle build and no proof replay** — so a `census -R AFP/thys` over the whole
