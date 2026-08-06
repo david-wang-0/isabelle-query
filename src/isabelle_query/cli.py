@@ -199,6 +199,11 @@ def active_t_dir() -> Path:
 # failure destroyed.
 _EXIT_BAD_ROOT = 2
 
+# Exit status when a downstream reader closes the pipe (`census | head`).  128 +
+# SIGPIPE(13) is what a shell reports for a process killed by SIGPIPE, so
+# pipelines and `$?` checks read the same as they do for `yes | head`.
+_EXIT_SIGPIPE = 141
+
 
 def _fail_root(root: Path, why: str) -> None:
     """Report an unusable root on stderr and exit non-zero.
@@ -1466,7 +1471,21 @@ def main():
         parser.print_help()
         sys.exit(1)
     _configure_namespace(ns)
-    ns.func(ns)
+    try:
+        ns.func(ns)
+    except BrokenPipeError:
+        # A downstream reader closed the pipe — `shape census | head`, `grep
+        # ... | less` quit early.  Not an error in this program: a streaming
+        # command should die quietly, like any Unix filter.
+        #
+        # Point fd 1 at /dev/null rather than closing stdout.  The interpreter
+        # flushes stdout again during shutdown, and that second flush is what
+        # prints the notorious "Exception ignored while flushing sys.stdout";
+        # giving it a writable fd is what silences it.  Closing instead does
+        # not work — `sys.stdout` and `sys.__stdout__` are the same object, so
+        # closing one leaves nothing to redirect.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(_EXIT_SIGPIPE)
 
 
 if __name__ == "__main__":
