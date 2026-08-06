@@ -173,7 +173,6 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
 # command family.
 from isabelle_query.shape_cmds import (  # noqa: F401  (re-exported for the facade)
     cmd_shape_census,
-    cmd_shape_census_by_session,
     cmd_shape_lemma,
     cmd_shape_steps,
     cmd_shape_summary,
@@ -515,19 +514,6 @@ def _add_count_flag(p: argparse.ArgumentParser,
     p.add_argument("-c", "--count", action="store_true", help=help_text)
 
 
-def _add_by_session_flag(p: argparse.ArgumentParser, help_text: str) -> None:
-    """``-S/--by-session`` — make the *session* the unit, not the theory.
-
-    One spelling for one idea, though the two users cash it out differently:
-    ``summary`` reports a row per session, ``census`` processes and streams a
-    session at a time.  Both answer "organise this by session"; the census's
-    bounded memory and per-session error isolation follow from that choice
-    rather than being separate features, so they do not earn a separate flag.
-    Help text is per-command (as with ``_add_count_flag``) because the effect
-    genuinely differs; the flag name and short option cannot drift."""
-    p.add_argument("-S", "--by-session", action="store_true", help=help_text)
-
-
 def _add_names_flag(p: argparse.ArgumentParser,
                     help_text: str = "names + tags + theory only") -> None:
     # No `-n` short flag: it collides with the universal grep/rg convention
@@ -767,23 +753,26 @@ def _run_shape_widest(ns: argparse.Namespace) -> None:
                      metric=ns.metric, as_json=ns.json)
 
 def _run_shape_census(ns: argparse.Namespace) -> None:
-    if getattr(ns, "by_session", False):
-        _run_shape_census_by_session(ns)
-        return
-    cmd_shape_census(_load_sections(ns), resume=ns.resume)
+    """`census`: one process, one session at a time.
 
+    There is no whole-corpus-at-once alternative, because measurement found no
+    reason for one — analysis is the same work either way (within 0.03s over
+    160 AFP entries) while peak memory stays flat at the largest single session
+    instead of growing with the corpus (29 MB vs 315 MB at that size). Iterating
+    also buys per-session error isolation, which loading everything cannot.
 
-def _run_shape_census_by_session(ns: argparse.Namespace) -> None:
-    """`census --by-session`: one process, one session at a time.
+    The #7 contract has to be re-derived here, because "the index came back
+    empty" is now a per-session event rather than a whole-run one:
 
-    The #7 contract has to be re-derived for a batch run, because "the index
-    came back empty" is now a per-session event rather than a whole-run one:
-
-    * **no session at all** — the root is unusable in exactly the sense #7
-      names, so it takes #7's own diagnosis and exit code.
+    * **no session at all** — not an error by itself: a bare directory of
+      `.thy` files has no ROOT and is still a corpus, so it becomes one unnamed
+      group loaded by `load_index` (which raises #7's own diagnosis if the
+      fallback glob finds nothing either — via `SystemExit`, a `BaseException`,
+      so it passes through the per-session `except Exception` untouched rather
+      than being logged as a skipped session).
     * **every session skipped** — nothing was measured and every attempt
       raised.  Silence plus exit 0 here is the corpus-scale version of the bug
-      #7 fixed, so it is also `_EXIT_BAD_ROOT`.
+      #7 fixed, so it is `_EXIT_BAD_ROOT`.
     * **some skipped** — the question WAS asked and mostly answered.  Exit 0,
       but say on stderr how many were lost, so a wrapper is never quietly given
       a short corpus.
@@ -802,17 +791,8 @@ def _run_shape_census_by_session(ns: argparse.Namespace) -> None:
         groups = ((s.name, (lambda s=s: sections_for_session(s, seen)))
                   for s in sessions)
     else:
-        # No ROOT is not the same as nothing to read: `_sections_from_dir`
-        # falls back to a recursive `*.thy` glob, so a bare directory of
-        # theories is a perfectly good corpus — plain `census` has always
-        # handled it, and rejecting it here would have made `--by-session` a
-        # narrower command rather than a cheaper one.  Treat it as a corpus of
-        # one unnamed group.  `load_index` is reused rather than reimplemented
-        # so the #7 diagnosis still fires when the glob finds nothing either;
-        # it exits via SystemExit, which is a BaseException and so passes
-        # through the per-session `except Exception` untouched.
         groups = [("", load_index)]
-    out = cmd_shape_census_by_session(groups, resume=ns.resume)
+    out = cmd_shape_census(groups, resume=ns.resume)
     if out.loaded == 0:
         _fail_root(root, f"all {out.sessions} session(s) failed to load — "
                          f"no census records produced")
@@ -983,10 +963,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("files", nargs="*",
                    help="theories or session directories to summarise "
                         "(default: the whole active session index)")
-    _add_by_session_flag(
-        p, "aggregate by session: one row per session plus a "
-           "grand total — for whole-corpus (AFP), multi-session "
-           "entry, or single-session runs, not one theory at a time")
+    p.add_argument("-S", "--by-session", action="store_true",
+                   help="aggregate by session: one row per session plus a "
+                        "grand total — for whole-corpus (AFP), multi-session "
+                        "entry, or single-session runs, not one theory at a time")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="with --by-session, expand each session to its "
                         "per-theory rows")
@@ -1306,7 +1286,13 @@ def _build_parser() -> argparse.ArgumentParser:
              "distribution run; streaming + resumable)",
         description=(
             "Stream one per-proof JSONL record per entry over a corpus "
-            "(whole-AFP distribution run; streaming + resumable).  Proof tokens "
+            "(whole-AFP distribution run; streaming + resumable).  Runs one "
+            "SESSION at a time in a single process: memory stays bounded by "
+            "the largest single session rather than the corpus, a session that "
+            "fails to parse is reported on stderr and skipped instead of "
+            "aborting the run, and the interpreter startup a per-entry shell "
+            "loop pays ~1,000 times is paid once.  Every record carries its "
+            "`session`.  Proof tokens "
             "are classified with a fixed, committed APPROXIMATE method table — "
             "the union of the distribution sessions most AFP entries build on "
             "(HOL, HOL-Library, HOL-Analysis, HOL-Eisbach, HOL-Decision_Procs) — "
@@ -1321,12 +1307,6 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="skip entries already present in FILE (a prior census "
                          "JSONL), so `census -R AFP/thys --resume out.jsonl >> "
                          "out.jsonl` picks up a killed run where it stopped")
-    _add_by_session_flag(
-        sp, "process one session at a time in ONE process: bounded memory "
-            "(the largest single session, not the whole corpus), a session "
-            "that fails to parse is reported on stderr and skipped rather "
-            "than aborting the run, and the per-entry interpreter startup a "
-            "shell loop pays ~1,000 times is paid once")
     sp.set_defaults(func=_run_shape_census)
 
     # bare `query shape` -> the group's help (no subcommand chosen).

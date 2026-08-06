@@ -237,8 +237,16 @@ class Lemma(unittest.TestCase):
 
 
 class Census(unittest.TestCase):
+    """`cmd_shape_census` takes `(name, thunk)` groups, not sections: it loads
+    one session at a time so memory stays bounded and a bad session is isolated.
+    A single fixture section is therefore a corpus of one group."""
+
+    @staticmethod
+    def _group(sec):
+        return [("Shape", lambda: [sec])]
+
     def test_streams_one_record_per_proof(self):
-        recs = _jsonl(_run(shape_cmds.cmd_shape_census, [_sec()]))
+        recs = _jsonl(_run(shape_cmds.cmd_shape_census, self._group(_sec())))
         lemmas = {r["lemma"] for r in recs}
         self.assertIn("redundant", lemmas)
         # flat_proof has a step (the `by`) but no goals — still one record.
@@ -250,8 +258,8 @@ class Census(unittest.TestCase):
             fh.write(json.dumps({"theory": "Shape", "lemma": "redundant"}) + "\n")
             done_path = fh.name
         try:
-            recs = _jsonl(_run(shape_cmds.cmd_shape_census, [_sec()],
-                               resume=done_path))
+            recs = _jsonl(_run(shape_cmds.cmd_shape_census,
+                               self._group(_sec()), resume=done_path))
         finally:
             os.unlink(done_path)
         self.assertNotIn("redundant", {r["lemma"] for r in recs})

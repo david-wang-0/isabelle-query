@@ -1,7 +1,7 @@
-r"""`shape census --by-session`: one process, one session at a time (issue #6).
+r"""`shape census`: one process, one session at a time (issue #6).
 
 A whole-AFP census driven by a shell loop spawns `query` once per entry and pays
-interpreter + process startup ~1,000 times.  Batch mode pays it once.  Measured
+interpreter + process startup ~1,000 times.  The census pays it once.  Measured
 in one process over 992 AFP sessions: 292,343 records in 414s, worst single
 session 29 MB traced, process peak 93 MB RSS.
 
@@ -56,7 +56,7 @@ def _run(groups, **kw):
     """Run the batch census, returning (records, stderr, outcome)."""
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
-        outcome = shape_cmds.cmd_shape_census_by_session(groups, **kw)
+        outcome = shape_cmds.cmd_shape_census(groups, **kw)
     recs = [json.loads(ln) for ln in out.getvalue().splitlines() if ln.strip()]
     return recs, err.getvalue(), outcome
 
@@ -109,18 +109,18 @@ class Isolation(unittest.TestCase):
         file a caller is redirecting."""
         out_buf, err_buf = io.StringIO(), io.StringIO()
         with redirect_stdout(out_buf), redirect_stderr(err_buf):
-            shape_cmds.cmd_shape_census_by_session([("Bad", _boom())])
+            shape_cmds.cmd_shape_census([("Bad", _boom())])
         self.assertEqual(out_buf.getvalue(), "")
         self.assertNotEqual(err_buf.getvalue(), "")
 
     def test_broken_pipe_is_not_a_session_failure(self):
-        """`census --by-session | head` closes the pipe.  Swallowing that would
+        """`census | head` closes the pipe.  Swallowing that would
         report every remaining session as skipped and exit 2 for a run that
         worked, so it must propagate."""
         def load():
             raise BrokenPipeError(32, "Broken pipe")
         with self.assertRaises(BrokenPipeError):
-            shape_cmds.cmd_shape_census_by_session([("S", load)])
+            shape_cmds.cmd_shape_census([("S", load)])
 
 
 class Laziness(unittest.TestCase):
@@ -138,7 +138,7 @@ class Laziness(unittest.TestCase):
         groups = ((n, loader(n)) for n in ("Aaa", "Bbb", "Ccc"))
         out, _err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(_err):
-            shape_cmds.cmd_shape_census_by_session(groups)
+            shape_cmds.cmd_shape_census(groups)
         # Interleaved, not all loads first.
         self.assertEqual(order, ["load:Aaa", "load:Bbb", "load:Ccc"])
         self.assertEqual(len(out.getvalue().splitlines()), 3)
@@ -227,7 +227,7 @@ class Resume(unittest.TestCase):
 class ExitContract(unittest.TestCase):
     """#7's rule re-derived for a batch run, where "empty" is per-session.
 
-    Driven through `_run_shape_census_by_session` rather than asserted on a
+    Driven through `_run_shape_census` rather than asserted on a
     hand-built outcome tuple: the mapping from outcome to exit code IS the
     contract, and a test that constructs the tuple itself checks nothing.
     """
@@ -237,7 +237,7 @@ class ExitContract(unittest.TestCase):
         loader replaced.  Returns (stderr, SystemExit code or None)."""
         import argparse
         from pathlib import Path
-        ns = argparse.Namespace(resume=None, by_session=True)
+        ns = argparse.Namespace(resume=None)
         old_root, old_load = cli._ROOT_OVERRIDE, cli.sections_for_session
         cli._ROOT_OVERRIDE = Path(root)
         if loader is not None:
@@ -325,10 +325,10 @@ class ExitContract(unittest.TestCase):
 
     def test_a_rootless_directory_of_theories_still_works(self):
         """No ROOT is not the same as nothing to read: `_sections_from_dir`
-        falls back to a recursive `*.thy` glob, and plain `census` has always
-        handled such a directory.  `--by-session` must be a cheaper command,
-        not a narrower one — before this it reported #7's "no ROOT or ROOTS
-        file" diagnosis for a corpus it could perfectly well read."""
+        falls back to a recursive `*.thy` glob, so a bare directory of
+        theories is a corpus too.  Per-session iteration must not narrow what
+        the census accepts — before this it reported #7's "no ROOT or ROOTS
+        file" diagnosis for a tree it could perfectly well read."""
         import tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as d:

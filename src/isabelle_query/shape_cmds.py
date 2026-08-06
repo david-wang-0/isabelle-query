@@ -12,7 +12,11 @@ Five verbs over the shape engine (``shape.py``), one view each:
 * ``shape widest [-N N]``      — the N widest steps in scope by a chosen metric
                                  (the step analogue of ``largest``).
 * ``shape census``             — stream one per-proof JSONL record per entry,
-                                 resumable, for a whole-AFP distribution run.
+                                 resumable, for a whole-AFP distribution run;
+                                 one session at a time in a single process, so
+                                 memory is bounded by the largest session and a
+                                 session that fails to parse is skipped, not
+                                 fatal.
 
 This module only *formats*; every number comes from ``shape``.  It sits above
 ``commands`` in the module DAG (it reuses ``_parse_locus`` / ``_resolve_theory``
@@ -379,53 +383,48 @@ def cmd_shape_widest(sections: list[TheorySection], top: int = 20,
 
 # -- census -----------------------------------------------------------------
 
-def cmd_shape_census(sections: list[TheorySection], resume: str | None = None,
-                     corpus_consts: frozenset[str] = CORPUS_CONSTANTS) -> None:
-    """Stream one per-proof JSONL record per entry — the whole-AFP distribution
-    run.  Output is flushed per line, so a killed run leaves a valid JSONL
-    prefix; ``--resume FILE`` reads an existing run's ``(theory, lemma)`` keys
-    and skips them, so ``census -R AFP/thys --resume out.jsonl >> out.jsonl``
-    picks up where a previous run stopped.  Config-free by design (the M3 frame
-    ratio needs a per-corpus config; run ``steps --config`` where one exists)."""
-    done = _load_done(resume) if resume else set()
-    for pm in shape.analyze_sections(sections, corpus_consts):
-        if (pm.theory, pm.lemma) in done:
-            continue
-        rec = shape.summary_record(shape.summarize(pm))
-        sys.stdout.write(json.dumps(rec) + "\n")
-        sys.stdout.flush()
-
-
 class CensusOutcome(NamedTuple):
-    """What a batch census actually managed to do.  Returned rather than
-    exited on, because the exit code is ``cli``'s to choose (it owns
-    ``_EXIT_BAD_ROOT`` and the #7 contract)."""
-    sessions: int    # sessions offered
-    loaded: int      # sessions that parsed without raising
-    skipped: int     # sessions that raised (and were reported on stderr)
+    """What a census actually managed to do.  Returned rather than exited on,
+    because the exit code is ``cli``'s to choose (it owns ``_EXIT_BAD_ROOT``
+    and the #7 contract)."""
+    sessions: int    # session groups offered
+    loaded: int      # groups that parsed without raising
+    skipped: int     # groups that raised (and were reported on stderr)
     records: int     # records emitted
 
 
-def cmd_shape_census_by_session(
+def cmd_shape_census(
         groups: "Iterable[tuple[str, Callable[[], list[TheorySection]]]]",
         resume: str | None = None,
         corpus_consts: frozenset[str] = CORPUS_CONSTANTS) -> CensusOutcome:
-    """Stream the census one **session** at a time, in a single process.
+    """Stream one per-proof JSONL record per entry — the whole-AFP distribution
+    run — one **session** at a time, in a single process.
 
     ``groups`` yields ``(session_name, load)`` pairs where ``load`` is a
-    *thunk* — deliberately not a ready-made section list.  Two things follow
-    from that and neither is available if the caller hands over parsed
-    sections:
+    *thunk* — deliberately not a ready-made section list.  Three things follow
+    from that, and none is available if the caller hands over parsed sections:
 
     * **Memory stays bounded by the largest single session.**  Each session's
-      sections are built inside the loop and dropped at the end of it, so a
-      whole-corpus run holds one session at a time.  Loading the AFP in one go
-      is a different program: measured on 12 entries (173 theories) it already
-      traced 29 MB / 84 MB RSS, which extrapolates to gigabytes over ~9,600
-      theories, while per-session peaks stay in single-digit MB.
+      sections are built inside the loop and dropped at the end of it.
+      Measured against loading the corpus at once, the analysis is the same
+      work to within 0.03s, but peak memory is flat at 29 MB (the largest AFP
+      session) where the whole-corpus load grows linearly — 86 MB over 40 AFP
+      entries, 315 MB over 160, gigabytes over all ~9,600 theories.
     * **A session that cannot be parsed is isolated.**  The thunk is called
       inside the ``try``, so a failure to *load* is caught alongside a failure
       to *analyse*.  One unparseable session must not lose the other 991.
+    * **Startup is paid once.**  A shell loop over entries pays interpreter and
+      process startup per entry, which dominates: 28.1s against 5.5s over 40
+      AFP entries, for byte-identical output.
+
+    A corpus with no sessions at all (a bare directory of ``.thy`` files) is
+    simply a corpus of one unnamed group — this takes whatever grouping the
+    caller supplies and does not itself know about roots.
+
+    ``--resume FILE`` reads an existing run's ``(theory, lemma)`` keys and skips
+    them, so ``census -R AFP/thys --resume out.jsonl >> out.jsonl`` picks up
+    where a previous run stopped.  Config-free by design (the M3 frame ratio
+    needs a per-corpus config; run ``steps --config`` where one exists).
 
     Skips are reported on stderr (never stdout — stdout is the JSONL stream and
     must stay machine-readable), and counted.  The caller decides what a run of
@@ -450,7 +449,7 @@ def cmd_shape_census_by_session(
             loaded += 1
         except BrokenPipeError:
             # NOT a session failure — the consumer went away.  `census
-            # --by-session | head` is the ordinary way to eyeball a corpus run,
+            # | head` is the ordinary way to eyeball a corpus run,
             # and swallowing this reported every remaining session as "skipped"
             # and then exited 2 for a run that had worked perfectly.  Let it
             # reach `main`, which ends the stream the way a Unix filter should.
