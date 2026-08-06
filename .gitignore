@@ -33,3 +33,19 @@ data/
 # Drafted issue replies, written to be pasted into GitHub and then deleted.
 # Ignored so a `git add -A` cannot sweep one into a commit.
 .issue-*.md
+
+# Session scratch: probe output, timing logs, mutation harnesses, and the
+# throwaway session roots / HEAD checkouts a corpus comparison needs.  Same
+# reason as above — `git add -A` swept a scratch `.rootless/Bare.thy` into a
+# commit once.  Scratch lives in the working tree (not /tmp, which is gated),
+# so the working tree has to know to ignore it.
+.scratch*
+.headtree/
+.rootless/
+.batchroot/
+.census-*
+.compare*
+.mutate*
+.timing*
+.repro*
+.variants*
