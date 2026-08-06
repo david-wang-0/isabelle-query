@@ -59,7 +59,11 @@ key                  meaning
 ===================  =========================================================
 
 **Per-proof record** (``shape summary --json``, ``shape census``) — one object
-per proof-bearing entry: ``theory``, ``lemma``, ``n_steps``, ``n_goals``,
+per proof-bearing entry: ``session`` (provenance: the Isabelle session the
+theory was declared by, ``null`` when the load had no session context — a corpus
+run needs it because 505 of 8,849 AFP theory names are used by more than one
+theory, so ``(theory, lemma)`` alone cannot say which entry a record came from),
+``theory``, ``lemma``, ``n_steps``, ``n_goals``,
 ``n_bare``, ``depth_max`` (Length: max proof-block nesting, 1 = flat),
 ``w2_src_max``/``_mean``/``_p90``, ``w1_est_max``/``_mean``,
 ``fanin_max``/``_mean`` (**M5a** explicit source-cited premises per goal step),
