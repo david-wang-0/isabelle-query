@@ -323,6 +323,24 @@ class ExitContract(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertEqual(err, "")
 
+    def test_a_rootless_directory_of_theories_still_works(self):
+        """No ROOT is not the same as nothing to read: `_sections_from_dir`
+        falls back to a recursive `*.thy` glob, and plain `census` has always
+        handled such a directory.  `--by-session` must be a cheaper command,
+        not a narrower one — before this it reported #7's "no ROOT or ROOTS
+        file" diagnosis for a corpus it could perfectly well read."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "Bare.thy").write_text(THY.format(name="Bare"),
+                                              encoding="utf-8")
+            err, code, out = self._run_cli(d)
+        self.assertIsNone(code)
+        recs = [json.loads(ln) for ln in out.splitlines() if ln.strip()]
+        self.assertEqual([r["theory"] for r in recs], ["Bare"])
+        self.assertIsNone(recs[0]["session"])   # no ROOT, so no session name
+        self.assertEqual(err, "")
+
     def test_exit_codes_are_distinct(self):
         self.assertNotEqual(cli._EXIT_BAD_ROOT, cli._EXIT_SIGPIPE)
         self.assertEqual(cli._EXIT_BAD_ROOT, 2)

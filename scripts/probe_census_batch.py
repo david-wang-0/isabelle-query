@@ -128,23 +128,44 @@ def mode_session(sessions) -> None:
     tracemalloc.stop()
 
 
+def load_all(sessions, seen: "set[Path] | None" = None
+             ) -> list[TheorySection]:
+    """Load every session's theories into ONE list — the alternative shape:
+    list all sessions up front, parse the lot, then analyse.
+
+    One pass over `session_theories` per session, feeding both the pair list and
+    the owner map, so this is not handicapped against `load_session` by walking
+    each session twice.  Sharing `seen` gives the same first-claimant dedup.
+    """
+    if seen is None:
+        seen = set()
+    parsing._CUSTOM_COMMANDS.clear()
+    pairs: list[tuple[str, Path]] = []
+    owner: dict[Path, str] = {}
+    for s in sessions:
+        for n, p in session_theories(s):
+            pairs.append((n, p))
+            try:
+                owner.setdefault(p.resolve(), s.name)
+            except OSError:
+                pass
+    parsing._populate_custom_commands(pairs)
+    sections: list[TheorySection] = []
+    for name, thy_path in pairs:
+        try:
+            who = owner.get(thy_path.resolve())
+        except OSError:
+            who = None
+        parsing._add_one_section(name, thy_path, seen, sections, session=who)
+    return sections
+
+
 def mode_all(sessions) -> None:
     """Load every session first, then analyse — the naive single process."""
     tracemalloc.start()
     gc.collect()
     t = time.perf_counter()
-    sections: list[TheorySection] = []
-    seen: set[Path] = set()
-    parsing._CUSTOM_COMMANDS.clear()
-    pairs = [(n, p) for s in sessions for n, p in session_theories(s)]
-    parsing._populate_custom_commands(pairs)
-    owner = {}
-    for s in sessions:
-        for _n, p in session_theories(s):
-            owner.setdefault(p.resolve(), s.name)
-    for name, thy_path in pairs:
-        parsing._add_one_section(name, thy_path, seen, sections,
-                                 session=owner.get(thy_path.resolve()))
+    sections = load_all(sessions)
     load_done = time.perf_counter() - t
     after_load = tracemalloc.get_traced_memory()[0]
     recs = _analyse(sections)
@@ -157,6 +178,70 @@ def mode_all(sessions) -> None:
     print(f"custom commands unioned across the whole sample: "
           f"{len(parsing._CUSTOM_COMMANDS):,}")
     tracemalloc.stop()
+
+
+def mode_compare(sessions, rounds: int = 2) -> None:
+    """Interleaved A/B: does iterating sessions cost anything against loading
+    them all at once?
+
+    Both run in ONE process, alternating, so neither pays interpreter startup
+    and neither gets a cold filesystem cache to itself.  Best-of-`rounds` per
+    mode, because the machine drifts several percent between identical runs.
+    Record counts are compared: a mode that is faster because it measured fewer
+    proofs has not won anything.
+    """
+    def run_session():
+        gc.collect()
+        tracemalloc.reset_peak()
+        seen: set[Path] = set()
+        t = time.perf_counter()
+        parse = 0.0
+        recs = 0
+        for s in sessions:
+            tl = time.perf_counter()
+            sections = load_session(s, seen)
+            parse += time.perf_counter() - tl
+            recs += _analyse(sections)
+            del sections
+        return time.perf_counter() - t, parse, recs, \
+            tracemalloc.get_traced_memory()[1]
+
+    def run_all():
+        gc.collect()
+        tracemalloc.reset_peak()
+        t = time.perf_counter()
+        sections = load_all(sessions)
+        parse = time.perf_counter() - t
+        recs = _analyse(sections)
+        total = time.perf_counter() - t
+        peak = tracemalloc.get_traced_memory()[1]
+        del sections
+        return total, parse, recs, peak
+
+    tracemalloc.start()
+    results: dict[str, list] = {"per-session": [], "all-at-once": []}
+    for i in range(rounds):
+        results["all-at-once"].append(run_all())
+        results["per-session"].append(run_session())
+    tracemalloc.stop()
+
+    print(f"{'mode':<14} {'total':>8} {'parse':>8} {'analyse':>8} "
+          f"{'peak':>12} {'records':>9}")
+    best = {}
+    for mode, runs in results.items():
+        r = min(runs, key=lambda x: x[0])
+        best[mode] = r
+        total, parse, recs, peak = r
+        print(f"{mode:<14} {total:7.2f}s {parse:7.2f}s {total - parse:7.2f}s "
+              f"{_mb(peak)} {recs:>9,}")
+    ps, al = best["per-session"], best["all-at-once"]
+    if ps[2] != al[2]:
+        print(f"\n!! record counts DIFFER ({ps[2]:,} vs {al[2]:,}) — the modes "
+              f"are not measuring the same corpus")
+    delta = 100 * (ps[0] - al[0]) / al[0]
+    sign = "slower" if delta > 0 else "FASTER"
+    print(f"\nper-session is {abs(delta):.1f}% {sign} than all-at-once"
+          f"   (peak memory {al[3] / max(ps[3], 1):.1f}x lower)")
 
 
 def check_keywords(sessions) -> None:
@@ -229,8 +314,10 @@ def check_overlap(sessions) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("entries", nargs="?", type=int, default=40)
-    ap.add_argument("--mode", choices=("all", "session", "both"),
+    ap.add_argument("--mode", choices=("all", "session", "both", "compare"),
                     default="session")
+    ap.add_argument("--rounds", type=int, default=2,
+                    help="A/B rounds for --mode compare (best-of)")
     ap.add_argument("--check", choices=("keywords", "overlap"))
     args = ap.parse_args()
 
@@ -243,6 +330,9 @@ def main() -> None:
         return
     if args.check == "overlap":
         check_overlap(sessions)
+        return
+    if args.mode == "compare":
+        mode_compare(sessions, args.rounds)
         return
     if args.mode in ("session", "both"):
         mode_session(sessions)

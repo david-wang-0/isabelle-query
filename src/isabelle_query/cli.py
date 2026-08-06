@@ -794,14 +794,24 @@ def _run_shape_census_by_session(ns: argparse.Namespace) -> None:
     """
     root = active_t_dir()
     sessions = iter_sessions(root)
-    if not sessions:
-        _fail_root(root, _diagnose_empty_root(root))
-    # One dedup set for the whole run, exactly as a whole-root load keeps one:
-    # 47 AFP theories are referenced by two sessions, and a per-session set
-    # would emit each of them twice.
-    seen: set[Path] = set()
-    groups = ((s.name, (lambda s=s: sections_for_session(s, seen)))
-              for s in sessions)
+    if sessions:
+        # One dedup set for the whole run, exactly as a whole-root load keeps
+        # one: 47 AFP theories are referenced by two sessions (via a nested
+        # ROOT), and a per-session set would emit each of them twice.
+        seen: set[Path] = set()
+        groups = ((s.name, (lambda s=s: sections_for_session(s, seen)))
+                  for s in sessions)
+    else:
+        # No ROOT is not the same as nothing to read: `_sections_from_dir`
+        # falls back to a recursive `*.thy` glob, so a bare directory of
+        # theories is a perfectly good corpus — plain `census` has always
+        # handled it, and rejecting it here would have made `--by-session` a
+        # narrower command rather than a cheaper one.  Treat it as a corpus of
+        # one unnamed group.  `load_index` is reused rather than reimplemented
+        # so the #7 diagnosis still fires when the glob finds nothing either;
+        # it exits via SystemExit, which is a BaseException and so passes
+        # through the per-session `except Exception` untouched.
+        groups = [("", load_index)]
     out = cmd_shape_census_by_session(groups, resume=ns.resume)
     if out.loaded == 0:
         _fail_root(root, f"all {out.sessions} session(s) failed to load — "
