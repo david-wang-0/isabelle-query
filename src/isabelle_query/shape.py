@@ -1968,6 +1968,15 @@ class ProofSummary:
     proof_tokens: int
     proof_tokens_code: int
     entry_lines: int
+    # Provenance.  The Isabelle *session* the theory was declared by, or None
+    # when the load had no session context (a bare `.thy` path, stdin).  Last
+    # and defaulted so the positional construction above is unchanged; emitted
+    # FIRST in the record, where a reader looks for the coarsest key.  A corpus
+    # run's records are otherwise attributable only by theory name, which is not
+    # unique across the AFP: 505 of 8,849 theory names are used by more than one
+    # theory (`Examples` 19 times, `Preliminaries` 15, `Misc` 8), so
+    # `(theory, lemma)` alone cannot say which entry a record came from.
+    session: str | None = None
 
 
 def summarize(pm: ProofMetrics) -> ProofSummary:
@@ -2006,7 +2015,8 @@ def summarize(pm: ProofMetrics) -> ProofSummary:
         trivial_frac(pm.steps), removable_w2_at_8(pm.steps, pm.ctx),
         method_kind_counts(pm.steps),
         ind.n, ind.terms_max, ind.arbitrary_max, ind.n_rule, ind.n_recursion,
-        p_lines, p_lines_code, p_tokens, p_tokens_code, e.line_count)
+        p_lines, p_lines_code, p_tokens, p_tokens_code, e.line_count,
+        session=pm.sec.session)
 
 
 def step_record(step: Step, ctx: ClassifyCtx, lines: list[str],
@@ -2066,6 +2076,10 @@ def summary_record(ps: ProofSummary) -> dict:
     --json``): the :class:`ProofSummary` aggregates as a flat dict, same stable
     ``(theory, lemma)`` keys, ``_est`` suffix on the estimator aggregates."""
     return {
+        # Provenance first — the coarsest key, and the one that disambiguates a
+        # theory name repeated across AFP entries.  `null` when the load had no
+        # session context.
+        "session": ps.session,
         "theory": ps.theory,
         "lemma": ps.lemma,
         "n_steps": ps.n_steps,

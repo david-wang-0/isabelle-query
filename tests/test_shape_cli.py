@@ -119,6 +119,9 @@ _STEP_KEYS = {
     "fanin", "fanin_covered", "live", "introduces", "consumes",
 }
 _SUMMARY_KEYS = {
+    # `session` is provenance, `null` outside a session-aware load — a corpus
+    # run needs it because AFP theory names are not unique across entries.
+    "session",
     "theory", "lemma", "n_steps", "n_goals", "n_bare", "depth_max", "w2_src_max",
     "w2_src_mean", "w2_src_p90", "w1_est_max", "w1_est_mean",
     "const_est_max", "const_est_mean",
