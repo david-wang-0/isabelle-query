@@ -13,13 +13,20 @@ THE QUESTION
          cannot check spans, and spans are where the parser actually errs.
 
 WHAT THIS DOES
-    Reads the session database directly -- `$ISABELLE_HOME_USER/heaps/<platform>/
-    log/<SESSION>.db`, table `isabelle_exports` -- opened **read-only** through a
+    Reads the session database directly -- `<heaps>/<platform>/log/<SESSION>.db`,
+    table `isabelle_exports` -- opened **read-only** through a
     `file:...?mode=ro` URI.  This is the whole point: `isabelle export` is NOT
     read-only (it builds the session first if anything is stale, which on a
     mid-size AFP entry is minutes), whereas the sqlite file cannot build
     anything.  A session that has never been built simply has no row here, and
     the probe says so and stops.
+
+    Nothing about the installation is hardcoded.  Heap directories come from
+    `_namespace_resolve._heaps_dirs` (user AND distribution, per issue #4), and
+    the `$AFP/...` paths the exports carry are resolved through Isabelle's own
+    component registry -- `etc/components`, then each component's
+    `etc/settings`.  Run with no argument to list the sessions that actually
+    have a database here.
 
     Export bodies are Zstd-compressed YXML.  This decodes them far enough to
     count entities, resolve their offsets to lines, and diff the result against
@@ -37,23 +44,31 @@ WHAT IT FOUND  (Universal_Turing_Machine, 34 theories, an already-built session)
     for 9/10 entities (the tenth, `tm_dither_def`, points at the `tm_dither`
     the definition names, which is Isabelle being right).
 
-    Against `query`: of 2,262 named entries, 2,221 (98.2%) match by name.
-    Three residual classes, none of them a parser bug:
+    Against `query` (re-measured at v0.6.3): of 2,262 named entries, **2,258
+    (99.8%) match by name**, and 2,148 of those agree on the line too.  Three
+    residual classes, none of them a parser bug:
 
     * 98 ANONYMOUS entries (`lemma "P" by simp`) have no entity at all — they
       are invisible to this oracle by construction, and no filtering fixes it.
-    * ~105 line disagreements are all `query` = command line, export = *name*
-      line, from the split style `definition\n  foo :: ...`.  Two defensible
+    * 110 line disagreements are `query` = command line, export = *name* line,
+      from the split style `definition\n  foo :: ...`.  Two defensible
       conventions, so a comparison has to reconcile rather than diff them.
-    * 41 "only in query" are LOCALE-QUALIFIED in the export: `K0` declared in
-      `locale hpk` exports as `hpk.K0`.  This is the same information the
-      locale-naming work adds, so the two tasks close each other's gap.
+    * 4 "only in query".  This was 41 before locale targets landed: Isabelle
+      qualifies an entity by its enclosing target (`K0` in `locale hpk` exports
+      as `hpk.K0`), and `query` now knows the target, so the comparison tries
+      both spellings.
 
-    The 12,120 "only in export" are Isabelle's derived facts (`foo.simps`,
+    The 12,083 "only in export" are Isabelle's derived facts (`foo.simps`,
     `foo.induct`, `K0.cong`) with no source declaration of their own — expected,
-    and the reason a usable oracle must filter to source-declared entities.
+    and the reason a usable oracle checks PRECISION, not recall: every `query`
+    entry should be an export entity, and the converse must not be required.
+    They cannot be filtered by position either, since a derived fact's position
+    points at the command that generated it.
 
-Usage:  probe_export_oracle.py [SESSION] [--theory N] [--verify] [--compare] [--all]
+Usage:
+    probe_export_oracle.py                       # list sessions with a database
+    probe_export_oracle.py SESSION [--theory N] [--verify] [--compare] [--all]
+                                    [--root VAR=DIR]
 """
 from __future__ import annotations
 
@@ -75,9 +90,31 @@ X, Y = "\x05", "\x06"
 
 
 def _heap_log_dirs() -> list[Path]:
-    home = Path(os.environ.get("ISABELLE_HOME_USER",
-                               Path.home() / ".isabelle" / "Isabelle2025-2"))
-    return sorted(p for p in home.glob("heaps/*/log") if p.is_dir())
+    """Every `<heaps>/<platform>/log` directory a session database can live in.
+
+    Delegates to `_namespace_resolve._heaps_dirs`, which is the tool's own
+    answer to "where does Isabelle keep heaps" and searches BOTH
+    `$ISABELLE_HEAPS` and `$ISABELLE_HEAPS_SYSTEM` (issue #4).  This used to
+    glob `$ISABELLE_HOME_USER/heaps/*/log` with `Isabelle2025-2` hardcoded as
+    the fallback, which broke on any other release and could not see a session
+    shipped prebuilt with the distribution.
+    """
+    from isabelle_query import _namespace_resolve as nr
+    isabelle = nr._isabelle_bin()
+    out: list[Path] = []
+    for d in nr._heaps_dirs(nr._version_id(isabelle), isabelle):
+        out.extend(p for p in Path(d).glob("*/log") if p.is_dir())
+    return sorted(set(out))
+
+
+def _available_sessions() -> list[tuple[str, Path]]:
+    """`(session, database)` for every session that has been built, so a run
+    with no argument can say what there IS instead of failing on a guess."""
+    out: dict[str, Path] = {}
+    for d in _heap_log_dirs():
+        for db in sorted(d.glob("*.db")):
+            out.setdefault(db.stem, db)
+    return sorted(out.items())
 
 
 def _find_db(session: str) -> Path | None:
@@ -86,6 +123,102 @@ def _find_db(session: str) -> Path | None:
         if cand.is_file():
             return cand
     return None
+
+
+# --- locating the sources an export refers to ------------------------------
+#
+# Isabelle records an entity's source as its OWN path variable — `$AFP/Foo/
+# Bar.thy`, not an absolute path — because a component's location is a property
+# of the installation, not of the export.  Resolving that back to a file is
+# therefore a question about THIS installation, and Isabelle already stores the
+# answer: `etc/components` lists the registered component directories, and each
+# component's `etc/settings` defines its variables (the AFP's says
+# `AFP_BASE="$COMPONENT"` then `AFP="$AFP_BASE/thys"`).
+#
+# Reading those two files resolves `$AFP` wherever the AFP happens to be
+# checked out, needs no spawn, and keeps working across releases — which a
+# hardcoded `~/repos/afp/thys` did not.
+
+_SETTING_RE = re.compile(r'^\s*([A-Z][A-Z0-9_]*)=(.*)$')
+
+
+def _component_dirs() -> list[Path]:
+    """Component directories registered with this Isabelle, user list first."""
+    from isabelle_query import _namespace_resolve as nr
+    isabelle = nr._isabelle_bin()
+    home_user = Path(os.environ.get("ISABELLE_HOME_USER") or
+                     Path.home() / ".isabelle" / nr._version_id(isabelle))
+    lists = [home_user / "etc" / "components",
+             nr._isabelle_home(isabelle) / "etc" / "components"]
+    out: list[Path] = []
+    for lst in lists:
+        try:
+            lines = lst.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            p = Path(line).expanduser()
+            if p.is_dir():
+                out.append(p)
+    return out
+
+
+def _component_vars() -> dict[str, Path]:
+    """Isabelle path variables defined by registered components.
+
+    A deliberately small reader of `etc/settings`: plain `VAR=value` lines with
+    `$COMPONENT` and already-seen variables expanded.  Anything conditional,
+    computed, or exported through shell logic is skipped rather than guessed
+    at — this only has to find component roots like `$AFP`, and a wrong answer
+    would be worse than no answer.
+    """
+    out: dict[str, Path] = {}
+    for comp in _component_dirs():
+        local = {"COMPONENT": str(comp)}
+        try:
+            lines = (comp / "etc" / "settings").read_text(
+                encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = _SETTING_RE.match(line)
+            if not m:
+                continue
+            name, raw = m.group(1), m.group(2).strip()
+            if raw[:1] in ("'", '"') and raw[-1:] == raw[:1]:
+                raw = raw[1:-1]
+            if "$(" in raw or "`" in raw:
+                continue                      # command substitution: skip
+            def sub(mm, local=local):
+                return local.get(mm.group(1) or mm.group(2), "\0")
+            value = re.sub(r"\$\{([A-Z0-9_]+)\}|\$([A-Z0-9_]+)", sub, raw)
+            if "\0" in value or not value:
+                continue                      # unresolved reference: skip
+            local[name] = value
+            p = Path(value)
+            if p.is_dir():
+                out.setdefault(name, p)
+    return out
+
+
+def _resolve_source(src: str, overrides: dict[str, Path]) -> Path | None:
+    """Turn an export's `file` attribute into a real path, or None."""
+    m = re.match(r"\$\{?([A-Z][A-Z0-9_]*)\}?/(.*)$", src)
+    if not m:
+        p = Path(src).expanduser()
+        return p if p.is_file() else None
+    var, rest = m.group(1), m.group(2)
+    root = overrides.get(var)
+    if root is None:
+        env = os.environ.get(var)
+        root = Path(env) if env else _component_vars().get(var)
+    if root is None:
+        return None
+    p = root / rest
+    return p if p.is_file() else None
 
 
 def _read_export(db: Path, theory: str, name: str) -> str | None:
@@ -160,9 +293,16 @@ def _symbol_maps(text: str) -> tuple[list[int], list[int]]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("session", nargs="?", default="Universal_Turing_Machine")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("session", nargs="?",
+                    help="a session with a built heap; omit to list them")
     ap.add_argument("--theory", default=None)
+    ap.add_argument("--root", action="append", metavar="VAR=DIR", default=[],
+                    help="override an Isabelle path variable an export refers "
+                         "to, e.g. --root AFP=~/repos/afp/thys.  Only needed "
+                         "when the component is not registered with this "
+                         "Isabelle (it usually is, via etc/components)")
     ap.add_argument("--dump", action="store_true",
                     help="print a decoded sample of the export body")
     ap.add_argument("--verify", action="store_true",
@@ -173,12 +313,38 @@ def main() -> None:
                     help="compare every theory in the session, not just one")
     ns = ap.parse_args()
 
+    roots: dict[str, Path] = {}
+    for spec in ns.root:
+        var, _, val = spec.partition("=")
+        if not val:
+            ap.error(f"--root wants VAR=DIR, got {spec!r}")
+        roots[var.strip()] = Path(val).expanduser()
+
+    available = _available_sessions()
+    if not ns.session:
+        # No default session: the old one named a session that happened to be
+        # built on the machine this was written on.  Say what is actually here.
+        print(f"{len(available)} session(s) with a readable export database:\n")
+        for name, db in available:
+            print(f"  {name:<40} {db.stat().st_size / 1e6:>8.1f} MB")
+        if not available:
+            print("  (none — no session in these directories has been built)")
+            for d in _heap_log_dirs():
+                print(f"    looked in {d}")
+        print("\nPass one as the argument.  Never run `isabelle export` to make "
+              "one:\nit BUILDS the session first.")
+        sys.exit(0 if available else 1)
+
     db = _find_db(ns.session)
     if db is None:
         print(f"no session database for {ns.session!r} — "
               f"it has never been built.  Looked in:")
         for d in _heap_log_dirs():
             print(f"  {d}")
+        if available:
+            print("built sessions here: "
+                  + ", ".join(n for n, _ in available[:8])
+                  + (", ..." if len(available) > 8 else ""))
         sys.exit(1)
     print(f"database: {db}  ({db.stat().st_size / 1e6:.1f} MB, read-only)")
 
@@ -202,7 +368,7 @@ def main() -> None:
               f"position attrs: {sorted(attrs) or 'NONE'}")
 
     if ns.verify:
-        _verify(db, theory)
+        _verify(db, theory, roots)
 
     if ns.compare:
         targets = thys if ns.all else [theory]
@@ -210,7 +376,7 @@ def main() -> None:
                    anon=0, line_ok=0, thys=0)
         samples: dict[str, list[str]] = {"only_query": [], "line_off": []}
         for t in targets:
-            r = _compare(db, t, samples)
+            r = _compare(db, t, samples, roots)
             if r is None:
                 continue
             tot["thys"] += 1
@@ -265,7 +431,8 @@ def _entities(db: Path, theory: str) -> tuple[dict[str, int], str]:
 
 
 def _compare(db: Path, theory: str,
-             samples: dict[str, list[str]] | None = None) -> dict[str, int] | None:
+             samples: dict[str, list[str]] | None = None,
+             roots: dict[str, Path] | None = None) -> dict[str, int] | None:
     """Diff the export's entity names against `query`'s entries for one theory."""
     from bisect import bisect_right
 
@@ -274,8 +441,8 @@ def _compare(db: Path, theory: str,
     ents, src = _entities(db, theory)
     if not src:
         return None
-    path = Path.home() / "repos" / "afp" / "thys" / src.replace("$AFP/", "")
-    if not path.is_file():
+    path = _resolve_source(src, roots or {})
+    if path is None:
         return None
     try:
         sec = cli._parse_one(path.stem, path)
@@ -314,7 +481,8 @@ def _compare(db: Path, theory: str,
                 only_query=len(set(ours) - set(export_lines)))
 
 
-def _verify(db: Path, theory: str) -> None:
+def _verify(db: Path, theory: str,
+            roots: dict[str, Path] | None = None) -> None:
     """Resolve each entity's offset to a `theory:line` locus and show the source
     text it lands on — the check that the oracle is actually usable."""
     from bisect import bisect_right
@@ -328,11 +496,12 @@ def _verify(db: Path, theory: str) -> None:
         print("\nno entities parsed")
         return
 
-    afp = Path.home() / "repos" / "afp" / "thys"
-    src = ents[0].get("file", "").replace("$AFP/", "")
-    path = afp / src
-    if not path.is_file():
-        print(f"\nsource not found: {path}")
+    src = ents[0].get("file", "")
+    path = _resolve_source(src, roots or {})
+    if path is None:
+        print(f"\nsource not found for {src!r} — "
+              f"pass --root VAR=DIR (e.g. --root AFP=~/repos/afp/thys) if that "
+              f"component is not registered with this Isabelle")
         return
     text = path.read_text(encoding="utf-8", errors="replace")
     line_starts, sym_to_char = _symbol_maps(text)
