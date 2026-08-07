@@ -11,11 +11,18 @@ in `CONTRIBUTING.md`.
       a declaration binds, not just its first one.  Found by the #8 export
       oracle and then measured corpus-wide without it
       (`scripts/probe_sibling_names.py`): over 120 AFP entries `query` has no
-      entry for **713** names the source declares, and all 538 of those long
-      enough to count unambiguously are cited — 40,741 occurrences.  Each is
-      a `find` that misses, a `show` that says "No entries matching", a
-      `callers -r` that reports "not found in the entry index", and an edge
-      absent from the graph `unused` runs on.  Three clear bugs:
+      entry for **713** names the source declares (553 distinct), and at the
+      default `--drop-names-upto 1` **551 of the 552 citable ones are cited**
+      — 43,860 occurrences.  Each is a `find` that misses, a `show` that says
+      "No entries matching", a `callers -r` that reports "not found in the
+      entry index", and an edge absent from the graph `unused` runs on.
+      Index them all: name length is *not* a filter to apply here.  The one
+      place it belongs is the citation graph, where `graph._is_citation_name`
+      already decides it with AFP evidence and `--drop-names-upto` exposes the
+      choice (0 keeps single-char names, for surveying an entry's style).  Of
+      the 553, exactly **1** is single-char and 14 are two-char, so the
+      question barely arises — quote the default and show the sensitivity
+      rather than pre-filtering.  Three clear bugs:
       - **`inductive` rule names** (552).  `inductive p where r1: "..." |
         r2: "..."` binds `r1`/`r2` as citable facts; only `p` is recorded.
         These are *how* an inductive predicate is cited, so the loss is

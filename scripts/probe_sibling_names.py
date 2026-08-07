@@ -113,16 +113,25 @@ def main() -> None:
                                           f"{kw} {e.name} ... {m.group(1)}:")
 
     # Second pass: a missing NAME only matters if something cites it.  Count
-    # live-text occurrences outside the declaration that introduced it — those
-    # are the citations `callers`/`callees`/`unused` cannot see.
-    cites = 0
-    cited_names: set[str] = set()
-    # A one- or two-character name (`fun TS ... and C`) is indistinguishable
-    # from a bound variable at token level, so counting its occurrences would
-    # measure noise.  Restrict to names long enough to be unambiguous; the
-    # short ones are still real gaps, just not measurable this way.
-    countable = {n for n in missing_names if len(n) >= 3}
-    if countable:
+    # live-text occurrences — those are the citations `callers` / `callees` /
+    # `unused` cannot see.
+    #
+    # Which names count as citable is NOT this probe's call to make: `query`
+    # already decides it in `graph._is_citation_name`, whose `drop_upto`
+    # excludes names of length <= it.  The default is 1 — a length-1 token is a
+    # bound variable in nearly every proof — and `--drop-names-upto 0` turns
+    # even that off, so a user asking "who cites `C`" is served.  Reuse the
+    # predicate rather than inventing a threshold, and report every setting the
+    # flag offers, so the reader sees the sensitivity instead of trusting one
+    # number.
+    from isabelle_query.graph import _is_citation_name
+
+    levels = (0, 1, 2)
+    cites = {L: 0 for L in levels}
+    cited: dict[int, set[str]] = {L: set() for L in levels}
+    countable = {L: {n for n in missing_names if _is_citation_name(n, L)}
+                 for L in levels}
+    if missing_names:
         word = re.compile(r"[\w']+")
         for path in seen:
             try:
@@ -131,9 +140,10 @@ def main() -> None:
                 continue
             for line in sec.live_source():
                 for tok in word.findall(line):
-                    if tok in countable:
-                        cites += 1
-                        cited_names.add(tok)
+                    for L in levels:
+                        if tok in countable[L]:
+                            cites[L] += 1
+                            cited[L].add(tok)
 
     print(f"{len(done)} AFP entries, {len(seen):,} theories, "
           f"{entries_seen:,} entries parsed\n")
@@ -141,9 +151,15 @@ def main() -> None:
     for k, v in tally.most_common():
         print(f"  {k:<22} {v:>7,} names query has no entry for")
     print(f"  {'TOTAL':<22} {total:>7,}")
-    print(f"\n  of the {len(countable):,} unambiguous names (>=3 chars), "
-          f"{len(cited_names):,} are cited, {cites:,} occurrences")
-    print("  — every occurrence is an edge the call graph does not have")
+    by_len = Counter(min(len(n), 3) for n in missing_names)
+    print(f"    by name length:  1 char {by_len[1]:,}   2 chars {by_len[2]:,}"
+          f"   3+ {by_len[3]:,}")
+    print("\n  citations the call graph cannot see, at each --drop-names-upto:")
+    print(f"    {'L':>3}  {'citable':>8} {'cited':>8} {'occurrences':>12}")
+    for L in levels:
+        mark = "  <- default" if L == 1 else ""
+        print(f"    {L:>3}  {len(countable[L]):>8,} {len(cited[L]):>8,} "
+              f"{cites[L]:>12,}{mark}")
     for k in tally:
         print(f"\n  {k}:")
         for s in examples.get(k, []):
