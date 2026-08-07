@@ -7,6 +7,34 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
+- [ ] `[declared-names]` **(correctness.)** Index the names Isabelle says
+      a declaration binds, not just its first one.  Found by the #8 export
+      oracle and then measured corpus-wide without it
+      (`scripts/probe_sibling_names.py`): over 120 AFP entries `query` has no
+      entry for **713** names the source declares, and all 538 of those long
+      enough to count unambiguously are cited — 40,741 occurrences.  Each is
+      a `find` that misses, a `show` that says "No entries matching", a
+      `callers -r` that reports "not found in the entry index", and an edge
+      absent from the graph `unused` runs on.  Three clear bugs:
+      - **`inductive` rule names** (552).  `inductive p where r1: "..." |
+        r2: "..."` binds `r1`/`r2` as citable facts; only `p` is recorded.
+        These are *how* an inductive predicate is cited, so the loss is
+        concentrated exactly where the citations are.
+      - **`and`-siblings** (161).  `fun f and g and h where ...` declares
+        three constants; only `f` is recorded.  Same for `definition` /
+        `primrec` / `inductive` / `abbreviation`.  Care: `inductive_set p
+        for A :: ... and I :: ...` fixes *parameters* with `and` — cut the
+        head at `for` as well as `where`, or every `for` clause reads as a
+        sibling list.
+      - **locale assumption names.**  `locale L = fixes x assumes a: "P"`
+        binds `L.a`; cited constantly inside the locale, never indexed.
+      And two design calls to make explicitly rather than by omission:
+      **are locale/class names entries?** (`find hpk` finds nothing today)
+      and **are datatype constructors entries?** (`Inc`, `Dec`, `Goto`).
+      Both are defensible either way; what is not defensible is deciding
+      them silently.  Verify with fixtures — `scripts/probe_export_recall.py`
+      names the classes, but the fix needs no Isabelle.
+
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
       **references** — the complement of `theory -n` (which lists a
@@ -33,6 +61,37 @@ in `CONTRIBUTING.md`.
       bare `Bla:11` locus is unresolvable when two `Bla`s exist, so the
       emitter must qualify the name far enough for the resolver to round it
       back to one theory.
+
+- [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
+      `PIDE/markup` in a built session database.  The #8 entity export gives
+      names and a *name* position (`offset..end_offset` brackets the name, not
+      the declaration), so declaration extents, command segmentation and
+      comment regions — what `parsing.scan_regions` actually computes, and
+      what `enclosing`/`outline`/`largest` and every `shape` metric rest on —
+      have no oracle at all.  `PIDE/markup` is the theory text with Isabelle's
+      markup interleaved: on `DitherTM` it decodes to 87 `command_span`s, each
+      carrying the keyword, Isabelle's own **kind** and an exact extent
+      (`definition 66..68`, `lemma 74..74`, `by 75..75`).  The kind field
+      (`thy_goal_stmt` / `qed` / `prf_script` / `prf_decl`) is Isabelle's own
+      version of the goal / closing / plumbing split `shape` builds by hand —
+      on that theory `query` sees 38 steps where Isabelle marks 41 proof
+      commands, which is a checkable discrepancy nothing currently checks.
+      `scripts/probe_pide_markup.py` already decodes it.
+      **Build it as a fixture generator, not a reference.**  A heap is a
+      snapshot; comparing today's parse against it live would ossify, and the
+      only cure for a stale reference is a rebuild — the one thing this tool
+      must never do.  `isabelle_sources` carries a plain SHA-1 digest and the
+      compressed body of every source consumed, so (a) staleness is *decided*
+      — gate every comparison on the digest and skip a moved theory with a
+      reason, never as a disagreement — and (b) the snapshot contains its own
+      inputs, so a `(source, answer)` pair harvested from it stays
+      self-consistent forever and replays with **no Isabelle installed**.
+      That is what gets these checks into `pytest` instead of a heap-dependent
+      `make` target, and it is why building more heaps is worth it: the cost
+      is paid once and the artifact is permanent.  Two constraints when
+      harvesting: commit minimal extracted snippets, not whole AFP files
+      (licensing and size), and record the Isabelle release in the fixture,
+      since it pins that release's semantics.
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
