@@ -313,11 +313,24 @@ def resolve_thy_file(name: str, t_dir: Path | None = None) -> Path | None:
     return None
 
 
-_IMPORTS_RE = re.compile(r'\bimports\b(.*?)\bbegin\b', re.DOTALL)
+# The theory header, per Pure's grammar:
+#
+#     theory NAME imports NAME+ [keywords ...] [abbrevs ...] begin
+#
+# Anchoring on `theory NAME imports` rather than on a bare `imports` matters
+# twice over.  It stops the clause at `keywords`/`abbrevs`, which are part of
+# the header and not imports — 105 AFP theories declare a `keywords` block, and
+# scanning to `begin` swallowed it whole (`AutoCorres` "imported" `keywords`,
+# `autocorres`, `::`, `thy_decl`, `and`).  And it refuses to match a file with
+# no imports clause at all (`theory Pure begin`), where a lone `imports`
+# further down the file would otherwise pair with some locale's `begin`.
+_THY_HEADER_RE = re.compile(
+    r'\btheory\b\s+(?:"[^"\n]*"|[^\s"]+)\s+imports\b(.*?)'
+    r'\b(?:begin|keywords|abbrevs)\b', re.DOTALL)
 
 
 def parse_thy_imports(thy_path: Path) -> list[str]:
-    """Return the ordered list of theory names from a .thy file's
+    r"""Return the ordered list of theory names from a .thy file's
     `imports ... begin` clause.
 
     Handles plain names (`Main`) and quoted qualified names
@@ -325,17 +338,29 @@ def parse_thy_imports(thy_path: Path) -> list[str]:
     decide whether each is in-project or external (cross-session) by
     cross-referencing against a session's `parse_root_theories` list.
     Returns [] if the file is missing or has no imports clause.
+
+    The whole file is scanned, not a fixed head window.  A window is the
+    wrong shape for this: `section`/`text` blocks may legally precede the
+    `theory` command, and an AFP title-and-history block routinely pushes the
+    header past any constant one would pick — at 50 lines it lost the clause
+    on 62 of the AFP's 9,604 theories (worst: `Cook_Levin/Basics.thy` at line
+    199), which is a wrong `deps` answer and, worse, silently drops theories
+    from the import closure `session_theories` builds discovery from.
+
+    Comments and cartouches are stripped first, so prose in a leading
+    `text \<open>...\<close>` cannot contribute a phantom `imports` or an
+    early `begin`.
     """
     if not thy_path.exists():
         return []
-    # The imports clause lives near the top of every .thy file
-    # (between `theory X` and `begin`); reading the head is enough.
-    head = '\n'.join(thy_path.read_text().splitlines()[:50])
-    m = _IMPORTS_RE.search(head)
+    try:
+        text = thy_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    m = _THY_HEADER_RE.search(_strip_comments(text))
     if not m:
         return []
-    raw = m.group(1)
-    tokens = re.findall(r'"([^"]+)"|(\S+)', raw)
+    tokens = re.findall(r'"([^"]+)"|(\S+)', m.group(1))
     return [a or b for a, b in tokens]
 
 
@@ -438,6 +463,9 @@ _OPEN_CARTOUCHE, _CLOSE_CARTOUCHE = r"\<open>", r"\<close>"
 _TAG_RE = re.compile(r"\\<[A-Za-z_^]+>")
 
 
+_CARTOUCHE_RE = re.compile(r'\\<open>|\\<close>')
+
+
 def _strip_cartouches(text: str) -> str:
     """Remove Isabelle cartouches `\\<open>...\\<close>` (nestable).
 
@@ -445,28 +473,68 @@ def _strip_cartouches(text: str) -> str:
     so it must not be tokenised — otherwise a comment like
     `\\<comment> \\<open>...session... \\<close>` spawns phantom
     sessions from words inside the prose.
+
+    Driven by the delimiter positions rather than by a per-character walk:
+    the two are equivalent (the output is exactly the depth-0 text between
+    delimiters, delimiters themselves dropped), but a ROOT file has a handful
+    of cartouches where a `.thy` corpus has megabytes of characters, and
+    `parse_thy_imports` now runs this over whole theory files.
     """
+    if _OPEN_CARTOUCHE not in text and _CLOSE_CARTOUCHE not in text:
+        return text
     out: list[str] = []
-    i, n = 0, len(text)
-    depth = 0
-    while i < n:
-        if text.startswith(_OPEN_CARTOUCHE, i):
-            depth += 1
-            i += len(_OPEN_CARTOUCHE)
-            continue
-        if text.startswith(_CLOSE_CARTOUCHE, i):
-            if depth > 0:
-                depth -= 1
-            i += len(_CLOSE_CARTOUCHE)
-            continue
+    depth, pos = 0, 0
+    for m in _CARTOUCHE_RE.finditer(text):
         if depth == 0:
-            out.append(text[i])
-        i += 1
+            out.append(text[pos:m.start()])
+        if m.group() == _OPEN_CARTOUCHE:
+            depth += 1
+        elif depth > 0:
+            depth -= 1
+        pos = m.end()
+    if depth == 0:
+        out.append(text[pos:])
+    return "".join(out)
+
+
+_COMMENT_TOKEN_RE = re.compile(r'\(\*|\*\)')
+
+
+def _strip_block_comments(text: str) -> str:
+    r"""Remove `(* ... *)` comments, which **nest** in Isabelle.
+
+    `_COMMENT_RE` (non-greedy `\(\*.*?\*\)`) stops at the first `*)`, so a
+    nested comment leaves the outer closer behind as live text.  In
+    `Universal_Turing_Machine.GeneratedCode` the header
+
+        (*   "HOL-Library.Code_Target_Numeral" (* see codegen.pdf *) *)
+
+    left a stray `*)` inside the `imports` clause, and `parse_thy_imports`
+    duly reported `*)` as an imported theory.  Comments are replaced by a
+    space, not deleted, so `imports(*c*)Bar` still tokenises as two words; an
+    unterminated comment swallows the remainder, as Isabelle's lexer does.
+    """
+    if "(*" not in text:
+        return text
+    out: list[str] = []
+    depth, pos = 0, 0
+    for m in _COMMENT_TOKEN_RE.finditer(text):
+        if m.group() == "(*":
+            if depth == 0:
+                out.append(text[pos:m.start()])
+                out.append(" ")
+            depth += 1
+        elif depth > 0:
+            depth -= 1
+            if depth == 0:
+                pos = m.end()
+    if depth == 0:
+        out.append(text[pos:])
     return "".join(out)
 
 
 def _strip_comments(text: str) -> str:
-    text = _COMMENT_RE.sub(" ", text)
+    text = _strip_block_comments(text)
     text = _strip_cartouches(text)
     text = _OLD_DESC_RE.sub(" ", text)  # legacy `{* ... *}` description
     text = _TAG_RE.sub(" ", text)  # lone `\<comment>` etc. (after cartouches)
