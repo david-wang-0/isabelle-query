@@ -205,10 +205,25 @@ def _component_vars() -> dict[str, Path]:
 
 
 def _resolve_source(src: str, overrides: dict[str, Path]) -> Path | None:
-    """Turn an export's `file` attribute into a real path, or None."""
+    """Turn an export's `file` attribute into a real path, or None.
+
+    Three spellings occur.  `$AFP/...` names a component variable; `~~/...` is
+    Isabelle's own shorthand for `$ISABELLE_HOME` and appears on every
+    distribution session (`~~/src/HOL/Nat.thy`) -- `Path.expanduser` raises
+    RuntimeError on the doubled tilde rather than returning it unchanged, so it
+    has to be handled before, not after.  Anything else is taken literally.
+    """
+    from isabelle_query import _namespace_resolve as nr
+
+    if src.startswith("~~/"):
+        p = nr._isabelle_home() / src[3:]
+        return p if p.is_file() else None
     m = re.match(r"\$\{?([A-Z][A-Z0-9_]*)\}?/(.*)$", src)
     if not m:
-        p = Path(src).expanduser()
+        try:
+            p = Path(src).expanduser()
+        except RuntimeError:
+            return None
         return p if p.is_file() else None
     var, rest = m.group(1), m.group(2)
     root = overrides.get(var)
