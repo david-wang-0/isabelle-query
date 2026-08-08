@@ -191,6 +191,45 @@ SHOWS_AT_START_RE = re.compile(r"shows\b")     # applied to a stripped line
 SHOWS_ANYWHERE_RE = re.compile(r"\bshows\b")   # applied to the decl-line rest
 CONJUNCT_RE = re.compile(r"(?:shows|and)\s+(\w[\w']*)\s*:")
 
+# A named rule/equation of a `where`-clause declaration: after `where` or a
+# top-level `|`, an identifier with optional [attributes], then a single `:`
+# — never the `::` of a type ascription, a guard that is defensive rather than
+# load-bearing (dropping it changes nothing over 120 AFP entries: 547 labels
+# either way, because the built-in grammar puts every `::` after a name in the
+# head, before `where`) and is kept for the custom `thy_decl` commands that
+# take this route with a grammar of their own.  `inductive p where r1: "..." | r2:
+# "..."` binds r1 and r2 as citable facts — and for an inductive predicate
+# those ARE how it gets cited, so the loss is concentrated exactly where the
+# citations are.
+#
+# The grammar is not special to `inductive`: over 120 AFP entries the same
+# shape carries 70 `primrec` equation names, 17 `definition`s
+# (`definition F where eq_fold: "..."`), 14 `fun` and 6 `function` — so this is
+# scanned for every `def`-route command, not just the inductive family.
+#
+# Applied to the OUTER view, where inner syntax is blanked, so a `|` or an
+# `x:` inside a term (or inside a mixfix template) cannot be read as a rule
+# separator or a label.  And only over a declaration's own extent: the same
+# shape inside a PROOF is `obtain S' where S: "..."`, a local Isar fact and
+# not a theory-level name, which is why the `goal` route does not scan for it.
+RULE_LABEL_RE = re.compile(
+    r"(?:(?<![\w'])where(?![\w'])|\|)\s*"
+    r"([A-Za-z][\w']*)\s*(?:\[[^\]]*\])?\s*:(?!:)")
+
+
+def _rule_labels(outer: list[str], start: int, end: int,
+                 own: str) -> list[str]:
+    """Named rules/equations declared in `outer[start-1:end]` (1-indexed,
+    inclusive), in source order, without duplicates or the entry's own name."""
+    if start < 1 or end < start:
+        return []
+    found: list[str] = []
+    for m in RULE_LABEL_RE.finditer("\n".join(outer[start - 1:end])):
+        label = m.group(1)
+        if label != own and label not in found:
+            found.append(label)
+    return found
+
 
 # A fact name that contains a character outside the identifier/symbol set —
 # a hyphen, colon, bracket, etc. (`beta-C-cor:3`, `num:1`, `denote=:4[3]`) —
@@ -1250,7 +1289,11 @@ def extract_entries(lines: list[str],
                         past_where = True
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
-                                 decl_end_line=decl_end_line))
+                                 decl_end_line=decl_end_line,
+                                 bindings=[
+                                     (r, "rule") for r in _rule_labels(
+                                         outer, decl_line, decl_end_line,
+                                         name)]))
             continue
 
         # --- Lemmas / theorems / corollaries ---

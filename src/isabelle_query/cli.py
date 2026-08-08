@@ -80,6 +80,7 @@ from isabelle_query.model import (  # noqa: F401  (re-exported for the facade)
 # _load_sections) can call the parse machinery by bare name.
 from isabelle_query.parsing import (  # noqa: F401  (re-exported for the facade)
     LATEX_LINE_RE,
+    RULE_LABEL_RE,
     _CUSTOM_COMMANDS,
     _isa_word_pattern,
     _line_mask,

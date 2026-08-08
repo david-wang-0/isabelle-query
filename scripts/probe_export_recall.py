@@ -94,7 +94,19 @@ def _run(session: str, examples: dict[str, list[str]]) -> Counter[str] | None:
             ours.add(e.name)
             if e.target:
                 ours.add(f"{e.target}.{e.name}")
-        ours |= {c for e in sec.entries for c in e.bound_names}
+        # Extra names a declaration binds.  Isabelle QUALIFIES an introduction
+        # rule by the predicate it belongs to — the source writes `termi_z:`
+        # and the export calls it `terminate.termi_z` (and, inside a locale,
+        # `L.terminate.termi_z`) — while both spellings occur in real proofs
+        # (`intro: termi_z` and `rule Rec_Def.terminate.termi_cn`).  Register
+        # every spelling, or the check scores an indexed name as missing.
+        for e in sec.entries:
+            for n, kind in e.bindings:
+                ours.add(n)
+                if kind == "rule" and e.name and e.name != "?":
+                    ours.add(f"{e.name}.{n}")
+                    if e.target:
+                        ours.add(f"{e.target}.{e.name}.{n}")
 
         # `theory/thms` and `theory/other/fact` overlap heavily (a fact is
         # filed under both when it is a singleton thm list), so a per-kind
