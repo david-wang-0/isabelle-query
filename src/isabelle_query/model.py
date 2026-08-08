@@ -378,6 +378,9 @@ _BINDING_KINDS = {
     "conjunct": "a named conjunct of",
     "rule": "an introduction rule of",
     "sibling": "declared together with",
+    "constructor": "a constructor of",
+    "discriminator": "a discriminator of",
+    "selector": "a selector of",
 }
 
 

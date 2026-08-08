@@ -270,6 +270,65 @@ _AND_NAME_RE = re.compile(
     r"(?<![\w'])and(?![\w'])\s*(?:\"([^\"\n]+)\"|([A-Za-z][\w']*))")
 
 
+# The names a `datatype` alternative declares.  In
+#
+#     datatype 'ent atom = is_p: predAtm (predicate: predicate) (args: "'ent list")
+#                        | Eq (lhs: 'ent) (rhs: 'ent)
+#
+# the alternatives declare constructors `predAtm`/`Eq`, `predAtm`'s
+# discriminator `is_p`, and the selectors `predicate`/`args`/`lhs`/`rhs` — all
+# real constants, all citable, none of them the datatype's own name.
+#
+# Built from the same symbol-aware name fragment the rest of the parser uses,
+# because a constructor is routinely spelled with markup: `View\<^sub>m` reads
+# as `View` under a plain `[A-Za-z][\w']*`, which would index the wrong name.
+_ISA_NAME = r"(?:\\<\^?\w+>|[A-Za-z])(?:\\<\^?\w+>|[\w'])*"
+# `disc: Ctor` at the head of an alternative; the `disc:` part is optional.
+_ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
+# `(sel: type)` anywhere in the alternative's argument list.  The `(?!:)` is
+# defensive, like the rule scan's: BNF writes a selector with one colon and a
+# type ascription cannot appear here, so dropping it changes nothing over 120
+# AFP entries (176 selectors either way).
+_SELECTOR_RE = re.compile(rf"\(\s*({_ISA_NAME})\s*:(?!:)")
+
+
+def _constructors(outer: list[str], start: int, end: int,
+                  own: str) -> list[tuple[str, str]]:
+    """`(name, kind)` for the constructors, discriminators and selectors a
+    `datatype` declares, in source order.
+
+    Read on the outer view, so a constructor's argument TYPES — inner syntax,
+    and full of names that are not constructors — are blanked before the scan,
+    and a quoted mixfix template cannot contribute an alternative.
+
+    A `record`'s fields are NOT read here: `record point = parent + x :: nat`
+    uses `=` for the parent-type clause and declares fields as bare
+    `name :: type` lines, a different grammar needing its own scan.
+    """
+    if start < 1 or end < start:
+        return []
+    text = "\n".join(outer[start - 1:end])
+    if "=" not in text:
+        return []                      # `datatype` with no alternatives given
+    found: list[tuple[str, str]] = []
+    seen = {own}
+
+    def add(name: str | None, kind: str) -> None:
+        if name and name not in seen:
+            seen.add(name)
+            found.append((name, kind))
+
+    for alt in text.split("=", 1)[1].split("|"):
+        m = _ALT_HEAD_RE.match(alt)
+        if not m:
+            continue
+        add(m.group(1), "discriminator")
+        add(m.group(2), "constructor")
+        for s in _SELECTOR_RE.finditer(alt):
+            add(s.group(1), "selector")
+    return found
+
+
 def _scan_decl_body(lines: list[str], outer: list[str], open_at: list[bool],
                     table: dict[str, str], i: int, decl_line: int,
                     keyword: str = "") -> tuple[int, int, list[str]]:
@@ -1330,10 +1389,21 @@ def extract_entries(lines: list[str],
             if name == "?" and not _strip_decl_prefix(rest, typevars=True):
                 name = _lookahead_name(lines, i + 1, table,
                                        _parse_typedecl_name, outer)
-            e = Entry(tag, name, f"{tag} {rest}",
-                      thy_line=decl_line, decl_end_line=decl_line)
-            entries.append(e)
-            i += 1
+            # The body was never read: `decl_end_line` was pinned to the
+            # declaration line, so `record state =` at `E_Aodv:16` measured one
+            # line against the twenty it spans, and `show` rendered only the
+            # `record state =`.  A type declaration ends where any other does.
+            buf = [f"{tag} {rest}"]
+            i, decl_end_line, body = _scan_decl_body(
+                lines, outer, open_at, table, i + 1, decl_line)
+            buf.extend(body)
+            entries.append(Entry(tag, name, "\n".join(buf),
+                                 thy_line=decl_line,
+                                 decl_end_line=decl_end_line,
+                                 bindings=(
+                                     _constructors(outer, decl_line,
+                                                   decl_end_line, name)
+                                     if tag == "DATATYPE" else [])))
             continue
 
         if route == "axiom":

@@ -128,6 +128,13 @@ class LabelPattern(unittest.TestCase):
         self.assertEqual(
             cli.RULE_LABEL_RE.findall('where x: "P" | y: "Q"'), ["x", "y"])
 
+    def test_a_selector_colon_is_never_a_type_ascription(self):
+        # Same defensive status: BNF writes `(sel: type)` with one colon, and
+        # dropping the guard changes nothing over 120 AFP entries (176
+        # selectors either way).
+        self.assertEqual(cli._SELECTOR_RE.findall("(x :: nat)"), [])
+        self.assertEqual(cli._SELECTOR_RE.findall("(x: nat)"), ["x"])
+
 
 class LabelsOutsideTheInductiveFamily(unittest.TestCase):
     """The label grammar is not special to `inductive`: over 120 AFP entries
@@ -266,6 +273,83 @@ lemma bar:
   by simp_all
 ''' + FOOT, "bar")
         self.assertEqual(got, {"a": "conjunct", "b": "conjunct"})
+
+
+class TypeDeclarations(unittest.TestCase):
+    r"""A `datatype` declares constructors, and optionally discriminators and
+    selectors — all real constants, all citable, none of them the datatype's
+    own name.  Over 40 AFP entries: 366 constructors, 92 selectors, 4
+    discriminators."""
+
+    def test_constructors(self):
+        # `Additive_Sharing:7  datatype Role = Party1 | Party2 | Party3`
+        self.assertEqual(_bindings(HEAD +
+                                   'datatype Role = Party1 | Party2 | Party3'
+                                   + FOOT, "Role"),
+                         {"Party1": "constructor", "Party2": "constructor",
+                          "Party3": "constructor"})
+
+    def test_a_multi_line_datatype(self):
+        # Needs the extent fix: the `typedecl` route used to stop at the
+        # declaration line, so only first-line constructors were visible.
+        self.assertEqual(_bindings(HEAD + '''
+datatype 'a t =
+    A nat
+  | B "'a list"
+  | C
+''' + FOOT, "t"),
+                         {"A": "constructor", "B": "constructor",
+                          "C": "constructor"})
+
+    def test_a_discriminator(self):
+        # `PDDL_STRIPS_Semantics:66  datatype variable = varname: Var name`
+        self.assertEqual(_bindings(HEAD +
+                                   'datatype variable = varname: Var name'
+                                   + FOOT, "variable"),
+                         {"varname": "discriminator", "Var": "constructor"})
+
+    def test_selectors(self):
+        # `PDDL_STRIPS_Semantics:54  predAtm (predicate: predicate) ...`
+        self.assertEqual(_bindings(HEAD + '''
+datatype 'ent atom = predAtm (predicate: predicate) (args: "'ent list")
+                   | Eq (lhs: 'ent) (rhs: 'ent)
+''' + FOOT, "atom"),
+                         {"predAtm": "constructor", "predicate": "selector",
+                          "args": "selector", "Eq": "constructor",
+                          "lhs": "selector", "rhs": "selector"})
+
+    def test_a_constructor_spelled_with_markup(self):
+        # `Canton_Transaction_Tree:26  datatype view\<^sub>m = View\<^sub>m`.
+        # A plain `[A-Za-z][\w']*` reads that as `View` and indexes a name
+        # that does not exist.
+        self.assertEqual(
+            _bindings(HEAD + 'datatype t = View\\<^sub>m nat' + FOOT, "t"),
+            {"View\\<^sub>m": "constructor"})
+
+    def test_a_constructor_named_for_its_type_is_not_a_binding(self):
+        # `ADS_Construction:518  datatype 'a list_R1 = list_R1 (unR: ...)`
+        self.assertEqual(
+            _bindings(HEAD + 'datatype \'a list_R1 = list_R1 (unR: "\'a")'
+                      + FOOT, "list_R1"),
+            {"unR": "selector"})
+
+    def test_argument_types_are_not_constructors(self):
+        # Read on the outer view: a quoted argument type is blanked, so the
+        # names inside it cannot be mistaken for further alternatives.
+        self.assertEqual(
+            _bindings(HEAD + 'datatype t = A "nat \\<Rightarrow> bool option"'
+                      + FOOT, "t"),
+            {"A": "constructor"})
+
+    def test_a_record_declares_no_constructors(self):
+        # `record point = parent + x :: nat` uses `=` for the parent-type
+        # clause and declares fields as bare `name :: type` lines — a
+        # different grammar, deliberately not scanned here.
+        self.assertEqual(_bindings(HEAD + '''
+record point =
+  x :: nat
+  y :: nat
+''' + FOOT, "point"), {})
 
 
 class Resolution(unittest.TestCase):

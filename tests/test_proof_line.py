@@ -302,6 +302,35 @@ class TermTracking(unittest.TestCase):
                            'end\n')
         self.assertEqual(entry(sec, "S").decl_end_line, 9)
 
+    def test_a_type_declaration_reads_its_body(self):
+        r"""`AODV/E_Aodv:16` — `record state =` with twenty lines of fields,
+        recorded as one.  The `typedecl` route pinned `decl_end_line` to the
+        declaration line and never scanned a body at all, so `show` rendered
+        the `record state =` and nothing else, and `largest` measured 1.
+
+        What ends a `datatype` is what ends a `fun`, so both routes now share
+        `_scan_decl_body`.  Over 120 AFP entries this reaches 274 declarations
+        (151 DATATYPE, 75 RECORD, 48 TYPE) and 994 lines; entry count is
+        unchanged, every extent grows and none passes its own `thy_end`.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'record state =\n'
+                           '  ip :: "nat"\n'
+                           '  sn :: "nat"\n'
+                           '\n'
+                           'lemma later: "True" by simp\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "state").decl_end_line, 4)
+
+    def test_a_datatype_body_stops_at_the_next_command(self):
+        sec = section_from('theory A imports Main begin\n'
+                           'datatype t =\n'
+                           '    A nat\n'
+                           '  | B bool\n'
+                           'lemma later: "True" by simp\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "t").decl_end_line, 4)
+
     def test_a_blank_still_ends_a_declaration_no_bar_follows(self):
         r"""`ABY3_Protocols/Multiplication_Synthesization:22` — a `definition`
         followed by a blank and an `adhoc_overloading`, which is neither a
