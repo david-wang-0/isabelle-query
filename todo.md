@@ -7,40 +7,31 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[declared-names]` **(correctness.)** Index the names Isabelle says
-      a declaration binds, not just its first one.  Found by the #8 export
-      oracle and then measured corpus-wide without it
-      (`scripts/probe_sibling_names.py`): over 120 AFP entries `query` has no
-      entry for **713** names the source declares (553 distinct), and at the
-      default `--drop-names-upto 1` **551 of the 552 citable ones are cited**
-      — 43,860 occurrences.  Each is a `find` that misses, a `show` that says
-      "No entries matching", a `callers -r` that reports "not found in the
-      entry index", and an edge absent from the graph `unused` runs on.
-      Index them all: name length is *not* a filter to apply here.  The one
-      place it belongs is the citation graph, where `graph._is_citation_name`
-      already decides it with AFP evidence and `--drop-names-upto` exposes the
-      choice (0 keeps single-char names, for surveying an entry's style).  Of
-      the 553, exactly **1** is single-char and 14 are two-char, so the
-      question barely arises — quote the default and show the sensitivity
-      rather than pre-filtering.  Three clear bugs:
-      - **`inductive` rule names** (552).  `inductive p where r1: "..." |
-        r2: "..."` binds `r1`/`r2` as citable facts; only `p` is recorded.
-        These are *how* an inductive predicate is cited, so the loss is
-        concentrated exactly where the citations are.
-      - **`and`-siblings** (161).  `fun f and g and h where ...` declares
-        three constants; only `f` is recorded.  Same for `definition` /
-        `primrec` / `inductive` / `abbreviation`.  Care: `inductive_set p
-        for A :: ... and I :: ...` fixes *parameters* with `and` — cut the
-        head at `for` as well as `where`, or every `for` clause reads as a
-        sibling list.
-      - **locale assumption names.**  `locale L = fixes x assumes a: "P"`
-        binds `L.a`; cited constantly inside the locale, never indexed.
-      And two design calls to make explicitly rather than by omission:
-      **are locale/class names entries?** (`find hpk` finds nothing today)
-      and **are datatype constructors entries?** (`Inc`, `Dec`, `Goto`).
-      Both are defensible either way; what is not defensible is deciding
-      them silently.  Verify with fixtures — `scripts/probe_export_recall.py`
-      names the classes, but the fix needs no Isabelle.
+- [ ] `[target-names]` **(correctness.)** `_target_opener` reads a locale or
+      class name with `[A-Za-z_][A-Za-z_0-9'.]*`, which handles neither a
+      **symbol-spelled** name (`locale \<Z> =`, `locale \<Z>_sgrp =`) nor a
+      **quoted** one (`locale "functor" = two_cats +`).  Nine of the 1,226
+      locale/class entries over 120 AFP entries land as `?` — but the entry
+      name is the smaller half: `_target_opener` is also what
+      `_block_stacks` uses, so every declaration *inside* one of those
+      locales reports no `target` and `enclosing` names no scope for it.
+      The fix is to reuse the parser's symbol-aware `SYM_NAME_RE` plus the
+      quoted branch of `_name_from`, rather than a third name grammar.
+      Care: this moves the `blocks` attribution baseline (4,003/4,003 in
+      `scripts/probe_locale_naming.py`), so diff the entry set *and* the
+      target attribution, not just the names.
+
+- [ ] `[record-fields]` **(correctness.)** A `record` declares a constant per
+      field — `record state = ip :: "ip" | sn :: "sqn"` binds `ip` and `sn` as
+      selectors — and none is indexed.  `[declared-names]` deliberately left
+      this out: a record's `=` introduces its *parent type*, and its fields
+      are bare `name :: type` lines, so the datatype constructor scan would
+      invent names if pointed at one (hence the DATATYPE tag gate in
+      `_constructors`).  It needs a scan of its own over the same body
+      `_scan_decl_body` now returns.  96 RECORD entries over 120 AFP entries.
+      Also open, and cheaper: `axiomatization`'s name regex is `[a-z_]+`, so
+      an axiom whose name starts with a capital (`AOT_model:38`'s
+      `AOT_model_nonactual_world`) gets no entry at all.
 
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory

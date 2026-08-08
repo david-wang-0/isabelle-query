@@ -30,8 +30,42 @@ counts.
 Isar is whitespace-insensitive, so a declaration is recognised wherever a
 *command* can start — at any indentation and at any block depth, inside a
 `locale`, a `context`, or a theory body its author simply chose to indent.
-Declarations end at a real terminator (the next command, or an `end` / `context`
-/ `lemmas` / `ML`), never at a blank line, which in Isar ends nothing.
+Declarations end at a real terminator: the next command, or an `end` /
+`context` / `lemmas` / `ML`.
+
+A blank line ends nothing structural, and a rule or equation list spaced out for
+legibility is still one declaration — a line beginning `|` cannot start a new
+command, so it continues the one above, across blank lines and `(* ... *)` notes
+alike. What stops the scan is outer syntax: a `text` block between two rules
+does end the declaration, because it is a command.
+
+## The names one declaration binds
+
+Isabelle binds more than one name per command, and each of them is citable:
+
+| written | also binds |
+|---|---|
+| `inductive p where r1: "..." \| r2: "..."` | the rules `r1`, `r2` |
+| `fun f and g and h where ...` | the constants `g`, `h` |
+| `definition F where eq_fold: "..."` | the equation `eq_fold` |
+| `datatype t = disc: A (sel: ty) \| B` | `A`, `B`, `disc`, `sel` |
+| `locale L = assumes a: "P"` | the assumption `a` |
+| `lemma l: shows x: "P" and y: "Q"` | the conjuncts `x`, `y` |
+
+`show`, `find`, `callers` and `callees` all resolve these to the declaration
+that binds them, and say how — `'termi_z' is an introduction rule of terminate`.
+They are deliberately **not** separate entries: one command has one span, so
+counting `fun f and g and h` three times would triple-count it under `largest`
+and give `enclosing` three owners for each of its lines.
+
+This matters for precision as much as recall. A name the tool cannot find has no
+declaration site to exclude, so its own definition reads as a citation of
+itself: `callers termi_z` used to report three callers, two of which were the
+`| termi_z: "..."` lines declaring it.
+
+A `locale` and a `class` *are* entries — each declares a name — spanning the
+head only, up to but not including `begin`. `context` and `interpretation` are
+not: they reopen or instantiate an existing target rather than declare one.
 
 ## Methods and attributes vs fact names
 
