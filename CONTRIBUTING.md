@@ -84,6 +84,19 @@ see a scanner failing at scale. Two habits catch what they miss:
   the same set from `git archive <ref> | tar -x -C .scratch-head`. A count
   alone hides a simultaneous gain and loss, which is exactly what happened.
 - **Check a new test can fail.** Patch the behaviour it pins, run it, restore.
-  Several tests have been written that could not fail.
+  Several tests have been written that could not fail. Two traps in the loop
+  itself, both of which have produced a wrong verdict here:
+  - **Run the mutation with `PYTHONDONTWRITEBYTECODE=1`.** A mutation harness
+    rewrites the source several times a second, and CPython invalidates a
+    `.pyc` on `(mtime, size)` — so a same-second rewrite can leave the previous
+    bytecode in place and the subprocess runs code that is not on disk. That
+    reports a *live* mutation as SURVIVED. `CAUGHT` is always trustworthy;
+    `SURVIVED` is not, until the cache is off.
+  - **A survivor may be masked, not dead.** A unit test can be shadowed by a
+    downstream guard that ends the scan anyway. Before concluding a branch is
+    unreachable, diff the entry set with the mutation applied: two branches
+    that survived every unit test moved 706 and 330 entries.
+  When a branch really is unreachable from valid input, say so in the comment
+  and pin it at the helper/regex level, rather than leaving it looking tested.
 
 `pytest -q` stays green after every change.
