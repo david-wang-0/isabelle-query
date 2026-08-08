@@ -73,7 +73,12 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 continue
             outer = sec.outer_source()
+            # "names query has" means every name it can RESOLVE, which is the
+            # entry names plus the extra names a declaration binds
+            # (`Entry.bindings`) — those are deliberately not entries of their
+            # own, so counting entries alone scores a fixed class as missing.
             names = {e.name for e in sec.entries if e.name and e.name != "?"}
+            names |= {n for e in sec.entries for n in e.bound_names}
             for e in sec.entries:
                 entries_seen += 1
                 end = e.decl_end_line or e.thy_line

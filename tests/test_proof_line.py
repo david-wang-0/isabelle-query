@@ -277,6 +277,93 @@ class TermTracking(unittest.TestCase):
                            'end\n')
         self.assertEqual(entry(sec, "f").decl_end_line, 8)
 
+    def test_a_rule_list_spaced_out_with_blank_lines(self):
+        r"""`AWN/AWN_SOS:14` — an `inductive_set` whose rules are spaced into
+        groups.  The declaration runs to line 34 and stopped at 26, so `show`
+        rendered two thirds of it, `largest` under-measured it, and four rule
+        names sat outside the extent `[declared-names]` scans.  `AODV/Aodv:264`
+        is the worst: a `fun` running to 420 that ended at 300.
+
+        A line beginning `|` cannot start a new command, so it can only
+        continue this one.  Over 120 AFP entries this reaches 64 declarations
+        and 1,306 lines; no extent shrinks and none passes its own span.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'inductive_set S :: "nat set"\n'
+                           'where\n'
+                           '    a: "0 \\<in> S"\n'
+                           '\n'
+                           '  | b: "1 \\<in> S"\n'
+                           '\n'
+                           '\n'
+                           '  | c: "2 \\<in> S"\n'
+                           '\n'
+                           'lemma later: "True" by simp\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "S").decl_end_line, 9)
+
+    def test_a_blank_still_ends_a_declaration_no_bar_follows(self):
+        r"""`ABY3_Protocols/Multiplication_Synthesization:22` — a `definition`
+        followed by a blank and an `adhoc_overloading`, which is neither a
+        recognised declaration nor a boundary command.  The blank is the ONLY
+        thing that ends the declaration here, so the `|` lookahead must not
+        weaken it: without the blank rule 706 of 55,838 entries run long.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'definition d :: "nat" where\n'
+                           '  "d = 0"\n'
+                           '\n'
+                           'adhoc_overloading Monad_Syntax.bind \\<rightleftharpoons> d\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "d").decl_end_line, 3)
+
+    def test_the_lookahead_skips_blanks_only(self):
+        r"""`ADS_Functor/ADS_Construction:290` — an `abbreviation` ending at
+        291, then a comment banner and a `subsubsection`, and a `|` belonging
+        to some later declaration.  A lookahead that scans past non-blank
+        lines to find a `|` links the two: 330 entries change, and this one
+        gets `decl_end=295` against a span of `290..293` — an extent past its
+        own end.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'abbreviation h :: "nat" where\n'
+                           '  "h \\<equiv> 0"\n'
+                           '\n'
+                           '(**********)\n'
+                           'subsubsection \\<open>Later\\<close>\n'
+                           '\n'
+                           'inductive_set S :: "nat set"\n'
+                           'where a: "0 \\<in> S"\n'
+                           '  | b: "1 \\<in> S"\n'
+                           'end\n')
+        e = entry(sec, "h")
+        self.assertEqual(e.decl_end_line, 3)
+        self.assertLessEqual(e.decl_end_line, e.thy_end)
+
+    def test_a_blank_then_a_real_command_still_ends_it(self):
+        # The `|` lookahead skips blanks ONLY; it must not reach past the
+        # next declaration and swallow it.
+        sec = section_from('theory A imports Main begin\n'
+                           'inductive_set S :: "nat set"\n'
+                           'where a: "0 \\<in> S"\n'
+                           '\n'
+                           'lemma later: "True" by simp\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "S").decl_end_line, 3)
+
+    def test_a_text_block_between_rules_still_ends_it(self):
+        # A `text` block between two rules is prose, and ends the declaration
+        # on its own terms; the lookahead must not step over it.
+        sec = section_from('theory A imports Main begin\n'
+                           'inductive_set S :: "nat set"\n'
+                           'where a: "0 \\<in> S"\n'
+                           '\n'
+                           'text \\<open>an aside\\<close>\n'
+                           '\n'
+                           '  | b: "1 \\<in> S"\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "S").decl_end_line, 3)
+
     def test_an_escaped_quote_does_not_open_a_term(self):
         # A `\"` inside a string is not a delimiter.  Counting quotes by regex
         # had to special-case that; the scan consumes it as one token.
