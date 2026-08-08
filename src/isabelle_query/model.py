@@ -381,6 +381,9 @@ _BINDING_KINDS = {
     "constructor": "a constructor of",
     "discriminator": "a discriminator of",
     "selector": "a selector of",
+    "assumption": "an assumption of",
+    "definition": "a defined element of",
+    "note": "a named fact of",
 }
 
 

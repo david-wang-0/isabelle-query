@@ -63,7 +63,9 @@ class Indented(unittest.TestCase):
                            'end\n'
                            'end\n'
                            'end\n')
-        self.assertEqual(names(sec), ["deep"])
+        # `L` is an entry in its own right since `[declared-names]`: a locale
+        # declares a name.  The anonymous `context begin` is not.
+        self.assertEqual(names(sec), ["L", "deep"])
 
     def test_after_an_inline_comment_on_the_same_line(self):
         r"""`Alpha_Beta_Linear:1966` — `(*TODO: ...*)fun abtl :: ...`.

@@ -128,6 +128,13 @@ class LabelPattern(unittest.TestCase):
         self.assertEqual(
             cli.RULE_LABEL_RE.findall('where x: "P" | y: "Q"'), ["x", "y"])
 
+    def test_a_locale_element_colon_is_never_a_type_ascription(self):
+        # Redundant once `fixes` resets the element kind — 1,830 elements
+        # either way over 120 AFP entries — but it states the grammar rather
+        # than relying on the reset being exhaustive.
+        self.assertIsNone(cli._LOCALE_LABEL_RE.match(' g :: "T"'))
+        self.assertEqual(cli._LOCALE_LABEL_RE.match(' a: "P"').group(1), "a")
+
     def test_a_selector_colon_is_never_a_type_ascription(self):
         # Same defensive status: BNF writes `(sel: type)` with one colon, and
         # dropping the guard changes nothing over 120 AFP entries (176
@@ -350,6 +357,140 @@ record point =
   x :: nat
   y :: nat
 ''' + FOOT, "point"), {})
+
+
+class LocaleAndClass(unittest.TestCase):
+    r"""A `locale` / `class` declares a name, and `find hpk` found nothing.
+    Over 120 AFP entries this adds 1,047 LOCALE and 177 CLASS entries and
+    1,798 assumption names — the largest single class in `[declared-names]`."""
+
+    SRC = ('theory T imports Main begin\n'
+           'locale hpk =\n'
+           '  fixes f :: "nat \\<Rightarrow> nat"\n'
+           '    and g :: "nat \\<Rightarrow> nat"\n'
+           '  assumes commute: "f (g x) = g (f x)"\n'
+           '      and idem[simp]: "f (f x) = f x"\n'
+           '  defines h_def: "h \\<equiv> f"\n'
+           'begin\n'
+           'lemma inner: "True" by simp\n'
+           'end\n'
+           'end\n')
+
+    def test_the_locale_is_an_entry(self):
+        sec = section_from(self.SRC)
+        [e] = [e for e in sec.entries if e.name == "hpk"]
+        self.assertEqual(e.tag, "LOCALE")
+
+    def test_the_span_is_the_head_only(self):
+        # Up to but NOT including `begin` (line 8).  Covering the body would
+        # give `enclosing` two equally-valid owners for every line in it, and
+        # make `largest` rank a locale above the proofs it contains.
+        sec = section_from(self.SRC)
+        [e] = [e for e in sec.entries if e.name == "hpk"]
+        self.assertEqual((e.thy_line, e.decl_end_line), (2, 7))
+
+    def test_assumptions_and_defines_are_bound_with_their_kind(self):
+        self.assertEqual(_bindings(self.SRC, "hpk"),
+                         {"commute": "assumption", "idem": "assumption",
+                          "h_def": "definition"})
+
+    def test_fixed_parameters_are_not_bound(self):
+        # `fixes f :: "T" and g :: "T"` binds PARAMETERS, not facts.  Their
+        # `::` is rejected by the single-colon requirement.
+        self.assertNotIn("f", _bindings(self.SRC, "hpk"))
+        self.assertNotIn("g", _bindings(self.SRC, "hpk"))
+
+    def test_an_entry_inside_still_targets_the_locale(self):
+        sec = section_from(self.SRC)
+        [e] = [e for e in sec.entries if e.name == "inner"]
+        self.assertEqual(e.target, "hpk")
+
+    def test_a_class_is_an_entry_too(self):
+        sec = section_from('theory T imports Main begin\n'
+                           'class ord =\n'
+                           '  fixes less :: "\'a \\<Rightarrow> \'a \\<Rightarrow> bool"\n'
+                           '  assumes irrefl: "\\<not> less x x"\n'
+                           'begin\n'
+                           'end\n'
+                           'end\n')
+        [e] = [e for e in sec.entries if e.name == "ord"]
+        self.assertEqual(e.tag, "CLASS")
+        self.assertEqual([n for n, _ in e.bindings], ["irrefl"])
+
+    def test_context_and_interpretation_declare_nothing(self):
+        # `context foo begin` REOPENS an existing target and
+        # `interpretation` INSTANTIATES one; neither declares a name, so
+        # neither may mint an entry.
+        sec = section_from('theory T imports Main begin\n'
+                           'locale foo begin\n'
+                           'end\n'
+                           'context foo begin\n'
+                           'lemma a: "True" by simp\n'
+                           'end\n'
+                           'interpretation bar: foo by standard\n'
+                           'end\n')
+        self.assertEqual(sorted(e.name for e in sec.entries), ["a", "foo"])
+
+    def test_a_second_fixes_group_resets_the_element_kind(self):
+        r"""`Akra_Bazzi_Real:501` — Isabelle allows a `fixes` group AFTER an
+        `assumes`.  Tracking only the last non-`and` FACT keyword left
+        `current` at "assumption", so the trailing `and C :: real` bound a
+        parameter as an assumption.  `fixes`/`constrains`/`for` clear it.
+        """
+        got = _bindings('theory T imports Main begin\n'
+                        'locale akra_bazzi_real =\n'
+                        '  fixes integrable integral\n'
+                        '  assumes integral: "True"\n'
+                        '  fixes g :: "nat \\<Rightarrow> real"\n'
+                        '    and C :: real\n'
+                        'begin\n'
+                        'end\n'
+                        'end\n', "akra_bazzi_real")
+        self.assertEqual(got, {"integral": "assumption"})
+
+    def test_a_for_clause_after_assumes_binds_nothing(self):
+        got = _bindings('theory T imports Main begin\n'
+                        'locale L = base +\n'
+                        '  assumes a: "True"\n'
+                        '  for x and y\n'
+                        'begin\n'
+                        'end\n'
+                        'end\n', "L")
+        self.assertEqual(got, {"a": "assumption"})
+
+    def test_a_label_must_follow_its_keyword_immediately(self):
+        # An unnamed `assumes` followed by a `notes`: searching forward for a
+        # label instead of matching at the keyword finds the `notes` label and
+        # files it under the wrong kind.
+        got = _bindings('theory T imports Main begin\n'
+                        'locale L =\n'
+                        '  assumes "True"\n'
+                        '  notes n = conjI\n'
+                        '  notes m: conjI\n'
+                        'begin\n'
+                        'end\n'
+                        'end\n', "L")
+        self.assertEqual(got, {"m": "note"})
+
+    def test_the_helpers_parameter_and_own_name_guards(self):
+        # Both are defensive and overlap with the single-colon rule on real
+        # input, so they are isolated here rather than left looking tested.
+        # A `fixes` group clears the current element...
+        self.assertEqual(
+            cli._locale_facts(["locale L = assumes a: True fixes x and y: T"],
+                              1, 1, "L"),
+            [("a", "assumption")])
+        # ...and the locale never binds its own name.
+        self.assertEqual(
+            cli._locale_facts(["locale L = assumes L: True"], 1, 1, "L"), [])
+
+    def test_an_anonymous_context_mints_no_entry(self):
+        sec = section_from('theory T imports Main begin\n'
+                           'context fixes x :: nat begin\n'
+                           'lemma a: "True" by simp\n'
+                           'end\n'
+                           'end\n')
+        self.assertEqual([e.name for e in sec.entries], ["a"])
 
 
 class Resolution(unittest.TestCase):

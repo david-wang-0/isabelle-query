@@ -44,7 +44,7 @@ from isabelle_query.model import Entry, TheorySection, blank_all
 # It stays a whole-word test (`definitions`/`inductively` do not match), and
 # being zero-width it leaves the `line[len(keyword):]` slicing untouched.
 DECL_RE = re.compile(
-    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record)(?=\s|$)"
+    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma|corollary|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\s|$)"
 )
 
 TAG_MAP = {
@@ -55,6 +55,11 @@ TAG_MAP = {
     "theorem": "THEOREM",
     "axiomatization": "AXIOM",
     "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
+    # A locale/class DECLARES a name — `find hpk` found nothing, and its
+    # `assumes` labels (`hpk.commute`) had no entry to hang off.  `context`
+    # and `interpretation` are deliberately absent: they REOPEN or INSTANTIATE
+    # an existing target rather than declare one.
+    "locale": "LOCALE", "class": "CLASS",
 }
 
 
@@ -107,6 +112,8 @@ def _route_for(keyword: str, tag: str) -> str:
     DEF) the same `def` branch as `definition`."""
     if keyword == "axiomatization":
         return "axiom"
+    if tag in ("LOCALE", "CLASS"):
+        return "target"
     if tag in ("DATATYPE", "TYPE", "RECORD"):
         return "typedecl"
     if tag in ("LEMMA", "THEOREM"):
@@ -326,6 +333,61 @@ def _constructors(outer: list[str], start: int, end: int,
         add(m.group(2), "constructor")
         for s in _SELECTOR_RE.finditer(alt):
             add(s.group(1), "selector")
+    return found
+
+
+# The named facts a locale/class head binds.  `locale L = fixes x assumes
+# a: "P" and b: "Q"` binds `L.a` and `L.b`, cited constantly inside the locale
+# and never indexed.  `defines` and `notes` bind by the same shape, so the
+# introducing keyword is captured and carried: an assumption is not a
+# definition is not a note.
+#
+# `fixes`, `constrains` and `for` bind PARAMETERS rather than facts, and they
+# are listed so they RESET the current element: Isabelle allows a second
+# `fixes` group after an `assumes` (`Akra_Bazzi_Real:501` writes
+# `fixes ... assumes integral: ... fixes g :: ... and C :: real`), and without
+# the reset that trailing `and C` inherits "assumption" and binds a parameter
+# as a fact.
+_LOCALE_KW_RE = re.compile(
+    r"(?<![\w'])(assumes|defines|notes|fixes|constrains|for|and)(?![\w'])")
+# The label a locale element may carry, matched immediately after its keyword —
+# anchored there, not searched for, or an unnamed `assumes` picks up the label
+# of whatever element comes next and files it under the wrong kind.
+#
+# The single-colon requirement is a second line of defence and, with the reset
+# above in place, a redundant one: 1,830 elements either way over 120 AFP
+# entries.  Kept because it states the grammar (`g :: "T"` is a parameter, not
+# a label) rather than relying on the reset to be exhaustive.
+_LOCALE_LABEL_RE = re.compile(r"\s*([A-Za-z][\w']*)\s*(?:\[[^\]]*\])?\s*:(?!:)")
+_LOCALE_ELEM_KIND = {"assumes": "assumption", "defines": "definition",
+                     "notes": "note"}
+
+
+def _locale_facts(outer: list[str], start: int, end: int,
+                  own: str) -> list[tuple[str, str]]:
+    """`(name, kind)` for each named element of a locale/class head.
+
+    An `and` continues whichever element introduced it, so the last non-`and`
+    keyword decides the kind — and a parameter-binding keyword clears it, so
+    the `and`s of a `fixes` group bind nothing.
+    """
+    if start < 1 or end < start:
+        return []
+    found: list[tuple[str, str]] = []
+    seen = {own}
+    current = ""
+    text = "\n".join(outer[start - 1:end])
+    for m in _LOCALE_KW_RE.finditer(text):
+        kw = m.group(1)
+        if kw != "and":
+            current = _LOCALE_ELEM_KIND.get(kw, "")
+        if not current:
+            continue
+        label = _LOCALE_LABEL_RE.match(text, m.end())
+        if label is None or label.group(1) in seen:
+            continue
+        seen.add(label.group(1))
+        found.append((label.group(1), current))
     return found
 
 
@@ -1380,6 +1442,30 @@ def extract_entries(lines: list[str],
         # views are length-preserving — so the raw text after it starts here.
         line = line[indent:]
         decl_line = i + 1  # 1-indexed source line
+
+        # --- Locale / class heads ---
+        if route == "target":
+            # The name comes from `_target_opener`, the same reader
+            # `_block_stacks` uses to attribute an entry to its enclosing
+            # locale.  One parser for one grammar: a name it declines to read
+            # (`context fixes x`) is one no entry should carry either.
+            opened = _target_opener(outer[i])
+            name = (opened[1] if opened and opened[1] else "?")
+            rest = line[len(keyword):].strip()
+            buf = [f"{tag} {rest}"]
+            # The span is the HEAD only — up to but not including `begin`,
+            # which `_is_boundary_at` already stops at.  The body's
+            # declarations are entries in their own right, so covering it
+            # would give `enclosing` two owners for every line inside.
+            i, decl_end_line, body = _scan_decl_body(
+                lines, outer, open_at, table, i + 1, decl_line)
+            buf.extend(body)
+            entries.append(Entry(tag, name, "\n".join(buf),
+                                 thy_line=decl_line,
+                                 decl_end_line=decl_end_line,
+                                 bindings=_locale_facts(
+                                     outer, decl_line, decl_end_line, name)))
+            continue
 
         # --- Simple one-concept declarations ---
         if route == "typedecl":

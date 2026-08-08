@@ -85,6 +85,8 @@ from isabelle_query.parsing import (  # noqa: F401  (re-exported for the facade)
     _SELECTOR_RE,
     _and_siblings,
     _isa_word_pattern,
+    _LOCALE_LABEL_RE,
+    _locale_facts,
     _line_mask,
     _parse_def_name,
     _parse_name,
