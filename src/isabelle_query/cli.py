@@ -82,6 +82,7 @@ from isabelle_query.parsing import (  # noqa: F401  (re-exported for the facade)
     LATEX_LINE_RE,
     RULE_LABEL_RE,
     _CUSTOM_COMMANDS,
+    _and_siblings,
     _isa_word_pattern,
     _line_mask,
     _parse_def_name,

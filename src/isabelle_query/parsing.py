@@ -231,6 +231,51 @@ def _rule_labels(outer: list[str], start: int, end: int,
     return found
 
 
+# `and`-separated constants in a declaration HEAD: `fun f and g and h where
+# ...` declares three, and only the first was recorded.  Same for `function` /
+# `primrec` / `inductive` / `inductive_set`.
+#
+# The head ends at `where` OR at `for`, and the `for` is the trap: `inductive_set
+# p for A :: "..." and I :: "..."` fixes PARAMETERS with `and`, so a scan that
+# cuts only at `where` reads every `for` clause as a list of siblings.
+#
+# Gated on the TAG, not on the `def` route, because an `and`-list is a property
+# of particular Isabelle commands rather than of definitional syntax at large:
+# `definition` and `abbreviation` do not take one.  The gate also excludes
+# custom commands by construction — `_KIND_FAMILY` only ever maps a declared
+# keyword to DEF or THEOREM — and that matters: AOT's `AOT_register_type_
+# constraints Individual: ... and Proposition: ...` reads as a sibling list,
+# but its `and`s separate type-constraint categories, not constants.  A custom
+# command's grammar is its own, so it must not be guessed at.
+_SIBLING_TAGS = frozenset({"FUN", "IND", "INDSET"})
+_HEAD_END_RE = re.compile(r"(?<![\w'])(?:where|for)(?![\w'])")
+# `and NAME`, where NAME may be quoted (a constant whose spelling needs it).
+_AND_NAME_RE = re.compile(
+    r"(?<![\w'])and(?![\w'])\s*(?:\"([^\"\n]+)\"|([A-Za-z][\w']*))")
+
+
+def _and_siblings(outer: list[str], start: int, end: int, own: str,
+                  tag: str) -> list[str]:
+    """Constants declared alongside `own` by one command, in source order.
+
+    Read from the head only — everything before the first `where`/`for` — on
+    the outer view, so an `and` inside a term or a mixfix template is invisible.
+    Empty unless `tag` is one of the commands that takes an `and`-list.
+    """
+    if start < 1 or end < start or tag not in _SIBLING_TAGS:
+        return []
+    head = "\n".join(outer[start - 1:end])
+    cut = _HEAD_END_RE.search(head)
+    if cut:
+        head = head[:cut.start()]
+    found: list[str] = []
+    for m in _AND_NAME_RE.finditer(head):
+        name = m.group(1) or m.group(2)
+        if name != own and name not in found:
+            found.append(name)
+    return found
+
+
 # A fact name that contains a character outside the identifier/symbol set —
 # a hyphen, colon, bracket, etc. (`beta-C-cor:3`, `num:1`, `denote=:4[3]`) —
 # cannot be written bare in a reference; Isabelle requires it double-quoted.
@@ -1291,6 +1336,10 @@ def extract_entries(lines: list[str],
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
                                  bindings=[
+                                     (s, "sibling") for s in _and_siblings(
+                                         outer, decl_line, decl_end_line,
+                                         name, tag)
+                                 ] + [
                                      (r, "rule") for r in _rule_labels(
                                          outer, decl_line, decl_end_line,
                                          name)]))

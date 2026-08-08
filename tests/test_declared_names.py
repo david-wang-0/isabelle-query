@@ -151,6 +151,97 @@ primrec nodup :: "nat list \\<Rightarrow> bool"
 ''' + FOOT, "nodup"), {"nodup_nil": "rule", "nodup_step": "rule"})
 
 
+class AndSiblings(unittest.TestCase):
+    r"""`fun f and g and h where ...` declares three constants; only the first
+    was recorded.  They are bindings rather than separate `Entry`s because one
+    command has one span and one termination proof: three entries would give
+    `enclosing` three equally-valid owners for every line and make `largest`
+    count the declaration three times."""
+
+    def test_mutually_recursive_functions(self):
+        # `Alpha_Beta_Linear:97  fun maxmin ... and minmax`
+        self.assertEqual(_bindings(HEAD + '''
+fun maxmin :: "nat \\<Rightarrow> nat" and minmax :: "nat \\<Rightarrow> nat"
+  where
+    "maxmin 0 = 0"
+  | "minmax 0 = 0"
+''' + FOOT, "maxmin"), {"minmax": "sibling"})
+
+    def test_three_way(self):
+        self.assertEqual(_bindings(HEAD + '''
+fun f :: "nat \\<Rightarrow> nat" and g :: "nat \\<Rightarrow> nat"
+    and h :: "nat \\<Rightarrow> nat"
+  where "f 0 = 0"
+''' + FOOT, "f"), {"g": "sibling", "h": "sibling"})
+
+    def test_a_for_clause_is_not_a_sibling_list(self):
+        # THE trap.  `inductive_set p for A :: ... and I :: ...` fixes
+        # PARAMETERS with `and`; a scan that cuts the head only at `where`
+        # reads every `for` clause as a list of declared constants.
+        self.assertEqual(_bindings(HEAD + '''
+inductive_set reach :: "nat set"
+  for A :: "nat set" and I :: "nat set"
+  where "x \\<in> reach A I"
+''' + FOOT, "reach"), {})
+
+    def test_an_and_inside_a_term_is_invisible(self):
+        self.assertEqual(_bindings(HEAD + '''
+fun f :: "bool \\<Rightarrow> bool"
+  where "f x = (x \\<and> and_of x)"
+''' + FOOT, "f"), {})
+
+    def test_a_name_ending_in_and_is_not_a_separator(self):
+        # `fun band and c where ...` (type ascriptions are optional).  Without
+        # a word boundary the scan matches the `and` INSIDE `band`, then reads
+        # the real separator as the sibling's name — binding `and`, not `c`.
+        self.assertEqual(_bindings(HEAD + '''
+fun band and c
+  where "band 0 = (0::nat)"
+''' + FOOT, "band"), {"c": "sibling"})
+
+    def test_the_helpers_own_name_guard(self):
+        # Defensive, like the rule scan's: Isabelle has no valid
+        # `fun f and f`, so the parser cannot feed this.  Asserted on the
+        # helper directly rather than left untested.
+        self.assertEqual(
+            cli._and_siblings(['fun f :: "nat" and f :: "nat" where'],
+                              1, 1, "f", "FUN"), [])
+
+    def test_definition_takes_no_and_list(self):
+        # `definition` / `abbreviation` have no `and`-list in Isabelle's
+        # grammar, so an `and` in one of their heads is not a sibling.
+        self.assertEqual(_bindings(HEAD + '''
+definition d :: "nat"
+  where "d = 0"
+''' + FOOT, "d"), {})
+
+    def test_a_custom_command_is_not_guessed_at(self):
+        # AOT's `AOT_register_type_constraints Individual: ... and
+        # Proposition: ...` separates type-constraint CATEGORIES with `and`,
+        # not constants.  A custom command's grammar is its own; the tag gate
+        # excludes it, since a custom keyword only ever maps to DEF/THEOREM.
+        src = ('theory T imports Main\n'
+               '  keywords "AOT_register_type_constraints" :: thy_decl\n'
+               'begin\n'
+               'AOT_register_type_constraints\n'
+               '  Individual: nat and\n'
+               '  Proposition: bool\n' + FOOT)
+        sec = section_from(src)
+        self.assertEqual([e.bindings for e in sec.entries
+                          if e.bindings and any(k == "sibling"
+                                                for _, k in e.bindings)], [])
+
+    def test_siblings_and_rules_coexist(self):
+        got = _bindings(HEAD + '''
+inductive p :: "nat \\<Rightarrow> bool" and q :: "nat \\<Rightarrow> bool"
+  where
+    pq_base: "p 0"
+  | pq_step: "q n \\<Longrightarrow> p n"
+''' + FOOT, "p")
+        self.assertEqual(got, {"q": "sibling", "pq_base": "rule",
+                               "pq_step": "rule"})
+
+
 class ProofBodiesAreNotScanned(unittest.TestCase):
     """`obtain x where H: "Q"` has the same shape as a rule label but binds a
     LOCAL Isar fact, not a theory-level name.  The `goal` route never scans
