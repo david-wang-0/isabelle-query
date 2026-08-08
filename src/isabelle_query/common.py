@@ -324,8 +324,14 @@ def resolve_thy_file(name: str, t_dir: Path | None = None) -> Path | None:
 # `autocorres`, `::`, `thy_decl`, `and`).  And it refuses to match a file with
 # no imports clause at all (`theory Pure begin`), where a lone `imports`
 # further down the file would otherwise pair with some locale's `begin`.
+# The optional `%tag` is a document-preparation marker Isar allows after any
+# command keyword — `theory %invisible All` (AFP's AODV/All.thy).  Anchoring on
+# `theory NAME imports` without allowing it silently loses the whole header:
+# AODV declares only `All` in its ROOT, so the 72 theories it imports fell out
+# of discovery entirely.
 _THY_HEADER_RE = re.compile(
-    r'\btheory\b\s+(?:"[^"\n]*"|[^\s"]+)\s+imports\b(.*?)'
+    r'\btheory\b(?:\s*%\s*(?:"[^"\n]*"|[\w\'.]+))*'
+    r'\s+(?:"[^"\n]*"|[^\s"]+)\s+imports\b(.*?)'
     r'\b(?:begin|keywords|abbrevs)\b', re.DOTALL)
 
 

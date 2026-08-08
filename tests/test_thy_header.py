@@ -119,6 +119,24 @@ class HeaderParsing(unittest.TestCase):
         self.assertEqual(self._imports('theory T imports Main begin\nend\n'),
                          ["Main"])
 
+    def test_document_tag_after_the_command_keyword(self):
+        # `theory %invisible All` — Isar allows a `%tag` after any command
+        # keyword.  AFP's AODV/All.thy uses it, and since AODV's ROOT declares
+        # only `All`, missing the tag dropped 72 theories out of discovery.
+        self.assertEqual(
+            self._imports('theory %invisible T\nimports Bar\nbegin\nend\n'),
+            ["Bar"])
+
+    def test_document_tag_with_a_space(self):
+        self.assertEqual(
+            self._imports('theory % invisible T\nimports Bar\nbegin\nend\n'),
+            ["Bar"])
+
+    def test_quoted_document_tag(self):
+        self.assertEqual(
+            self._imports('theory %"vis" T\nimports Bar\nbegin\nend\n'),
+            ["Bar"])
+
     # --- no clause at all ------------------------------------------------
     def test_theory_without_imports_yields_nothing(self):
         # `theory Pure begin`.  A bare `imports` further down (here inside a
