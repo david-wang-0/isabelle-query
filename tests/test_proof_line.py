@@ -317,13 +317,34 @@ class TermTracking(unittest.TestCase):
                            'end\n')
         self.assertEqual(entry(sec, "d").decl_end_line, 3)
 
-    def test_the_lookahead_skips_blanks_only(self):
+    def test_a_comment_between_rules_is_stepped_over(self):
+        r"""`AWN/OAWN_SOS:222` spaces its rules apart AND puts a `(* ... *)`
+        note between two of them, so a blanks-only lookahead stops at the
+        note and loses the last eight rules.
+
+        The lookahead asks the OUTER view, which already draws the needed
+        line: a blank and a comment blank to nothing, while `text` keeps its
+        command word.  Formatting and notes are stepped over; structure is
+        not.  This takes the corpus from 64 declarations reaching further to
+        101.
+        """
+        sec = section_from('theory A imports Main begin\n'
+                           'inductive_set S :: "nat set"\n'
+                           'where a: "0 \\<in> S"\n'
+                           '\n'
+                           '  (* justified in the closed-system proof *)\n'
+                           '  | b: "1 \\<in> S"\n'
+                           'end\n')
+        self.assertEqual(entry(sec, "S").decl_end_line, 6)
+
+    def test_the_lookahead_stops_at_outer_syntax(self):
         r"""`ADS_Functor/ADS_Construction:290` — an `abbreviation` ending at
         291, then a comment banner and a `subsubsection`, and a `|` belonging
-        to some later declaration.  A lookahead that scans past non-blank
-        lines to find a `|` links the two: 330 entries change, and this one
-        gets `decl_end=295` against a span of `290..293` — an extent past its
-        own end.
+        to some later declaration.  The banner is skippable but the
+        `subsubsection` is not, so the two are never linked.  A lookahead that
+        scans past all non-blank lines to find a `|` joins them: 330 entries
+        change, and this one gets `decl_end=295` against a span of `290..293`
+        — an extent past its own end.
         """
         sec = section_from('theory A imports Main begin\n'
                            'abbreviation h :: "nat" where\n'

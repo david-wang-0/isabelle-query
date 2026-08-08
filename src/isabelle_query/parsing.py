@@ -231,17 +231,20 @@ def _rule_labels(outer: list[str], start: int, end: int,
     return found
 
 
-# A rule/equation list continued after blank lines.  Only blanks may be
-# skipped: a `text` block or a marginal note between two rules would end the
-# declaration on its own terms, and this must not reach past one.
+# A rule/equation list continued after a gap.  Asked of the OUTER view, which
+# already draws the line this needs: a blank and a `(* ... *)` comment blank to
+# nothing, while `text \<open>...\<close>` keeps its command word.  So the
+# lookahead steps over formatting and notes — `OAWN_SOS:222` spaces its rules
+# apart AND puts a comment between two of them — but stops at anything that is
+# structure, which must end the declaration on its own terms.
 _BAR_LINE_RE = re.compile(r"^\s*\|")
 
 
-def _bar_continues(lines: list[str], i: int) -> bool:
-    """Does the next non-blank line at or after `lines[i]` begin with `|`?"""
-    while i < len(lines) and BLANK_RE.match(lines[i]):
+def _bar_continues(outer: list[str], i: int) -> bool:
+    """Does the next line carrying outer syntax, at or after `i`, begin `|`?"""
+    while i < len(outer) and not outer[i].strip():
         i += 1
-    return i < len(lines) and bool(_BAR_LINE_RE.match(lines[i]))
+    return i < len(outer) and bool(_BAR_LINE_RE.match(outer[i]))
 
 
 # `and`-separated constants in a declaration HEAD: `fun f and g and h where
@@ -1330,7 +1333,7 @@ def extract_entries(lines: list[str],
                     # it can only continue this one.  `AWN_SOS:14`'s
                     # `inductive_set seqp_sos` runs to line 34 and used to end
                     # at 26; `Aodv:264`'s `fun` runs to 420 and ended at 300.
-                    if not _bar_continues(lines, i + 1):
+                    if not _bar_continues(outer, i + 1):
                         break
                     i += 1
                     continue
