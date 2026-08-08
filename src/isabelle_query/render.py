@@ -258,15 +258,23 @@ def render_entry(sec: TheorySection, entry: Entry, *,
 
     out_parts: list[str] = []
 
-    # Preamble (above header)
+    # Preamble, ABOVE the header because that is where the author wrote it —
+    # `text \<open>...\<close>` precedes the declaration it introduces, and
+    # reordering it would misreport the source.
+    #
+    # It is named, and butted straight against the header with no blank line,
+    # because a match LIST separates entries by exactly one blank line: an
+    # unnamed block set off the same way reads as a hit of its own, which is
+    # what `find --statement PAT` looked like when its first match carried a
+    # preamble.  One entry renders as one contiguous block.
     if comments != "off" and entry.preamble:
         pmode = "full" if comments == "only" else "summary"
         rendered = _render_preamble(sec, entry.preamble, pmode, context)
         if rendered:
             pstart, pend = entry.preamble
-            out_parts.append(f"--- preamble [{pstart}-{pend}] ---")
+            out_parts.append(
+                f"--- preamble for {entry.name} [{pstart}-{pend}] ---")
             out_parts.append(rendered)
-            out_parts.append("")
 
     out_parts.append(header)
 
