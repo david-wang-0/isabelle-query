@@ -94,7 +94,7 @@ def _run(session: str, examples: dict[str, list[str]]) -> Counter[str] | None:
             ours.add(e.name)
             if e.target:
                 ours.add(f"{e.target}.{e.name}")
-        ours |= {c for e in sec.entries for c in getattr(e, "conjuncts", ())}
+        ours |= {c for e in sec.entries for c in e.bound_names}
 
         # `theory/thms` and `theory/other/fact` overlap heavily (a fact is
         # filed under both when it is a singleton thm list), so a per-kind

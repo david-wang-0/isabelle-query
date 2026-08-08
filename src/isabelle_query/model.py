@@ -115,12 +115,25 @@ class Entry:
         # models locale structure, so the closing `end` has an owner to name —
         # but they still attach to nothing, because an annotation's owner is
         # an Entry and a block is not one.
-    conjuncts: list[str] = field(default_factory=list)
-        # Named conjuncts of a multi-`shows` lemma (e.g. mttm_step_src's
-        # mttm_step_src_neq_t).  Each is a citable fact that resolves to
-        # this entry under show / find / callers / callees, but is not a
-        # separate Entry (so it never inflates counts or splits call-graph
-        # attribution — resolution happens at the command boundary).
+    bindings: list[tuple[str, str]] = field(default_factory=list)
+        # (name, kind) for every ADDITIONAL name this one declaration binds —
+        # see `_BINDING_KINDS`.  Isabelle binds more than one name per command
+        # and `query` records one, so without these each is a `find` that
+        # misses, a `show` that says "No entries matching", and — worse than a
+        # miss — a `callers` that reports the name's own declaration as a
+        # citation of itself, since `_def_sites` can only exclude a
+        # declaration site it knows about.
+        #
+        # Deliberately NOT separate Entries: all of these are bound by a
+        # single command with a single span, so splitting them would inflate
+        # entry counts, triple-count one `fun f and g and h` under `largest`,
+        # and give `enclosing` several equally-valid owners for one line.
+        # Resolution happens at the command boundary instead.
+        #
+        # The kind is carried rather than flattened away for the same reason
+        # `annotations` carries one: an introduction rule is not a conjunct is
+        # not a mutually-declared constant, the display decision is still
+        # open, and tagging is the reversible choice.
     blocks: tuple[tuple[str, str], ...] = ()
         # (kind, name) for each NAMED target block lexically enclosing this
         # entry, outermost first — `(("locale", "hpk"),)` for a lemma inside
@@ -146,6 +159,12 @@ class Entry:
         if self.in_target:
             return self.in_target
         return self.blocks[-1][1] if self.blocks else ""
+
+    @property
+    def bound_names(self) -> list[str]:
+        """Just the names from :attr:`bindings`, for the many callers that
+        only ask "does this declaration bind NAME?" and not which kind."""
+        return [n for n, _ in self.bindings]
 
     @property
     def roadmap(self) -> list[tuple[int, str]]:
@@ -345,6 +364,21 @@ _DEFINITION_TAGS = frozenset(
 # Ordered, so a display can iterate them in the order they appear in source.
 _ANNOTATION_KINDS = ("decl", "statement", "proof")
 _CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "FUN", "DEF", "ABBREV"})
+
+# The kinds of extra name an `Entry` may bind (see `Entry.bindings`), each with
+# the phrasing a command uses to explain the resolution to the reader.  They
+# differ in what the name IS, which is why the tag is kept:
+#   conjunct  a named conjunct of a multi-`shows` lemma — `shows a: "P" and
+#             b: "Q"` binds `a` and `b` as facts alongside the whole.
+#   rule      a named introduction rule — `inductive p where r1: "..."` binds
+#             `r1` as the fact that IS how `p` gets cited.
+#   sibling   a constant declared in the same command — `fun f and g` declares
+#             two constants, mutually recursive, over one termination proof.
+_BINDING_KINDS = {
+    "conjunct": "a named conjunct of",
+    "rule": "an introduction rule of",
+    "sibling": "declared together with",
+}
 
 
 # Default short-name floor for the citation graph: a length-1 token (`x`, `a`,

@@ -1351,7 +1351,7 @@ def extract_entries(lines: list[str],
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
                                  proof_line=proof_line,
-                                 conjuncts=conjuncts))
+                                 bindings=[(c, "conjunct") for c in conjuncts]))
             continue
 
         i += 1

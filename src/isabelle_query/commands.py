@@ -27,6 +27,7 @@ from isabelle_query.model import (
     CmdFlags,  # noqa: F401  (used in string annotations)
     Entry,
     TheorySection,
+    _BINDING_KINDS,
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
 )
@@ -244,14 +245,18 @@ def _suggest_theory(sections: list[TheorySection], name: str) -> str | None:
         return str(sec.path)
 
 
-def _resolve_conjunct(sections: list[TheorySection], name: str) -> str | None:
-    """If `name` is a named conjunct of a multi-`shows` lemma, return the
-    parent lemma name; else None.  Lets callers/callees/show resolve a
-    conjunct to the entry that bundles it."""
+def _resolve_binding(sections: list[TheorySection],
+                     name: str) -> tuple[str, str] | None:
+    """If `name` is an extra name bound by some declaration (see
+    `Entry.bindings`), return `(parent name, phrasing)`; else None.  Lets
+    callers/callees/show resolve such a name to the entry that binds it, and
+    say *how* it is bound — an introduction rule and a `shows` conjunct
+    resolve the same way but are not the same thing."""
     for sec in sections:
         for e in sec.entries:
-            if name in e.conjuncts:
-                return e.name
+            for n, kind in e.bindings:
+                if n == name:
+                    return e.name, _BINDING_KINDS[kind]
     return None
 
 
@@ -320,8 +325,8 @@ def cmd_find(sections: list[TheorySection], pattern: str,
             for e in s.entries:
                 if pat.search(e.name):
                     matches.append(e)
-                elif any(pat.search(c) for c in e.conjuncts):
-                    matches.append(e)  # matched via a named `shows` conjunct
+                elif any(pat.search(c) for c in e.bound_names):
+                    matches.append(e)  # matched via an extra bound name
 
     # `--statement` here selects the match locus, not the render: show the
     # matched entries the usual way (statement + proof preview).
@@ -389,15 +394,19 @@ def cmd_show(sections: list[TheorySection], name: str,
                 if e.name.lower() == name.lower():
                     matches.append(e)
     if not matches:
-        # Conjunct fallback (before substring): NAME may be a named conjunct
-        # of a multi-`shows` lemma; resolve to the parent that bundles it.
+        # Bound-name fallback (before substring): NAME may be an extra name
+        # bound by a declaration — a `shows` conjunct, an introduction rule, a
+        # mutually-declared constant; resolve to the entry that binds it.
+        how = ""
         for s in sections:
             for e in s.entries:
-                if name in e.conjuncts:
-                    matches.append(e)
+                for n, kind in e.bindings:
+                    if n == name:
+                        matches.append(e)
+                        how = _BINDING_KINDS[kind]
         if matches:
             parents = ", ".join(sorted({e.name for e in matches}))
-            print(f"# '{name}' is a named conjunct of {parents}:")
+            print(f"# '{name}' is {how} {parents}:")
     if not matches:
         # Substring fallback
         for s in sections:
@@ -1007,9 +1016,10 @@ def cmd_callers(sections: list[TheorySection], name: str,
     if flags.recursive:
         graph = _build_call_graph(sections, flags.drop_names_upto)
         if name not in graph.all_names:
-            parent = _resolve_conjunct(sections, name)
-            if parent is not None:
-                print(f"# '{name}' is a named conjunct of {parent}; "
+            bound = _resolve_binding(sections, name)
+            if bound is not None:
+                parent, how = bound
+                print(f"# '{name}' is {how} {parent}; "
                       f"recursive caller closure operates at the {parent} "
                       f"(entry) level.")
                 name = parent
@@ -1059,9 +1069,10 @@ def cmd_callees(sections: list[TheorySection], name: str,
     Not to be confused with the theory-level `deps` / `uses` pair."""
     graph = _build_call_graph(sections, flags.drop_names_upto)
     if name not in graph.all_names:
-        parent = _resolve_conjunct(sections, name)
-        if parent is not None:
-            print(f"# '{name}' is a named conjunct of {parent}; "
+        bound = _resolve_binding(sections, name)
+        if bound is not None:
+            parent, how = bound
+            print(f"# '{name}' is {how} {parent}; "
                   f"reporting {parent}'s callees (shared proof body).")
             name = parent
         else:

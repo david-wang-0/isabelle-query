@@ -148,12 +148,14 @@ def _build_def_sites(sections: list[TheorySection],
             if names is None or e.name in names:
                 site_map.setdefault(e.name, set()).add(
                     range(e.thy_line, e.thy_end + 1))
-            # A named conjunct's declaration site is its parent's span, so a
-            # `callers CONJUNCT` search excludes the `shows ... and C:` line.
-            # Restricted to explicitly-queried names (never the names=None
-            # broad pass) so conjuncts don't leak into the call-graph universe.
+            # An extra bound name's declaration site is its parent's span, so
+            # `callers NAME` excludes the `shows ... and C:` / `| r1: "..."` /
+            # `and g ::` line that declares it.  Without this the declaration
+            # reads as a citation of itself.  Restricted to explicitly-queried
+            # names (never the names=None broad pass) so these don't leak into
+            # the call-graph universe.
             if names is not None:
-                for c in e.conjuncts:
+                for c in e.bound_names:
                     if c in names:
                         site_map.setdefault(c, set()).add(
                             range(e.thy_line, e.thy_end + 1))
