@@ -270,6 +270,61 @@ _AND_NAME_RE = re.compile(
     r"(?<![\w'])and(?![\w'])\s*(?:\"([^\"\n]+)\"|([A-Za-z][\w']*))")
 
 
+def _scan_decl_body(lines: list[str], outer: list[str], open_at: list[bool],
+                    table: dict[str, str], i: int, decl_line: int,
+                    keyword: str = "") -> tuple[int, int, list[str]]:
+    """Accumulate a declaration's body from line index `i` (0-indexed, the
+    line after the declaration line).
+
+    Returns `(next index, decl_end_line, body lines)`.  Shared by the `def` and
+    `typedecl` routes: what ends a `datatype` is what ends a `fun`, and the two
+    had drifted — `typedecl` did not scan at all.
+    """
+    decl_end_line = decl_line
+    body: list[str] = []
+    past_where = False  # for `definition`/`abbreviation`: tracks whether the
+                        # body's quoted RHS has begun, so we don't break at the
+                        # type signature's closing quote.
+    while i < len(lines):
+        cline = lines[i]
+        # Nothing terminates a declaration from INSIDE its own term.  A
+        # `do { ... }` definition body is routinely written with blank lines
+        # between its rounds and annotated line by line, and both used to cut
+        # the declaration short.
+        inside = open_at[i]
+        if BLANK_RE.match(cline) and not inside:
+            # ...unless a `|` picks the rule list back up.  A rule or equation
+            # list is routinely spaced out for legibility, and a line beginning
+            # `|` cannot start a new command, so it can only continue this one.
+            # `AWN_SOS:14`'s `inductive_set seqp_sos` runs to line 34 and used
+            # to end at 26; `Aodv:264`'s `fun` runs to 420 and ended at 300.
+            if not _bar_continues(outer, i + 1):
+                break
+            i += 1
+            continue
+        if _match_decl_at(outer[i], table)[0] \
+                or (not inside and _is_boundary_at(outer[i])):
+            break
+        stripped = cline.strip()
+        if not inside and (stripped.startswith("\\<comment>")
+                           or stripped.startswith("text ")):
+            break
+        where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
+        body.append(f"  {stripped}")
+        i += 1
+        decl_end_line = i  # 1-indexed line just appended
+        if keyword in ("definition", "abbreviation"):
+            # The body's quoted RHS has closed when the NEXT line no longer
+            # begins inside a term.  This was a hand-rolled quote parity that
+            # could not see escapes or cartouches.
+            if past_where and '"' in stripped \
+                    and not (i < len(lines) and open_at[i]):
+                break
+            if where_on_this_line:
+                past_where = True
+    return i, decl_end_line, body
+
+
 def _and_siblings(outer: list[str], start: int, end: int, own: str,
                   tag: str) -> list[str]:
     """Constants declared alongside `own` by one command, in source order.
@@ -1314,49 +1369,9 @@ def extract_entries(lines: list[str],
             if name == "?" and not _strip_decl_prefix(rest, typevars=False):
                 name = _lookahead_name(lines, i + 1, table, parse_fn, outer)
             buf = [f"{tag} {rest}"]
-            decl_end_line = decl_line
-            i += 1
-            past_where = False  # for `definition`/`abbreviation`: tracks whether
-                                # the body's quoted RHS has begun, so we don't
-                                # break at the type signature's closing quote.
-            while i < len(lines):
-                cline = lines[i]
-                # Nothing terminates a declaration from INSIDE its own term.
-                # A `do { ... }` definition body is routinely written with
-                # blank lines between its rounds and annotated line by line,
-                # and both used to cut the declaration short.
-                inside = open_at[i]
-                if BLANK_RE.match(cline) and not inside:
-                    # ...unless a `|` picks the rule list back up.  A rule or
-                    # equation list is routinely spaced out for legibility,
-                    # and a line beginning `|` cannot start a new command, so
-                    # it can only continue this one.  `AWN_SOS:14`'s
-                    # `inductive_set seqp_sos` runs to line 34 and used to end
-                    # at 26; `Aodv:264`'s `fun` runs to 420 and ended at 300.
-                    if not _bar_continues(outer, i + 1):
-                        break
-                    i += 1
-                    continue
-                if _match_decl_at(outer[i], table)[0] \
-                        or (not inside and _is_boundary_at(outer[i])):
-                    break
-                stripped = cline.strip()
-                if not inside and (stripped.startswith("\\<comment>")
-                                   or stripped.startswith("text ")):
-                    break
-                where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
-                buf.append(f"  {stripped}")
-                i += 1
-                decl_end_line = i  # 1-indexed line just appended
-                if keyword in ("definition", "abbreviation"):
-                    # The body's quoted RHS has closed when the NEXT line no
-                    # longer begins inside a term.  This was a hand-rolled
-                    # quote parity that could not see escapes or cartouches.
-                    if past_where and '"' in stripped \
-                            and not (i < len(lines) and open_at[i]):
-                        break
-                    if where_on_this_line:
-                        past_where = True
+            i, decl_end_line, body = _scan_decl_body(
+                lines, outer, open_at, table, i + 1, decl_line, keyword)
+            buf.extend(body)
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
