@@ -75,6 +75,14 @@ see a scanner failing at scale. Two habits catch what they miss:
 - **Diff the entry set** after any parser change — `scripts/dump_entries.py`
   (add `--spans` when extents may move; a change can leave entries identical
   while moving a thousand declaration ends).
+- **Diff the discovered theory set** after any change to session or `imports`
+  parsing — and diff it **as a set, not a count**. `dump_entries.py` walks
+  `ent.rglob("*.thy")`, so it never calls `parse_thy_imports` and cannot see a
+  discovery regression: when `[thy-header]` silently dropped 72 theories it
+  reported an identical 55,838 entries. Compare
+  `{p for s in iter_sessions(root) for _, p in session_theories(s)}` against
+  the same set from `git archive <ref> | tar -x -C .scratch-head`. A count
+  alone hides a simultaneous gain and loss, which is exactly what happened.
 - **Check a new test can fail.** Patch the behaviour it pins, run it, restore.
   Several tests have been written that could not fail.
 
