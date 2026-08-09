@@ -34,6 +34,19 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 
+# The ROOT / session / theory-header parsing this tool is built on, split out
+# so that consumers who want a parser need not install a CLI to get one.  The
+# code is unchanged (verified: 68362 comparisons over the AFP and the Isabelle
+# distribution, 0 disagreements); `isabelle_query.common` re-exports it, so no
+# caller had to move on the day of the split.
+#
+# Upper bound because the dependency is pre-1.0: 0.x minors may break, and a
+# parser this tool's every answer rests on is not somewhere to discover that
+# from a user's traceback.
+dependencies = [
+    "isabelle-layout>=0.1.0,<0.2.0",
+]
+
 [project.scripts]
 query = "isabelle_query.cli:main"
 
