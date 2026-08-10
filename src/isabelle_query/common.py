@@ -16,12 +16,11 @@ and verified unchanged (68362 comparisons over the AFP and the Isabelle
 distribution, 0 disagreements), to `isabelle-layout`.  This module now
 re-exports it.
 
-**Nothing changes for callers today.**  Eleven scripts in
-`~/projects/claudecode/ndtht/bin` and several in `query-private/bin` import
-`isabelle_query.common` directly, as do `cli`, `parsing` and `commands` in
-this package.  They all keep working, so there is no flag day; consumers move
-to `isabelle_layout` individually, at whatever pace suits.  New code should
-import from `isabelle_layout` directly:
+**Nothing changes for callers today.**  A dozen or so scripts in downstream
+projects import `isabelle_query.common` directly, as do `cli`, `parsing` and
+`commands` in this package.  They all keep working, so there is no flag day;
+consumers move to `isabelle_layout` individually, at whatever pace suits.  New
+code should import from `isabelle_layout` directly:
 
     from isabelle_layout import iter_sessions, session_theories
     from isabelle_layout.distribution import is_hol_base
