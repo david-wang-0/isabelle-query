@@ -1369,6 +1369,7 @@ def extract_entries(lines: list[str],
                     nonisar_ranges: list[tuple[int, int]] | None = None,
                     outer: list[str] | None = None,
                     open_at: bytearray | None = None,
+                    live: list[str] | None = None,
                     ) -> list[Entry]:
     r"""Parse `lines` into entries.
 
@@ -1381,12 +1382,18 @@ def extract_entries(lines: list[str],
     Computed here when not supplied, rather than falling back to a column-0
     anchor — one recognition rule, so a caller that omits it gets the same
     answer more slowly rather than a different answer.
+
+    `live` is the third view (noise blanked, terms kept).  It is needed only for
+    a target name written as a quoted identifier, which `outer` blanks, and is
+    likewise computed here when a caller omits it.
     """
     entries: list[Entry] = []
     i = 0
     if outer is None:
         _sp, _nt, _inner, open_at = scan_regions(lines, want_inner=True)
         outer = blank_all(lines, _inner)
+        if live is None:
+            live = blank_all(lines, _sp)
     if open_at is None:
         open_at = bytearray(len(lines))
 
@@ -1449,7 +1456,8 @@ def extract_entries(lines: list[str],
             # `_block_stacks` uses to attribute an entry to its enclosing
             # locale.  One parser for one grammar: a name it declines to read
             # (`context fixes x`) is one no entry should carry either.
-            opened = _target_opener(outer[i])
+            opened = _target_opener(
+                outer[i], live[i] if live is not None and i < len(live) else None)
             name = (opened[1] if opened and opened[1] else "?")
             rest = line[len(keyword):].strip()
             buf = [f"{tag} {rest}"]
@@ -1647,7 +1655,7 @@ def extract_entries(lines: list[str],
     # A post-pass rather than threading through five Entry constructions: the
     # block chain is a property of the line an entry starts on, so it can be
     # read off once the entries exist and their start lines are known.
-    _attach_targets(entries, outer)
+    _attach_targets(entries, outer, live)
     return entries
 
 
@@ -1758,7 +1766,15 @@ _BLOCK_TOKEN_RE = re.compile(r"(?<![A-Za-z_0-9'@])(begin|end)(?![A-Za-z_0-9'])")
 _TARGET_OPEN_RE = re.compile(
     r"^(theory|locale|class|context|instantiation|overloading"
     r"|bundle|open_bundle|experiment|notepad)(?![A-Za-z_0-9'])\s*(.*)$")
-_TARGET_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9'.]*")
+# A target's name is spelled like any other Isabelle name — it may open with a
+# markup symbol (`locale \<Z> =`, `instantiation \<o> :: ...`) — and may in
+# addition be QUALIFIED (`context Rings.dvd begin`, 3 such over 120 AFP
+# entries), which an entry name may not.  So this is `SYM_NAME_RE`'s atom plus
+# `.`, rather than either regex reused whole: sharing the atom is what keeps
+# the two in step, and the dot is the one thing genuinely particular to a
+# target.  The quoted spelling (`locale "functor" =`) is handled in
+# `_target_name`, as `_name_from` handles it for entries.
+_TARGET_NAME_RE = re.compile(r"(?:\\<\^?\w+>|[A-Za-z_])(?:\\<\^?\w+>|[\w'.])*")
 # First letters of the opener keywords above — a one-character prefilter:
 # bundle, class/context, experiment, instantiation, locale, notepad,
 # overloading/open_bundle, theory.
@@ -1780,24 +1796,59 @@ _NOT_A_TARGET_NAME = frozenset({
 _IN_TARGET_RE = re.compile(r"\(\s*in\s+([A-Za-z_][A-Za-z_0-9'.]*)\s*\)")
 
 
-def _target_opener(segment: str) -> tuple[str, str] | None:
+def _target_name(rest: str) -> str:
+    """The target name at the head of `rest`, or '' if it carries none."""
+    mq = QUOTED_NAME_RE.match(rest)
+    if mq:
+        return mq.group(1)
+    mn = _TARGET_NAME_RE.match(rest)
+    if not mn or mn.group(0) in _NOT_A_TARGET_NAME:
+        return ""
+    # A cartouche survives the live view (it is inner syntax, not noise), so
+    # reading a name from live must decline `\<open>...` the way `_name_from`
+    # does — the symbol alternation would otherwise match it happily.
+    if mn.group(0).startswith(RESERVED_NAME_PREFIXES):
+        return ""
+    return mn.group(0)
+
+
+def _target_opener(segment: str,
+                   live_segment: str | None = None) -> tuple[str, str] | None:
     """`(kind, name)` if `segment` opens a target block, else None.
 
     `name` is '' for an opener that carries none (`notepad`, `context fixes x`).
+
+    `segment` is the OUTER view, which is what makes this a command position
+    rather than a word inside a term.  But outer blanks inner syntax, and a
+    target name may be written as a quoted identifier — `locale "functor" =`,
+    `instantiation "pseqp" :: ord` — which outer therefore erases.  So when
+    `live_segment` is supplied (the same columns in the live view, where terms
+    survive), the *name* is read from it while the *keyword* is still matched
+    on outer.  That is this module's standing split — outer decides where a
+    command starts, a term-keeping view reads what it says — applied to the one
+    place that had been reading both from outer.
     """
-    m = _TARGET_OPEN_RE.match(segment.lstrip())
+    stripped = segment.lstrip()
+    m = _TARGET_OPEN_RE.match(stripped)
     if not m:
         return None
-    kind, rest = m.group(1), m.group(2)
+    kind = m.group(1)
     if kind in _ANON_OPENERS:
         return kind, ""
-    mn = _TARGET_NAME_RE.match(rest)
-    if not mn or mn.group(0) in _NOT_A_TARGET_NAME:
-        return kind, ""
-    return kind, mn.group(0)
+    rest = m.group(2)
+    if live_segment is not None:
+        # Anchor on the END OF THE KEYWORD, not on group 2.  The pattern's
+        # `\s*` is greedy and outer has blanked the quoted name to spaces, so
+        # on `instantiation "pseqp" :: ord` group 2 begins at `::` — past the
+        # very columns the name occupies.  Views are length-preserving, so the
+        # keyword ends at the same column in both once the left-strip matches.
+        rest = live_segment[len(segment) - len(stripped) + m.end(1):].lstrip()
+    return kind, _target_name(rest)
 
 
-def _block_stacks(outer: list[str]) -> list[tuple[tuple[str, str], ...]]:
+def _block_stacks(outer: list[str],
+                  live: list[str] | None = None,
+                  ) -> list[tuple[tuple[str, str], ...]]:
     """Per line (0-indexed), the chain of enclosing *named target* blocks.
 
     Openers and `begin`/`end` are read in POSITIONAL order rather than
@@ -1807,13 +1858,18 @@ def _block_stacks(outer: list[str]) -> list[tuple[tuple[str, str], ...]]:
 
     The returned tuples are shared between consecutive unchanged lines, so this
     allocates one tuple per block boundary, not one per line.
+
+    `live` is the live view of the same lines, used only to read a *quoted*
+    target name that `outer` has blanked; omitting it costs those names and
+    nothing else.
     """
     stacks: list[tuple[tuple[str, str], ...]] = []
     stack: list[tuple[str, str]] = []
     cur: tuple[tuple[str, str], ...] = ()
     pending: tuple[str, str] | None = None
-    for line in outer:
+    for i, line in enumerate(outer):
         stacks.append(cur)
+        lv = live[i] if live is not None and i < len(live) else None
         # Two prefilters, because this runs on every line of every theory.
         # `begin`/`end` appear on ~2 lines per theory, so the token scan is
         # skipped by a substring test; and an opener keyword has one of eight
@@ -1821,7 +1877,8 @@ def _block_stacks(outer: list[str]) -> list[tuple[tuple[str, str], ...]]:
         if "begin" in line or "end" in line:
             pos = 0
             for m in _BLOCK_TOKEN_RE.finditer(line):
-                op = _target_opener(line[pos:m.start()])
+                op = _target_opener(line[pos:m.start()],
+                                    None if lv is None else lv[pos:m.start()])
                 if op is not None:
                     pending = op
                 pos = m.end()
@@ -1830,22 +1887,24 @@ def _block_stacks(outer: list[str]) -> list[tuple[tuple[str, str], ...]]:
                     pending = None
                 elif stack:
                     stack.pop()
-            op = _target_opener(line[pos:])
+            op = _target_opener(line[pos:], None if lv is None else lv[pos:])
             if op is not None:
                 pending = op
             cur = tuple(b for b in stack if b[1] and b[0] in _TARGET_KINDS)
             continue
-        s = line.lstrip()
-        if s[:1] in _OPENER_FIRST_CHARS:
-            op = _target_opener(s)
+        # The prefilter reads the stripped line; the opener itself is handed
+        # the raw one, so its column arithmetic against `live` still lines up.
+        if line.lstrip()[:1] in _OPENER_FIRST_CHARS:
+            op = _target_opener(line, lv)
             if op is not None:
                 pending = op
     return stacks
 
 
-def _attach_targets(entries: list[Entry], outer: list[str]) -> None:
+def _attach_targets(entries: list[Entry], outer: list[str],
+                    live: list[str] | None = None) -> None:
     """Record each entry's enclosing named blocks and its `(in foo)` target."""
-    stacks = _block_stacks(outer)
+    stacks = _block_stacks(outer, live)
     for e in entries:
         idx = e.thy_line - 1
         if 0 <= idx < len(stacks):
@@ -2002,7 +2061,8 @@ def _parse_one(thy: str, thy_path: Path,
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     outer = blank_all(lines, inner_spans)
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges,
-                              outer=outer, open_at=open_at)
+                              outer=outer, open_at=open_at,
+                              live=blank_all(lines, nonisar_spans))
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
     comment_ranges = extract_comment_ranges(lines)

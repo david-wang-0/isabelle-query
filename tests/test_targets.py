@@ -239,5 +239,157 @@ class Rendering(unittest.TestCase):
         return buf.getvalue()
 
 
+class TargetNameSpellings(unittest.TestCase):
+    r"""A target's name is spelled like any other Isabelle name.
+
+    The reader used to be `[A-Za-z_][A-Za-z_0-9'.]*` against the OUTER view,
+    which fails two ways that look nothing alike.  A markup symbol ends the
+    match early, so `locale split\<^sub>i_tree` was indexed as `split` — not a
+    missing name but a WRONG one, and six locales in `BTree/BPlusTree_ImpSplit`
+    collapsed onto that single string.  A quoted name (`locale "functor" =`) is
+    inner syntax, which outer blanks entirely, so it read as no name at all.
+
+    Over 120 AFP entries the fix renames 27 entries (18 truncated, 9 unnamed)
+    and adds nothing, removes nothing and moves no span; five theories had one
+    string standing for several distinct locales.  See
+    `scripts/probe_target_names.py`, which reports 0 recoverable misses.
+    """
+
+    def test_a_markup_symbol_does_not_end_the_name(self):
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'locale split\\<^sub>i_tree =\n'
+            '  fixes x :: nat\n'
+            'begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "split\\<^sub>i_tree")
+
+    def test_two_locales_differing_only_in_markup_stay_distinct(self):
+        # The collision is the real cost of truncation: `BPlusTree_ImpSplit`
+        # had six locales indexed as `split`, so a name lookup could not tell
+        # them apart and `enclosing` named the wrong one five times in six.
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'locale split\\<^sub>i_tree =\n'
+            '  fixes x :: nat\n'
+            'begin\n'
+            'lemma one: "True" by simp\n'
+            'end\n'
+            'locale split\\<^sub>i_list =\n'
+            '  fixes y :: nat\n'
+            'begin\n'
+            'lemma two: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "one").target, "split\\<^sub>i_tree")
+        self.assertEqual(entry(sec, "two").target, "split\\<^sub>i_list")
+        self.assertEqual(
+            {e.name for e in sec.entries if e.tag == "LOCALE"},
+            {"split\\<^sub>i_tree", "split\\<^sub>i_list"})
+
+    def test_a_name_that_is_only_a_symbol(self):
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'locale \\<Z> =\n'
+            '  fixes x :: nat\n'
+            'begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "\\<Z>")
+        self.assertEqual(entry(sec, "\\<Z>").tag, "LOCALE")
+
+    def test_a_quoted_locale_name(self):
+        # `functor` is a keyword-ish word an author must quote; outer blanks
+        # the quotes, so this name is readable only from the live view.
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'locale "functor" =\n'
+            '  fixes x :: nat\n'
+            'begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "functor")
+
+    def test_a_quoted_instantiation_type(self):
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'instantiation "pseqp" :: ord\n'
+            'begin\n'
+            'definition foo :: nat where "foo = 0"\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "foo").target, "pseqp")
+
+    def test_a_symbol_instantiation_type(self):
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'instantiation \\<o> :: AOT_subst\n'
+            'begin\n'
+            'definition foo :: nat where "foo = 0"\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "foo").target, "\\<o>")
+
+    def test_a_qualified_target_keeps_its_dot(self):
+        # `context Rings.dvd begin` — rare (3 over 120 AFP entries) but the
+        # reason the new grammar keeps `.`, which `SYM_NAME_RE` does not have.
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'context Rings.dvd begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "Rings.dvd")
+
+
+class TargetsThatCorrectlyHaveNoName(unittest.TestCase):
+    """Reading the name from the live view must not INVENT one.
+
+    Live keeps terms and cartouches, so a reader pointed at it can pick up
+    text that outer hid for good reason.  These pin the cases where '' is the
+    right answer — 430 of them over 120 AFP entries, against 0 misses.
+    """
+
+    def test_a_bare_context_stays_anonymous(self):
+        # `context` alone opens an anonymous context whose elements follow.
+        # All 288 bare `context` openers over 120 AFP entries are followed by
+        # an element or `begin`, never by a name, so there is no lookahead.
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'context\n'
+            '  fixes h :: nat\n'
+            'begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "")
+        self.assertEqual(entry(sec, "inside").blocks, ())
+
+    def test_a_context_element_is_not_a_name(self):
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'context fixes h :: nat begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "")
+
+    def test_a_cartouche_is_not_a_name(self):
+        # A cartouche survives the live view; the symbol alternation would
+        # match `\<open>` happily, so the reserved-prefix guard has to hold.
+        sec = section_from(
+            'theory T imports Main begin\n'
+            'context \\<open>bogus\\<close>\n'
+            'begin\n'
+            'lemma inside: "True" by simp\n'
+            'end\n'
+            'end\n')
+        self.assertEqual(entry(sec, "inside").target, "")
+
+
 if __name__ == "__main__":
     unittest.main()

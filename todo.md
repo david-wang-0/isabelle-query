@@ -18,19 +18,16 @@ in `CONTRIBUTING.md`.
       exist (pre- and post-`[session-dirs]`); it does not need to, provided
       what gets published is the fixed one.
 
-- [ ] `[target-names]` **(correctness.)** `_target_opener` reads a locale or
-      class name with `[A-Za-z_][A-Za-z_0-9'.]*`, which handles neither a
-      **symbol-spelled** name (`locale \<Z> =`, `locale \<Z>_sgrp =`) nor a
-      **quoted** one (`locale "functor" = two_cats +`).  Nine of the 1,226
-      locale/class entries over 120 AFP entries land as `?` — but the entry
-      name is the smaller half: `_target_opener` is also what
-      `_block_stacks` uses, so every declaration *inside* one of those
-      locales reports no `target` and `enclosing` names no scope for it.
-      The fix is to reuse the parser's symbol-aware `SYM_NAME_RE` plus the
-      quoted branch of `_name_from`, rather than a third name grammar.
-      Care: this moves the `blocks` attribution baseline (4,003/4,003 in
-      `scripts/probe_locale_naming.py`), so diff the entry set *and* the
-      target attribution, not just the names.
+- [ ] `[symbol-search]` `find` takes a REGEX, so a name containing markup
+      symbols cannot be searched by typing it as displayed: `query find
+      'split\<^sub>i'` reports no match, and the user must know to escape it
+      as `'split\\<\^sub>i'`.  This mattered little while such names were
+      truncated or missing; `[declared-names]` and `[target-names]` have made
+      them first-class in the index, so the index now holds names its own
+      search verb cannot be handed back.  Cheapest fix is to try the pattern
+      as a literal substring when it compiles to a regex that matches nothing
+      — care needed, since that is a silent fallback and could mask a genuine
+      typo in a pattern the user meant as a regex.
 
 - [ ] `[record-fields]` **(correctness.)** A `record` declares a constant per
       field — `record state = ip :: "ip" | sn :: "sqn"` binds `ip` and `sn` as

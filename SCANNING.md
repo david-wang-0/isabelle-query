@@ -90,13 +90,27 @@ HaltingProblems_K_aux:30 → K0 (DEF) — HaltingProblems_K_aux ▸ context hpk 
 ```
 
 Nothing is printed for a theory-level declaration, which is the common case:
-31.4% of AFP entries have a target, 27.0% by lexical nesting and 4.5% by an
+30.9% of AFP entries have a target, 26.5% by lexical nesting and 4.4% by an
 explicit `(in foo)` modifier. Where both are present and disagree, `(in foo)`
 wins — it retargets the declaration, which is what Isabelle does.
 
 Blocks are found structurally, not by indentation: every target block opens with
 the token `begin` and closes with `end`, whichever command introduced it, so
 there is one pair to track rather than a table of openers and closers.
+
+A target's **name** is spelled like any other Isabelle name, and both awkward
+spellings occur: it may contain markup symbols (`locale \<Z>`,
+`locale split\<^sub>i_tree`, `instantiation \<o> :: AOT_subst`) and it may be
+written as a quoted identifier when the word would otherwise be reserved
+(`locale "functor" =`, `instantiation "pseqp" :: ord`). It may also be
+qualified (`context Rings.dvd`), which an ordinary entry name may not. Quoted
+names are read from the live view rather than the outer one — outer blanks
+inner syntax, which is exactly where the quotes put the name — while the
+command keyword is still matched at outer-syntax position.
+
+An opener that carries no name is left unnamed rather than guessed at: `context`
+alone opens an anonymous context whose elements follow on later lines, and 430
+of the 1,247 `context` blocks over 120 AFP entries are of that kind.
 
 ## What counts as the project
 
