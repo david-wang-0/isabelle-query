@@ -35,6 +35,13 @@ parser out to `isabelle-layout`.
 
 The half worth keeping was the second one, which asked whether discovery had
 lost anything.  That question is still live, and still finds things.
+
+On its first run it found `[session-dirs]`: `session_theories` indexed a bare
+import against the session directory alone and ignored the ROOT `directories`
+clause, so two AFP theories were compiled by Isabelle and invisible here.
+Fixed upstream; the AFP now reports CLOSED over 9,910 theories.  Keep running
+it — the invariant covers query's *composed* load set, which is layout's
+discovery plus this tool's configuration, and only this side can check that.
 """
 from __future__ import annotations
 

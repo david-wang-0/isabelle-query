@@ -7,27 +7,16 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[session-dirs]` **(correctness — fix belongs in `isabelle-layout`.)**
-      `session_theories` resolves a bare in-entry import through a
-      `stem_index` built by `rglob`-ing **`session.session_dir`** only, and so
-      ignores the ROOT `directories` clause.  A session declared
-      `session "HOL-ODE-Numerics" in "Numerics" = ... directories
-      "../Refinement"` therefore cannot resolve a bare import that lands in
-      `../Refinement`, and the load set is not closed:
-      `Refinement/Autoref_Misc.thy` is discovered (something imports it by
-      *relative path*, which `classify_import` resolves via `importer=`) while
-      the `Refine_Dflt_No_Comp` it imports by *bare name* is not.  Found by
-      `scripts/probe_discovery_closure.py`: 2 holes over 9,907 AFP theories
-      and 13,452 checked imports, both here.
-      `SessionInfo.directories` already carries `['../Refinement']`, so the
-      clause is parsed and merely unused — seed the index from `session_dir`
-      **plus** each `directories` entry resolved against it.  Simulated: load
-      set 9,907 → 9,910 (the two holes plus `GenCF_No_Comp`, reached
-      transitively once `Refine_Dflt_No_Comp` is), **0 lost**.  137 AFP
-      sessions carry a `directories` clause; only ones that escape the session
-      dir with `../` are affected, which is why this is small.
-      Re-check with the probe (expect `CLOSED`) after the layout fix lands and
-      the floor in `pyproject.toml` moves.
+- [ ] `[layout-publish]` **(release blocker.)** `pyproject.toml` requires
+      `isabelle-layout>=0.1.0,<0.2.0` and that package is **not on PyPI**
+      (`https://pypi.org/pypi/isabelle-layout/json` → 404).  So HEAD is
+      installable from this checkout, where the dependency is satisfied by a
+      local install, and not from an index — v0.6.5 declared no dependencies
+      at all, so the released wheel and HEAD differ in exactly this way.
+      Nothing here can fix it: publish `isabelle-layout` 0.1.0 first, then cut
+      0.6.6.  Note the pin cannot distinguish the two 0.1.0 builds that now
+      exist (pre- and post-`[session-dirs]`); it does not need to, provided
+      what gets published is the fixed one.
 
 - [ ] `[target-names]` **(correctness.)** `_target_opener` reads a locale or
       class name with `[A-Za-z_][A-Za-z_0-9'.]*`, which handles neither a
