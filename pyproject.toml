@@ -40,11 +40,21 @@ classifiers = [
 # distribution, 0 disagreements); `isabelle_query.common` re-exports it, so no
 # caller had to move on the day of the split.
 #
-# Upper bound because the dependency is pre-1.0: 0.x minors may break, and a
-# parser this tool's every answer rests on is not somewhere to discover that
-# from a user's traceback.
+# No upper bound, though the dependency is pre-1.0.  Both packages are released
+# by the same author and query's suite runs against layout's working tree, so a
+# break is found here before it reaches an index.  What makes that more than a
+# hope is `tests/test_layout_surface.py`: `common.py` imports all 24 names at
+# module level, eight of them private, so a REMOVAL already fails the import and
+# takes the whole suite red — that test names them, so the failure says which
+# name went and not just that something did.  A silent change of BEHAVIOUR in a
+# name that still exists is the residual risk, and the answer to that is to stop
+# importing layout's privates, not to write a version range.
+#
+# The floor is 0.2.0 because that is the first PUBLISHED release: 0.1.x existed
+# only as a local install, so an earlier floor names something no index can
+# resolve.
 dependencies = [
-    "isabelle-layout>=0.1.0,<0.2.0",
+    "isabelle-layout>=0.2.0",
 ]
 
 [project.scripts]
