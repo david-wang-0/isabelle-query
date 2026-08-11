@@ -105,7 +105,7 @@ Requires Python 3.9 or greater. Installs a `query` command on your `PATH`, and
 pulls `isabelle-layout` from PyPI.
 
 ```sh
-pip install isabelle-query     # from PyPI (once published)
+pip install isabelle-query     # from PyPI
 pip install .                  # from a checkout
 ```
 
