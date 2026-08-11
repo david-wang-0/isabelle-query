@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "isabelle-query"
-version = "0.6.6"
+version = "0.6.7"
 description = "Query the live theory index of an Isabelle/Isar project — entries, call graph, dependencies, and dead code — by parsing .thy files on every invocation."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -67,11 +67,39 @@ Homepage = "https://github.com/ott2/isabelle-query"
 Source = "https://github.com/ott2/isabelle-query"
 
 # Dev-only tooling (PEP 735). Not published extras: consumers of isabelle-query
-# never need these — the shipped `query` CLI is pure-Python with zero runtime
-# dependencies and emits raw census JSONL.
+# never need these — the shipped `query` CLI is pure-Python, takes only the
+# `isabelle-layout` dependency declared above, and emits raw census JSONL.
 #   python -m pip install --group test
 [dependency-groups]
 test = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/isabelle_query"]
+
+# Without this, hatchling's sdist sweeps in everything git tracks — including
+# `.claude/`, which is 23 files of this project's internal working notes.  They
+# belong on GitHub; they are not something a `pip install` should carry, and a
+# published file can never be replaced.
+#
+# What stays is what someone installing the package could want: the source, the
+# tests (self-contained — they reference `scripts/` only in prose), the docs the
+# README links to, and `configs/` — `configs/m3.toml` is documented in
+# METRICS.md as shipping, and `shape --config` reads it, so dropping it would
+# break a documented workflow.
+#
+# What goes is development and release infrastructure.  `scripts/` is the
+# judgement call: 57 corpus probes that need an AFP checkout to say anything,
+# useful for working ON the tool rather than WITH it.
+#
+# `.gitignore` is NOT listed: hatchling reads it to derive exclusions and ships
+# it whatever this says, so an entry for it would be a line that does nothing.
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".claude",
+    ".github",
+    ".mailmap",
+    "CLAUDE.md",
+    "Makefile",
+    "scripts",
+    "todo.md",
+]
