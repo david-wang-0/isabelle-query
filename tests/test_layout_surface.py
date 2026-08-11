@@ -102,7 +102,12 @@ class LayoutSurface(unittest.TestCase):
             "_read_marker", "classify_import", "parse_root_directories",
             "parse_root_theories", "resolve_thy_file",
             "_INFRA_ROOTS", "_THY_HEADER_RE", "_tokenize_root",
-            "_NONHOL_DISTRIBUTION_BASES", "MARKER_NAME", "run_guarded",
+            "_NONHOL_DISTRIBUTION_BASES", "MARKER_NAME",
+            # Listed because it is part of the module's surface, NOT because
+            # it should stay: `run_guarded` is deprecated, called by nothing
+            # in this repository, and duplicated in `isabelle_watchdog.guard`.
+            # See `[watchdog-guard]`.  A pin is not an endorsement.
+            "run_guarded",
         ]
         for attr in aliases:
             with self.subTest(name=attr):

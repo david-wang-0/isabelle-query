@@ -23,6 +23,22 @@ in `CONTRIBUTING.md`.
       should stop needing (`_INFRA_ROOTS`, `_THY_HEADER_RE`).  Worth raising
       with the layout project rather than deciding unilaterally here.
 
+- [ ] `[watchdog-guard]` `common.run_guarded` is dead here and duplicated
+      upstream.  Nothing in `src/`, `tests/` or `scripts/` calls it; its own
+      docstring says so ("DEPRECATED -- unused in this repository ... retained
+      pending that tooling's review"), its callers are `bin/build_record.py`
+      and `bin/isabelle-watchdog.py`, which are not in this repository, and
+      `isabelle_watchdog.guard` already carries a copy.  It is the last thread
+      connecting query to watchdog, which it otherwise does not use at all.
+      The review it was retained for is now possible: watchdog is published
+      (0.3.1) and depends on `isabelle-layout`, so if the `bin/` tooling has
+      moved into that package, query's copy is dead weight and should go.
+      Deleting it is a (tiny) break in `common`'s surface, so confirm no
+      downstream script imports it first -- that surface is the whole reason
+      `common.py` still exists.  Pinned meanwhile by
+      `tests/test_layout_surface.py`, with a comment saying the pin is not an
+      endorsement.
+
 - [ ] `[symbol-search]` `find` takes a REGEX, so a name containing markup
       symbols cannot be searched by typing it as displayed: `query find
       'split\<^sub>i'` reports no match, and the user must know to escape it

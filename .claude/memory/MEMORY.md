@@ -9,6 +9,7 @@
 - [Scratch files in repo, not /tmp](scratch-files-in-repo-not-tmp.md) — /tmp is permission-gated; write temp/commit-message files in the repo working tree and rm after
 - [Verify AFP size assumptions](verify-afp-size-assumptions.md) — don't assume theory size/shape; check afp-metrics.py (massive, entry-dense theories exist)
 - [Release versioning policy](release-versioning-policy.md) — alpha now: breaking CLI changes ship as patch bumps; switch to major-for-breaking once the CLI settles
+- [Upstream dependency testing](upstream-dependency-testing.md) — layout only (not watchdog), uncapped; test each upstream release explicitly, update our side rather than pin
 - [Query driven by real usage](query-driven-by-real-usage.md) — an upstream formalization workflow now exercises query in composed ways; real usage drives feature priorities
 - [Bare tool invocation](bare-tool-invocation.md) — run pytest/pip/query by bare name; the project venv is already active
 - [Fix root not workaround](fix-root-not-workaround.md) — fix stale tooling (e.g. reinstall the editable shim) instead of routing around it
