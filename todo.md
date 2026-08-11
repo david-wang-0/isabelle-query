@@ -7,26 +7,15 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[layout-publish]` **(release blocker — upstream.)** `pyproject.toml`
-      requires `isabelle-layout>=0.2.0`, and that package is **not on PyPI**
-      (`https://pypi.org/pypi/isabelle-layout/json` → 404).  HEAD is therefore
-      installable from this checkout, where a local install satisfies the
-      dependency, and not from an index; v0.6.5 declared no dependencies at
-      all, so the released wheel and HEAD differ in exactly this way.  Nothing
-      here can fix it: `isabelle-layout` 0.2.0 has to be published before 0.6.6
-      is cut.  Confirm the floor against what actually gets published — 0.1.x
-      existed only as a local install and 0.2.0 is meant to be the first
-      release, so a floor naming any 0.1.x would name something no index can
-      resolve.
-
 - [ ] `[layout-privates]` `common.py` imports 24 names from `isabelle-layout`,
       **eight of them private** (`_tokenize_root`, `_resolve_thy_file`,
       `_parse_root_theories`, `_parse_root_directories`, `_read_marker`,
       `_INFRA_ROOTS`, `_THY_HEADER_RE`, `_NONHOL_DISTRIBUTION_BASES`).  A
       package may move a private name in a patch release, so each one is a
       reason query cannot state a loose dependency with a straight face — and
-      the dependency is now uncapped, which makes that the live risk rather
-      than a theoretical one.  `tests/test_layout_surface.py` turns a REMOVAL
+      the dependency is now uncapped AND published, so pip will pick up the
+      next release without asking — layout went 0.1.1 -> 0.2.0 -> 0.2.2 in
+      two days, which is the cadence this has to survive.  `tests/test_layout_surface.py` turns a REMOVAL
       into a named failure; a silent change of behaviour in a name that
       survives is still uncovered, and only retiring the import closes it.
       Each is either something layout should make public (`_tokenize_root` and

@@ -37,6 +37,13 @@ with `common` (session/ROOT discovery, import closure), `shape` + `shape_cmds`
 (the proof-shape family), and `scripts/` (offline table-generation + dev
 utilities) as siblings.
 
+`common` holds almost no code: the ROOT / session / theory-header parser moved
+out to **`isabelle-layout`** (on PyPI, query's one runtime dependency) and this
+module re-exports it, so existing callers did not have to move. New code should
+import `isabelle_layout` directly. The dependency is deliberately uncapped —
+`tests/test_layout_surface.py` pins the 24 names query reaches for, eight of
+them private, which is what a version range was standing in for.
+
 - `model` — dataclasses (`Entry`, `TheorySection`, `CallGraph`), plus the two
   redacted views every scanner reads: `live_source()` (noise blanked, terms
   kept — a citation scan must see `mono` in `lemma "mono f"`) and

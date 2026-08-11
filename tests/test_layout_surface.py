@@ -2,8 +2,14 @@ r"""The `isabelle-layout` names `common.py` re-exports must all still be there.
 
 `pyproject.toml` used to cap the dependency at `<0.2.0` on the reasoning that a
 pre-1.0 parser everything rests on is not somewhere to learn about a breaking
-change from a user's traceback.  The cap is gone — both packages are released
-together, so a break surfaces here first — and this test is what replaces it.
+change from a user's traceback.  The cap is gone, and this test is what
+replaces it.
+
+That trade is now live rather than hypothetical: `isabelle-layout` is published
+on PyPI and releases on its own cadence, which it has already exercised — query
+saw 0.1.1, 0.2.0 and 0.2.2 in the space of two days, and pip will pick up the
+next one without asking.  This test passed unchanged across all three, which is
+the evidence that it is the right instrument and not merely a comforting one.
 
 The mechanism it pins is already load-bearing: `common.py` imports every one of
 these at MODULE level, so a name that disappears upstream fails

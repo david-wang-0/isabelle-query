@@ -10,7 +10,10 @@ parses in a fraction of a second, and the whole AFP in a couple of minutes. It i
 aimed at projects big enough that grep-and-examine has stopped working — AFP
 entries, the AFP itself, or industrial verification.
 
-Pure Python, no runtime dependencies.
+Pure Python. One runtime dependency,
+[isabelle-layout](https://pypi.org/project/isabelle-layout/) — the ROOT and
+theory-header parser, split out so that reading an Isabelle project's structure
+does not require installing a CLI. `pip` fetches it for you.
 
 ## Commands
 
@@ -98,7 +101,8 @@ $ echo $?
 
 ## Installation
 
-Requires Python 3.9 or greater. Installs a `query` command on your `PATH`.
+Requires Python 3.9 or greater. Installs a `query` command on your `PATH`, and
+pulls `isabelle-layout` from PyPI.
 
 ```sh
 pip install isabelle-query     # from PyPI (once published)

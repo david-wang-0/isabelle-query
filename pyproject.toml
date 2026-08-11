@@ -50,11 +50,13 @@ classifiers = [
 # name that still exists is the residual risk, and the answer to that is to stop
 # importing layout's privates, not to write a version range.
 #
-# The floor is 0.2.0 because that is the first PUBLISHED release: 0.1.x existed
-# only as a local install, so an earlier floor names something no index can
-# resolve.
+# The floor is 0.2.2 because that is what is actually ON PyPI — its only
+# release.  Naming 0.2.0, which existed only as a local install, would be a
+# floor no index can resolve and would read as satisfied by something that
+# cannot be fetched.  Verified at 0.2.2: suite green, AFP closure CLOSED over
+# 9,910 theories, 57,064 entries unchanged.
 dependencies = [
-    "isabelle-layout>=0.2.0",
+    "isabelle-layout>=0.2.2",
 ]
 
 [project.scripts]

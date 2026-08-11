@@ -13,14 +13,20 @@ downstream able to tell.
 
 That is a distribution problem, not a code problem.  The code moved, unchanged
 and verified unchanged (68362 comparisons over the AFP and the Isabelle
-distribution, 0 disagreements), to `isabelle-layout`.  This module now
-re-exports it.
+distribution, 0 disagreements), to `isabelle-layout`, which is now on PyPI and
+is this package's one runtime dependency.  This module re-exports it.
+
+The case that prompted it has since taken the offer: `isabelle-watchdog` 0.3.1
+declares `isabelle-layout>=0.2.2`, having previously declared no runtime
+dependencies at all.  It could not depend on this module without taking a CLI
+it does not use; it can depend on a parser.
 
 **Nothing changes for callers today.**  A dozen or so scripts in downstream
 projects import `isabelle_query.common` directly, as do `cli`, `parsing` and
 `commands` in this package.  They all keep working, so there is no flag day;
-consumers move to `isabelle_layout` individually, at whatever pace suits.  New
-code should import from `isabelle_layout` directly:
+consumers move to `isabelle_layout` individually, at whatever pace suits — and
+can now `pip install isabelle-layout` to do it.  New code should import from
+`isabelle_layout` directly:
 
     from isabelle_layout import iter_sessions, session_theories
     from isabelle_layout.distribution import is_hol_base
