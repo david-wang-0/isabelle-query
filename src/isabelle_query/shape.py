@@ -62,7 +62,8 @@ from typing import NamedTuple
 
 from isabelle_query import graph
 from isabelle_query.model import Entry, TheorySection
-from isabelle_query.parsing import PROOF_RE, _PROOF_INLINE_RE, _balanced_end
+from isabelle_query.parsing import (
+    ISA_WORD_CHAR, PROOF_RE, _PROOF_INLINE_RE, _balanced_end)
 from isabelle_query.graph import (
     CLOSING_KEYWORDS as _CLOSING_KEYWORDS,
     CONTEXT_KEYWORDS as _CONTEXT_KEYWORDS,
@@ -459,7 +460,7 @@ def _line_set(spans: list[tuple[int, int]]) -> set[int]:
 # control `\<^sub>` — and a name with glued sub/superscripts, `x\<^sub>1` — is
 # one token, not split at the backslash.  `\S` then picks up standalone operators
 # and delimiters (`=`, `(`, `+`, `,`), one token each; whitespace is skipped.
-_STMT_TOKEN_RE = re.compile(r"(?:\\<\^?\w+>|[\w'])+|\S")
+_STMT_TOKEN_RE = re.compile(rf"{ISA_WORD_CHAR}+|\S")
 
 
 def _stmt_tokens(text: str) -> list[str]:

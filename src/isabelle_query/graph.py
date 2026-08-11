@@ -35,7 +35,8 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
 )
-from isabelle_query.parsing import _line_mask
+from isabelle_query.parsing import ISA_MARKUP, ISA_WORD_CHAR, _line_mask
+
 
 def _build_line_index(sections: list[TheorySection]
                       ) -> dict[str, list[tuple[int, int, Entry]]]:
@@ -350,7 +351,7 @@ def _build_call_graph(sections: list[TheorySection],
     #    double-quoted at the use site, so we also look up whole quoted
     #    spellings.  All three hashed into name_set are the linear-time
     #    equivalent of the per-name boundary search.
-    sym_re = re.compile(r"(?:\\<\^?\w+>|[\w'])+")
+    sym_re = re.compile(rf"{ISA_WORD_CHAR}+")
     word_re = re.compile(r"[\w']+")
     quoted_re = re.compile(r'"([^"]+)"')
 
@@ -650,7 +651,7 @@ _PROP_TEXT_RE = re.compile(r'"([^"]*)"|\\<open>(.*?)\\<close>')
 # Token stream for the fact walk: names (with internal dots for qualified
 # spellings), the `..` proof, and the structural chars that delimit method args.
 _FACT_TOK_RE = re.compile(
-    r"\.\.|(?:\\<\^?\w+>|[\w'])(?:\\<\^?\w+>|[\w'.])*|[():,|\[\]]|:")
+    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_MARKUP}|[\w'.])*|[():,|\[\]]|:")
 # Structural tokens that never name a fact.
 _STRUCTURAL = frozenset({"(", ")", "[", "]", "|", ",", ":", ".."})
 

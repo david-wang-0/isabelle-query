@@ -163,7 +163,18 @@ QUOTED_NAME_RE = re.compile(r'^"([^"]+)"')
 # and subscript controls (\<^sub>1).  Treating `\<...>` runs as name
 # characters captures the many AFP entries whose names are Greek letters or
 # decorated identifiers, which a plain `\w[\w']*` pattern misses.
-SYM_NAME_RE = re.compile(r"((?:\\<\^?\w+>|\w)(?:\\<\^?\w+>|[\w'])*)")
+#
+# ONE Isabelle markup token, and one character of an Isabelle identifier (a
+# markup token counts as a single character).  Every name and token regex in
+# the package is built from these two rather than respelling them: the atom
+# was written out eight times across `parsing`, `graph`, `shape` and
+# `commands`, which is eight places to update when the lexical fact changes
+# and eight chances for one of them to drift.  Where a regex below still
+# differs, the difference is deliberate and commented — a target name admits
+# `.`, an entry name does not.
+ISA_MARKUP = r"\\<\^?\w+>"
+ISA_WORD_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
+SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_WORD_CHAR}*)")
 # Isabelle structural control symbols are not fact names: cartouche
 # delimiters (\<open>/\<close>) and the comment marker (\<comment>) can sit
 # where a name is expected (a cartouche statement, or a `\<comment> \<open>
@@ -289,7 +300,7 @@ _AND_NAME_RE = re.compile(
 # Built from the same symbol-aware name fragment the rest of the parser uses,
 # because a constructor is routinely spelled with markup: `View\<^sub>m` reads
 # as `View` under a plain `[A-Za-z][\w']*`, which would index the wrong name.
-_ISA_NAME = r"(?:\\<\^?\w+>|[A-Za-z])(?:\\<\^?\w+>|[\w'])*"
+_ISA_NAME = rf"(?:{ISA_MARKUP}|[A-Za-z]){ISA_WORD_CHAR}*"
 # `disc: Ctor` at the head of an alternative; the `disc:` part is optional.
 _ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
 # `(sel: type)` anywhere in the alternative's argument list.  The `(?!:)` is
@@ -1774,7 +1785,7 @@ _TARGET_OPEN_RE = re.compile(
 # the two in step, and the dot is the one thing genuinely particular to a
 # target.  The quoted spelling (`locale "functor" =`) is handled in
 # `_target_name`, as `_name_from` handles it for entries.
-_TARGET_NAME_RE = re.compile(r"(?:\\<\^?\w+>|[A-Za-z_])(?:\\<\^?\w+>|[\w'.])*")
+_TARGET_NAME_RE = re.compile(rf"(?:{ISA_MARKUP}|[A-Za-z_])(?:{ISA_MARKUP}|[\w'.])*")
 # First letters of the opener keywords above — a one-character prefilter:
 # bundle, class/context, experiment, instantiation, locale, notepad,
 # overloading/open_bundle, theory.
