@@ -61,17 +61,6 @@ in `CONTRIBUTING.md`.
       `tests/test_layout_surface.py`, with a comment saying the pin is not an
       endorsement.
 
-- [ ] `[symbol-search]` `find` takes a REGEX, so a name containing markup
-      symbols cannot be searched by typing it as displayed: `query find
-      'split\<^sub>i'` reports no match, and the user must know to escape it
-      as `'split\\<\^sub>i'`.  This mattered little while such names were
-      truncated or missing; `[declared-names]` and `[target-names]` have made
-      them first-class in the index, so the index now holds names its own
-      search verb cannot be handed back.  Cheapest fix is to try the pattern
-      as a literal substring when it compiles to a regex that matches nothing
-      — care needed, since that is a silent fallback and could mask a genuine
-      typo in a pattern the user meant as a regex.
-
 - [ ] `[record-fields]` **(correctness.)** A `record` declares a constant per
       field — `record state = ip :: "ip" | sn :: "sqn"` binds `ip` and `sn` as
       selectors — and none is indexed.  `[declared-names]` deliberately left

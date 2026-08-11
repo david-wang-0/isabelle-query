@@ -31,7 +31,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
 )
-from isabelle_query.parsing import _isa_word_pattern
+from isabelle_query.parsing import ISA_MARKUP, _isa_word_pattern
 from isabelle_query.graph import (
     _bfs_depths,
     _build_call_graph,
@@ -301,14 +301,47 @@ def cmd_theory(sections: list[TheorySection], name: str,
     print("```")
 
 
+_PAT_MARKUP_RE = re.compile(ISA_MARKUP)
+
+
+def _user_pattern(pattern: str) -> str:
+    r"""Make a user-typed search pattern mean what the user meant.
+
+    Two rewrites, both for the same reason: a pattern that quietly matches
+    nothing is worse than one that errors, because the user is told "no
+    matches" and believes it.
+
+    * Shell users reach for grep-style escaped alternation (``a\|b\|c``); in
+      Python's ``re`` that is a literal ``|`` character.
+    * An Isabelle name may contain markup — ``split\<^sub>i_tree`` — and query
+      prints names that way, so it is what a user copies back in.  As a regex
+      that is not merely imprecise, it is unmatchable: ``\<`` is a literal
+      ``<`` and the ``^`` after it is a start-of-string ANCHOR sitting
+      mid-pattern.  Over 120 AFP entries, 1,326 of the 1,691 markup-carrying
+      names could not be found by their own printed spelling
+      (`scripts/probe_symbol_names.py`).
+
+    Only the ``\<...>`` spans are escaped, so the rest stays a regex and
+    ``split\<^sub>i.*_smeq`` still means what it looks like.  This is also what
+    makes the rewrite safe: ``\<`` has no other meaning in Python's ``re``
+    (it is just ``<``), so no working pattern changes meaning.
+    """
+    pattern = pattern.replace(r"\|", "|")
+    return _PAT_MARKUP_RE.sub(lambda m: re.escape(m.group(0)), pattern)
+
+
+def _compile_user_pattern(pattern: str, flags: int = 0) -> "re.Pattern[str]":
+    """`_user_pattern` + compile, reporting a bad regex instead of raising."""
+    try:
+        return re.compile(_user_pattern(pattern), flags)
+    except re.error as exc:
+        print(f"ERROR: invalid regex '{pattern}': {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_find(sections: list[TheorySection], pattern: str,
              flags: "CmdFlags") -> None:
-    # Shell users often reach for grep-style escaped alternation
-    # ('a\|b\|c'); in Python's re, '\|' is the literal '|' character,
-    # which would silently match nothing.  Preprocess to PCRE-style
-    # alternation so the pattern does what the user expects.
-    pattern = pattern.replace(r"\|", "|")
-    pat = re.compile(pattern, re.IGNORECASE)
+    pat = _compile_user_pattern(pattern, re.IGNORECASE)
     by_theory = _sections_by_theory(sections)
     matches: list[Entry] = []
     if flags.statement:
@@ -1483,16 +1516,11 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     `--with-comments` to also include prose matches; each non-live hit is
     tagged.
 
-    Pattern accepts both Python regex syntax (`a|b|c`) and shell-grep-
-    style alternation (`a\\|b\\|c`); the latter is rewritten to the
-    former before compiling, mirroring `cmd_find`'s behaviour.
+    The pattern is read by `_user_pattern`, exactly as `cmd_find` reads its
+    own: shell-grep alternation (`a\\|b\\|c`) and Isabelle markup
+    (`\\<^sub>`) both mean here what they look like.
     """
-    pattern = pattern.replace(r"\|", "|")
-    try:
-        pat = re.compile(pattern)
-    except re.error as exc:
-        print(f"ERROR: invalid regex '{pattern}': {exc}", file=sys.stderr)
-        sys.exit(2)
+    pat = _compile_user_pattern(pattern)
 
     all_hits = _grep_sections(sections, pat)
     live_hits = [h for h in all_hits if h[4]]

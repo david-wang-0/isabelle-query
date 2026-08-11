@@ -50,6 +50,17 @@ exited 0, and a shell path-expansion bug turned that into a run of plausible
 zero-record censuses. A root that cannot be read reports on stderr and exits
 `2`, a code deliberately distinct from `1`.
 
+**A user-typed pattern goes through `commands._user_pattern`, never straight to
+`re.compile`.** This is the same rule one level down: a pattern that cannot
+match is a silent zero the caller has no reason to doubt. Two rewrites live
+there — shell-grep `\|` to `|`, and Isabelle markup (`\<^sub>`) escaped so the
+`^` is not read as a start-of-string anchor. The second is what makes `query
+find 'split\<^sub>i'` work, and it is a case of the tool accepting its own
+output as input: `show` and `callers` already took that name, `find` did not.
+Add a third rewrite here rather than at a call site, and route new
+pattern-taking verbs through `_compile_user_pattern`, which also reports a bad
+regex on stderr and exits `2` instead of raising.
+
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
 inline:

@@ -1070,7 +1070,9 @@ def _build_parser() -> argparse.ArgumentParser:
                                     "--statement to match the statement)")
     _add_subject_list_arg(p, cmd="find", dest="pattern", metavar="PATTERN",
                           noun="regex pattern", verb="run each search",
-                          extra="matching is case-insensitive")
+                          extra="matching is case-insensitive; an Isabelle "
+                                "name may be pasted as printed "
+                                "(`split\\<^sub>i`)")
     _add_mode_flags(p)
     _add_verbatim_flag(p)
     _add_statement_flag(
@@ -1148,7 +1150,8 @@ def _build_parser() -> argparse.ArgumentParser:
                             "(a PATH may carry a `:A..B` line window)")
     p.add_argument("pattern",
                    help="regex pattern (Python syntax; `\\|` rewritten to `|` "
-                        "for shell-grep compatibility)")
+                        "for shell-grep compatibility, and Isabelle markup "
+                        "`\\<^sub>` taken literally)")
     _add_path_files_arg(p)
     # grep alone honours a `PATH:A..B` (or `PATH:LINE`) line window on a
     # trailing positional — `query grep PAT Foo.thy:100..200` searches only
