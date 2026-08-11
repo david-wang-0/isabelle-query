@@ -1,45 +1,28 @@
-"""Shared ROOT / session parsing — now a re-export of `isabelle-layout`.
+"""Compatibility shim over `isabelle-layout`.  Almost no code lives here.
 
-The parsing that used to live here is a *library*, and it was shipped inside
-an *application*.  Every consumer that wanted a ROOT parser had to install a
-query CLI to get one, and inherit its release cadence, its version floor and
-its userbase's compatibility constraints.  `isabelle-watchdog` is the case
-that made the cost concrete: it runs beside an Isabelle build and takes no
-runtime dependencies on purpose, so rather than depend on this module it wrote
-its own 15-line ROOT reader — which truncated a quoted session name at its
-first space and a bare one at its first `.` or `-`, so a session built as
-`Probe (AFP)` was recorded against a session named `Probe`, with nothing
-downstream able to tell.
+ROOT files, session declarations and theory headers are parsed by
+**`isabelle-layout`**, a separate package on PyPI and this tool's one runtime
+dependency.  Nothing is vendored: every name below is an `import` resolving to
+site-packages, and this module exists only so that callers written against the
+older `isabelle_query.common` keep working.
 
-That is a distribution problem, not a code problem.  The code moved, unchanged
-and verified unchanged (68362 comparisons over the AFP and the Isabelle
-distribution, 0 disagreements), to `isabelle-layout`, which is now on PyPI and
-is this package's one runtime dependency.  This module re-exports it.
-
-The case that prompted it has since taken the offer: `isabelle-watchdog` 0.3.1
-declares `isabelle-layout>=0.2.2`, having previously declared no runtime
-dependencies at all.  It could not depend on this module without taking a CLI
-it does not use; it can depend on a parser.
-
-**Nothing changes for callers today.**  A dozen or so scripts in downstream
-projects import `isabelle_query.common` directly, as do `cli`, `parsing` and
-`commands` in this package.  They all keep working, so there is no flag day;
-consumers move to `isabelle_layout` individually, at whatever pace suits — and
-can now `pip install isabelle-layout` to do it.  New code should import from
-`isabelle_layout` directly:
+**New code should import `isabelle_layout` directly**:
 
     from isabelle_layout import iter_sessions, session_theories
     from isabelle_layout.distribution import is_hol_base
 
-Two things did not move, deliberately:
+Two names are this module's own rather than a straight re-export:
 
-* `run_guarded` is still defined below.  It is six lines, not Isabelle-specific
-  at all, and already copied into `isabelle_watchdog.guard`; a third home is
-  how one utility becomes three subtly different utilities.
-* `classify_import` moved *private*.  Deciding what counts as "infrastructure"
-  is an analysis judgement about a corpus rather than a reading of a file, and
-  no consumer outside this repository ever imported it.  It is aliased below
-  so this module's surface is unchanged.
+* `classify_import` — upstream's is private (`_classify_import`), because
+  deciding what counts as "infrastructure" is an analysis judgement about a
+  corpus rather than a reading of a file.  Aliased back to its old public
+  spelling here, where that judgement is wanted.
+* `run_guarded` — defined below, deprecated, and called by nothing in this
+  repository.  See `[watchdog-guard]` in `todo.md`.
+
+Why the parser lives in a separate package at all is recorded where this
+project records design decisions — in the commit, not in a comment that drifts
+from it: `git log --grep='common.py becomes a re-export'`.
 """
 
 from __future__ import annotations
@@ -47,9 +30,9 @@ from __future__ import annotations
 import sys
 from typing import Callable, TypeVar
 
-# --- the moved API, re-exported ------------------------------------------
+# --- re-exports from the isabelle-layout package --------------------------
 #
-# Public names first: exactly what this module documented before the split.
+# Public names first: exactly the surface this module documents.
 from isabelle_layout import (  # noqa: F401
     SessionInfo,
     default_t_dir,
@@ -91,10 +74,10 @@ from isabelle_layout.theories import (  # noqa: F401
     _THY_HEADER_RE,
 )
 
-# The marker this tool has always read.  `isabelle_layout.MARKER_NAME` is now
-# the neutral `.isabelle-layout`, and re-exporting *that* here would silently
-# change the value of a documented constant.  `default_t_dir` reads both, so
-# behaviour is unchanged either way; the constant keeps its old meaning.
+# The marker this tool reads.  `isabelle_layout.MARKER_NAME` is the neutral
+# `.isabelle-layout`, and re-exporting *that* here would silently change the
+# value of a constant this tool documents.  `default_t_dir` reads both, so
+# behaviour is the same either way; the constant keeps its own meaning.
 from isabelle_layout.project import LEGACY_MARKER_NAME as MARKER_NAME  # noqa: F401
 
 
@@ -106,22 +89,11 @@ def run_guarded(label: str, thunk: Callable[[], _T]) -> "_T | None":
     its caller.  On any exception, print `<label>: skipped (Type: msg)`
     to stderr and return None; on success return thunk()'s result.
 
-    Used by the build-trajectory capture (`bin/build_record.py` and the
-    `bin/isabelle-watchdog.py` invocation of it), where a failure in the
-    optional logging must never change the build's exit code.  Both call
-    sites route through here so the swallow-and-warn message has a single
-    definition; they remain two distinct guards because they cover
-    different scopes (build_record guards its record logic, the watchdog
-    additionally guards the `import build_record` that a guard inside
-    build_record cannot).
-
-    DEPRECATED — unused in this repository; its build-trajectory callers
-    live in the upstream ``bin/`` tooling, not here.  Retained pending that
-    tooling's review.  Do not add new callers.
-
-    Deliberately *not* moved to `isabelle-layout`: it is not Isabelle-specific,
-    and `isabelle_watchdog.guard` already carries a copy for the callers that
-    actually use it.
+    DEPRECATED, and the only function this module defines.  Nothing in this
+    repository calls it; its callers are the build-trajectory capture in the
+    upstream ``bin/`` tooling, and `isabelle_watchdog.guard` carries its own
+    copy.  Do not add new callers — see `[watchdog-guard]` in `todo.md`, which
+    is about deleting this.
     """
     try:
         return thunk()

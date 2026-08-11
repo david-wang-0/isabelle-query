@@ -7,21 +7,43 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[layout-privates]` `common.py` imports 24 names from `isabelle-layout`,
-      **eight of them private** (`_tokenize_root`, `_resolve_thy_file`,
-      `_parse_root_theories`, `_parse_root_directories`, `_read_marker`,
-      `_INFRA_ROOTS`, `_THY_HEADER_RE`, `_NONHOL_DISTRIBUTION_BASES`).  A
-      package may move a private name in a patch release, so each one is a
-      reason query cannot state a loose dependency with a straight face — and
-      the dependency is now uncapped AND published, so pip will pick up the
-      next release without asking — layout went 0.1.1 -> 0.2.0 -> 0.2.2 in
-      two days, which is the cadence this has to survive.  `tests/test_layout_surface.py` turns a REMOVAL
-      into a named failure; a silent change of behaviour in a name that
-      survives is still uncovered, and only retiring the import closes it.
-      Each is either something layout should make public (`_tokenize_root` and
-      the two ROOT sub-parsers look like library surface) or something query
-      should stop needing (`_INFRA_ROOTS`, `_THY_HEADER_RE`).  Worth raising
-      with the layout project rather than deciding unilaterally here.
+- [ ] `[common-shim]` **What is `common.py` for, now that the parser left?**
+      Measured by `scripts/probe_common_surface.py`: it offers **26** names,
+      in-repo code wants **15**, and of those **9 are plain redirects** to
+      public `isabelle_layout`.  The remaining six are the module's only claim
+      to exist -- and five of them are wanted **by tests alone**
+      (`MARKER_NAME`, `classify_import`, `_strip_block_comments`,
+      `_strip_cartouches`, `is_hol_base`), while the sixth,
+      `is_known_nonhol_base`, is public in `isabelle_layout.distribution`.
+      So **no production code in query needs anything that is not public
+      upstream**; `common.py` is a redirect kept alive by two things, and both
+      are now decidable:
+
+      * **The deprecation window.**  11 of the 26 names are used by nothing in
+        this repository -- they are there for callers outside it that still
+        import `isabelle_query.common`.  That window was opened when
+        `isabelle-layout` was unpublished and there was nowhere else to go;
+        it is on PyPI now, so those callers can move.
+      * **Tests of code that is no longer ours.**  `test_thy_header.py`,
+        `test_session_theories.py`, `test_base_logic.py` and
+        `test_discover_roots.py` test the moved parser through query's shim,
+        and `isabelle-layout` already carries its own versions of all four
+        (plus `test_public_api.py`, `test_project_root.py`).  These duplicates
+        are the *only* reason query touches layout's private names at all.
+
+      This subsumes `[layout-privates]`, which framed the private imports as
+      query's exposure.  They are not: **8 of the 9 private re-exports are
+      unused in this repository**.  The exposure is a service to downstream
+      callers, and closing the window removes it without changing a line of
+      query's logic -- which is also what would let the uncapped dependency
+      stop being a standing risk.
+      Order: confirm no downstream project still imports
+      `isabelle_query.common` (this cannot be checked from here); drop the 11
+      unused re-exports; retire the duplicated tests in favour of layout's;
+      then decide whether the six survivors justify a module or should be two
+      direct `isabelle_layout` imports at their call sites.
+      Deleting a compatibility surface is outward-facing -- the user's call,
+      not a tidy-up.
 
 - [ ] `[watchdog-guard]` `common.run_guarded` is dead here and duplicated
       upstream.  Nothing in `src/`, `tests/` or `scripts/` calls it; its own
