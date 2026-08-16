@@ -132,10 +132,22 @@ fan-in and width are unaffected.
 
 The per-project verbs (`callers` / `callees` / `unused` / `methods` / `shape`)
 instead resolve a **session-exact** table from a loaded Isabelle heap when one is
-built — cached, and never a build — falling back to the committed table with a
-warning. Heaps are looked for where Isabelle looks: `$ISABELLE_HEAPS` first, then
-`$ISABELLE_HEAPS_SYSTEM`, so a stock install with nothing built locally still
-resolves the exact table from the distribution's own `HOL`.
+built — cached, and never a build. Heaps are looked for where Isabelle looks:
+`$ISABELLE_HEAPS` first, then `$ISABELLE_HEAPS_SYSTEM`, so a stock install with
+nothing built locally still resolves the exact table from the distribution's own
+`HOL`. With no heap, a HOL-base project falls back to the same broad table
+`census` uses, so the two agree; only a positively non-HOL project (`ZF`, `FOL`)
+is stepped down to the minimal Pure core, and that case is **warned** on stderr.
+
+**Using the package as a library.** `shape.analyze_proof` and friends read the
+same table, and importing the package binds the broad committed one — so a direct
+caller that configures nothing gets the numbers `census` would print, verified
+proof-for-proof. Two reasons to change it: call `graph.use_pure_namespace()` for
+a non-HOL project, or `graph.configure_namespace(methods, attributes, keywords)`
+to install a session-exact table you resolved yourself. Getting this wrong is
+quiet rather than loud — a table missing `auto` leaves `Step.method` empty and
+`trivial_frac` `None`, which reads as "this proof discharges nothing" rather than
+as an error.
 
 A second, smaller committed table backs `const_canon_est`: a notation table
 mapping operator glyphs to their Isabelle constant (`\<le>` → `less_eq`),

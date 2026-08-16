@@ -61,6 +61,22 @@ Add a third rewrite here rather than at a call site, and route new
 pattern-taking verbs through `_compile_user_pattern`, which also reports a bad
 regex on stderr and exits `2` instead of raising.
 
+**A configurable global that moves a measurement gets ONE default, and the
+library caller gets the same one as the CLI.** Third instance of the silent-zero
+family, and the worst-behaved: `graph`'s method table is late-bound, the CLI
+bound it at dispatch, and `import isabelle_query` left the minimal Pure floor —
+so `shape.analyze_proof` called directly returned numbers no `query` run would
+ever print. It failed *selectively* (`simp` and `rule` are in the floor; `auto`,
+`blast`, `metis` are not), which is why it read as data: a spot-checked `by simp`
+proof agreed with the census exactly while 62.3% of proofs' `trivial_frac`
+silently became `None` — "discharges nothing" for proofs that discharge
+everything. The default is now the broad committed union both paths use
+(`graph.use_census_namespace`), and stepping *down* is an explicit call
+(`graph.use_pure_namespace`), never an inherited default. When a global like this
+has to differ by context, make each context bind what it wants — a branch that
+relies on "the default is already right" stops being right the moment the default
+moves, and nothing fails when it does.
+
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
 inline:
