@@ -188,6 +188,24 @@ in `CONTRIBUTING.md`.
       vs grep-brain `-n` = line-numbers — belongs to the `[feature-audit]`
       `-n`/`--names` overload question, not to a grep default change.
 
+- [ ] `[trivial-frac-undefined]` `trivial_frac` returns `None` for two different
+      things: a genuinely structural proof body (no `by`/`apply` step at all),
+      and a proof whose discharge methods the **bound table does not carry**.
+      The second is a configuration fact, not a fact about the proof, and the
+      caller cannot tell them apart — which is what made `[library-table]` hard
+      to diagnose downstream: the symptom was an axis-specific `None`, and
+      `None` looked like an answer.  Mostly defused now that both CLI and
+      library default to the broad union, so the remaining exposure is narrow:
+      a non-HOL project on the Pure floor (warned, at least), and the ~2.8% of
+      proofs using methods their own entry defines (an Eisbach `cs_concl`),
+      which no fixed table can carry.  Options, cheapest first: leave it and
+      rely on the docstring; return a sentinel distinguishing the two; or have
+      `method_kind_counts` carry an `unrecognised` bucket counting steps that
+      *looked* like a discharge (`by`/`apply` introducer) but named nothing the
+      table knows — that bucket is the honest signal, and unlike a sentinel it
+      composes with the existing histogram.  Note the count is recoverable
+      today by a caller willing to rescan, which is an argument for the third.
+
 - [ ] `[graph-export]` Machine-readable output for the citation graph
       (`callers`/`callees` adjacency) and the import graph
       (`deps`/`uses`) as `--json` and/or DOT, for piping into `jq`,
