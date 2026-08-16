@@ -29,12 +29,13 @@ from isabelle_query import _namespace_resolve as _nsr  # noqa: E402
 from isabelle_query import graph  # noqa: E402
 
 
-# The shipped committed table is the minimal Pure core; HOL's auto / blast /
-# induct / induction are NOT in it (they are resolved per-session at runtime).
-# So a test that asserts on the recognition of HOL proof methods validates
-# against a runtime-resolved HOL table when Isabelle can supply one, and is
-# skipped — never failed — otherwise, so the suite stays green on a bare
-# no-Isabelle CI while still exercising the real table on a developer machine.
+# The import-time default is the BROAD committed union, which already carries
+# auto / blast / induct (see `graph`'s namespace block) — so most tests about HOL
+# method recognition need no help.  `needs_hol_methods` is for the stricter claim:
+# validate against a *session-exact* table dumped from a running Isabelle, so a
+# test pinning method semantics is checked against the prover rather than against
+# our own committed approximation of it.  Skipped — never failed — when Isabelle
+# cannot supply one, so the suite stays green on a bare no-Isabelle CI.
 _HOL_TABLE_CACHE: list = []
 
 
@@ -49,17 +50,19 @@ def _hol_table():
 
 
 def needs_hol_methods(test_fn):
-    """Bind the runtime HOL proof-method table for the wrapped test (restoring
-    the shipped default after), or ``skipTest`` when Isabelle cannot supply it.
+    """Bind the **session-exact** HOL proof-method table dumped from a running
+    Isabelle for the wrapped test (restoring the previous table after), or
+    ``skipTest`` when Isabelle cannot supply one.
 
-    For the handful of tests about recognising HOL methods (auto/blast/induct),
-    which the minimal shipped Pure table deliberately does not carry."""
+    For the handful of tests whose claim is about HOL's method semantics rather
+    than about our scanning: they are checked against the prover's own table, not
+    the committed union that would otherwise answer them."""
     @functools.wraps(test_fn)
     def wrapper(self, *args, **kwargs):
         table = _hol_table()
         if table is None:
-            self.skipTest("HOL proof-method table unavailable — no Isabelle / "
-                          "HOL heap (the shipped table is the minimal Pure core)")
+            self.skipTest("session-exact HOL proof-method table unavailable — "
+                          "no Isabelle / no built HOL heap")
         saved = (graph._PROOF_METHODS, graph._ATTRIBUTES, graph._KEYWORDS)
         self.addCleanup(lambda: graph.configure_namespace(*saved))
         graph.configure_namespace(table["methods"], table["attributes"],

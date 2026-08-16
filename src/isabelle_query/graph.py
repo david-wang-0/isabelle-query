@@ -27,6 +27,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from operator import itemgetter
 
+from isabelle_query import _census_namespace as _census_ns
 from isabelle_query import _isabelle_namespace as _isa_ns
 from isabelle_query.model import (
     CallGraph,
@@ -171,15 +172,35 @@ _ARG_MODIFIERS = frozenset({"add", "del", "only", "OF", "THEN"})
 
 # The router's namespace tables — the single reconfigurable source of truth for
 # every consumer (this module, `commands`' method verb, `shape`'s identifier
-# classifier).  They start bound to the committed static table so **import stays
-# pure**: importing the package spawns no Isabelle and stats no heap, which is
-# what keeps `query` startup sub-100ms and — crucially — keeps every direct-call
-# test deterministic regardless of whether Isabelle is installed on the machine
+# classifier).  They start bound to a *committed* table so **import stays pure**:
+# importing the package spawns no Isabelle and stats no heap, which is what keeps
+# `query` startup sub-100ms and — crucially — keeps every direct-call test
+# deterministic regardless of whether Isabelle is installed on the machine
 # running the suite.  `configure_namespace()` rebinds them once, at CLI dispatch,
 # after a caller has resolved a runtime-dumped table; nothing rebinds them at
 # import time.
-_PROOF_METHODS = _isa_ns.PROOF_METHODS
-_ATTRIBUTES = _isa_ns.ATTRIBUTES
+#
+# WHICH committed table is a separate question from committed-vs-dumped, and the
+# answer is the **broad HOL-family union** (`_census_namespace`), not the minimal
+# Pure floor: the default a *library* caller gets must be the one the CLI gets.
+# `cli._configure_namespace` binds the union unconditionally for `shape census`
+# and — via `_bind_committed_fallback` — for any HOL-base project with no built
+# heap, which is the common case.  So the Pure floor was a table almost no CLI run
+# ever saw, yet it was what `import isabelle_query` handed every direct caller,
+# and the gap was silent, large and one-directional: over 40 AFP entries /
+# 102,927 steps the floor extracted a `Step.method` on 23.1% of steps against the
+# union's 53.5%, dropping `auto`/`blast`/`metis`/`induct` and with them the
+# `trivial_frac` of 62.3% of proofs — always toward "discharges nothing"
+# (`scripts/probe_library_namespace.py`).  A broader table is safe here because
+# `_leading_method`/`_scan_methods` read it in *introducer* position only, where a
+# match is a real method by construction; the one position-blind consumer
+# (`shape.classify_identifier`) measured Δ=0 against per-entry-exact tables.
+# `use_pure_namespace()` restores the floor, which only a positively non-HOL
+# project wants.
+_PROOF_METHODS = _census_ns.PROOF_METHODS
+_ATTRIBUTES = _census_ns.ATTRIBUTES
+# Keywords are logic-invariant (Pure outer syntax), so there is only ever one
+# table for them and `_census_namespace` deliberately carries none.
 _KEYWORDS = _isa_ns.KEYWORDS
 # Tokens that are never a *fact citation*: proof methods (`by simp`),
 # attributes (`[OF g]`), keywords (`proof`, `and`), inline argument modifiers,
@@ -198,10 +219,12 @@ def configure_namespace(methods, attributes, keywords) -> None:
     """Rebind the router's namespace tables and rebuild the derived reject-set.
 
     The one seam through which a resolved (e.g. runtime-dumped) Isabelle
-    namespace reaches the router.  Call it **only from the CLI dispatch path**,
-    never at import: the module-level bindings default to the committed static
-    table, so importing the package spawns nothing and every direct-call test
-    sees a fixed table.  `commands` (the `methods` verb) and `shape` (its
+    namespace reaches the router.  **The package never calls it at import** — the
+    module-level bindings default to the committed broad union, so importing
+    spawns nothing and every direct-call test sees a fixed table; the CLI binds
+    at dispatch, and a library caller may bind whenever it likes (see
+    :func:`use_census_namespace` / :func:`use_pure_namespace` for the two
+    committed tables).  `commands` (the `methods` verb) and `shape` (its
     identifier classifier) read these same globals late-bound, so one call
     reconfigures all three consumers coherently.  `keywords` is passed through
     unchanged — the dump supplies only methods/attributes; keywords stay the
@@ -213,6 +236,32 @@ def configure_namespace(methods, attributes, keywords) -> None:
     _KEYWORDS = frozenset(keywords)
     _NON_CITATION = _PROOF_METHODS | _ATTRIBUTES | _KEYWORDS | _ARG_MODIFIERS
 
+
+def use_census_namespace() -> None:
+    """Bind the broad committed HOL-family union — **the import-time default**.
+
+    The supported way back to the default after a caller has bound something
+    else, and the table ``shape census`` binds unconditionally so its output
+    regenerates identically anywhere.  A library caller measuring a HOL project
+    needs no call at all; this exists so that "put it back" is a supported
+    operation rather than reaching into ``_census_namespace``.
+    """
+    configure_namespace(_census_ns.PROOF_METHODS, _census_ns.ATTRIBUTES,
+                        _isa_ns.KEYWORDS)
+
+
+def use_pure_namespace() -> None:
+    """Bind the minimal committed Pure floor (37 methods: ``simp``, ``rule``,
+    ``unfold``, …; **no** ``auto``/``blast``/``induct``, which are HOL's).
+
+    For a positively non-HOL project — ``ZF``, ``FOL``, ``Pure`` — where the HOL
+    union would assert methods this logic does not have.  ``cli._bind_committed_
+    fallback`` calls it for exactly that case.  On a HOL project this floor
+    *silently* under-extracts ``Step.method``, so prefer a session-exact table
+    (:func:`configure_namespace`) or the default union.
+    """
+    configure_namespace(_isa_ns.PROOF_METHODS, _isa_ns.ATTRIBUTES,
+                        _isa_ns.KEYWORDS)
 
 
 def _is_citation_name(name: str, drop_upto: int = _DROP_NAMES_UPTO) -> bool:

@@ -1398,8 +1398,9 @@ def _configure_namespace(ns: argparse.Namespace) -> None:
     binds — so an interactive ``shape`` verb's method-kind / automation
     classification **matches the census** instead of the impoverished Pure floor
     (which knows ``simp``/``rule`` but not ``auto``/``blast``/``induct``).  Only a
-    genuinely non-HOL project keeps the minimal Pure floor and is **warned**, since
-    the HOL union would mis-assert its methods there.  Fan-in and width are
+    genuinely non-HOL project is stepped *down* to the minimal Pure floor and
+    **warned**, since the HOL union would mis-assert its methods there.  Fan-in
+    and width are
     position-based and identical across tables; the fallback only moves the
     name-looked-up method-kind axis (measured: on a real HOL project, fan-in Δ=0,
     method-kind histogram shifts materially).
@@ -1414,10 +1415,16 @@ def _configure_namespace(ns: argparse.Namespace) -> None:
     of which heaps are built), so a census is reproducible everywhere; see
     ``_census_namespace`` for why a union is the correct table for the census axes.
 
-    For the other table verbs, pin the committed (Pure) table with
+    For the other table verbs, pin the committed table with
     ``$ISABELLE_QUERY_NAMESPACE=committed`` (a pure short-circuit — the import-time
-    default already *is* it).  Any resolution failure degrades silently to that
-    default: binding the namespace must never break a query.
+    default already *is* it, so this resolves nothing and spawns nothing).  Note
+    the table it pins is the **broad union**, not the Pure floor: the import-time
+    default was moved onto the union so a library caller gets the same table a CLI
+    caller does (see ``graph``'s namespace block and ``[library-table]``), and this
+    short-circuit inherits it.  A non-HOL project that wants the floor should say
+    so with :func:`graph.use_pure_namespace`, since the env var no longer implies
+    it.  Any resolution failure degrades silently to that default: binding the
+    namespace must never break a query.
     """
     if (getattr(ns, "command", None) == "shape"
             and getattr(ns, "shape_command", None) == "census"):
@@ -1451,14 +1458,13 @@ def _bind_census_namespace() -> None:
     Used both by ``shape census`` (which must regenerate identically anywhere) and,
     via :func:`_bind_committed_fallback`, as the *interactive* fallback for a
     HOL-base project with no built heap — so the two paths bind the **same** table
-    and agree on the method-kind / automation axis.  Degrades silently to the
-    import-time committed (Pure) default if the module is somehow unavailable."""
-    try:
-        from isabelle_query import _census_namespace as _census
-        graph.configure_namespace(_census.PROOF_METHODS, _census.ATTRIBUTES,
-                                  _isa_ns.KEYWORDS)
-    except Exception:                                   # noqa: BLE001
-        pass  # keep the Pure default; binding must never break the census
+    and agree on the method-kind / automation axis.
+
+    It is also the **import-time default** (:func:`graph.use_census_namespace`), so
+    on the census path this is now a re-bind rather than a change.  It is kept
+    explicit rather than left implicit: the census must bind its table on purpose,
+    not inherit whatever a default happens to be."""
+    graph.use_census_namespace()
 
 
 def _use_broad_fallback(sess_infos) -> bool:
@@ -1484,12 +1490,17 @@ def _bind_committed_fallback(sess_infos) -> None:
     Broad-fallback project (:func:`_use_broad_fallback`) → the broad census union
     (:func:`_bind_census_namespace`), so an interactive ``shape`` verb matches
     ``shape census`` and knows ``auto``/``blast``/``induct``.  A positively non-HOL
-    project → keep the minimal Pure floor (the import-time default, already bound)
-    and warn, since the HOL union would mis-assert this logic's methods."""
+    project → the minimal Pure floor, and warn, since the HOL union would
+    mis-assert this logic's methods.
+
+    The non-HOL branch **binds** the floor rather than assuming it: the union is
+    the import-time default now, so "leave it alone" would silently hand a ZF
+    project HOL's method table — which is the very thing the warning describes."""
     if _use_broad_fallback(sess_infos):
         _bind_census_namespace()              # broad HOL union — matches the census
     else:
-        _warn_committed_fallback(sess_infos)  # keep Pure floor; flag it
+        graph.use_pure_namespace()            # step *down* off the broad default
+        _warn_committed_fallback(sess_infos)  # …and say so
 
 
 def _warn_committed_fallback(sess_infos) -> None:

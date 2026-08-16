@@ -171,8 +171,9 @@ KEYWORDS = frozenset({{
 
 
 _CENSUS_HEADER = '''\
-"""Broad (HOL-family union) method / attribute namespace for `shape census` —
-GENERATED, do not edit.
+"""Broad (HOL-family union) method / attribute namespace — the router's
+**import-time default** and the table `shape census` binds.  GENERATED, do not
+edit.
 
 Unlike the minimal Pure fallback in ``_isabelle_namespace.py`` (which the *per-
 project* verbs narrow to a session-exact table at runtime), the whole-corpus
@@ -180,6 +181,11 @@ census needs one **fixed, broad, reproducible** table: a census spans many
 logics with no single session to resolve against, and its output ships in
 ``data/`` so it must regenerate identically with **no Isabelle**.  This is that
 table — the union of the base-logic heaps below, over the Pure floor.
+
+It is also what ``graph`` binds at import, so a caller using the package as a
+library gets the same numbers a ``query`` run prints without configuring
+anything; the Pure floor is reached deliberately, via
+``graph.use_pure_namespace()``, and only a positively non-HOL project wants it.
 
 Why a union is correct here (not just convenient): of the three census axes that
 read the table, M5a fan-in never consults it (a separate fixed extractor), and

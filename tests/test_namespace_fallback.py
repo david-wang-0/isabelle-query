@@ -2,8 +2,9 @@
 
 `shape census` and the interactive shape verbs must agree on the method-kind /
 automation axis, so when nothing resolves a HOL-base project binds the SAME broad
-census table the census uses — only a positively-identified non-HOL logic keeps
-the minimal Pure floor + warning.  These tests pin the flipped-default predicate
+census table the census uses — only a positively-identified non-HOL logic is
+stepped down to the minimal Pure floor + warning.  These tests pin the
+flipped-default predicate
 (`common.is_known_nonhol_base`), the project-level decision (`cli._use_broad_
 fallback`), and that the dispatch actually rebinds `graph`'s method table.
 
@@ -73,42 +74,57 @@ class UseBroadFallback(unittest.TestCase):
 
 
 class BindCommittedFallback(unittest.TestCase):
-    """The dispatch rebinds `graph`'s method table for HOL, and warns + leaves the
-    Pure floor for non-HOL.  `auto`/`blast` are the discriminators: absent from the
-    Pure floor, present in the broad census union."""
+    """The dispatch binds `graph`'s method table both ways: UP to the broad union
+    for HOL, and DOWN to the Pure floor (with a warning) for non-HOL.  `auto` is
+    the discriminator: absent from the Pure floor, present in the broad union.
+
+    Each test sets its own *opposite* starting table, so neither direction can
+    pass by accident.  That matters most for the non-HOL case: the broad union is
+    the import-time default now, so a branch that merely warned and left the table
+    alone would hand a ZF project HOL's methods — and a test starting from the
+    floor could never see it."""
 
     def setUp(self):
         self._saved = (graph._PROOF_METHODS, graph._ATTRIBUTES, graph._KEYWORDS)
-        # Start from the minimal Pure floor (import-time default) so `auto` is
-        # absent and a rebind to the broad table is observable.
-        graph.configure_namespace(_isa_ns.PROOF_METHODS, _isa_ns.ATTRIBUTES,
-                                  _isa_ns.KEYWORDS)
-        self.assertNotIn("auto", graph._PROOF_METHODS)   # precondition
 
     def tearDown(self):
         graph.configure_namespace(*self._saved)
 
+    def _start_from_pure(self):
+        graph.use_pure_namespace()
+        self.assertNotIn("auto", graph._PROOF_METHODS)   # precondition
+
+    def _start_from_broad(self):
+        graph.use_census_namespace()
+        self.assertIn("auto", graph._PROOF_METHODS)      # precondition
+
     def test_hol_binds_broad_table(self):
+        self._start_from_pure()
         cli._bind_committed_fallback(
             [Sess("Multitape_Alphabet_Enlargement", "Multitape_TM_Substrate")])
         self.assertIn("auto", graph._PROOF_METHODS)
         self.assertIn("blast", graph._PROOF_METHODS)
 
-    def test_nonhol_keeps_pure_floor_and_warns(self):
+    def test_nonhol_binds_pure_floor_and_warns(self):
+        self._start_from_broad()
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             cli._bind_committed_fallback([Sess("Recursion-Addition", "ZF")])
-        self.assertNotIn("auto", graph._PROOF_METHODS)   # floor unchanged
+        self.assertNotIn("auto", graph._PROOF_METHODS)   # stepped DOWN to the floor
+        self.assertEqual(graph._PROOF_METHODS, _isa_ns.PROOF_METHODS)
         msg = err.getvalue()
         self.assertIn("ZF", msg)
         self.assertIn("not HOL", msg)
 
-    def test_pure_only_project_is_silent(self):
-        # a genuinely Pure project: the floor IS exact, so no warning.
+    def test_pure_only_project_is_silent_but_still_binds(self):
+        # a genuinely Pure project: the floor IS exact, so no warning — but the
+        # binding still has to happen, since the default is no longer the floor.
+        self._start_from_broad()
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             cli._bind_committed_fallback([Sess("SpecCheck", "Pure")])
         self.assertEqual(err.getvalue(), "")
+        self.assertNotIn("auto", graph._PROOF_METHODS)
 
 
 if __name__ == "__main__":

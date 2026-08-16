@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from support import cli, needs_hol_methods, section_from  # noqa: E402
-from isabelle_query import shape  # noqa: E402
+from isabelle_query import graph, shape  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 with open(os.path.join(FIXTURES, "Shape.thy"), encoding="utf-8") as _fh:
@@ -382,10 +382,25 @@ class ClassifyIdentifier(unittest.TestCase):
                          ("const", "syntax"))
 
     def test_entry_then_default(self):
+        # The fixture name must be outside the syntax table, which is checked
+        # BEFORE the entry bucket: `foo` was used here and is a real registered
+        # method in the HOL-family union (as are `all`, `catch`, `apply_A`), so it
+        # took the `syntax` bucket and this stopped testing entry-vs-default the
+        # moment that union became the default table.
+        ctx = shape.ClassifyCtx(entry_names=frozenset({"myentry"}),
+                                corpus_consts=frozenset())
+        self.assertEqual(shape.classify_identifier("myentry", ctx),
+                         ("const", "entry"))
+        self.assertEqual(shape.classify_identifier("y", ctx), ("var", "default"))
+
+    def test_syntax_wins_over_entry(self):
+        # …and the precedence that displaced it, pinned on purpose: a name in the
+        # bound table is `syntax` even when an entry declares it.
         ctx = shape.ClassifyCtx(entry_names=frozenset({"foo"}),
                                 corpus_consts=frozenset())
-        self.assertEqual(shape.classify_identifier("foo", ctx), ("const", "entry"))
-        self.assertEqual(shape.classify_identifier("y", ctx), ("var", "default"))
+        self.assertIn("foo", graph._PROOF_METHODS)   # premise, not an assumption
+        self.assertEqual(shape.classify_identifier("foo", ctx),
+                         ("const", "syntax"))
 
     def test_single_letter_constant_misclassifies(self):
         # An algebra identity `e` is a CONSTANT, but with no fix / entry / HOL

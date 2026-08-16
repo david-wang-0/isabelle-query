@@ -750,6 +750,11 @@ def trivial_frac(steps: list[Step]) -> float | None:
     openers, and rule-shorthand ``.`` / ``..`` carry none and do not count.
     Returns ``None`` when the proof discharges nothing with a recognised method
     (a purely structural body) — an undefined fraction, not ``0``.
+
+    *Recognised* is relative to the bound proof-method table, so a narrower table
+    moves this measure and nothing else: under the minimal Pure floor a ``by
+    auto`` proof reads ``None`` rather than ``1.0``.  That axis-specific silence
+    is why the default is the broad union — see :func:`analyze_proof`.
     """
     methoded = [s for s in steps if s.method]
     if not methoded:
@@ -1815,7 +1820,18 @@ def analyze_proof(sec: TheorySection, entry: Entry,
     per-step record).  Returns ``None`` for an entry with no proof body at all —
     a bare definition.  A one-liner ``by`` proof DOES yield a record (its lone
     closing step); it did not before, which is what dropped 3.5% of AFP proofs
-    from the census, trivial ones first."""
+    from the census, trivial ones first.
+
+    **The method axis reads a configurable table.**  ``Step.method`` is whatever
+    :func:`graph._leading_method` recognises under the bound proof-method
+    namespace, and everything keyed on it — :func:`trivial_frac`,
+    :func:`method_kind_counts` — inherits that.  Calling this directly (rather
+    than through the CLI, which binds at dispatch) uses the import-time default:
+    the broad committed HOL-family union, the same table ``shape census`` binds,
+    so a library caller and a census agree without configuring anything.  A
+    non-HOL project should first call :func:`graph.use_pure_namespace`, and a
+    project with a built heap can bind its session-exact table with
+    :func:`graph.configure_namespace`."""
     steps = _scan_steps(sec, entry)
     if not steps:
         return None
