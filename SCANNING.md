@@ -7,23 +7,35 @@ behaviour worth knowing before trusting a result. For the `shape` family see
 ## Only live Isar text counts
 
 A name inside a `(* ... *)` comment, a `\<comment>` note, a `\<^cancel>` region,
-a `text` block or an `ML` body is **not** a citation, so it never invents a
-caller or hides a dead lemma. A command word inside one is not a command, so a
-commented-out `end` does not truncate the declaration above it. And a
-*declaration* inside one is not a declaration, so a superseded `definition` left
-behind in a comment — or an ML `fun`, which Isabelle and ML spell the same — is
-not reported as an entry.
+an `ML` body, a document block (`text`, `text_raw`, and the in-proof `txt`) or a
+section **heading** is **not** a citation, so it never invents a caller or hides
+a dead lemma. A command word inside one is not a command, so a commented-out
+`end` does not truncate the declaration above it. And a *declaration* inside one
+is not a declaration, so a superseded `definition` left behind in a comment — or
+an ML `fun`, which Isabelle and ML spell the same — is not reported as an entry.
 
 `grep --with-comments` shows the non-live matches too, marked as such.
 
-The regions are found by a character-level scan rather than by line, because
-none of this is line-oriented: comments nest, and a `(*` inside a `"..."` term —
-HOL's multiplication section, `fold (*) xs` — opens nothing at all. Scans then
-read the source with exactly those characters blanked, so a region sharing its
-line with real proof text loses only itself. In `by (simp add: foo) (* not bar
+Two different mechanisms, and the difference is why the list above is worth
+spelling out rather than summarising as "comments":
+
+**Lexical regions** are found by a character-level scan rather than by line,
+because none of this is line-oriented: comments nest, and a `(*` inside a `"..."`
+term — HOL's multiplication section, `fold (*) xs` — opens nothing at all. Scans
+then read the source with exactly those characters blanked, so a region sharing
+its line with real proof text loses only itself. In `by (simp add: foo) (* not bar
 *)`, `foo` is a citation and `bar` is not; and `using foo by simp \<comment>
 \<open>note\<close>` keeps both the citation and the `simp` that `query methods`
 counts.
+
+**Command-introduced prose** — a document block or a heading — is not lexical: it
+is prose because of the command in front of it, so it is masked whole lines at a
+time instead. Nothing distinguishes its cartouche from a term's, so there is no
+character-level rule to find it; the *command word* is the only evidence. This is
+why the set of recognised commands is load-bearing. When `txt` was missing from
+it, the English of 542 AFP blocks was read as Isar; when headings were missing,
+`section \<open>Consequences proved using helper\<close>` cited `helper`, so a
+lemma named only in a section title looked used and dropped out of `unused`.
 
 ## Layout carries no meaning
 
@@ -76,9 +88,16 @@ real declared names. Where a project declares one, usage scans decide by
 count as uses of the entry, while `by simp`, `auto simp: h` and `[symmetric]` are
 the method or attribute of that name and count as nothing.
 
-Which names are methods is decided by a table; see
-[METRICS.md](METRICS.md#the-method-table-and-where-it-limits-the-numbers) for
-where it comes from and where it is approximate.
+Position decides on its own where it can. The token straight after
+`by` / `apply` / `proof` is the method whatever it is called, so `query methods`
+and the shape metrics need no table there — which is what lets them see a tactic
+an entry defines for itself (`by auto2`, `by (cs_concl ...)`), where a fixed table
+never could. Everywhere else — a bare argument, a name in a statement — position
+is not enough, and a table decides; see
+[METRICS.md](METRICS.md#the-method-table-and-what-it-still-decides) for
+where it comes from and where it is approximate. A narrow table is the safe
+direction there: an unlisted method may add a spurious citation, never remove a
+true one.
 
 ## Locale scope
 

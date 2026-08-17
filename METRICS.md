@@ -116,19 +116,36 @@ Exit status follows the usual rule: `2` if no session could be read at all,
 zero. A directory with no `ROOT` is still a corpus (the `*.thy` fallback),
 censused as a single unnamed group.
 
-## The method table, and where it limits the numbers
+## The method table, and what it still decides
 
 The one place Isabelle informs a result is the method/attribute table that tells
-a proof method (`by auto`) from a fact citation.
+a proof method (`by auto`) from a fact citation. It used to bound the shape
+numbers as well; it no longer does, and the distinction is the subject of this
+section.
 
 `census` uses a fixed, committed **approximate** table — the union of the
 distribution sessions most AFP entries build on (HOL, HOL-Library, HOL-Analysis,
 HOL-Eisbach, HOL-Decision_Procs) — so it needs no Isabelle and regenerates
 identically anywhere. Being fixed, it is an approximation: methods an entry
 defines itself (an Eisbach `cs_concl`) or that come from a niche logic (Nominal's
-`nominal_induct`) are not in it, so the **Automation** axis under-counts on those
-steps. This affects a few percent of proofs, only in method-defining entries;
-fan-in and width are unaffected.
+`nominal_induct`) are not in it.
+
+**No shape axis depends on it, though.** That includes the **Automation** axis,
+which used to: `Step.method` is whatever stands in *introducer position* after
+`by` / `apply` / `proof`, where the token is the method by construction and a
+table filters nothing. So `trivial_frac` and `method_kinds` are positional like
+fan-in, width and depth, and binding a different table cannot move a shape
+record. An entry's own tactic lands in `method_kinds.other` rather than
+disappearing — which is why `other` means "outside the four core families", not
+"recognised but outside them".
+
+Where the table's absence *would* have shown is worth stating, because it is the
+reason this changed: a method the table lacked left `Step.method` empty, and that
+is `trivial_frac`'s denominator, so the proof reported `None` — "discharges
+nothing" — rather than a wrong number. Corpus-wide that silently mislabelled
+1.29% of AFP proofs, concentrated by style rather than spread as noise:
+`Auto2_Imperative_HOL` reported `None` for 305 of its 349 proofs, because
+`auto2` is its own tactic. It is now 0.
 
 The per-project verbs (`callers` / `callees` / `unused` / `methods` / `shape`)
 instead resolve a **session-exact** table from a loaded Isabelle heap when one is
@@ -139,15 +156,25 @@ nothing built locally still resolves the exact table from the distribution's own
 `census` uses, so the two agree; only a positively non-HOL project (`ZF`, `FOL`)
 is stepped down to the minimal Pure core, and that case is **warned** on stderr.
 
-**Using the package as a library.** `shape.analyze_proof` and friends read the
-same table, and importing the package binds the broad committed one — so a direct
-caller that configures nothing gets the numbers `census` would print, verified
-proof-for-proof. Two reasons to change it: call `graph.use_pure_namespace()` for
-a non-HOL project, or `graph.configure_namespace(methods, attributes, keywords)`
-to install a session-exact table you resolved yourself. Getting this wrong is
-quiet rather than loud — a table missing `auto` leaves `Step.method` empty and
-`trivial_frac` `None`, which reads as "this proof discharges nothing" rather than
-as an error.
+So what the table still decides is **not** the shape numbers but two other
+things:
+
+- **Method or citation?** A token in the table is not read as a fact name, which
+  is what keeps `by (simp add: foo)` from edging the call graph to `simp`. This is
+  position-blind — a method name can appear as a bare argument — so a table is the
+  right instrument, and a *narrow* one is the safe direction: an unlisted method
+  may add a spurious citation, never remove a true one.
+- **Constant or variable?** `const_est` and its kin ask whether an identifier in a
+  proposition is syntax; `auto` reads as a constant under the broad table and as a
+  free variable under the Pure floor.
+
+**Using the package as a library.** Importing the package binds the broad
+committed table, the same one `census` uses, so a direct caller that configures
+nothing agrees with a census — and since the automation axis is positional, the
+axis agrees even if the binding is wrong. Two reasons to change it: call
+`graph.use_pure_namespace()` for a non-HOL project, or
+`graph.configure_namespace(methods, attributes, keywords)` to install a
+session-exact table you resolved yourself.
 
 A second, smaller committed table backs `const_canon_est`: a notation table
 mapping operator glyphs to their Isabelle constant (`\<le>` → `less_eq`),
