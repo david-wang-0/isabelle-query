@@ -188,30 +188,73 @@ in `CONTRIBUTING.md`.
       vs grep-brain `-n` = line-numbers — belongs to the `[feature-audit]`
       `-n`/`--names` overload question, not to a grep default change.
 
+- [ ] `[txt-prose]` **(correctness.)** `TEXT_OPEN_RE` matches `text` and
+      `text_raw` but **not `txt` / `txt_raw`** — Isabelle's *in-proof* document
+      command, the one that appears between proof steps.  So a `txt
+      \<open>...\<close>` body is not blanked, and its English is scanned as
+      Isar.  Measured by `scripts/probe_txt_blocks.py` over the whole AFP: 51
+      entries, 103 theories, **542 blocks / 1,335 lines**, producing **97
+      phantom proof steps**, 26 of which carry a `by`/`apply` introducer and are
+      mined for a method.  The step keywords give it away — `kw='To'`,
+      `kw='the'`, `kw='well'`, `kw='always'`.  This contradicts `_scan_methods`'
+      own promise that "an `apply`/`by` mentioned in prose does not register as
+      a method use".
+
+      The fix is one alternation (`text|text_raw|txt|txt_raw`), and the
+      experiment says it is sufficient: phantom steps 97 → **0**, prose-mined
+      discharges 26 → **0**, suite green.  Note the *live view* still shows the
+      prose (97% of block lines non-blank) because `live_source` and
+      `_noise_spans` are separate notions — the step and method scanners gate on
+      `_noise_spans`, which is what the fix moves; check whether `grep`/`find`
+      prose handling needs the same before calling it done.
+
+      Small but it moves census numbers (97 fewer steps, one fewer proof), so
+      land it with a `data/` regeneration rather than between two of them.
+      Blocks `[introducer-no-table]`, which would otherwise promote this prose
+      to named methods.
+
 - [ ] `[introducer-no-table]` **Stop requiring table membership in introducer
-      position.**  `_leading_method` returns the token after `by`/`apply`/`proof`
+      position.**  *(Do `[txt-prose]` first.)*  `_leading_method` returns the token after `by`/`apply`/`proof`
       only if it is in the bound `PROOF_METHODS`, so a method the table lacks
       leaves `Step.method` empty — and since that is `trivial_frac`'s
       *denominator*, the step does not merely go unclassified, it leaves the
       measure.  This is the one shape denominator that is table-dependent;
       fan-in, width and depth are all positional.
 
-      Measured by `scripts/probe_method_coverage.py` over 40 AFP entries:
-      **1.86%** of the 55,947 discharge steps are unrecognised, and **3.54%** of
-      proofs report `trivial_frac is None` while actually discharging something.
-      The aggregate hides the shape — the **median entry is 0.00%**, while
-      `Auto2_Imperative_HOL` is **87.39%** and reports `None` for 305 of its 349
-      proofs.  So it is loss correlated with proof style, not noise: an
-      aggregate that drops `None` silently drops whole entries' characteristic
-      style, exactly like the statement-line census gap.
+      Measured by `scripts/probe_method_coverage.py`, **whole AFP** (957
+      entries / 292,880 proofs / 1,142,223 discharge steps): **1.13%** of
+      discharge steps are unrecognised, and **1.29%** of proofs report
+      `trivial_frac is None` while actually discharging something.  The
+      aggregate hides the shape — **median entry 0.00%**, p90 1.73%, **776 of
+      950 entries at exactly 0.00%**, against `Auto2_Imperative_HOL` at
+      **87.39%** (`None` for 305 of its 349 proofs), `Category_Set` 42.47%,
+      `UTP` 28.57%, `BTree` 19.51%.  So it is loss correlated with proof style,
+      not noise: an aggregate that drops `None` silently drops whole entries'
+      characteristic style, exactly like the statement-line census gap.
 
-      The tail settles the design question: **27 distinct unrecognised tokens
-      and every one is a real tactic** (`auto2`, `runs_to_vcg`, `inv_cterms`,
-      `vcg`, `word_bitwise`, `sep_wp_tac`), zero false positives.  In introducer
-      position the table filters nothing — which is what `_census_namespace`
-      already argues ("a match after by/apply/proof is a real method by
-      construction").  Drop the membership check there and the token itself is
-      the method.
+      **The false-positive question, which is what the change rests on.**  A
+      40-entry sample said zero; the corpus says otherwise, and the difference
+      is the point.  Of 311 distinct unrecognised tokens, 255 (10,210
+      occurrences, 78.8%) are confirmed declared methods; the residue is mostly
+      real too — the oracle cannot see `Method.setup \<^binding>\<open>NAME
+      \<close>` in `.ML` files, which is where `cs_concl` (1383),
+      `parametricity` (399) and `urule` (190) come from.  Genuine false
+      positives are **two mechanisms, both small**:
+
+      * **prose** — `the`, `a`, `an`, `means`, `moving`, `replacing`: `txt`
+        blocks read as code.  A separate bug, `[txt-prose]`; fixing it drops
+        these to ~1 occurrence corpus-wide.
+      * **terms** — `apply` as a function *inside inner syntax*, e.g.
+        Teleport's `[apply (if a=1 then pauliX else id_cblinfun) ...]` (2
+        occurrences).  **Irreducible**: `live_source` keeps terms on purpose, so
+        a citation scan can see them.  Document it, do not chase it.
+
+      After `[txt-prose]`: **4 false-positive occurrences in 12,938
+      unrecognised** (0.03%), i.e. ~12,930 real methods recovered per 4 fakes
+      admitted.  That ratio is the argument.  In introducer position the table
+      filters essentially nothing — which is what `_census_namespace` already
+      argues ("a match after by/apply/proof is a real method by construction").
+      Drop the membership check there and the token itself is the method.
 
       Consequences, all wanted: `trivial_frac`'s denominator becomes positional,
       so the **whole automation axis stops depending on the bound table** and
