@@ -68,10 +68,25 @@ in `CONTRIBUTING.md`.
       are bare `name :: type` lines, so the datatype constructor scan would
       invent names if pointed at one (hence the DATATYPE tag gate in
       `_constructors`).  It needs a scan of its own over the same body
-      `_scan_decl_body` now returns.  96 RECORD entries over 120 AFP entries.
-      Also open, and cheaper: `axiomatization`'s name regex is `[a-z_]+`, so
-      an axiom whose name starts with a capital (`AOT_model:38`'s
-      `AOT_model_nonactual_world`) gets no entry at all.
+      `_scan_decl_body` now returns.  96 RECORD entries over 120 AFP
+      entries — and note that "120 entries" is an alphabetical prefix, not a
+      sample, so measure corpus-wide before sizing the work.
+      The `axiomatization` half of this item shipped in `b4930c1`; the
+      remaining residue from it is that only the **first** name on a line is
+      read, so `f :: "nat" and g :: "nat"` on one line yields one entry.
+
+- [ ] `[heading-outline]` `SECTION_RE` — the pattern `outline` uses to find
+      `chapter`/`section`/`subsection`/`subsubsection` headings — requires a
+      space before the cartouche (`\s+\\<open>`) and accepts only the ASCII
+      spelling.  So `subsection\<open>Foo\<close>` and `section ‹Foo›` are
+      **missing from `outline` entirely**.  Found while masking heading prose
+      (`5524aec`), which had to use a deliberately wider pattern
+      (`_HEADING_OPEN_RE`) for exactly this reason — the two now disagree, and
+      the mask is the correct one.  Cheap fix: point `extract_sections` at the
+      wider pattern too, or share one.  Verify against the corpus first: the
+      count of headings `outline` gains is the size of the gap, and
+      `scripts/probe_prose_openers.py` already counts 35,856 headings under the
+      wide pattern, so the difference is measurable directly.
 
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
@@ -161,125 +176,6 @@ in `CONTRIBUTING.md`.
       all-commands flag.  Low urgency: `"infer"` parsing of non-theory
       content already degrades gracefully (every line reads as live, so all
       matches still show; only the owner column goes `—`).
-
-- [ ] `[grep-n-noop]` **(regression)** Restore `-n` as a silent no-op on
-      `grep` (and any other verb that is a natural target of grep muscle
-      memory).  Currently `query grep -n PAT FILE` dies with
-      `error: unrecognized arguments: -n` and a usage dump.  `-n` is a real
-      flag *elsewhere* in `query` (the `-n`/`--names` overload — see the
-      `[feature-audit]` note), so grep can't make `-n` *mean* line-numbers;
-      the fix is to **swallow** it (accept-and-ignore) so the ingrained
-      `grep -n` reflex doesn't error.  Why it matters beyond cosmetics: an
-      LLM caller (and humans) read the argparse error as "query grep is the
-      wrong tool" and **fall back to raw `grep`/`rg`**, which is exactly the
-      substitution `query` exists to prevent — the error actively
-      de-reinforces adoption.  `grep` already prints `path:line` locations,
-      so `-n` is redundant there anyway.  This was previously a deliberate
-      no-op and appears to have regressed; re-add it (and a
-      `tests/test_cli_parser.py` case pinning `grep -n` = `grep`).
-      Considered alternative (rejected): *don't print line numbers by
-      default, let `-n` turn them on* (grep-faithful).  Rejected because the
-      line isn't a grep-`-n` prefix here — it's the `theory.thy:LINE  owner`
-      **locus**, load-bearing for navigation and the `theory:line`
-      round-trip (`enclosing`/`at`/`lines`; see `[disambig-names]`).
-      Dropping it by default is a functional regression, and the always-on
-      locus is *why* the no-op works: swallowing `-n` already yields the
-      line the reflex wanted.  The genuine tension — global `-n` = `--names`
-      vs grep-brain `-n` = line-numbers — belongs to the `[feature-audit]`
-      `-n`/`--names` overload question, not to a grep default change.
-
-- [ ] `[txt-prose]` **(correctness.)** `TEXT_OPEN_RE` matches `text` and
-      `text_raw` but **not `txt` / `txt_raw`** — Isabelle's *in-proof* document
-      command, the one that appears between proof steps.  So a `txt
-      \<open>...\<close>` body is not blanked, and its English is scanned as
-      Isar.  Measured by `scripts/probe_txt_blocks.py` over the whole AFP: 51
-      entries, 103 theories, **542 blocks / 1,335 lines**, producing **97
-      phantom proof steps**, 26 of which carry a `by`/`apply` introducer and are
-      mined for a method.  The step keywords give it away — `kw='To'`,
-      `kw='the'`, `kw='well'`, `kw='always'`.  This contradicts `_scan_methods`'
-      own promise that "an `apply`/`by` mentioned in prose does not register as
-      a method use".
-
-      The fix is one alternation (`text|text_raw|txt|txt_raw`), and the
-      experiment says it is sufficient: phantom steps 97 → **0**, prose-mined
-      discharges 26 → **0**, suite green.  Note the *live view* still shows the
-      prose (97% of block lines non-blank) because `live_source` and
-      `_noise_spans` are separate notions — the step and method scanners gate on
-      `_noise_spans`, which is what the fix moves; check whether `grep`/`find`
-      prose handling needs the same before calling it done.
-
-      Small but it moves census numbers (97 fewer steps, one fewer proof), so
-      land it with a `data/` regeneration rather than between two of them.
-      Blocks `[introducer-no-table]`, which would otherwise promote this prose
-      to named methods.
-
-- [ ] `[introducer-no-table]` **Stop requiring table membership in introducer
-      position.**  *(Do `[txt-prose]` first.)*  `_leading_method` returns the token after `by`/`apply`/`proof`
-      only if it is in the bound `PROOF_METHODS`, so a method the table lacks
-      leaves `Step.method` empty — and since that is `trivial_frac`'s
-      *denominator*, the step does not merely go unclassified, it leaves the
-      measure.  This is the one shape denominator that is table-dependent;
-      fan-in, width and depth are all positional.
-
-      Measured by `scripts/probe_method_coverage.py`, **whole AFP** (957
-      entries / 292,880 proofs / 1,142,223 discharge steps): **1.13%** of
-      discharge steps are unrecognised, and **1.29%** of proofs report
-      `trivial_frac is None` while actually discharging something.  The
-      aggregate hides the shape — **median entry 0.00%**, p90 1.73%, **776 of
-      950 entries at exactly 0.00%**, against `Auto2_Imperative_HOL` at
-      **87.39%** (`None` for 305 of its 349 proofs), `Category_Set` 42.47%,
-      `UTP` 28.57%, `BTree` 19.51%.  So it is loss correlated with proof style,
-      not noise: an aggregate that drops `None` silently drops whole entries'
-      characteristic style, exactly like the statement-line census gap.
-
-      **The false-positive question, which is what the change rests on.**  A
-      40-entry sample said zero; the corpus says otherwise, and the difference
-      is the point.  Of 311 distinct unrecognised tokens, 255 (10,210
-      occurrences, 78.8%) are confirmed declared methods; the residue is mostly
-      real too — the oracle cannot see `Method.setup \<^binding>\<open>NAME
-      \<close>` in `.ML` files, which is where `cs_concl` (1383),
-      `parametricity` (399) and `urule` (190) come from.  Genuine false
-      positives are **two mechanisms, both small**:
-
-      * **prose** — `the`, `a`, `an`, `means`, `moving`, `replacing`: `txt`
-        blocks read as code.  A separate bug, `[txt-prose]`; fixing it drops
-        these to ~1 occurrence corpus-wide.
-      * **terms** — `apply` as a function *inside inner syntax*, e.g.
-        Teleport's `[apply (if a=1 then pauliX else id_cblinfun) ...]` (2
-        occurrences).  **Irreducible**: `live_source` keeps terms on purpose, so
-        a citation scan can see them.  Document it, do not chase it.
-
-      After `[txt-prose]`: **4 false-positive occurrences in 12,938
-      unrecognised** (0.03%), i.e. ~12,930 real methods recovered per 4 fakes
-      admitted.  That ratio is the argument.  In introducer position the table
-      filters essentially nothing — which is what `_census_namespace` already
-      argues ("a match after by/apply/proof is a real method by construction").
-      Drop the membership check there and the token itself is the method.
-
-      Consequences, all wanted: `trivial_frac`'s denominator becomes positional,
-      so the **whole automation axis stops depending on the bound table** and
-      `[library-table]`'s failure class cannot recur on it (the table's only
-      remaining job in `shape` is `classify_identifier`, where it is
-      position-blind and narrowness is the point).  The two meanings of `None`
-      collapse into one honest one — "this proof discharges nothing" — with no
-      new field, no sentinel and no error state in the schema.
-
-      Costs to accept explicitly: entry-local tactics land in `method_kinds.
-      other`, so `other` becomes "outside the four core families" rather than
-      "recognised but outside them"; an `auto2` proof reads `trivial_frac` 0.0
-      rather than `None`, which understates a genuinely automatic proof but
-      does so visibly (`TRIVIAL_METHODS` is the documented knob if that should
-      change).  Census records move, so `data/` regenerates.  `_scan_methods`
-      must change with it — its docstring promises `query methods` counts a
-      method exactly as a step's discharge is classified — which also fixes
-      that verb under-reporting entry-defined tactics.  Before shipping,
-      re-run the probe corpus-wide: 40 entries is 4% of the AFP and the
-      zero-false-positive claim is what the change rests on.
-
-      Supersedes the downstream suggestion to flag "no methods recognised
-      because none were configured": the cause is not configuration (no fixed
-      table can carry an entry's own Eisbach tactic), and a flag would report
-      the gap rather than close it.
 
 - [ ] `[graph-export]` Machine-readable output for the citation graph
       (`callers`/`callees` adjacency) and the import graph
