@@ -150,6 +150,12 @@ TOPLEVEL_RE = re.compile(r"^[a-z]")
 # carry digits or primes, none of which are unusual (`ax1`, `f'`).
 _AXIOM_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_']*)\s*:")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
+# The same heading commands, for masking their prose rather than titling an
+# outline: leading indent allowed, no space required before the cartouche, and
+# both spellings — see `extract_heading_spans` for why it must be the wider of
+# the two patterns.
+_HEADING_OPEN_RE = re.compile(
+    r"^\s*(chapter|section|subsection|subsubsection)\s*(?:\\<open>|‹)")
 # Isabelle's document commands, whose bodies are prose rather than Isar.  `txt`
 # is the *in-proof* one — it appears between proof steps, where `text` appears
 # between declarations — and omitting it meant a step scanner read its English
@@ -1042,6 +1048,34 @@ def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
         return None
 
     return _scan_balanced_blocks(lines, opens)
+
+
+def extract_heading_spans(lines: list[str]) -> list[tuple[int, int]]:
+    r"""Return [(start_line, end_line)] (1-indexed inclusive) for every
+    `chapter` / `section` / `subsection` / `subsubsection` cartouche.
+
+    A heading is prose, but it was in no prose list, so its English was scanned
+    as Isar.  35,856 headings in the AFP, 36,342 lines of them read as code —
+    two orders of magnitude more than the `txt` blocks of [txt-prose], and mostly
+    *one-line* headings, which is why looking only at the ones that wrap
+    understates it.  What that cost was not mainly method tokens but citations: a
+    `section \<open>Consequences proved using helper\<close>` parses "using
+    helper" as a fact list and edges the enclosing scope to `helper`, so a lemma
+    named only in a heading looks used and drops out of `unused`.
+
+    Multi-line headings are included by construction — the same balanced scan
+    `extract_text_blocks` uses, so a heading that wraps carries its
+    continuation lines with it.
+
+    Deliberately NOT `SECTION_RE`, which serves `outline`: that one requires a
+    space before the cartouche and takes only the `\<open>` spelling, so it does
+    not match `subsection\<open>...` — the exact form of the heading that first
+    exposed this.  Masking prose must not inherit a narrower pattern than the
+    prose it is masking; that `outline` misses those headings is a separate gap,
+    recorded as [heading-outline].
+    """
+    return _scan_balanced_blocks(
+        lines, lambda ls, i: 0 if _HEADING_OPEN_RE.match(ls[i]) else None)
 
 
 def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
@@ -2192,6 +2226,7 @@ def _parse_one(thy: str, thy_path: Path,
                               live=blank_all(lines, nonisar_spans))
     outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
+    heading_spans = extract_heading_spans(lines)
     comment_ranges = extract_comment_ranges(lines)
     comment_lines = extract_comment_lines(lines, note_starts)
     # Preambles first: they fix each entry's src_start, which compute_spans
@@ -2220,6 +2255,7 @@ def _parse_one(thy: str, thy_path: Path,
             e.body_end_line = e.decl_end_line or e.thy_line
     sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                         outline=outline, text_blocks=text_blocks,
+                        heading_spans=heading_spans,
                         comment_ranges=comment_ranges,
                         nonisar_ranges=nonisar_ranges,
                         nonisar_spans=nonisar_spans,

@@ -99,13 +99,19 @@ def _entry_by_name(sections: list[TheorySection]
 
 def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
     r"""Inclusive ``[lo, hi]`` line spans of `sec` that are NOT live source:
-    top-level ``text``/``text_raw`` blocks, per-entry preambles, and the
-    lexical non-Isar regions (``(* ... *)`` comments, ``\<^cancel>``,
-    ``\<comment>`` marginal notes, legacy ``{* ... *}`` verbatim and ML bodies
-    — `parsing.extract_nonisar_ranges`).  The single definition of "prose, not
-    proof" — `grep`, `methods`, the call graph (via `_noise_ranges`), and the
-    proof-block drill-down all skip exactly these lines, so the notion can no
-    longer drift between them.
+    the document blocks (``text``/``text_raw``/``txt``), section **headings**,
+    per-entry preambles, and the lexical non-Isar regions (``(* ... *)``
+    comments, ``\<^cancel>``, ``\<comment>`` marginal notes, legacy
+    ``{* ... *}`` verbatim and ML bodies — `parsing.extract_nonisar_ranges`).
+    The single definition of "prose, not proof" — `grep`, `methods`, the call
+    graph (via `_noise_ranges`), and the proof-block drill-down all skip exactly
+    these lines, so the notion can no longer drift between them.
+
+    ``sec.heading_spans`` is a separate field from ``text_blocks`` and unioned
+    only here: both are prose to a *scanner*, but only the latter can be a
+    declaration's docstring.  Headings were in neither list, which made
+    ``section \<open>Consequences proved using helper\<close>`` an edge to
+    `helper` — 36,342 heading lines corpus-wide were being read as Isar.
 
     ``sec.comment_ranges`` is deliberately NOT unioned in, though it names the
     same ``\<comment>`` annotations: it is line-granular, and a marginal note
@@ -115,7 +121,8 @@ def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
     the same regions by column, so `nonisar_ranges` covers the lines that are
     wholly a note and `live_source` blanks the rest in place.
     """
-    return (list(sec.text_blocks) + list(sec.nonisar_ranges)
+    return (list(sec.text_blocks) + list(sec.heading_spans)
+            + list(sec.nonisar_ranges)
             + [e.preamble for e in sec.entries if e.preamble])
 
 

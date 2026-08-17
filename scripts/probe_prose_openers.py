@@ -121,8 +121,13 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
             tot["parse_failures"] += 1
             continue
         raw, live = sec.source(), sec.live_source()
+        # Ask `_noise_spans`, not `sec.text_blocks`: it is the single definition
+        # of "prose, not proof" that every scanner consults, so a probe built on
+        # it keeps measuring the right thing as that notion grows (it now unions
+        # `heading_spans` too).  Reading one contributor instead reported the
+        # heading fix as having changed nothing.
         known = set()
-        for a, b in sec.text_blocks:
+        for a, b in graph._noise_spans(sec):
             known.update(range(a - 1, b))
         n = 0
         while n < len(raw):
@@ -136,12 +141,19 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                 continue
             if _HEADING_RE.match(raw[n]):
                 end = _close_line(raw, n)
-                if end > n:                       # wraps past its own line
-                    tot["heading_blocks"] += 1
-                    tot["heading_lines"] += end - n + 1
-                    _charge("heading", raw, live, n + 1, end, sec.theory, known)
-                    n = end + 1
-                    continue
+                tot["heading_blocks"] += 1
+                tot["heading_lines"] += end - n + 1
+                if end > n:
+                    tot["heading_wrapped"] += 1
+                # Charge from the heading line ITSELF, not from n + 1.  An
+                # earlier pass only counted wrapped headings' continuation
+                # lines and so missed the commonest case entirely: a one-line
+                # `subsection \<open>Mapping defined by a set of ...\<close>`
+                # is just as live, and its "by a" is what put the token `a`
+                # into Auto2_Imperative_HOL's method tally.
+                _charge("heading", raw, live, n, end, sec.theory, known)
+                n = end + 1
+                continue
             n += 1
 
 print(f"entries scanned: up to {LIMIT}")
@@ -152,9 +164,10 @@ print(f"\nsplit openers (`text` then \\<open> on the next line): "
 print(f"  lines a scanner still reads:     {tot['split_live_lines']}")
 print(f"  carrying a by/apply introducer:  {tot['split_discharge']}")
 print(f"    …token IS in the table (miscounted today): {tot['split_miscounted']}")
-print(f"\nwrapped headings (section cartouche closing on a later line): "
-      f"{tot['heading_blocks']} blocks / {tot['heading_lines']} lines")
-print(f"  continuation lines still read:   {tot['heading_live_lines']}")
+print(f"\nheadings (chapter/section/subsection/subsubsection): "
+      f"{tot['heading_blocks']} blocks / {tot['heading_lines']} lines "
+      f"({tot['heading_wrapped']} of them wrapping past their own line)")
+print(f"  heading lines still read:         {tot['heading_live_lines']}")
 print(f"  carrying a by/apply introducer:  {tot['heading_discharge']}")
 print(f"    …token IS in the table (miscounted today): "
       f"{tot['heading_miscounted']}")

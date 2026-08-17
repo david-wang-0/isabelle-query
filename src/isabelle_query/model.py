@@ -202,6 +202,19 @@ class TheorySection:
     text_blocks: list[tuple[int, int]] = field(default_factory=list)
         # All top-level text blocks in the theory, used for `outline` rendering
         # (per-entry preambles are stored on Entry.preamble).
+    heading_spans: list[tuple[int, int]] = field(default_factory=list)
+        # `chapter`/`section`/`subsection`/`subsubsection` cartouches, including
+        # the ones that wrap onto further lines.
+        #
+        # Kept SEPARATE from text_blocks, which it otherwise resembles, because
+        # the two are wanted in different places.  Both are prose and belong in
+        # `graph._noise_spans` — a heading reading "Consequences proved using
+        # helper" was creating a real citation edge to `helper`, so a lemma
+        # mentioned only in a heading looked used and left `unused`.  But
+        # text_blocks also feeds `_attach_preambles`, and a heading is not the
+        # next declaration's docstring: it belongs to the section, and folding it
+        # in would silently give a docstring to every entry that happens to sit
+        # under one.  One notion per consumer, rather than one list doing both.
     comment_ranges: list[tuple[int, int]] = field(default_factory=list)
         # Multi-line ranges for `\<comment> \<open>...\<close>` annotations.
         # NOT part of `_noise_spans` any more: these notes usually trail live
