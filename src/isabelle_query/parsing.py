@@ -150,7 +150,16 @@ TOPLEVEL_RE = re.compile(r"^[a-z]")
 # carry digits or primes, none of which are unusual (`ax1`, `f'`).
 _AXIOM_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_']*)\s*:")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
-TEXT_OPEN_RE = re.compile(r"^\s*(text|text_raw)\s*\\<open>")
+# Isabelle's document commands, whose bodies are prose rather than Isar.  `txt`
+# is the *in-proof* one — it appears between proof steps, where `text` appears
+# between declarations — and omitting it meant a step scanner read its English
+# as tactics.  No `txt_raw`: it is not a keyword in Isabelle2025-2 (it is absent
+# from `_isabelle_namespace.KEYWORDS`, extracted from a running Isabelle) and has
+# no occurrence in the AFP, so accepting it would be inventing a command.
+# Both cartouche spellings, as `COMMENT_LINE_RE` does — neither `text ‹...›` nor
+# `txt ‹...›` occurs in the AFP, but recognising one spelling and not the other
+# is a leak waiting for the project that prefers it.
+TEXT_OPEN_RE = re.compile(r"^\s*(text|text_raw|txt)\s*(?:\\<open>|‹)")
 # Both cartouche spellings, so this agrees with the tokenizer's
 # `_MARKER_OPEN_RE` — a note it recognises is a note this extracts.
 COMMENT_LINE_RE = re.compile(r"\\<comment>\s*(?:\\<open>|‹)(.*)$")
@@ -983,9 +992,14 @@ def _scan_balanced_blocks(lines: list[str],
 
 
 def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
-    """Return [(start_line, end_line)] (1-indexed inclusive) for top-level
-    `text \\<open>...\\<close>` and `text_raw` blocks.  Body is not stored —
-    callers slice from sec.source() when needed.
+    """Return [(start_line, end_line)] (1-indexed inclusive) for the document
+    blocks `text \\<open>...\\<close>`, `text_raw` and the in-proof `txt`.  Body
+    is not stored — callers slice from sec.source() when needed.
+
+    This is the *only* place prose blocks are recognised, which is why a command
+    missing from `TEXT_OPEN_RE` leaks so widely: the result feeds the
+    declaration mask, `graph._noise_spans` (so citation and step scanners skip
+    it), the `--with-comments` prose view, and per-entry preambles.
     """
     return _scan_balanced_blocks(lines, lambda ln: bool(TEXT_OPEN_RE.match(ln)))
 
