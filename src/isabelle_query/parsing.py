@@ -144,6 +144,11 @@ _STATEMENT_CONT_RE = re.compile(
 
 BLANK_RE = re.compile(r"^\s*$")
 TOPLEVEL_RE = re.compile(r"^[a-z]")
+# A declared name in `axiomatization`, on either side of its `where`: a constant
+# (`f :: "nat"`) or an axiom label (`ax1: "P"`), both read off the colon.  A full
+# Isabelle identifier, not `[a-z_]+` — a label may start with a capital, and may
+# carry digits or primes, none of which are unusual (`ax1`, `f'`).
+_AXIOM_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_']*)\s*:")
 SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
 TEXT_OPEN_RE = re.compile(r"^\s*(text|text_raw)\s*\\<open>")
 # Both cartouche spellings, so this agrees with the tokenizer's
@@ -308,6 +313,51 @@ _ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
 # type ascription cannot appear here, so dropping it changes nothing over 120
 # AFP entries (176 selectors either way).
 _SELECTOR_RE = re.compile(rf"\(\s*({_ISA_NAME})\s*:(?!:)")
+
+
+def _entries_by_line(
+        entries: list[Entry]) -> tuple[list[tuple[int, Entry]], list[int]]:
+    """Located entries ordered by source line, plus the bare line keys.
+
+    The keys are returned alongside because both callers bisect them; building
+    the pair once keeps the two lists provably in step.
+
+    Sorted on the line **alone**.  Two entries may share a `thy_line` — an
+    `axiomatization` whose command line already carries a name declares both
+    the umbrella and that name there — and sorting the tuples themselves would
+    fall through to comparing `Entry`s, which are not orderable, raising
+    `TypeError` mid-parse.  `sorted` is stable, so a tie keeps source order:
+    the innermost/most specific entry on a line is the last of its group, which
+    is the one `bisect_right(...) - 1` selects as a comment's owner.
+    """
+    pairs = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0],
+                   key=lambda pair: pair[0])
+    return pairs, [line for line, _ in pairs]
+
+
+def _axiom_line(text: str) -> tuple[str | None, bool]:
+    """Read one `axiomatization` line: the name it declares, and whether it
+    opened with a continuation keyword.
+
+    `text` must be the OUTER view of the line, so a colon inside a proposition
+    cannot be mistaken for a label — the same discipline `_constructors` uses,
+    for the same reason.
+
+    `where` separates the constants from the axioms about them, and `and`
+    separates items within either part; both continue the *same* command.
+    Either may also share a line with the item it introduces
+    (`where ax1: "P"`, `and cp0_contents: "..."`), so strip the keyword and
+    look again rather than skipping the line.  The second return value matters
+    because a line that is *only* `where` must not end the scan: unindented it
+    matches `TOPLEVEL_RE` (`^[a-z]`), which read it as the next command and
+    dropped every labelled axiom that followed.
+    """
+    stripped = text.strip()
+    cont = _STATEMENT_CONT_RE.match(stripped)
+    if cont:
+        stripped = stripped[cont.end():].lstrip()
+    m = _AXIOM_NAME_RE.match(stripped)
+    return (m.group(1) if m else None), bool(cont)
 
 
 def _constructors(outer: list[str], start: int, end: int,
@@ -1514,18 +1564,29 @@ def extract_entries(lines: list[str],
         if route == "axiom":
             entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
                                  thy_line=decl_line, decl_end_line=decl_line))
+            # The command line itself may already carry the first name —
+            # `axiomatization where process_finite:` or `axiomatization
+            # f :: "nat"` — so read its remainder before stepping below it.
+            head_name, _ = _axiom_line(outer[i][indent + len(keyword):])
+            if head_name:
+                entries.append(
+                    Entry("AXIOM", head_name,
+                          f"  AXIOM {line[len(keyword):].strip()}",
+                          thy_line=decl_line, decl_end_line=decl_line))
             i += 1
             while i < len(lines):
-                ax_line = lines[i].strip()
-                if re.match(r"[a-z_]+\s*:", ax_line):
-                    name = ax_line.split(":")[0].strip()
-                    ax_entry = Entry("AXIOM", name, f"  AXIOM {ax_line}",
-                                     thy_line=i + 1, decl_end_line=i + 1)
-                    entries.append(ax_entry)
+                name, cont = _axiom_line(outer[i])
+                if name:
+                    entries.append(Entry("AXIOM", name,
+                                         f"  AXIOM {lines[i].strip()}",
+                                         thy_line=i + 1, decl_end_line=i + 1))
                     i += 1
-                elif ax_line.startswith("and "):
-                    i += 1
-                elif ax_line == "" or TOPLEVEL_RE.match(lines[i]):
+                elif cont:
+                    i += 1     # a bare `where` / `and`: same command, go on
+                # The command's END is judged on the live line, not the outer
+                # one: in the outer view a line that is *all* term blanks to
+                # empty, and would be taken for the blank that ends the scan.
+                elif lines[i].strip() == "" or TOPLEVEL_RE.match(lines[i]):
                     break
                 else:
                     i += 1
@@ -1973,8 +2034,7 @@ def _attach_preambles(entries: list[Entry], lines: list[str],
     # the old per-block linear scan over all entries was O(text_blocks x
     # entries), quadratic on a theory dense in both.
     PREAMBLE_MAX_LINES = 30
-    entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
-    starts_keys = [es for es, _ in entry_starts]
+    entry_starts, starts_keys = _entries_by_line(entries)
     n = len(entry_starts)
     for tb_start, tb_end in text_blocks:
         if tb_end - tb_start + 1 > PREAMBLE_MAX_LINES:
@@ -2032,8 +2092,7 @@ def _attach_annotations(entries: list[Entry],
     # thy_line is the greatest <= cline; attach iff cline is within its span.
     # entry_starts is sorted, so the enclosing entry is a bisect away (the old
     # per-comment scan over all entries was O(comments x entries)).
-    entry_starts = sorted([(e.thy_line, e) for e in entries if e.thy_line > 0])
-    starts_keys = [es for es, _ in entry_starts]
+    entry_starts, starts_keys = _entries_by_line(entries)
     for cline, content in comment_lines:
         idx = bisect_right(starts_keys, cline) - 1
         if idx < 0:
