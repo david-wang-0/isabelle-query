@@ -748,13 +748,25 @@ def trivial_frac(steps: list[Step]) -> float | None:
     The denominator is the steps that carry an extracted discharge method
     (``step.method != ""`` — a ``by`` / ``apply`` line); ``qed``, structured
     openers, and rule-shorthand ``.`` / ``..`` carry none and do not count.
-    Returns ``None`` when the proof discharges nothing with a recognised method
-    (a purely structural body) — an undefined fraction, not ``0``.
+    Returns ``None`` when the proof discharges nothing at all (a purely
+    structural body) — an undefined fraction, not ``0``.
 
-    *Recognised* is relative to the bound proof-method table, so a narrower table
-    moves this measure and nothing else: under the minimal Pure floor a ``by
-    auto`` proof reads ``None`` rather than ``1.0``.  That axis-specific silence
-    is why the default is the broad union — see :func:`analyze_proof`.
+    That is now ``None``'s only meaning.  While :func:`graph._leading_method`
+    checked the bound method table, ``None`` was ambiguous between "discharges
+    nothing" and "discharges with a tactic the table lacks", and the second case
+    was not noise: it was 1.29% of AFP proofs, concentrated by proof style
+    (`Auto2_Imperative_HOL` reported ``None`` for 305 of its 349 proofs).  The
+    denominator is positional now, so the whole automation axis is independent of
+    which table is bound — like fan-in, width and depth, and unlike the
+    position-blind :func:`classify_identifier`, where a table is still the right
+    instrument.
+
+    A caveat that follows, and is wanted: a proof discharged entirely by a
+    bespoke tactic reads ``0.0`` rather than ``None``, which understates a
+    genuinely automatic `auto2` proof — but it does so *visibly*, as a number a
+    reader can question, rather than by leaving the measure.
+    :data:`TRIVIAL_METHODS` is the documented knob if a corpus wants its own
+    tactics counted as trivial.
     """
     methoded = [s for s in steps if s.method]
     if not methoded:
@@ -765,9 +777,10 @@ def trivial_frac(steps: list[Step]) -> float | None:
 
 # The proof-method *kind* taxonomy — the "automation" axis's finer grain than the
 # binary `trivial_frac`.  Each discharged step's leading method (`Step.method`,
-# always a name from the recognised universe) maps to exactly one kind; anything
-# recognised but outside the four core families is `other` (domain-specific or
-# manual tactics — `unfold`, `subst`, `transfer`, custom methods).  Like
+# whatever stands in introducer position) maps to exactly one kind; anything
+# outside the four core families is `other` (domain-specific or manual tactics —
+# `unfold`, `subst`, `transfer`, and an entry's own Eisbach/ML tactics, which
+# reach `other` now rather than leaving the measure entirely).  Like
 # TRIVIAL_METHODS these sets are a tunable knob, not a claim about tactic
 # semantics: they name the cross-corpus core so the distribution is comparable
 # across entries, and `trivial_frac`'s set is a union of `automation` + parts of
@@ -793,8 +806,9 @@ _METHOD_KIND_SETS = {
 def method_kind(method: str) -> str:
     """Classify one leading proof method into its kind (one of
     :data:`METHOD_KIND_NAMES`).  ``""`` for a step that discharges nothing; any
-    recognised method outside the four core families is ``"other"`` (custom or
-    manual tactics)."""
+    method outside the four core families is ``"other"`` (custom or manual
+    tactics).  ``"other"`` therefore means "outside the core families", not
+    "recognised but outside them" — an entry-local tactic lands here."""
     if not method:
         return ""
     for kind, names in _METHOD_KIND_SETS.items():
@@ -1822,16 +1836,18 @@ def analyze_proof(sec: TheorySection, entry: Entry,
     closing step); it did not before, which is what dropped 3.5% of AFP proofs
     from the census, trivial ones first.
 
-    **The method axis reads a configurable table.**  ``Step.method`` is whatever
-    :func:`graph._leading_method` recognises under the bound proof-method
-    namespace, and everything keyed on it — :func:`trivial_frac`,
-    :func:`method_kind_counts` — inherits that.  Calling this directly (rather
-    than through the CLI, which binds at dispatch) uses the import-time default:
-    the broad committed HOL-family union, the same table ``shape census`` binds,
-    so a library caller and a census agree without configuring anything.  A
-    non-HOL project should first call :func:`graph.use_pure_namespace`, and a
-    project with a built heap can bind its session-exact table with
-    :func:`graph.configure_namespace`."""
+    **No axis here reads the method table.**  ``Step.method`` is whatever stands
+    in introducer position (:func:`graph._leading_method`), so :func:`trivial_frac`
+    and :func:`method_kind_counts` are positional like every other axis, and
+    binding a different namespace cannot move a shape record.  It could once, and
+    that was the defect: a table narrower than the corpus silently emptied
+    ``trivial_frac``'s denominator rather than misclassifying anything, so the
+    loss was invisible in the output.
+
+    The bound table still matters *elsewhere* in this module —
+    :func:`classify_identifier` is position-blind and genuinely needs one — so
+    :func:`graph.configure_namespace` and friends have not stopped being useful;
+    they simply no longer decide what a proof's automation looks like."""
     steps = _scan_steps(sec, entry)
     if not steps:
         return None

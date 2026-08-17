@@ -529,11 +529,17 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
       method named by ``only`` (empty when ``only`` is None), the method
       analogue of :func:`_find_callers`.
 
-    This is the complement of the citation router: the tokens
-    :func:`_is_citation_name` declines to treat as fact-graph edges are
-    exactly the method uses surfaced here.
+    The tally is **positional**, not table-filtered: whatever sits in introducer
+    position is the method, exactly as :func:`_leading_method` classifies a
+    step's discharge — that docstring carries the reasoning.  Requiring table
+    membership here made this verb under-report every tactic an entry defines for
+    itself, which is the kind a reader most needs to find.
+
+    This is the complement of the citation router, and now structurally so: the
+    first token after ``by``/``apply`` is what ``_cited_facts_on_line`` consumes
+    as the method rather than as a fact, so the two scans partition an introducer
+    line between them by position, with no table mediating the split.
     """
-    methods = _PROOF_METHODS
     counts: Counter = Counter()
     located: list[tuple[str, int, Entry | None, str]] = []
     line_index = _build_line_index(sections)
@@ -563,10 +569,9 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
             hit_only = False
             for m in intro_finditer(line):
                 tok = m.group(1)
-                if tok in methods:
-                    counts[tok] += 1
-                    if tok == only:
-                        hit_only = True
+                counts[tok] += 1
+                if tok == only:
+                    hit_only = True
             if hit_only:
                 located.append((sec.theory, line_no,
                                 _entry_at_line(idx, line_no),
@@ -576,19 +581,30 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
 
 def _leading_method(line: str) -> str:
     """The first proof method named on ``line`` — the token after a ``by`` /
-    ``apply`` / ``proof`` introducer, when it is a recognised proof method.
+    ``apply`` / ``proof`` introducer.
 
-    Reuses the method-census primitive (:data:`_METHOD_INTRO_RE` + the
-    ``PROOF_METHODS`` namespace) so a step's *discharge* method is classified
-    exactly as :func:`_scan_methods` counts it — no second parser (the shared
-    home for the positional method notion, as ``_cited_facts_on_line`` is for
-    citations).  Returns ``""`` when the line introduces no recognised method
-    (``by (rule r)`` -> ``"rule"``; ``qed`` / a bare ``.`` / ``proof -`` ->
-    ``""``).  Line-anchored like the width scanner: a method wrapped onto a
-    continuation line is not seen (undercount, never overcount)."""
+    Purely **positional**: in introducer position the token *is* the method, so
+    it is not checked against the bound ``PROOF_METHODS`` table.  That check used
+    to be here, and it made this the one shape axis whose denominator depended on
+    configuration — an entry's own Eisbach or ML tactic (`cs_concl`,
+    `parametricity`, `urule`) left ``Step.method`` empty, and since that is
+    :func:`shape.trivial_frac`'s denominator, the step did not go unclassified,
+    it left the measure.  No fixed table can carry a tactic an entry defines for
+    itself, so the table was not narrow, it was the wrong instrument.
+
+    Dropping it also makes this agree with ``_cited_facts_on_line``, which has
+    always read the first token after ``by``/``apply`` as the method by position
+    with no table lookup.  The two scans are meant to partition a proof line
+    between methods and citations; while this one consulted a table and that one
+    did not, they could not.
+
+    Returns ``""`` when the line introduces no method at all (``by (rule r)`` ->
+    ``"rule"``; ``qed`` / a bare ``.`` / ``proof -`` -> ``""``, since ``[\\w']+``
+    matches no token there).  Line-anchored like the width scanner: a method
+    wrapped onto a continuation line is not seen (undercount, never overcount).
+    """
     for m in _METHOD_INTRO_RE.finditer(line):
-        if m.group(1) in _PROOF_METHODS:
-            return m.group(1)
+        return m.group(1)
     return ""
 
 

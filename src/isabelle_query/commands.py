@@ -1183,10 +1183,21 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
         return
 
     # Located form: `methods NAME`.
-    if name not in graph._PROOF_METHODS:
-        print(f"'{name}' is not a known proof method "
-              f"(not in the resolved proof-method namespace).  Try `methods` "
-              f"for the list of methods actually used.")
+    #
+    # Two authorities, and both are needed.  `counts` says the project uses NAME
+    # in introducer position, which since [introducer-no-table] includes tactics
+    # the table cannot carry — an entry's own Eisbach/ML method (`auto2`,
+    # `regexp`).  Gating on the table alone refused to locate exactly the methods
+    # the tally had just reported, so the two verbs contradicted each other.
+    # The table is still consulted, for the opposite case: a genuine method that
+    # this project happens not to use should answer "no uses", not "not a
+    # method".  Failing both is the only real error — and it must stay an error,
+    # because a mistyped name would otherwise get "No uses found", an empty
+    # success for a question that was never asked.
+    if name not in counts and name not in graph._PROOF_METHODS:
+        print(f"'{name}' is not used as a proof method here, and is not in the "
+              f"resolved proof-method namespace.  Try `methods` for the list of "
+              f"methods actually used.")
         return
     if flags.mode == "count":
         print(len(located))

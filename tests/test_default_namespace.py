@@ -17,6 +17,15 @@ nothing" for a proof that is maximally trivial.  Measured over 40 AFP entries /
 
 So these tests pin the *default*, not a rebinding: no `configure_namespace` call
 appears in them, deliberately — that is the whole point.
+
+**Since [introducer-no-table], the shape half of this can no longer break.**
+`Step.method` is positional, so `trivial_frac` and `method_kind_counts` give the
+same answer under either table; the assertions below still state the right
+values, but they no longer *depend* on the default being right. What the default
+still decides is `shape.classify_identifier`, which is position-blind and has no
+alternative to a table — pinned by `test_the_default_still_governs_...` here and
+in more detail in test_shape.py. Two failure classes therefore remain closed by
+different means: the axis by construction, the classifier by this default.
 """
 import os
 import sys
@@ -64,7 +73,13 @@ class ImportTimeDefault(unittest.TestCase):
 
 
 class LibraryCallerGetsMethods(unittest.TestCase):
-    """`analyze_proof` called directly, exactly as a downstream script does."""
+    """`analyze_proof` called directly, exactly as a downstream script does.
+
+    These are the values [library-table] was about.  They are now guaranteed by
+    `_leading_method` being positional rather than by the default binding, so
+    they are kept as a statement of the correct answer — not as the guard that
+    keeps it.  `ExplicitTableSelection` holds that guard.
+    """
 
     def setUp(self):
         self.sec = section_from(THY, "T")
@@ -110,14 +125,45 @@ class ExplicitTableSelection(unittest.TestCase):
         graph.use_census_namespace()
         self.assertEqual(graph._PROOF_METHODS, _census.PROOF_METHODS)
 
-    def test_the_floor_is_what_silently_dropped_the_method(self):
-        # The bug, reproduced on purpose: same call, same proof, empty method.
-        graph.use_pure_namespace()
+    def test_the_shape_method_axis_ignores_the_bound_table(self):
+        # This test used to pin the opposite, and the change of direction is the
+        # point.  Under the Pure floor `auto` is not a table member, and
+        # `_leading_method` returned "" for `by auto` — so `trivial_frac` went
+        # `None`, reporting "this proof discharges nothing" about a proof that
+        # discharges everything.  [introducer-no-table] made the axis positional:
+        # in introducer position the token IS the method, whatever is bound.
         sec = section_from(THY, "T")
         entry = next(e for e in sec.entries if e.name == "triv")
-        pm = shape.analyze_proof(sec, entry)
-        self.assertEqual([s.method for s in pm.steps], [""])
-        self.assertIsNone(shape.trivial_frac(pm.steps))
+
+        graph.use_pure_namespace()
+        self.assertNotIn("auto", graph._PROOF_METHODS)   # premise, stated
+        floor = shape.analyze_proof(sec, entry)
+
+        graph.use_census_namespace()
+        self.assertIn("auto", graph._PROOF_METHODS)
+        union = shape.analyze_proof(sec, entry)
+
+        self.assertEqual([s.method for s in floor.steps], ["auto"])
+        self.assertEqual([s.method for s in floor.steps],
+                         [s.method for s in union.steps])
+        self.assertEqual(shape.trivial_frac(floor.steps), 1.0)
+        self.assertEqual(shape.trivial_frac(floor.steps),
+                         shape.trivial_frac(union.steps))
+
+    def test_the_default_still_governs_classify_identifier(self):
+        # The complement of the test above, and why the default is still worth
+        # pinning: `classify_identifier` asks "is this name syntax?" with no
+        # position to lean on, so a table is the only instrument it has. `auto`
+        # in a proposition reads as a constant under the union and as a free
+        # variable under the floor — a real difference the axis no longer has.
+        ctx = shape.ClassifyCtx(context_vars=frozenset(), entry_names=frozenset(),
+                                corpus_consts=frozenset())
+        graph.use_census_namespace()
+        self.assertEqual(shape.classify_identifier("auto", ctx),
+                         ("const", "syntax"))
+        graph.use_pure_namespace()
+        self.assertEqual(shape.classify_identifier("auto", ctx),
+                         ("var", "default"))
 
 
 if __name__ == "__main__":
