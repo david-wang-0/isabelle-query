@@ -188,23 +188,55 @@ in `CONTRIBUTING.md`.
       vs grep-brain `-n` = line-numbers — belongs to the `[feature-audit]`
       `-n`/`--names` overload question, not to a grep default change.
 
-- [ ] `[trivial-frac-undefined]` `trivial_frac` returns `None` for two different
-      things: a genuinely structural proof body (no `by`/`apply` step at all),
-      and a proof whose discharge methods the **bound table does not carry**.
-      The second is a configuration fact, not a fact about the proof, and the
-      caller cannot tell them apart — which is what made `[library-table]` hard
-      to diagnose downstream: the symptom was an axis-specific `None`, and
-      `None` looked like an answer.  Mostly defused now that both CLI and
-      library default to the broad union, so the remaining exposure is narrow:
-      a non-HOL project on the Pure floor (warned, at least), and the ~2.8% of
-      proofs using methods their own entry defines (an Eisbach `cs_concl`),
-      which no fixed table can carry.  Options, cheapest first: leave it and
-      rely on the docstring; return a sentinel distinguishing the two; or have
-      `method_kind_counts` carry an `unrecognised` bucket counting steps that
-      *looked* like a discharge (`by`/`apply` introducer) but named nothing the
-      table knows — that bucket is the honest signal, and unlike a sentinel it
-      composes with the existing histogram.  Note the count is recoverable
-      today by a caller willing to rescan, which is an argument for the third.
+- [ ] `[introducer-no-table]` **Stop requiring table membership in introducer
+      position.**  `_leading_method` returns the token after `by`/`apply`/`proof`
+      only if it is in the bound `PROOF_METHODS`, so a method the table lacks
+      leaves `Step.method` empty — and since that is `trivial_frac`'s
+      *denominator*, the step does not merely go unclassified, it leaves the
+      measure.  This is the one shape denominator that is table-dependent;
+      fan-in, width and depth are all positional.
+
+      Measured by `scripts/probe_method_coverage.py` over 40 AFP entries:
+      **1.86%** of the 55,947 discharge steps are unrecognised, and **3.54%** of
+      proofs report `trivial_frac is None` while actually discharging something.
+      The aggregate hides the shape — the **median entry is 0.00%**, while
+      `Auto2_Imperative_HOL` is **87.39%** and reports `None` for 305 of its 349
+      proofs.  So it is loss correlated with proof style, not noise: an
+      aggregate that drops `None` silently drops whole entries' characteristic
+      style, exactly like the statement-line census gap.
+
+      The tail settles the design question: **27 distinct unrecognised tokens
+      and every one is a real tactic** (`auto2`, `runs_to_vcg`, `inv_cterms`,
+      `vcg`, `word_bitwise`, `sep_wp_tac`), zero false positives.  In introducer
+      position the table filters nothing — which is what `_census_namespace`
+      already argues ("a match after by/apply/proof is a real method by
+      construction").  Drop the membership check there and the token itself is
+      the method.
+
+      Consequences, all wanted: `trivial_frac`'s denominator becomes positional,
+      so the **whole automation axis stops depending on the bound table** and
+      `[library-table]`'s failure class cannot recur on it (the table's only
+      remaining job in `shape` is `classify_identifier`, where it is
+      position-blind and narrowness is the point).  The two meanings of `None`
+      collapse into one honest one — "this proof discharges nothing" — with no
+      new field, no sentinel and no error state in the schema.
+
+      Costs to accept explicitly: entry-local tactics land in `method_kinds.
+      other`, so `other` becomes "outside the four core families" rather than
+      "recognised but outside them"; an `auto2` proof reads `trivial_frac` 0.0
+      rather than `None`, which understates a genuinely automatic proof but
+      does so visibly (`TRIVIAL_METHODS` is the documented knob if that should
+      change).  Census records move, so `data/` regenerates.  `_scan_methods`
+      must change with it — its docstring promises `query methods` counts a
+      method exactly as a step's discharge is classified — which also fixes
+      that verb under-reporting entry-defined tactics.  Before shipping,
+      re-run the probe corpus-wide: 40 entries is 4% of the AFP and the
+      zero-false-positive claim is what the change rests on.
+
+      Supersedes the downstream suggestion to flag "no methods recognised
+      because none were configured": the cause is not configuration (no fixed
+      table can carry an entry's own Eisbach tactic), and a flag would report
+      the gap rather than close it.
 
 - [ ] `[graph-export]` Machine-readable output for the citation graph
       (`callers`/`callees` adjacency) and the import graph
