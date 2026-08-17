@@ -5,25 +5,35 @@
 *table-dependent* notion — unlike every other shape axis, whose denominators are
 positional.  So a method the bound table does not carry does not merely go
 unclassified: it leaves the denominator, and a proof with no recognised method at
-all returns `None` — indistinguishable from a genuinely structural body.
+all returns `None`, indistinguishable from a genuinely structural body.
 
 Whether that matters is a question about size and distribution, not about API
 taste, so this measures both under the DEFAULT table (the broad union):
 
-  * `discharge`     — steps whose line carries a `by` / `apply` introducer.
-    Positional and table-free: `by`/`apply` are Isar keywords.
-  * `named`         — of those, the ones `_leading_method` could name.
-  * `unrecognised`  — the difference.  A real method the table lacks: an
-    entry-defined Eisbach combinator, a niche logic's tactic, or a method the
-    line-anchored scan cannot see (wrapped onto a continuation line).
-  * `None-proofs`   — proofs where `trivial_frac` is undefined, split by whether
-    the proof actually discharges anything.  The second class is the misreport.
+  * `discharge`     — lines carrying a `by` / `apply` introducer.  Positional and
+    table-free: both are Isar keywords.  (`proof` is excluded on purpose — it
+    opens a block, it does not close a goal.)
+  * `named`         — of those, the ones whose token is in the bound table.
+  * `unrecognised`  — the difference: what `[introducer-no-table]` would recover.
 
-Reports the per-entry spread too: a uniform 1% is noise a consumer can ignore,
-while the same 1% concentrated in a few entries is a bias correlated with proof
-style — which is the shape of every measurement fault this tool has had.
+It also reports the per-entry spread, because a uniform 1% is noise a consumer
+can ignore while the same 1% concentrated in a few entries is a bias correlated
+with proof style — the shape of every measurement fault this tool has had.
 
-Usage:  probe_method_coverage.py [N_ENTRIES]
+THE ORACLE.  The proposed change rests on "in introducer position the token IS a
+method", so the thing to disprove is a token the regex grabbed that is not one.
+Eyeballing does not scale past a few dozen, so unrecognised tokens are checked
+against **method declarations harvested from the corpus itself** — `method_setup
+NAME` (ML) and `method NAME` (Eisbach), read in command position off the outer
+view.  A token that some entry declares is confirmed, not guessed.  The residue
+is printed in full: it is the only part needing judgement, and it is where a
+false positive would have to hide.
+
+Usage:  probe_method_coverage.py [N_ENTRIES] [--show TOK,TOK,...]
+
+``--show`` prints the source line behind every occurrence of the named tokens,
+which is how a residue entry is judged: a real tactic reads as one, and a regex
+false positive reads as English.
 """
 import os
 import re
@@ -38,15 +48,25 @@ if not os.environ.get("PYTHONPATH"):
 from isabelle_query import cli, graph, shape  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
-LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 40
+_args = sys.argv[1:]
+SHOW: set[str] = set()
+if "--show" in _args:
+    i = _args.index("--show")
+    SHOW = set(_args[i + 1].split(","))
+    del _args[i:i + 2]
+LIMIT = int(_args[0]) if _args else 40
+shown: list[tuple[str, str, int, str]] = []   # token, theory, line, source
 
-# `by`/`apply` only — a discharge.  `proof` is a goal transformer and is left out
-# on purpose: `proof (induct n)` opens a block, it does not close a goal.
+# `by`/`apply` only — a discharge.
 _DISCHARGE_RE = re.compile(r"\b(?:by|apply)\b\s*\(?\s*([\w']+)")
+# Method declarations, in command position (outer view): Eisbach `method foo =`
+# / `method foo uses r =`, and ML `method_setup foo = \<open>...\<close>`.
+_DECL_RE = re.compile(r"^\s*(?:method_setup|method)\s+([\w']+)")
 
 n_entries = 0
-tot = Counter()
+tot: Counter = Counter()
 unnamed_tokens: Counter = Counter()
+declared: set[str] = set()          # methods some corpus entry declares
 per_entry: list[tuple[float, str, int, int]] = []
 
 for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
@@ -62,6 +82,13 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
     e_discharge = e_unrec = 0
 
     for sec in secs:
+        # Declarations: command position, so a `method` inside a term or a
+        # comment cannot register.
+        for line in sec.outer_source():
+            md = _DECL_RE.match(line)
+            if md:
+                declared.add(md.group(1))
+
         live = sec.live_source()
         for entry in sec.entries:
             pm = shape.analyze_proof(sec, entry)
@@ -73,20 +100,25 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                 m = _DISCHARGE_RE.search(line)
                 if not m:
                     continue
+                tok = m.group(1)
                 proof_discharge += 1
                 e_discharge += 1
                 tot["discharge"] += 1
-                if s.method:
+                # Exactly the proposed change: is the token in the table, or
+                # would dropping the membership check recover it?
+                if tok in graph._PROOF_METHODS:
                     tot["named"] += 1
                 else:
                     tot["unrecognised"] += 1
                     e_unrec += 1
-                    unnamed_tokens[m.group(1)] += 1
+                    unnamed_tokens[tok] += 1
+                    if tok in SHOW:
+                        shown.append((tok, sec.theory, s.line,
+                                      sec.source()[s.line - 1].strip()))
             tot["proofs"] += 1
             if shape.trivial_frac(pm.steps) is None:
                 tot["none_proofs"] += 1
-                # The misreport: it DOES discharge, we just could not name how.
-                if proof_discharge:
+                if proof_discharge:      # discharges, but we cannot name how
                     tot["none_but_discharges"] += 1
 
     if e_discharge:
@@ -106,21 +138,33 @@ print(f"  …of which actually discharge something: "
       f"({100 * tot['none_but_discharges'] / max(tot['proofs'], 1):.2f}% of "
       f"proofs) — these are the misreports")
 
-print("\nper-entry unrecognised rate (worst 12 of "
-      f"{len(per_entry)}):")
-for pct, name, u_, d_ in sorted(per_entry, reverse=True)[:12]:
-    print(f"  {pct:6.2f}%  {name:<38} {u_}/{d_}")
-med = sorted(p for p, *_ in per_entry)
-if med:
-    print(f"  median entry: {med[len(med) // 2]:.2f}%")
+print(f"\nper-entry unrecognised rate (worst 15 of {len(per_entry)}):")
+for pct, name, u_, d_ in sorted(per_entry, reverse=True)[:15]:
+    print(f"  {pct:6.2f}%  {name:<40} {u_}/{d_}")
+rates = sorted(p for p, *_ in per_entry)
+if rates:
+    print(f"  median {rates[len(rates) // 2]:.2f}%   "
+          f"p90 {rates[min(len(rates) - 1, int(0.9 * len(rates)))]:.2f}%   "
+          f"entries at 0.00%: {sum(1 for r in rates if r == 0)}/{len(rates)}")
 
-print(f"\nunrecognised tokens after by/apply: {len(unnamed_tokens)} distinct")
-for name, c in unnamed_tokens.most_common(20):
-    print(f"  {name:<24} {c}")
-# The tail is where a false positive would hide: if the introducer-position
-# argument holds, even a once-seen token should look like a tactic name, not
-# like a term fragment the regex tripped over.
-singles = sorted(t for t, c in unnamed_tokens.items() if c == 1)
-print(f"\n  …tail: {len(singles)} tokens seen exactly once")
-for i in range(0, min(len(singles), 40), 4):
-    print("    " + "  ".join(f"{t:<26}" for t in singles[i:i + 4]))
+# --- the oracle -------------------------------------------------------------
+print(f"\ncorpus-declared methods harvested (method_setup / method): "
+      f"{len(declared)}")
+confirmed = {t: c for t, c in unnamed_tokens.items() if t in declared}
+residue = {t: c for t, c in unnamed_tokens.items() if t not in declared}
+print(f"unrecognised tokens: {len(unnamed_tokens)} distinct / {u} occurrences")
+print(f"  CONFIRMED a declared method somewhere in the corpus: "
+      f"{len(confirmed)} distinct / {sum(confirmed.values())} occurrences "
+      f"({100 * sum(confirmed.values()) / max(u, 1):.2f}%)")
+print(f"  residue (needs judgement — a distribution method outside the union, "
+      f"or a false positive): {len(residue)} distinct / "
+      f"{sum(residue.values())} occurrences "
+      f"({100 * sum(residue.values()) / max(u, 1):.2f}%)")
+print("\n  residue in full, most frequent first:")
+for t, c in sorted(residue.items(), key=lambda kv: (-kv[1], kv[0])):
+    print(f"    {t:<34} {c}")
+
+if SHOW:
+    print(f"\nsource lines behind {sorted(SHOW)} ({len(shown)} occurrences):")
+    for tok, thy, ln, src in sorted(shown):
+        print(f"  [{tok}] {thy}:{ln}\n      {src[:150]}")
