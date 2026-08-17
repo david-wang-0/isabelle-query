@@ -7,6 +7,46 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
+- [ ] `[cli-alias]` **Ship `isabelle-query` as a second console script, for
+      discoverability.**  The distribution is named `isabelle-query`, so someone
+      who `pip install isabelle-query` and then types `isabelle-query` gets
+      *command not found* — the one name they already know is the one that does
+      not work.  `[project.scripts]` (`pyproject.toml:62`) declares only
+      `query = "isabelle_query.cli:main"`; add `isabelle-query` beside it,
+      pointing at the same entry point.  `query` stays the canonical short name
+      used throughout the docs; this is purely additive, so nothing breaks.
+
+      The one-line pyproject change is not the whole job, because the name is
+      **hardcoded in five places** and a user invoking the alias would still be
+      told about `query`:
+
+      * `cli.py:999` — `prog="query"`, which deliberately overrides argparse's
+        default (`basename(sys.argv[0])`), so `isabelle-query -h` would print
+        `usage: query ...` and every example in its own `--help` would name a
+        different command than the one just typed.
+      * `cli.py:952` — `print(f"query {_resolve_version()}")` for `-V`.
+      * `cli.py:224`, `:848`, `:1564` — the `query: ...` stderr diagnostic
+        prefix (bad root, census skips, the non-HOL namespace warning).
+
+      **The decision to make first**, because everything else follows from it:
+      do user-facing messages name the *canonical* command or the *invoked* one?
+      Leaning: the invoked one, derived once from `basename(sys.argv[0])` with
+      `query` as the fallback (that is argparse's own default and the Unix norm,
+      and it is what makes `--help` output copy-pasteable).  Against: message
+      text stops being a fixed string, so `query: ` greps and any downstream log
+      matching on it must tolerate both.  Decide, then thread one helper rather
+      than five literals — this is a CLI-contract change, so it wants the single
+      shared accessor the contract asks for.
+
+      `tests/test_cli_version.py` pins `f"query {version}"` in **six** places
+      and will need to parameterise on the invoked name.  Locally, an editable
+      install does not gain a new console script until `pip install -e .` is
+      re-run — expect `isabelle-query: command not found` until then, and fix it
+      by reinstalling rather than by routing around it.
+
+      Add the alias to README's install section too: the discoverability point
+      is lost if only the code knows.
+
 - [ ] `[common-shim]` **What is `common.py` for, now that the parser left?**
       Measured by `scripts/probe_common_surface.py`: it offers **26** names,
       in-repo code wants **15**, and of those **9 are plain redirects** to
