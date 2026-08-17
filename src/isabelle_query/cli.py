@@ -527,7 +527,50 @@ def _add_names_flag(p: argparse.ArgumentParser,
     # than squat on it for `--names` (a silent, surprising mode switch for
     # anyone with grep muscle memory), we leave `-n` free for its
     # conventional meaning and spell the terse view out as `--names`.
+    # On the search verbs `-n` is *swallowed* rather than left unknown — see
+    # `_add_line_number_noop_flag`.
     p.add_argument("--names", action="store_true", help=help_text)
+
+
+class _IgnoredFlagAction(argparse.Action):
+    """A flag that parses and then does nothing.
+
+    For a flag this tool must not *reject* but has nothing to do with.  It
+    writes nothing to the namespace (dest and default are both SUPPRESS), so
+    no handler can accidentally branch on whether it was passed — the flag is
+    invisible past the parser, which is the point.
+    """
+    def __init__(self, option_strings, dest=argparse.SUPPRESS,
+                 default=argparse.SUPPRESS, help=None):
+        super().__init__(option_strings=option_strings, dest=dest,
+                         default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        pass  # deliberately nothing
+
+
+def _add_line_number_noop_flag(p: argparse.ArgumentParser) -> None:
+    """Accept-and-ignore `-n`/`--line-number` on the search verbs.
+
+    `-n` cannot *mean* line numbers here: what these verbs print is not a
+    grep `-n` prefix but the `theory.thy:LINE  owner` locus, load-bearing for
+    navigation and the `theory:line` round-trip, so it is always on and there
+    is nothing to toggle.  Nor can it mean `--names` (see `_add_names_flag`).
+    That left `-n` an unknown flag — and of the three options that is the
+    worst: `query grep PAT F -n`, typed from grep reflex, dies with a usage
+    dump, which reads as "`query grep` is the wrong tool" and sends the caller
+    back to raw `grep`/`rg` — the exact substitution `query` exists to
+    prevent.  An error here does not teach, it de-reinforces.
+
+    So swallow it.  This is safe *because* the locus is always on: the line
+    number the reflex was asking for is already in the output, so ignoring
+    `-n` gives that caller precisely what they wanted, and there is no state
+    in which the flag would have changed the answer.
+    """
+    p.add_argument("-n", "--line-number", action=_IgnoredFlagAction,
+                   help="accepted and ignored — every match already prints "
+                        "its `theory.thy:LINE` locus (grep-compatibility "
+                        "no-op)")
 
 
 def _add_with_comments_flag(
@@ -1163,6 +1206,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_count_flag(p)
     _add_names_flag(p, "locations + owning entry only "
                        "(skip the matched line text)")
+    _add_line_number_noop_flag(p)
     p.set_defaults(func=_run_grep)
 
     # sorry — located open-goal listing (grep specialised to the sorry token)
@@ -1171,6 +1215,8 @@ def _build_parser() -> argparse.ArgumentParser:
                             "location + owning entry")
     _add_path_files_arg(p)
     _add_count_flag(p, "just print the count (build-summary form)")
+    # `sorry` is grep specialised to one token, so it draws the same reflex.
+    _add_line_number_noop_flag(p)
     p.set_defaults(func=_run_sorry)
 
     # lines
