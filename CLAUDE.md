@@ -34,8 +34,9 @@ The package is a strict module DAG — each imports only from earlier links:
     model → parsing → graph → render → commands → cli
 
 with `common` (session/ROOT discovery, import closure), `shape` + `shape_cmds`
-(the proof-shape family), and `scripts/` (offline table-generation + dev
-utilities) as siblings.
+(the proof-shape family), `_prog` (the invoked command name — a leaf that
+imports nothing, so any layer can reach it), and `scripts/` (offline
+table-generation + dev utilities) as siblings.
 
 `common` holds almost no code: the ROOT / session / theory-header parser moved
 out to **`isabelle-layout`** (on PyPI, query's one runtime dependency) and this

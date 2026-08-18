@@ -60,7 +60,12 @@ dependencies = [
 ]
 
 [project.scripts]
+# Two names, one entry point.  `query` is canonical and what the docs use;
+# `isabelle-query` matches the distribution name, so the name a user already
+# knows from `pip install isabelle-query` is not the one that fails.  Messages
+# reflect whichever was typed — see `cli._prog_name`.
 query = "isabelle_query.cli:main"
+isabelle-query = "isabelle_query.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ott2/isabelle-query"

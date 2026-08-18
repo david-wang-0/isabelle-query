@@ -8,6 +8,12 @@ The assertions stay env-agnostic: they tie the printed string to the
 resolver and to a 0-exit, without hardcoding a version number (which would
 break on every bump) — and they hold even where the package is not installed
 (the resolver then returns its fallback string).
+
+The *name* half of the line is env-agnostic for the same reason, and tied to
+`cli._prog_name` rather than to the literal `query`: the tool ships under two
+console-script names and reports whichever was typed.  That the reflection
+actually happens is pinned in `test_cli_prog_name.py`, which sets argv[0];
+here it would only be incidental.
 """
 
 import contextlib
@@ -37,10 +43,10 @@ class VersionFlag(unittest.TestCase):
 
     def test_version_prints_query_and_resolved_version(self):
         _, out = self._run_version()
-        self.assertTrue(out.startswith("query "))
+        self.assertTrue(out.startswith(f"{cli._prog_name()} "))
         # The printed version is exactly what the resolver returns — this ties
         # the flag's output to the single resolver, with no hardcoded number.
-        self.assertEqual(out, f"query {cli._resolve_version()}")
+        self.assertEqual(out, f"{cli._prog_name()} {cli._resolve_version()}")
 
     def test_resolver_returns_nonempty(self):
         self.assertTrue(cli._resolve_version())
@@ -68,21 +74,21 @@ class VersionPosition(unittest.TestCase):
 
     def test_short_form_at_top_level(self):
         self.assertEqual(self._version_of(["-V"]),
-                         (0, f"query {cli._resolve_version()}"))
+                         (0, f"{cli._prog_name()} {cli._resolve_version()}"))
 
     def test_after_a_subcommand(self):
         code, out = self._version_of(["callers", "foo", "--version"])
-        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+        self.assertEqual((code, out), (0, f"{cli._prog_name()} {cli._resolve_version()}"))
 
     def test_after_a_nested_shape_verb(self):
         code, out = self._version_of(["shape", "census", "--version"])
-        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+        self.assertEqual((code, out), (0, f"{cli._prog_name()} {cli._resolve_version()}"))
 
     def test_wins_over_a_missing_required_positional(self):
         # `callers` needs a NAME; --version still reports and exits 0 rather
         # than erroring out with usage.
         code, out = self._version_of(["callers", "--version"])
-        self.assertEqual((code, out), (0, f"query {cli._resolve_version()}"))
+        self.assertEqual((code, out), (0, f"{cli._prog_name()} {cli._resolve_version()}"))
 
     def test_short_form_still_means_verbatim_on_show(self):
         # `-V` is `--verbatim` on show/find and predates the version alias, so

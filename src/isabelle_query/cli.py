@@ -51,6 +51,9 @@ from isabelle_query import _isabelle_namespace as _isa_ns
 from isabelle_query import _namespace_resolve as _ns
 from isabelle_query import graph
 from isabelle_query import shape
+# The invoked command name, shared with `shape_cmds` — see `_prog` for why it
+# is a leaf module.  Re-exported here (as `cli._prog_name`) for the facade.
+from isabelle_query._prog import prog_name as _prog_name  # noqa: F401
 from isabelle_query.common import (
     default_t_dir,
     discover_roots,
@@ -221,7 +224,7 @@ def _fail_root(root: Path, why: str) -> None:
     empty index therefore names the directory it read and says why it came
     back empty.
     """
-    print(f"query: {root}: {why}", file=sys.stderr)
+    print(f"{_prog_name()}: {root}: {why}", file=sys.stderr)
     sys.exit(_EXIT_BAD_ROOT)
 
 
@@ -601,7 +604,7 @@ def _add_path_files_arg(p: argparse.ArgumentParser) -> None:
                         "directories (rg/grep-style trailing positionals); "
                         "a bare theory name resolves to its .thy, and `-` "
                         "reads a theory from stdin (e.g. `git show REF:FILE "
-                        "| query grep PAT -`). "
+                        f"| {_prog_name()} grep PAT -`). "
                         "Directories with a ROOT are expanded via the "
                         "ROOT's `theories` clause; directories without are "
                         "walked recursively for `*.thy`.  Results are "
@@ -845,7 +848,7 @@ def _run_shape_census(ns: argparse.Namespace) -> None:
         _fail_root(root, f"all {out.sessions} session(s) failed to load — "
                          f"no census records produced")
     if out.skipped:
-        print(f"query: census completed with {out.skipped} of {out.sessions} "
+        print(f"{_prog_name()}: census completed with {out.skipped} of {out.sessions} "
               f"session(s) skipped; {out.records:,} records from "
               f"{out.loaded} session(s)", file=sys.stderr)
 
@@ -949,7 +952,7 @@ class _VersionAction(argparse.Action):
                          default=default, nargs=0, help=help)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        print(f"query {_resolve_version()}")
+        print(f"{_prog_name()} {_resolve_version()}")
         parser.exit()
 
 
@@ -996,7 +999,7 @@ def _add_version_flag(p: argparse.ArgumentParser, *, short: bool) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     top = argparse.ArgumentParser(
-        prog="query",
+        prog=_prog_name(),
         description="Query the theory index — computed live from .thy files.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     _add_root_flag(top, suppress_default=False)
@@ -1230,8 +1233,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "grammar `enclosing` uses, so a span printed elsewhere "
                         "pastes straight in.  FILE is any text file, a bare "
                         "theory name (resolved to its .thy, like outline/show), "
-                        "or `-` for stdin (`git show REF:FILE | query lines - "
-                        "A..B`).  Each RANGE is `A..B` (inclusive), `A`, or "
+                        f"or `-` for stdin (`git show REF:FILE | {_prog_name()} "
+                        "lines - A..B`).  Each RANGE is `A..B` (inclusive), `A`, or "
                         "open-ended `A..` (to EOF) / `..B` (from line 1); "
                         "multiple ranges are `--`-separated in the output.")
     p.set_defaults(func=_run_lines)
@@ -1561,7 +1564,7 @@ def _warn_committed_fallback(sess_infos) -> None:
                       if s.parent and s.parent != "Pure"})
     if not nonpure:
         return
-    print(f"query: no built heap for this project and its base logic "
+    print(f"{_prog_name()}: no built heap for this project and its base logic "
           f"({', '.join(nonpure)}) is not HOL, so the committed HOL namespace "
           f"table does not apply — using the minimal Pure table. Fan-in and width "
           f"are unaffected; method-kind / automation classification may be "

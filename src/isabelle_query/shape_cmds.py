@@ -97,6 +97,7 @@ from typing import NamedTuple
 
 from isabelle_query import shape
 from isabelle_query._corpus_constants import CORPUS_CONSTANTS
+from isabelle_query._prog import prog_name
 from isabelle_query.commands import (
     _owner_field,
     _parse_locus,
@@ -460,7 +461,7 @@ def cmd_shape_census(
             # scanner tripping on one pathological theory).  Narrowing this
             # would trade a named exception for losing every later session.
             skipped += 1
-            print(f"query: session {name!r} skipped: "
+            print(f"{prog_name()}: session {name!r} skipped: "
                   f"{type(exc).__name__}: {exc}", file=sys.stderr)
         finally:
             sections = None  # noqa: F841 — drop the session before the next

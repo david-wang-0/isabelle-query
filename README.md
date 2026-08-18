@@ -101,8 +101,11 @@ $ echo $?
 
 ## Installation
 
-Requires Python 3.9 or greater. Installs a `query` command on your `PATH`, and
-pulls `isabelle-layout` from PyPI.
+Requires Python 3.9 or greater. Installs the command on your `PATH` under two
+names — **`query`**, the short form used throughout these docs, and
+**`isabelle-query`**, matching the distribution — and pulls `isabelle-layout`
+from PyPI. They are the same program, and it reports whichever you typed, so
+`isabelle-query -h` documents `isabelle-query`.
 
 ```sh
 pip install isabelle-query     # from PyPI

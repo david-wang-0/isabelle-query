@@ -1,8 +1,10 @@
 """isabelle_query — query the live theory index of an Isabelle/Isar project.
 
-The `query` console command is :func:`isabelle_query.cli.main`; the shared
-ROOT / session parsing lives in :mod:`isabelle_query.common`.  Both compute
-results by parsing the project's ``.thy`` sources on every invocation,
+The console command is :func:`isabelle_query.cli.main`, installed under two
+names — ``query`` and ``isabelle-query`` — which are the same program and
+report whichever was invoked (:func:`isabelle_query._prog.prog_name`).  The
+shared ROOT / session parsing lives in :mod:`isabelle_query.common`.  Both
+compute results by parsing the project's ``.thy`` sources on every invocation,
 so output is always in sync with the current theory tree.
 
 The package version is single-sourced in ``pyproject.toml`` and read at

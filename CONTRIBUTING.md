@@ -93,6 +93,20 @@ inline:
 | `_add_comment_flags` | `--comments-off` / `--comments-only` |
 | `_add_context_flag` | `-U/--context` — one short flag everywhere, default per-command |
 | `_add_drop_names_flag` | `--drop-names-upto` |
+| `_add_line_number_noop_flag` | `-n/--line-number` — accepted and ignored on the search verbs |
+
+The **program name is not a literal**. The tool installs under two console
+script names (`query`, `isabelle-query`) and reports whichever was invoked, via
+`_prog.prog_name()` (re-exported as `cli._prog_name`). Anything a user reads —
+the `prog=`, `--version`, a stderr diagnostic prefix, an example embedded in
+help prose — goes through that accessor. A hardcoded `"query"` is guaranteed
+wrong for one of the two callers, and wrong in the direction that names a
+command the reader may not have on PATH. Internal comments and docstrings are
+exempt: nobody retypes those. `tests/test_cli_prog_name.py` greps `src/` for the
+literal, because the failure mode is a *new* message, not an old one.
+
+`_prog` is a leaf module — it imports nothing from the package — precisely so
+that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
 
 ## Verification
 
