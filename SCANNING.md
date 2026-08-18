@@ -37,6 +37,18 @@ it, the English of 542 AFP blocks was read as Isar; when headings were missing,
 `section \<open>Consequences proved using helper\<close>` cited `helper`, so a
 lemma named only in a section title looked used and dropped out of `unused`.
 
+Which commands those are is read from Isabelle's own keyword table rather than
+listed from memory — so the headings are all six of `chapter`, `section`,
+`subsection`, `subsubsection`, `paragraph` and `subparagraph`, and a command a
+particular session defines for itself (Isabelle_DOF's `section*[l::t]`) is not
+one. A heading's title has three spellings, all of them written: the two
+cartouches and a plain quoted string, `section "Preliminary lemmas"`.
+
+The converse also follows from "prose because of the command in front of it": a
+heading keyword *inside* a document block is English, not a command. A `text`
+block citing a textbook — "…follows Kleinberg and Tardos, chapter \"Dynamic
+Programming\"" — declares no chapter, and `outline` does not list one.
+
 ## Layout carries no meaning
 
 Isar is whitespace-insensitive, so a declaration is recognised wherever a

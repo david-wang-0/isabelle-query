@@ -45,7 +45,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if not os.environ.get("PYTHONPATH"):
     sys.path.insert(0, str(_ROOT / "src"))
 
-from isabelle_query import cli, graph  # noqa: E402
+from isabelle_query import cli, graph, parsing  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
 _args = sys.argv[1:]
@@ -58,11 +58,21 @@ LIMIT = int(_args[0]) if _args else 10_000
 
 # The command word alone on its line — nothing after it but whitespace.
 _SPLIT_OPEN_RE = re.compile(r"^\s*(text|text_raw|txt)\s*$")
-# A heading, with its cartouche opening on the same line.
-_HEADING_RE = re.compile(
-    r"^\s*(chapter|section|subsection|subsubsection)\s*(?:\\<open>|‹)")
+# The heading commands, taken from Isabelle's own keyword table rather than
+# guessed: `_isabelle_namespace.KEYWORDS` (222 entries, extracted from a running
+# Isabelle2025-2) carries `paragraph` and `subparagraph` beside the four the
+# scanner knew about.  It does NOT carry `section*` — Isabelle_DOF's annotated
+# form is that session's own command, not base syntax, so it stays out.
+_HEADING_WORDS = r"chapter|section|subsection|subsubsection|paragraph|subparagraph"
+# A heading whose title opens on the same line.  Three spellings: both
+# cartouches and the plain quoted string, which is `text`-argument syntax too.
+_HEADING_RE = re.compile(rf'^\s*({_HEADING_WORDS})\s*(\\<open>|‹|")')
+# ...and the split form, the command word alone with its title on the next line.
+_HEADING_SPLIT_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*$")
 _OPEN_RE = re.compile(r"\\<open>|‹")
 _CLOSE_RE = re.compile(r"\\<close>|›")
+# An unescaped `"` — the delimiter of the quoted title form.
+_QUOTE_RE = re.compile(r'(?<!\\)"')
 _DISCHARGE_RE = re.compile(r"\b(?:by|apply)\b\s*\(?\s*([\w']+)")
 
 tot: Counter = Counter()
@@ -80,6 +90,22 @@ def _close_line(lines, start):
         if depth <= 0 and n > start:
             return n
         if depth <= 0 and n == start and _OPEN_RE.search(lines[n]):
+            return n
+    return start
+
+
+def _quoted_close_line(lines, start):
+    """0-indexed line where a quoted title opened at `start` closes.
+
+    Quotes do not nest, so this counts rather than balances: the opener is the
+    first `"` on the line, and the title ends at the next one, wherever it is.
+    Nearly always the same line (3,978 of 3,980 in the AFP) — but the two that
+    wrap are exactly the residue a "rare enough to skip" call would leave.
+    """
+    if len(_QUOTE_RE.findall(lines[start])) >= 2:
+        return start
+    for n in range(start + 1, len(lines)):
+        if _QUOTE_RE.search(lines[n]):
             return n
     return start
 
@@ -139,12 +165,44 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                 _charge("split", raw, live, n, end, sec.theory, known)
                 n = end + 1
                 continue
-            if _HEADING_RE.match(raw[n]):
-                end = _close_line(raw, n)
+            m = _HEADING_RE.match(raw[n])
+            if m or (_HEADING_SPLIT_RE.match(raw[n]) and n + 1 < len(raw)
+                     and _OPEN_RE.search(raw[n + 1])):
+                if m is None:                        # split opener
+                    end = _close_line(raw, n + 1)
+                    tot["heading_split"] += 1
+                elif m.group(2) == '"':
+                    end = _quoted_close_line(raw, n)
+                    tot["heading_quoted"] += 1
+                else:
+                    end = _close_line(raw, n)
                 tot["heading_blocks"] += 1
                 tot["heading_lines"] += end - n + 1
                 if end > n:
                     tot["heading_wrapped"] += 1
+                # The `outline` half of the same gap: how many of these headings
+                # does the *view* not show?  A heading a user cannot see in
+                # `outline` is as much a miss as one whose prose leaks, and both
+                # came of the mask and the view holding separate patterns.
+                # Ask `_heading_at`, the shared recogniser, not the bare regex —
+                # the split form is decided with a lookahead the regex cannot
+                # see, so matching on `SECTION_RE` alone would report two
+                # phantom misses.
+                if parsing._heading_at(raw, n) is None:
+                    tot["outline_missed"] += 1
+                # Precision, the counterpart to every recall number here.  This
+                # regex is deliberately the *unguarded* one, so the count is how
+                # often `_heading_at`'s prose guard has to fire: a heading
+                # keyword inside a `text` block is English, not a command, and
+                # accepting the quoted title form is what made that reachable.
+                # Left unguarded, `outline` reported a chapter that is a citation
+                # of a textbook, and a quoted title with an odd number of quotes
+                # would have masked live code past the end of the block.
+                if any(a <= n + 1 <= b for a, b in sec.text_blocks):
+                    tot["heading_inside_prose"] += 1
+                    if len(samples) < SHOW:
+                        samples.append(f"  [GUARDED] {sec.theory}:{n + 1}\n"
+                                       f"      {raw[n].strip()[:110]}")
                 # Charge from the heading line ITSELF, not from n + 1.  An
                 # earlier pass only counted wrapped headings' continuation
                 # lines and so missed the commonest case entirely: a one-line
@@ -164,9 +222,15 @@ print(f"\nsplit openers (`text` then \\<open> on the next line): "
 print(f"  lines a scanner still reads:     {tot['split_live_lines']}")
 print(f"  carrying a by/apply introducer:  {tot['split_discharge']}")
 print(f"    …token IS in the table (miscounted today): {tot['split_miscounted']}")
-print(f"\nheadings (chapter/section/subsection/subsubsection): "
+print(f"\nheadings ({_HEADING_WORDS.replace('|', '/')}): "
       f"{tot['heading_blocks']} blocks / {tot['heading_lines']} lines "
-      f"({tot['heading_wrapped']} of them wrapping past their own line)")
+      f"({tot['heading_wrapped']} of them wrapping past their own line; "
+      f"{tot['heading_quoted']} written `section \"...\"`, "
+      f"{tot['heading_split']} with a split opener)")
+print(f"  MISSING FROM `outline` (the shared recogniser does not match): "
+      f"{tot['outline_missed']}")
+print(f"  suppressed by the prose guard (keyword inside a `text` block): "
+      f"{tot['heading_inside_prose']}")
 print(f"  heading lines still read:         {tot['heading_live_lines']}")
 print(f"  carrying a by/apply introducer:  {tot['heading_discharge']}")
 print(f"    …token IS in the table (miscounted today): "

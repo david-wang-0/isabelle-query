@@ -149,13 +149,38 @@ TOPLEVEL_RE = re.compile(r"^[a-z]")
 # Isabelle identifier, not `[a-z_]+` — a label may start with a capital, and may
 # carry digits or primes, none of which are unusual (`ax1`, `f'`).
 _AXIOM_NAME_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_']*)\s*:")
-SECTION_RE = re.compile(r"^(chapter|section|subsection|subsubsection)\s+\\<open>(.*)")
-# The same heading commands, for masking their prose rather than titling an
-# outline: leading indent allowed, no space required before the cartouche, and
-# both spellings — see `extract_heading_spans` for why it must be the wider of
-# the two patterns.
-_HEADING_OPEN_RE = re.compile(
-    r"^\s*(chapter|section|subsection|subsubsection)\s*(?:\\<open>|‹)")
+# The heading commands, taken from Isabelle's own keyword table rather than
+# listed from memory: `_isabelle_namespace.KEYWORDS` (extracted from a running
+# Isabelle2025-2) carries `paragraph` and `subparagraph` beside the familiar
+# four, and 888 AFP headings use them.  It does *not* carry `section*` —
+# Isabelle_DOF's `section*[label::type]` is that session's own command, not base
+# syntax, so accepting it here would be inventing a command.
+_HEADING_WORDS = r"chapter|section|subsection|subsubsection|paragraph|subparagraph"
+# The opener of a heading's title.  Three spellings, all of them written: both
+# cartouches and a plain quoted string, which is `text`-argument syntax too
+# (3,980 AFP headings, e.g. `section "Preliminary lemmas"`).
+_TITLE_OPEN = r'\\<open>|‹|"'
+# ONE pattern, shared by the two things that ask "is this line a heading?" —
+# `outline`'s view and the prose mask.  They were two patterns, tight and wide
+# respectively, on the reasoning that a view wants no false positives while a
+# mask cannot afford a false negative.  Both instincts are right in isolation
+# and the conclusion was wrong: a heading is a heading, so the recogniser is a
+# fact about Isar, not about the consumer.  Disagreeing cost `outline` 14,238
+# AFP headings it never showed [heading-outline].  Leading indent is allowed and
+# no space is required before the opener, because Isar is whitespace-insensitive
+# and both are written.
+SECTION_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*({_TITLE_OPEN})(.*)")
+# The split form: the command word alone on its line, its title on the next —
+# the same shape `_TEXT_BARE_RE` handles for document blocks.  Only ever used
+# with that one-line lookahead, so a bare word cannot reach forward to an
+# unrelated title.
+_HEADING_BARE_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*$")
+_TITLE_OPEN_RE = re.compile(rf"^\s*({_TITLE_OPEN})(.*)")
+# What closes each opener.  Quotes are their own close, which is why the quoted
+# form needs a counting scan rather than the balancing one.
+_TITLE_CLOSE = {"\\<open>": "\\<close>", "‹": "›", '"': '"'}
+# An unescaped `"` — the delimiter of the quoted title form.
+_UNESCAPED_QUOTE_RE = re.compile(r'(?<!\\)"')
 # Isabelle's document commands, whose bodies are prose rather than Isar.  `txt`
 # is the *in-proof* one — it appears between proof steps, where `text` appears
 # between declarations — and omitting it meant a step scanner read its English
@@ -934,17 +959,66 @@ def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
     return "?"
 
 
-def extract_sections(lines: list[str]) -> list[tuple[str, str, int]]:
+def _heading_at(lines: list[str], i: int,
+                prose: bytearray | None = None) -> tuple[str, str, str, int] | None:
+    r"""Is line ``i`` (0-indexed) a heading command?  ``(level, opener, rest,
+    offset)`` if so, where ``offset`` is 0 or — for the split form — 1, the
+    distance to the line the *title* opens on.
+
+    The single answer to "is this a heading", shared by the outline view and the
+    prose mask so the two cannot drift apart again.
+
+    ``prose`` is a `_line_mask` of the lines that are already known to be
+    document-block bodies or ML — where a *command* cannot start, so a heading
+    keyword there is only a word.  Without it, an English sentence inside a
+    `text` block is enough:
+
+        text \<open>
+          The proof follows Kleinberg & Tardos: "Algorithm Design",
+          chapter "Dynamic Programming" \<^cite>\<open>"Kleinberg-Tardos"\<close>
+        \<close>
+
+    which `outline` duly reported as a chapter (Monad_Memo_DP, twice in the
+    AFP).  That one is harmless past the false entry — it sits inside a block
+    that is masked anyway — but the same line with an *odd* number of quotes
+    would send `_find_quoted_close` hunting past the end of the block and mask
+    live code with it.  Callers that have the spans should always pass them.
+    """
+    if prose is not None and prose[i + 1]:
+        return None
+    m = SECTION_RE.match(lines[i])
+    if m:
+        return m.group(1), m.group(2), m.group(3), 0
+    bare = _HEADING_BARE_RE.match(lines[i])
+    if bare and i + 1 < len(lines):
+        nxt = _TITLE_OPEN_RE.match(lines[i + 1])
+        if nxt:
+            return bare.group(1), nxt.group(1), nxt.group(2), 1
+    return None
+
+
+def extract_sections(lines: list[str],
+                     prose: Iterable[tuple[int, int]] = ()
+                     ) -> list[tuple[str, str, int]]:
+    """``(level, title, line)`` for every heading — what `outline` prints, and
+    the boundary lines `compute_spans` breaks entries on.
+
+    The title is read to the end of its own line when it wraps, as it always
+    was: an outline is a one-line-per-heading index, not a transcript.
+
+    ``prose`` is the already-known document-block / ML spans — see
+    `_heading_at`.  Omitting it means an unguarded scan.
+    """
+    mask = _line_mask(len(lines), prose) if prose else None
     out: list[tuple[str, str, int]] = []
-    for i, line in enumerate(lines, 1):
-        m = SECTION_RE.match(line)
-        if not m:
+    for i in range(len(lines)):
+        found = _heading_at(lines, i, mask)
+        if found is None:
             continue
-        level = m.group(1)
-        rest = m.group(2)
-        close_idx = rest.find("\\<close>")
+        level, opener, rest, _at = found
+        close_idx = rest.find(_TITLE_CLOSE[opener])
         title = rest[:close_idx] if close_idx >= 0 else rest
-        out.append((level, title.strip(), i))
+        out.append((level, title.strip(), i + 1))
     return out
 
 
@@ -963,6 +1037,25 @@ def _find_balanced_close(lines: list[str], start: int) -> int:
         depth += sum(lines[i].count(tok) for tok in _CART_OPEN)
         depth -= sum(lines[i].count(tok) for tok in _CART_CLOSE)
         if depth <= 0 and i >= start:
+            return i
+    return start
+
+
+def _find_quoted_close(lines: list[str], start: int) -> int:
+    r"""Given a 0-indexed line that opens a `"..."` title, return the 0-indexed
+    line of its closing quote.  Returns `start` if there is none (malformed),
+    matching `_find_balanced_close`.
+
+    Counting, not balancing: quoted strings do not nest, so the title ends at
+    the next unescaped `"` wherever it falls — which is Isabelle's own lexing
+    rule, and the reason the scan is not bounded by a line budget.  Nearly
+    always the same line (3,978 of 3,980 in the AFP); the two that wrap are
+    exactly the residue a "rare enough to ignore" call would leave live.
+    """
+    if len(_UNESCAPED_QUOTE_RE.findall(lines[start])) >= 2:
+        return start
+    for i in range(start + 1, len(lines)):
+        if _UNESCAPED_QUOTE_RE.search(lines[i]):
             return i
     return start
 
@@ -1050,32 +1143,42 @@ def extract_text_blocks(lines: list[str]) -> list[tuple[int, int]]:
     return _scan_balanced_blocks(lines, opens)
 
 
-def extract_heading_spans(lines: list[str]) -> list[tuple[int, int]]:
-    r"""Return [(start_line, end_line)] (1-indexed inclusive) for every
-    `chapter` / `section` / `subsection` / `subsubsection` cartouche.
+def extract_heading_spans(lines: list[str],
+                          prose: Iterable[tuple[int, int]] = ()
+                          ) -> list[tuple[int, int]]:
+    r"""Return [(start_line, end_line)] (1-indexed inclusive) for every heading.
 
     A heading is prose, but it was in no prose list, so its English was scanned
-    as Isar.  35,856 headings in the AFP, 36,342 lines of them read as code —
-    two orders of magnitude more than the `txt` blocks of [txt-prose], and mostly
-    *one-line* headings, which is why looking only at the ones that wrap
-    understates it.  What that cost was not mainly method tokens but citations: a
-    `section \<open>Consequences proved using helper\<close>` parses "using
-    helper" as a fact list and edges the enclosing scope to `helper`, so a lemma
-    named only in a heading looks used and drops out of `unused`.
+    as Isar.  40,726 headings in the AFP — two orders of magnitude more than the
+    `txt` blocks of [txt-prose], and mostly *one-line* headings, which is why
+    looking only at the ones that wrap understates it.  What that cost was not
+    mainly method tokens but citations: a `section \<open>Consequences proved
+    using helper\<close>` parses "using helper" as a fact list and edges the
+    enclosing scope to `helper`, so a lemma named only in a heading looks used
+    and drops out of `unused`.
 
-    Multi-line headings are included by construction — the same balanced scan
-    `extract_text_blocks` uses, so a heading that wraps carries its
-    continuation lines with it.
+    Recognition is `_heading_at`, shared with `extract_sections` — one answer to
+    "is this a heading", so the mask and the `outline` view cannot disagree
+    about it again.  Three closers, because the openers differ: a cartouche
+    balances (and so carries a wrapped heading's continuation lines with it),
+    while a quoted title counts to its closing quote.
 
-    Deliberately NOT `SECTION_RE`, which serves `outline`: that one requires a
-    space before the cartouche and takes only the `\<open>` spelling, so it does
-    not match `subsection\<open>...` — the exact form of the heading that first
-    exposed this.  Masking prose must not inherit a narrower pattern than the
-    prose it is masking; that `outline` misses those headings is a separate gap,
-    recorded as [heading-outline].
+    ``prose`` is the already-known document-block / ML spans — see `_heading_at`.
     """
-    return _scan_balanced_blocks(
-        lines, lambda ls, i: 0 if _HEADING_OPEN_RE.match(ls[i]) else None)
+    mask = _line_mask(len(lines), prose) if prose else None
+    out: list[tuple[int, int]] = []
+    i = 0
+    while i < len(lines):
+        found = _heading_at(lines, i, mask)
+        if found is None:
+            i += 1
+            continue
+        _level, opener, _rest, at = found
+        close = (_find_quoted_close if opener == '"' else _find_balanced_close)
+        end = close(lines, i + at)
+        out.append((i + 1, end + 1))
+        i = end + 1
+    return out
 
 
 def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
@@ -2224,9 +2327,13 @@ def _parse_one(thy: str, thy_path: Path,
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges,
                               outer=outer, open_at=open_at,
                               live=blank_all(lines, nonisar_spans))
-    outline = extract_sections(lines)
     text_blocks = extract_text_blocks(lines)
-    heading_spans = extract_heading_spans(lines)
+    # Document bodies and ML come first because a heading is only a heading
+    # when a *command* introduces it: both heading scans take these spans as
+    # the places where one cannot start.  See `_heading_at`.
+    prose = list(text_blocks) + list(nonisar_ranges)
+    outline = extract_sections(lines, prose)
+    heading_spans = extract_heading_spans(lines, prose)
     comment_ranges = extract_comment_ranges(lines)
     comment_lines = extract_comment_lines(lines, note_starts)
     # Preambles first: they fix each entry's src_start, which compute_spans

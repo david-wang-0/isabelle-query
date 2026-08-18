@@ -91,6 +91,96 @@ lemma m: "True" by simp
         self.assertNotIn("means", counts)
 
 
+class EveryHeadingSpelling(unittest.TestCase):
+    r"""The residue [heading-prose] left behind, closed by [heading-outline].
+
+    That fix recognised four commands and two cartouche spellings.  Isabelle's
+    own keyword table has six commands, and the title may also be a plain
+    quoted string — so 4,895 AFP heading lines were still read as Isar, all of
+    them invisible to a probe that only knew the forms already handled.
+    """
+
+    def test_a_quoted_title_is_prose(self):
+        # `section "Foo"` — legacy but accepted, and 3,980 AFP headings use it.
+        # Dilworth writes every one of its headings this way, so its `outline`
+        # was empty and its prose was entirely live.
+        sec = section_from(HEAD + r'''
+section "Existence of a chain cover proved by induction"
+
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(len(sec.heading_spans), 1, f"{sec.heading_spans}")
+        counts, _ = cli._scan_methods([sec])
+        self.assertNotIn("induction", counts)
+        self.assertEqual(counts.get("simp"), 1)
+
+    def test_paragraph_and_subparagraph_are_headings(self):
+        # Present in `_isabelle_namespace.KEYWORDS`, absent from the scanner:
+        # 888 AFP headings.  The table is the authority for what a command is.
+        sec = section_from(HEAD + r'''
+paragraph \<open>Proved by induction on the list\<close>
+subparagraph "And by cases on the head"
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(len(sec.heading_spans), 2, f"{sec.heading_spans}")
+        counts, _ = cli._scan_methods([sec])
+        self.assertNotIn("induction", counts)
+        self.assertNotIn("cases", counts)
+
+    def test_a_split_opener_carries_its_title_line(self):
+        # The command word alone, title on the next line — the same shape
+        # `_TEXT_BARE_RE` already handled for `text`.  Two in the AFP.
+        sec = section_from(HEAD + r'''
+section
+  \<open>Sufficient criteria for being a morphism\<close>
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(sec.heading_spans, [(3, 4)])
+
+    def test_a_wrapped_quoted_title_carries_its_continuation(self):
+        # Dilworth.thy:294.  A quoted title closes at the next quote, not at
+        # end of line — the two AFP cases that wrap are exactly the residue a
+        # "rare enough to skip" call would have left live.
+        sec = section_from(HEAD + r'''
+section "Size of an antichain is less than or equal to the
+size of a chain cover proved by induction"
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(sec.heading_spans, [(3, 4)])
+        counts, _ = cli._scan_methods([sec])
+        self.assertNotIn("induction", counts)
+
+    def test_a_heading_keyword_inside_prose_is_not_a_heading(self):
+        # Monad_Memo_DP/example/Bellman_Ford.thy:246 — an English sentence
+        # citing a textbook chapter.  Accepting the quoted form made this
+        # reachable, and unguarded it put a phantom `chapter` in `outline`.
+        # A command cannot start inside a document block; that is the rule.
+        sec = section_from(HEAD + r'''
+text \<open>
+  The proof follows Kleinberg and Tardos: "Algorithm Design",
+  chapter "Dynamic Programming".
+\<close>
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(sec.heading_spans, [])
+        self.assertEqual(parsing.extract_sections(
+            sec.source(), sec.text_blocks), [])
+
+    def test_an_unbalanced_quote_in_prose_cannot_mask_live_code(self):
+        # The reason the guard is not cosmetic.  With an *odd* number of quotes
+        # the title scan runs to the next quote anywhere in the file — here
+        # that is the lemma's own statement, three lines down.
+        sec = section_from(HEAD + r'''
+text \<open>
+  See Kleinberg's chapter "Dynamic Programming
+\<close>
+lemma m: "True" by simp
+''' + FOOT)
+        self.assertEqual(sec.heading_spans, [])
+        counts, _ = cli._scan_methods([sec])
+        self.assertEqual(counts.get("simp"), 1)
+
+
 class HeadingsAreNotDocstrings(unittest.TestCase):
     """Why `heading_spans` is separate from `text_blocks`."""
 
