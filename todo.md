@@ -75,19 +75,6 @@ in `CONTRIBUTING.md`.
       remaining residue from it is that only the **first** name on a line is
       read, so `f :: "nat" and g :: "nat"` on one line yields one entry.
 
-- [ ] `[heading-outline]` `SECTION_RE` — the pattern `outline` uses to find
-      `chapter`/`section`/`subsection`/`subsubsection` headings — requires a
-      space before the cartouche (`\s+\\<open>`) and accepts only the ASCII
-      spelling.  So `subsection\<open>Foo\<close>` and `section ‹Foo›` are
-      **missing from `outline` entirely**.  Found while masking heading prose
-      (`5524aec`), which had to use a deliberately wider pattern
-      (`_HEADING_OPEN_RE`) for exactly this reason — the two now disagree, and
-      the mask is the correct one.  Cheap fix: point `extract_sections` at the
-      wider pattern too, or share one.  Verify against the corpus first: the
-      count of headings `outline` gains is the size of the gap, and
-      `scripts/probe_prose_openers.py` already counts 35,856 headings under the
-      wide pattern, so the difference is measurable directly.
-
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
       **references** — the complement of `theory -n` (which lists a
