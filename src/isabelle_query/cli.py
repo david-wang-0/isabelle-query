@@ -164,7 +164,9 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     cmd_enclosing,
     cmd_find,
     cmd_find_and,
+    cmd_graph,
     cmd_grep,
+    _dot_quote,
     cmd_largest,
     cmd_lines,
     cmd_methods,
@@ -767,6 +769,10 @@ def _run_theory_uses(ns: argparse.Namespace) -> None:
     _run_each(ns, "theory", lambda secs, thy:
               cmd_deps(secs, thy, reverse=True, recursive=ns.recursive))
 
+def _run_graph(ns: argparse.Namespace) -> None:
+    sections = _scope_to_theories(ns, _load_sections(ns))
+    cmd_graph(sections, ns.kind, ns.format, _flags_from_ns(ns))
+
 def _run_refs(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
     _run_each(ns, "theory", lambda secs, thy: cmd_refs(secs, thy, flags))
@@ -1121,6 +1127,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("-r", "--recursive", action="store_true",
                    help="transitive closure (all indirect importers)")
     p.set_defaults(func=_run_theory_uses)
+
+    # graph (whole-graph serialisation for jq / Graphviz / external analysis)
+    p = sub.add_parser("graph",
+                       help="emit the whole citation or import graph as JSON "
+                            "or DOT (for jq, Graphviz, external analysis)")
+    p.add_argument("kind", nargs="?", default="citation",
+                   choices=["citation", "imports"],
+                   help="citation: entry names, from the call graph "
+                        "(`callers`/`callees` one node at a time).  imports: "
+                        "theories, from the `imports` clauses "
+                        "(`deps`/`uses`).  Default: citation")
+    p.add_argument("--format", "-f", default="json", choices=["json", "dot"],
+                   help="json (default) or dot")
+    _add_drop_names_flag(p)
+    _add_theory_scope_flag(p)
+    p.set_defaults(func=_run_graph)
 
     # refs (citation-level rollup; the complement of `theory --names`, and
     # finer-grained than the imports-level `deps` / `uses`)

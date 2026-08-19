@@ -14,6 +14,7 @@ the proof-block drill-down behind ``enclosing`` (``_proof_blocks`` /
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from collections import Counter
@@ -1924,3 +1925,97 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
     for size, e, s in rows[:top]:
         print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.src_start}..{e.thy_end})")
+
+
+# --- machine-readable graph export [graph-export] --------------------------
+#
+# One whole-graph verb rather than a `--json` flag on each of
+# `callers`/`callees`/`deps`/`uses`.  The consumers named for this — `jq`,
+# Graphviz, external analysis — want the adjacency in full, which those verbs
+# cannot give: each answers about ONE subject, so reconstructing the graph from
+# them means N invocations and a merge.  The flag route also multiplies the
+# output contract by six, across renderers that already differ; scripted
+# single-subject answers are what `--names` / `-c` are for.
+
+def _dot_quote(s: str) -> str:
+    r"""A DOT-safe double-quoted ID.
+
+    Isabelle names routinely carry backslashes (`split\<^sub>i_tree`), and DOT
+    reads `\` as an escape introducer inside a quoted ID, so an unescaped name
+    is not merely ugly — `\<` would be consumed and the graph would carry a
+    different name than the corpus does.
+    """
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _citation_graph_data(sections: list[TheorySection],
+                         flags: "CmdFlags") -> dict:
+    """Nodes = indexed entries; edges = caller -> callee."""
+    g = _build_call_graph(sections, flags.drop_names_upto)
+    by_name = _entry_by_name(sections)
+    nodes = [{"name": n, "theory": by_name[n][0], "tag": by_name[n][1].tag,
+              "line": by_name[n][1].thy_line}
+             for n in sorted(g.all_names) if n in by_name]
+    known = {n["name"] for n in nodes}
+    edges = sorted((caller, callee)
+                   for caller, callees in g.callees.items()
+                   if caller in known
+                   for callee in callees if callee in known)
+    return {"kind": "citation", "nodes": nodes,
+            "edges": [list(e) for e in edges]}
+
+
+def _import_graph_data(sections: list[TheorySection]) -> dict:
+    """Nodes = theories; edges = importer -> imported.
+
+    Out-of-project imports (`HOL-Library.*`, another entry) are kept as nodes
+    flagged ``external``, not dropped.  They are a real part of the picture a
+    dependency diagram is for, and query knows their raw token even though it
+    does not load their sources.
+    """
+    by_theory = _sections_by_theory(sections)
+    nodes = [{"name": s.theory, "external": False,
+              "lines": s.thy_lines, "entries": len(s.entries)}
+             for s in sorted(sections, key=lambda s: s.theory)]
+    edges: list[tuple[str, str]] = []
+    external: set[str] = set()
+    for sec in sections:
+        for imp in parse_thy_imports(sec.path):
+            resolved = _resolve_import(imp, by_theory)
+            if resolved is None:
+                external.add(imp)
+                edges.append((sec.theory, imp))
+            else:
+                edges.append((sec.theory, resolved))
+    nodes += [{"name": n, "external": True} for n in sorted(external)]
+    return {"kind": "imports", "nodes": nodes,
+            "edges": [list(e) for e in sorted(set(edges))]}
+
+
+def cmd_graph(sections: list[TheorySection], kind: str, fmt: str,
+              flags: "CmdFlags") -> None:
+    """Emit the whole citation or import graph as JSON or DOT.
+
+    ``kind`` is ``citation`` (entry names, from the call graph) or ``imports``
+    (theories, from the `imports` clauses) — the two graphs the tool already
+    builds, which `callers`/`callees` and `deps`/`uses` respectively read one
+    node at a time.
+    """
+    data = (_citation_graph_data(sections, flags) if kind == "citation"
+            else _import_graph_data(sections))
+
+    if fmt == "json":
+        # Sorted and indented: the output of two runs over the same tree must
+        # diff cleanly, which is most of what makes an export worth having.
+        print(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
+        return
+
+    ext = {n["name"] for n in data["nodes"] if n.get("external")}
+    print(f"digraph {data['kind']} {{")
+    print("  rankdir=LR;")
+    for n in data["nodes"]:
+        attrs = ' [style=dashed]' if n["name"] in ext else ''
+        print(f"  {_dot_quote(n['name'])}{attrs};")
+    for src, dst in data["edges"]:
+        print(f"  {_dot_quote(src)} -> {_dot_quote(dst)};")
+    print("}")
