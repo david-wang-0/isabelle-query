@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: be018111-a108-4534-ad37-80cff9440ff8
-  modified: 2026-08-11T11:38:20.558Z
+  modified: 2026-08-19T21:15:10.099Z
 ---
 
 `isabelle-query`'s only runtime dependency is **`isabelle-layout`** (`>=0.2.2`,
@@ -22,10 +22,18 @@ breaks, the expected fix is to **update query's side**, not to pin.
 **Why:** the version cap was dropped deliberately (2026-08-10). It never
 protected anything — a downstream cap cannot stop an upstream publish, only
 query's resolution of one — and it was standing in for the real exposure, which
-is that `common.py` imports 24 layout names, **eight of them private**. No
+was that `common.py` imported 24 layout names, **eight of them private**. No
 version range makes a moved private name safe; it only makes it later. Layout
-also moves fast: 0.1.1 → 0.2.0 → 0.2.2 in two days. See [[layout-privates]] in
-`todo.md` for the list, and `git log --grep='layout-surface'`.
+also moves fast: 0.1.1 → 0.2.0 → 0.2.2 in two days.
+
+**That exposure is now zero** (2026-08-19, v0.7.0). `common.py` is deleted;
+query imports **ten public layout names and no private ones**, at their real
+call sites. `tests/test_layout_surface.py` enforces it — it walks every `.py`
+in the repo with `ast` and fails on an import from a `_`-prefixed layout module
+or of a `_`-prefixed name. So the uncapped dependency is now a considered
+position (public API, which upstream must version) rather than a standing risk.
+Keep it that way: a private import re-added is a version range needed again.
+`git log --grep='common-shim'`.
 
 **How to apply:** on an upstream release, `pip install --upgrade isabelle-layout`
 in the venv **first** — testing the working tree instead of the published wheel
