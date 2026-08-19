@@ -54,16 +54,16 @@ from isabelle_query import shape
 # The invoked command name, shared with `shape_cmds` — see `_prog` for why it
 # is a leaf module.  Re-exported here (as `cli._prog_name`) for the facade.
 from isabelle_query._prog import prog_name as _prog_name  # noqa: F401
-from isabelle_query.common import (
+from isabelle_layout import (
     default_t_dir,
     discover_roots,
-    is_known_nonhol_base,
     iter_sessions,
     parse_root_sessions,
     parse_thy_imports,
     resolve_base_logic,
     resolve_session_theory,
 )
+from isabelle_layout.distribution import is_known_nonhol_base
 # Core data model, extracted to `model.py`.  Re-exported here (unqualified)
 # so every existing `cli.Entry` / `cli.CallGraph` / `cli.CmdFlags` reference —
 # in this module, the sibling command modules, and the test suite — keeps
@@ -1521,7 +1521,7 @@ def _use_broad_fallback(sess_infos) -> bool:
 
     HOL is Isabelle's default logic and the broad table is the sensible floor, so
     the answer is yes UNLESS some declared session **positively** resolves to a
-    known non-HOL logic (:func:`~isabelle_query.common.is_known_nonhol_base` —
+    known non-HOL logic (:func:`~isabelle_layout.distribution.is_known_nonhol_base` —
     ``ZF``/``FOL``/``Pure``/…), where the HOL union would mis-assert.  Note the
     default is the *opposite* of the census guard's `is_hol_base`: an *unknown*
     base — e.g. an out-of-scope parent *session* name reached under

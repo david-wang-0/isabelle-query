@@ -173,7 +173,7 @@ class Dedup(unittest.TestCase):
                 'session One = HOL +\n  theories\n    "shared/Shared"\n\n'
                 'session Two = HOL +\n  theories\n    "shared/Shared"\n',
                 encoding="utf-8")
-            from isabelle_query.common import iter_sessions
+            from isabelle_layout import iter_sessions
             sessions = iter_sessions(root)
             self.assertEqual([s.name for s in sessions], ["One", "Two"])
             seen: set = set()

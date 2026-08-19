@@ -33,17 +33,18 @@ The package is a strict module DAG — each imports only from earlier links:
 
     model → parsing → graph → render → commands → cli
 
-with `common` (session/ROOT discovery, import closure), `shape` + `shape_cmds`
-(the proof-shape family), `_prog` (the invoked command name — a leaf that
-imports nothing, so any layer can reach it), and `scripts/` (offline
-table-generation + dev utilities) as siblings.
+with `shape` + `shape_cmds` (the proof-shape family), `_prog` (the invoked
+command name — a leaf that imports nothing, so any layer can reach it), and
+`scripts/` (offline table-generation + dev utilities) as siblings.
 
-`common` holds almost no code: the ROOT / session / theory-header parser moved
-out to **`isabelle-layout`** (on PyPI, query's one runtime dependency) and this
-module re-exports it, so existing callers did not have to move. New code should
-import `isabelle_layout` directly. The dependency is deliberately uncapped —
-`tests/test_layout_surface.py` pins the 24 names query reaches for, eight of
-them private, which is what a version range was standing in for.
+Session/ROOT discovery and the import closure are **not query's code**: the
+ROOT / session / theory-header parser is **`isabelle-layout`** (on PyPI,
+query's one runtime dependency), imported directly at each call site.  There is
+no `common.py` — it was a re-export shim for callers written before the split,
+and retiring it is the breaking half of 0.7.0. The dependency is deliberately
+uncapped: `tests/test_layout_surface.py` pins the ten names query reaches for,
+**all of them public**, and fails on any private import anywhere in the repo.
+That is what a version range was standing in for.
 
 - `model` — dataclasses (`Entry`, `TheorySection`, `CallGraph`), plus the two
   redacted views every scanner reads: `live_source()` (noise blanked, terms
@@ -63,7 +64,7 @@ them private, which is what a version range was standing in for.
 
 **Discovery loads what `isabelle build` compiles:** each session's ROOT-declared
 theories *plus the transitive closure of their in-entry `imports`* (via
-`common.session_theories`/`classify_import`). Imports of *other* AFP entries and
+`isabelle_layout.session_theories`). Imports of *other* AFP entries and
 of the base library (`HOL-*`, `Pure`) are not followed; orphan `.thy` files are
 excluded.
 
@@ -94,7 +95,7 @@ matter every session:
   `query` / `pip` **by bare name**; do **not** `cd` into the working dir (it
   trips the permission gate). `ruff` is not installed.
 - **Corpora.** AFP checkout: `~/repos/afp/thys` (Isabelle2025-2); enumerate a
-  corpus's sessions via `common.iter_sessions`, never a bare `rglob`.
+  corpus's sessions via `isabelle_layout.iter_sessions`, never a bare `rglob`.
 - **Correctness.** Verify against Isabelle semantics, not prior behavior;
   hand-compute a fixture value first, then make the code match. `pytest -q` stays
   green after every change.

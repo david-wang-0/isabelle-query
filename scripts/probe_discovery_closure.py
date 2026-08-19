@@ -51,7 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from isabelle_query.common import (  # noqa: E402
+from isabelle_layout import (  # noqa: E402
     iter_sessions, parse_thy_imports, session_theories,
 )
 

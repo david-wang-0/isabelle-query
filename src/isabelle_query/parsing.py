@@ -31,7 +31,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from isabelle_query.common import (
+from isabelle_layout import (
     SessionInfo,
     discover_roots,
     parse_root_sessions,

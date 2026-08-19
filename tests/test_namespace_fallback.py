@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import support  # noqa: F401,E402  (side effect: puts src/ on sys.path)
 from isabelle_query import _isabelle_namespace as _isa_ns  # noqa: E402
 from isabelle_query import cli, graph  # noqa: E402
-from isabelle_query.common import is_known_nonhol_base  # noqa: E402
+from isabelle_layout.distribution import is_known_nonhol_base  # noqa: E402
 
 Sess = collections.namedtuple("Sess", "name parent")
 

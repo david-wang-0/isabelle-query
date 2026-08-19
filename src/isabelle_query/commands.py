@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from isabelle_query import graph
-from isabelle_query.common import parse_thy_imports
+from isabelle_layout import parse_thy_imports
 from isabelle_query.model import (
     CallGraph,
     CmdFlags,  # noqa: F401  (used in string annotations)
@@ -199,7 +199,7 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         ``Foo``), matched against the section's theory
         name (exact, then case-insensitive).  This is the convenience
         spelling: the name is looked up among the sections already
-        discovered through the ``common.py`` ROOT-walking routines.
+        discovered through ``isabelle_layout``'s ROOT-walking routines.
     """
     if name.endswith(".thy") or "/" in name:
         try:

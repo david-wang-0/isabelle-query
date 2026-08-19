@@ -37,7 +37,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 from isabelle_query import cli  # noqa: E402
-from isabelle_query.common import iter_sessions, session_theories  # noqa: E402
+from isabelle_layout import iter_sessions, session_theories  # noqa: E402
 from isabelle_query.graph import _is_citation_name  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"

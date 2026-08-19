@@ -4,7 +4,7 @@ r"""Oracle: `query`'s `imports` clause against Isabelle's `theory/parents`.
 The cheapest ground truth in the session database.  `theory/parents` is a
 plain newline-separated list of fully-qualified parent theories -- no YXML, no
 offsets, no symbol arithmetic -- and it is exactly what `deps` reports and
-what `common.session_theories` builds the discovery closure from.
+what `isabelle_layout.session_theories` builds the discovery closure from.
 
 Compared on the LAST COMPONENT of each name, in order: `query` reads the
 import as written (`Turing_Hoare`, `"HOL-Library.FuncSet"`) while Isabelle
@@ -50,7 +50,7 @@ def _source_of(db: Path, theory: str) -> Path | None:
 
 
 def main() -> None:
-    from isabelle_query.common import parse_thy_imports
+    from isabelle_layout import parse_thy_imports
 
     sessions = sys.argv[1:] or [s for s, _ in _available_sessions()]
     agree = differ = noresolve = 0
