@@ -25,14 +25,19 @@ patch release without telling anyone.  The list below is therefore also a
 worklist: every private entry retired is a version range not needed.  See
 `common.py`'s module docstring for why each is still reached for.
 
-What this does NOT cover is a name that survives but changes BEHAVIOUR.  Only
-tests that exercise it catch that, and eight of these have none —
-`scripts/probe_discovery_closure.py` and `probe_parents_oracle.py` are the
-corpus-level check for the ones that matter.
+What a surface check does NOT cover is a name that survives but changes
+BEHAVIOUR.  Mostly that is upstream's job to test and it does — the second
+class below is the exception, the cases layout has no test for and query
+cannot afford to lose.  `scripts/probe_discovery_closure.py` and
+`probe_parents_oracle.py` are the corpus-level check for the rest.
 """
 
 import importlib
+import tempfile
 import unittest
+from pathlib import Path
+
+from isabelle_layout import parse_thy_imports
 
 # (module, attribute) — mirroring `isabelle_query.common`'s import block.
 PUBLIC = [
@@ -141,6 +146,54 @@ class LayoutSurface(unittest.TestCase):
         # loose dependency with a straight face.  A new one should be a
         # deliberate decision, not something that arrives in a refactor.
         self.assertEqual(len(PRIVATE), 8)
+
+
+class BehaviourUpstreamDoesNotTest(unittest.TestCase):
+    r"""Not the surface but the semantics, for cases layout has no test for.
+
+    Retiring query's duplicates of layout's own test files [common-shim] is
+    safe exactly where upstream covers the same ground, and
+    `scripts/probe_duplicated_tests.py` compares the two case by case.  It
+    found three of the four files fully covered and two cases in
+    `test_thy_header.py` with no counterpart upstream, which is what this
+    class is: the residue, kept because deleting the only test of a behaviour
+    is not the same as deleting a duplicate of one.
+
+    Both are the document-preparation tag, and query has already been bitten
+    by it once.  Isar allows a `%tag` after any command keyword, so AFP's
+    `AODV/All.thy` opens `theory %invisible All`.  A header parser anchored on
+    `theory NAME imports` reads `%invisible` as the name, fails to match
+    `imports`, and drops the clause — and because AODV's ROOT declares only
+    `All` and reaches its other 72 theories through that closure, the whole
+    entry silently collapsed to one theory.  See `29da607`.
+
+    That failure is invisible from layout's side: it is a lost import clause,
+    which only matters to something building a closure out of import clauses.
+    Query is that something, so this is query's test to keep, whatever upstream
+    chooses to cover.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _imports(self, text):
+        p = self.dir / "T.thy"
+        p.write_text(text, encoding="utf-8")
+        return parse_thy_imports(p)
+
+    def test_document_tag_with_a_space(self):
+        self.assertEqual(
+            self._imports('theory % invisible T\nimports Bar\nbegin\nend\n'),
+            ["Bar"])
+
+    def test_quoted_document_tag(self):
+        self.assertEqual(
+            self._imports('theory %"vis" T\nimports Bar\nbegin\nend\n'),
+            ["Bar"])
 
 
 if __name__ == "__main__":
