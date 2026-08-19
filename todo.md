@@ -61,20 +61,6 @@ in `CONTRIBUTING.md`.
       `tests/test_layout_surface.py`, with a comment saying the pin is not an
       endorsement.
 
-- [ ] `[record-fields]` **(correctness.)** A `record` declares a constant per
-      field — `record state = ip :: "ip" | sn :: "sqn"` binds `ip` and `sn` as
-      selectors — and none is indexed.  `[declared-names]` deliberately left
-      this out: a record's `=` introduces its *parent type*, and its fields
-      are bare `name :: type` lines, so the datatype constructor scan would
-      invent names if pointed at one (hence the DATATYPE tag gate in
-      `_constructors`).  It needs a scan of its own over the same body
-      `_scan_decl_body` now returns.  96 RECORD entries over 120 AFP
-      entries — and note that "120 entries" is an alphabetical prefix, not a
-      sample, so measure corpus-wide before sizing the work.
-      The `axiomatization` half of this item shipped in `b4930c1`; the
-      remaining residue from it is that only the **first** name on a line is
-      read, so `f :: "nat" and g :: "nat"` on one line yields one entry.
-
 - [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
       per-entry `callees` graph up by owning theory to list what a theory
       **references** — the complement of `theory -n` (which lists a
