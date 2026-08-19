@@ -7,16 +7,16 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[theory-refs]` Theory-level reference rollup: aggregate the
-      per-entry `callees` graph up by owning theory to list what a theory
-      **references** — the complement of `theory -n` (which lists a
-      theory's own exports), terse with per-name counts.  Note this is
-      finer-grained than `deps`/`uses`: those work at the `imports`-clause
-      level (theory A imports theory B), whereas this is citation-level
-      (which *entries* a theory's proofs actually invoke), so it surfaces
-      imports that are declared but unused, and the converse.
-      Pairs with a new `--theory THY` scope on `find` so a name search can
-      be confined to one theory.
+- [ ] `[count-mode-zero]` `-c` / `--count` prints a sentence, not a count,
+      when nothing matches: `find zzz -c` says `No entries matching 'zzz'.`
+      where a count mode should say `0`.  The sentence is emitted by
+      `render._emit_matches`'s empty guard, which runs *before* the mode
+      dispatch, so every verb funnelling through it (`find`, `show`) is
+      affected.  Small, but it is the difference between `$(query find X -c)`
+      being arithmetic and being a parse error — and the empty case is the
+      one a script most wants to branch on.  Check the other count paths at
+      the same time (`refs`, `callers`, `callees`, `methods`) rather than
+      fixing one: whether they agree is not currently pinned anywhere.
 
 - [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
       **minimal distinguishing path**.  `query largest` (and any verb that
@@ -96,15 +96,6 @@ in `CONTRIBUTING.md`.
       content already degrades gracefully (every line reads as live, so all
       matches still show; only the owner column goes `—`).
 
-- [ ] `[graph-export]` Machine-readable output for the citation graph
-      (`callers`/`callees` adjacency) and the import graph
-      (`deps`/`uses`) as `--json` and/or DOT, for piping into `jq`,
-      Graphviz, or external analysis.  Lowest effort of the open items —
-      the adjacency already exists in `CallGraph` and the import maps;
-      this is purely a serialization surface.  Decide the shape: `--json`
-      flags on the existing graph subcommands vs a dedicated `graph`
-      subcommand that emits the whole graph at once.
-
 - [ ] `[countstr]` **(exploratory — shape not settled).**  Record the itch,
       not a design.  The need: before a multi-site rewrite (a `replace_all`,
       a `sed`-style sweep), verify *exactly* how many times an exact,
@@ -159,30 +150,10 @@ in `CONTRIBUTING.md`.
       semantic.  Does it belong in `query` at all, or is the doc corpus a
       sibling tool's job?  Two sub-questions if it lands here: (a) the
       citer scan wants the *whole* repo, which breaks the `t/`-only
-      `.isabelle-query` scoping; (b) it shares machinery with
-      `[graph-export]` (serialise an adjacency) and `[theory-refs]`
-      (citation rollup) but over a different node set (files, not
-      entries).  Record the need; don't build until the scope call is
-      made.
-
-- [ ] `[find-conjunction]` Conjunctive multi-pattern on `find` (esp.
-      `find --statement`).  Today multiple `PATTERN`s run as **separate**
-      searches ("run each search in turn, blank-line separated") — an OR /
-      one-report-per-pattern.  The common find_theorems-style query is the
-      **AND**: "the entry whose statement mentions *all* of these."  Real
-      episode: hunting a length lemma in a large proof corpus,
-      `query find --statement 'length' 'encode_entry'` is useless — pattern
-      1 alone returns ~180 hits (every `length` in the corpus) — so the
-      user falls back to `query find 'encode' | grep length` or `outline THY
-      | grep`, exactly the pipe-to-grep the tool is meant to replace.
-      Proposal: an `--all`-patterns / `-A` / `--and` flag that keeps only
-      entries matched by **every** PATTERN (intersect the per-pattern hit
-      sets), reported once.  Composes with `--statement` (the high-value
-      case: `find --statement --and 'length' 'encode_entry'` ≈
-      `find_theorems "length _ = _" name:encode`), and with `--names`/`-c`.
-      Keep the current OR default (it's the "run a batch of searches"
-      idiom); `--and` is opt-in.  Small, self-contained; the OR machinery
-      already collects per-pattern sets, so this is a fold + flag.
+      `.isabelle-query` scoping; (b) it shares machinery with the shipped
+      `graph` verb (serialise an adjacency) and `refs` (citation rollup)
+      but over a different node set (files, not entries).  Record the
+      need; don't build until the scope call is made.
 
 ## Done
 
