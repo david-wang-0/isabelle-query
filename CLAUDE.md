@@ -19,8 +19,10 @@ the committed table when Isabelle is absent — never a build; see
 - **Structure** — *what is declared, and where*: `summary`, `theory`, `find`,
   `show`, `largest`, `outline`, and its inverse `enclosing` (which also names
   the enclosing locale/class target).
-- **Usage** — *which facts cite which*: `callers`, `callees`, `deps`, `unused`
-  (built on a call graph constructed only when needed).
+- **Usage** — *which facts cite which*: `callers`, `callees`, `deps`, `refs`,
+  `unused` (built on a call graph constructed only when needed). `deps`/`uses`
+  read the `imports` clause; `refs` rolls the *citation* graph up by theory, so
+  the two disagreeing is the signal (an import nothing cites, or the converse).
 - **Shape** — *the proof-complexity shape of individual steps*: `query shape`
   (a nested view family — `summary`/`steps`/`lemma`/`widest`/`census`).
 

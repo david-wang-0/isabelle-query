@@ -501,6 +501,38 @@ def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | No
     return None
 
 
+def _import_depths(start: str, by_theory: dict[str, TheorySection],
+                   out_of_project: set[str] | None = None) -> dict[str, int]:
+    """``{theory: depth}`` over the in-project imports graph from `start`.
+
+    Depth 0 is a *direct* import, 1 an import of an import, and so on; `start`
+    itself is excluded.  When `out_of_project` is given, every import that does
+    not resolve to a loaded theory (``HOL-Library.*``, another entry) is
+    collected into it rather than walked.
+
+    Shared by ``deps -r``, which reports the closure, and ``refs``, which uses
+    it to decide which of several declarations of a name the citing theory can
+    actually see.
+    """
+    def imports_of(name: str) -> list[str]:
+        sec = by_theory.get(name)
+        if sec is None:
+            return []
+        children: list[str] = []
+        for imp in parse_thy_imports(sec.path):
+            child = _resolve_import(imp, by_theory)
+            if child is None:
+                if out_of_project is not None:
+                    out_of_project.add(imp)
+            else:
+                children.append(child)
+        return children
+
+    depths = _bfs_depths(imports_of, [start], seed_depth=-1)
+    depths.pop(start, None)
+    return depths
+
+
 def cmd_deps(sections: list[TheorySection], theory: str,
              reverse: bool = False, recursive: bool = False) -> None:
     """Theory-level (not entry-level) import dependencies.
@@ -560,20 +592,7 @@ def cmd_deps(sections: list[TheorySection], theory: str,
     in_project: dict[str, int] = {}  # name -> depth (0 = direct import)
     out_of_project: set[str] = set()
     if recursive:
-        def imports_of(name: str) -> list[str]:
-            sec = by_theory.get(name)
-            if sec is None:
-                return []
-            children: list[str] = []
-            for imp in parse_thy_imports(sec.path):
-                child = _resolve_import(imp, by_theory)
-                if child is None:
-                    out_of_project.add(imp)
-                else:
-                    children.append(child)
-            return children
-        in_project = _bfs_depths(imports_of, [target.theory], seed_depth=-1)
-        in_project.pop(target.theory, None)
+        in_project = _import_depths(target.theory, by_theory, out_of_project)
     else:
         for imp in parse_thy_imports(target.path):
             resolved = _resolve_import(imp, by_theory)
@@ -592,6 +611,131 @@ def cmd_deps(sections: list[TheorySection], theory: str,
     emit(in_project)
     for name in sorted(out_of_project):
         print(f"  {name}  [out-of-project]")
+
+
+def cmd_refs(sections: list[TheorySection], theory: str,
+             flags: "CmdFlags") -> None:
+    r"""What a theory **references**, rolled up from the citation graph.
+
+    The complement of ``theory --names``, which lists what a theory *exports*.
+    Every entry in the theory contributes its ``callees``, and the result is
+    grouped by the theory that owns each cited name.
+
+    This is finer-grained than ``deps`` / ``uses``, and the difference is the
+    point.  Those work at the ``imports``-clause level — theory A declares that
+    it imports theory B — which is a statement of intent.  This works at the
+    citation level: which entries A's proofs actually invoke.  Comparing the
+    two is what surfaces an import that is declared but never used, and the
+    converse, a theory whose facts are cited without being imported directly
+    (reached through the transitive closure, so it compiles, but the
+    dependency is unstated).
+
+    **Ownership is resolved through the importing theory's own closure**, not
+    globally, because a name may be declared in several theories and the
+    citing theory can only see some of them.  A declaration in the theory
+    itself wins, then the nearest one by import depth, and only failing both
+    does an arbitrary declaration get the credit.  Getting this wrong is not a
+    cosmetic error: AODV declares each of its theories again under
+    ``variants/``, so crediting the first in load order reported
+    ``Aodv_Loop_Freedom`` as citing nothing from either of its two direct
+    imports — the precise opposite of the truth, in the output whose whole
+    purpose is that comparison.
+
+    One approximation remains, inherited from the name-level graph: counts are
+    **citing entries, not citation sites**.  ``callees`` is a set per entry, so
+    "3" means three lemmas here need that name, not that it appears 3 times.
+    """
+    target = _resolve_theory(sections, theory)
+    if target is None:
+        print(f"Theory '{theory}' not found.")
+        return
+
+    graph_ = _build_call_graph(sections, flags.drop_names_upto)
+    by_theory = _sections_by_theory(sections)
+    own = target.theory
+    closure = _import_depths(own, by_theory)
+
+    # Every theory declaring each name, not just the first — the whole point
+    # is to choose among them per citing theory.
+    declared_in: dict[str, list[str]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            declared_in.setdefault(e.name, []).append(sec.theory)
+
+    def owner_of(name: str) -> str:
+        cands = declared_in.get(name)
+        if not cands:
+            return own
+        if own in cands:            # a local declaration shadows an imported one
+            return own
+        visible = [(closure[c], c) for c in cands if c in closure]
+        if visible:                 # nearest by import depth
+            return min(visible)[1]
+        return cands[0]
+
+    tally: Counter[str] = Counter()
+    for e in target.entries:
+        for callee in graph_.callees.get(e.name, ()):
+            tally[callee] += 1
+
+    groups: dict[str, list[tuple[str, int]]] = {}
+    for name, n in tally.items():
+        owner = owner_of(name)
+        if flags.external and owner == own:
+            continue
+        groups.setdefault(owner, []).append((name, n))
+    for names in groups.values():
+        names.sort(key=lambda kv: (-kv[1], kv[0]))
+
+    total = sum(len(v) for v in groups.values())
+    if flags.mode == "count":
+        print(total)
+        return
+    if flags.mode == "names":
+        # Bare names, one per line, so the output pipes straight back into
+        # another query call.  Unique already: the tally is keyed by name.
+        for name in sorted(n for v in groups.values() for n, _ in v):
+            print(name)
+        return
+
+    if not total:
+        scope = "cross-theory " if flags.external else ""
+        print(f"{own} makes no {scope}references.")
+        return
+
+    # The import clause, for the declared-vs-used comparison.  Out-of-project
+    # imports (`HOL-Library.*`) are not in the closure: their entries are not
+    # indexed, so no citation of them could ever appear here and calling them
+    # unreferenced would be an artefact of what query loads, not a fact about
+    # the theory.
+    declared = {t for t, d in closure.items() if d == 0}
+    cited = set(groups) - {own}
+
+    print(f"{own} references {total} name(s) "
+          f"from {len(groups)} theory/theories:\n")
+    order = sorted(groups, key=lambda t: (t == own, -len(groups[t]), t))
+    width = max(len(t) for t in order)
+    notes = {t: ("[self]" if t == own else
+                 "[direct import]" if closure.get(t) == 0 else
+                 f"[import depth {closure[t]}]" if t in closure else
+                 "[not imported]")
+             for t in order}
+    note_w = max(len(n) for n in notes.values())
+    for owner in order:
+        print(f"  {owner:<{width}}  {notes[owner]:<{note_w}}  "
+              f"{len(groups[owner])}")
+        for name, n in groups[owner]:
+            print(f"      {name}  ({n})")
+        print()
+
+    unused = sorted(declared - cited)
+    if unused:
+        print(f"  Direct imports no citation reaches ({len(unused)}): "
+              f"{', '.join(unused)}")
+    indirect = sorted(cited - declared)
+    if indirect:
+        print(f"  Cited but not directly imported ({len(indirect)}): "
+              f"{', '.join(indirect)}")
 
 
 def cmd_outline(sections: list[TheorySection], theory: str,

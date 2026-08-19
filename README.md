@@ -26,12 +26,13 @@ query enclosing FILE:LINE  # which entry + proof block owns a line; inverse of o
 query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
 query callees <name> [-r]  # what a name references (forward)
 query deps <theory> [-r]   # what a theory imports  (forward; reverse: uses)
+query refs <theory>        # what a theory cites, by owning theory (citation-level)
 query sorry                # outstanding sorry's
 query unused               # dead-code / unused-entry analysis
 query shape <view>         # proof-shape metrics (summary|steps|lemma|widest|census)
 ```
 
-Every subcommand takes `-h`; `query -h` lists all 18.
+Every subcommand takes `-h`; `query -h` lists all 19.
 
 ## Examples
 

@@ -168,6 +168,7 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     cmd_lines,
     cmd_methods,
     cmd_outline,
+    cmd_refs,
     cmd_show,
     cmd_sorry,
     cmd_summary,
@@ -522,6 +523,21 @@ def _add_count_flag(p: argparse.ArgumentParser,
     p.add_argument("-c", "--count", action="store_true", help=help_text)
 
 
+def _add_theory_scope_flag(p: argparse.ArgumentParser) -> None:
+    """``--theory THY`` — confine the search to one theory [theory-refs].
+
+    Repeatable, so a scope is a batch like every other list argument here.
+    `find` has no trailing PATH positionals (a name search is corpus-global by
+    nature), which left the global `-R/--root` as its only knob — too coarse
+    when the question is "where in *this* theory", and the reason the answer
+    was a pipe into `grep`.
+    """
+    p.add_argument("--theory", dest="theory_scope", metavar="THY",
+                   action="append",
+                   help="confine the search to theory THY (name, Foo.thy, or "
+                        "a path); repeatable")
+
+
 def _add_names_flag(p: argparse.ArgumentParser,
                     help_text: str = "names + tags + theory only") -> None:
     # No `-n` short flag: it collides with the universal grep/rg convention
@@ -688,6 +704,34 @@ def _add_drop_names_flag(p: argparse.ArgumentParser) -> None:
 
 # -- Subcommand handlers (thin wrappers) -----------------------------------
 
+def _scope_to_theories(ns: argparse.Namespace,
+                       sections: list) -> list:
+    """Narrow the loaded index to the theories named by ``--theory`` [theory-refs].
+
+    Inert unless the subcommand opted in via :func:`_add_theory_scope_flag`, so
+    this can sit on the shared spine.  The dest is ``theory_scope``, not
+    ``theory``: ``deps`` / ``uses`` / ``refs`` already use ``theory`` for their
+    positional subject, and one namespace attribute cannot be both.
+
+    A name is resolved with the same `_resolve_theory` the theory-taking verbs
+    use, so `--theory Foo`, `--theory Foo.thy` and a path all work.  An
+    unresolvable one is reported and skipped rather than silently narrowing to
+    nothing — "no matches" from a typo'd scope is the failure mode this whole
+    tool exists to avoid.
+    """
+    wanted = getattr(ns, "theory_scope", None)
+    if not wanted:
+        return sections
+    kept: list = []
+    for name in wanted:
+        sec = _resolve_theory(sections, name)
+        if sec is None:
+            print(f"{_prog_name()}: theory {name!r} not found", file=sys.stderr)
+        elif sec not in kept:
+            kept.append(sec)
+    return kept
+
+
 def _run_each(ns: argparse.Namespace, attr: str, fn) -> None:
     """Load sections once, then apply ``fn(sections, subject)`` to each subject
     in ``getattr(ns, attr)``, blank-line-separated — the shared spine of the
@@ -695,7 +739,7 @@ def _run_each(ns: argparse.Namespace, attr: str, fn) -> None:
     ``callees``), so ``CMD A B C`` does in one gate-free call what a shell
     ``for`` loop does in N.
     """
-    sections = _load_sections(ns)
+    sections = _scope_to_theories(ns, _load_sections(ns))
     for i, subject in enumerate(getattr(ns, attr)):
         if i > 0:
             print()
@@ -721,6 +765,10 @@ def _run_deps(ns: argparse.Namespace) -> None:
 def _run_theory_uses(ns: argparse.Namespace) -> None:
     _run_each(ns, "theory", lambda secs, thy:
               cmd_deps(secs, thy, reverse=True, recursive=ns.recursive))
+
+def _run_refs(ns: argparse.Namespace) -> None:
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "theory", lambda secs, thy: cmd_refs(secs, thy, flags))
 
 def _run_outline(ns: argparse.Namespace) -> None:
     cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
@@ -1067,6 +1115,23 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="transitive closure (all indirect importers)")
     p.set_defaults(func=_run_theory_uses)
 
+    # refs (citation-level rollup; the complement of `theory --names`, and
+    # finer-grained than the imports-level `deps` / `uses`)
+    p = sub.add_parser("refs",
+                       help="names a theory cites, grouped by owning theory "
+                            "(citation-level; `deps` is imports-level)")
+    _add_subject_list_arg(p, cmd="refs", dest="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
+    _add_count_flag(p, "just print the distinct referenced-name count")
+    _add_names_flag(p, "bare referenced names, one per line, for piping "
+                       "back into another query call")
+    _add_drop_names_flag(p)
+    p.add_argument("--external", action="store_true",
+                   help="exclude names this theory declares itself, leaving "
+                        "only what it takes from elsewhere (same sense as "
+                        "`callees --external`)")
+    p.set_defaults(func=_run_refs)
+
     # outline
     p = sub.add_parser("outline", help="section structure with entries")
     p.add_argument("theory", help="theory name")
@@ -1128,6 +1193,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_comment_flags(p)
     _add_context_flag(p)
     _add_with_comments_flag(p)
+    _add_theory_scope_flag(p)
     p.set_defaults(func=_run_find)
 
     # show
