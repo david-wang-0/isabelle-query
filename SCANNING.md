@@ -84,6 +84,12 @@ command has one span, so counting `fun f and g and h` three times would
 triple-count it under `largest` and give `enclosing` three owners for each of
 its lines.
 
+`axiomatization` is the exception, and for the same reason read the other way:
+its constants and its labelled axioms are written one per line and each is
+independently locatable, so each *is* an entry. `and` separates them within a
+line as readily as it ends one, so `axiomatization f :: ty and g :: ty` declares
+two.
+
 This matters for precision as much as recall. A name the tool cannot find has no
 declaration site to exclude, so its own definition reads as a citation of
 itself: `callers termi_z` used to report three callers, two of which were the

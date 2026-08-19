@@ -419,9 +419,26 @@ def _entries_by_line(
     return pairs, [line for line, _ in pairs]
 
 
-def _axiom_line(text: str) -> tuple[str | None, bool]:
-    """Read one `axiomatization` line: the name it declares, and whether it
+# `and` at outer-syntax position, separating two items of one `axiomatization`.
+# Only ever applied to the OUTER view, so the `and` inside a proposition — or
+# the `\<and>` connective, whose letters this would otherwise match — is already
+# blanked.
+_AXIOM_AND_RE = re.compile(r"(?<![\w'])and(?![\w'])")
+
+
+def _axiom_line(text: str) -> tuple[list[str], bool]:
+    """Read one `axiomatization` line: the names it declares, and whether it
     opened with a continuation keyword.
+
+    *Names*, plural, because `and` separates items **within** a line as
+    readily as it ends one:
+
+        axiomatization f :: "nat" and g :: "nat"
+        where ax1: "f 0 = 0" and ax2: "g 0 = 0"
+
+    declares four things on two lines, and reading only the first of each lost
+    half of them.  The scan therefore steps item by item — name, next `and`,
+    name — rather than matching once at the start of the line.
 
     `text` must be the OUTER view of the line, so a colon inside a proposition
     cannot be mistaken for a label — the same discipline `_constructors` uses,
@@ -437,11 +454,22 @@ def _axiom_line(text: str) -> tuple[str | None, bool]:
     dropped every labelled axiom that followed.
     """
     stripped = text.strip()
-    cont = _STATEMENT_CONT_RE.match(stripped)
-    if cont:
-        stripped = stripped[cont.end():].lstrip()
-    m = _AXIOM_NAME_RE.match(stripped)
-    return (m.group(1) if m else None), bool(cont)
+    cont = bool(_STATEMENT_CONT_RE.match(stripped))
+    names: list[str] = []
+    while stripped:
+        kw = _STATEMENT_CONT_RE.match(stripped)
+        if kw:                       # `where` / `and` / ... introducing an item
+            stripped = stripped[kw.end():].lstrip()
+            continue
+        m = _AXIOM_NAME_RE.match(stripped)
+        if not m:
+            break
+        names.append(m.group(1))
+        nxt = _AXIOM_AND_RE.search(stripped, m.end())
+        if not nxt:                  # nothing further on this line
+            break
+        stripped = stripped[nxt.end():].lstrip()
+    return names, cont
 
 
 def _constructors(outer: list[str], start: int, end: int,
@@ -1884,19 +1912,21 @@ def extract_entries(lines: list[str],
             # The command line itself may already carry the first name —
             # `axiomatization where process_finite:` or `axiomatization
             # f :: "nat"` — so read its remainder before stepping below it.
-            head_name, _ = _axiom_line(outer[i][indent + len(keyword):])
-            if head_name:
+            head_names, _ = _axiom_line(outer[i][indent + len(keyword):])
+            for head_name in head_names:
                 entries.append(
                     Entry("AXIOM", head_name,
                           f"  AXIOM {line[len(keyword):].strip()}",
                           thy_line=decl_line, decl_end_line=decl_line))
             i += 1
             while i < len(lines):
-                name, cont = _axiom_line(outer[i])
-                if name:
-                    entries.append(Entry("AXIOM", name,
-                                         f"  AXIOM {lines[i].strip()}",
-                                         thy_line=i + 1, decl_end_line=i + 1))
+                found, cont = _axiom_line(outer[i])
+                if found:
+                    for name in found:
+                        entries.append(
+                            Entry("AXIOM", name,
+                                  f"  AXIOM {lines[i].strip()}",
+                                  thy_line=i + 1, decl_end_line=i + 1))
                     i += 1
                 elif cont:
                     i += 1     # a bare `where` / `and`: same command, go on

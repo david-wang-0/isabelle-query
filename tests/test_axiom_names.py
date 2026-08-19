@@ -129,6 +129,47 @@ axiomatization where process_finite: \<comment> \<open>a note\<close>
         self.assertEqual(at, ["axiomatization", "process_finite"])
 
 
+class SeveralNamesOnOneLine(unittest.TestCase):
+    """`and` separates items *within* a line as readily as it ends one.
+
+    The residue [record-fields] left behind: the scan matched a name once at
+    the start of each line, so everything after the first `and` was lost.
+    Only 7 names corpus-wide — authors nearly always break the line — but the
+    layout is legal, and a name the tool cannot find has no declaration site to
+    exclude, so its own definition reads as a citation of itself.
+    """
+
+    def test_constants_sharing_a_line(self):
+        got = _axioms(r'''
+axiomatization f :: "nat" and g :: "nat" and h :: "nat"
+''')
+        self.assertEqual(sorted(got), ["f", "g", "h"])
+
+    def test_labels_sharing_a_line_after_where(self):
+        got = _axioms(r'''
+axiomatization
+where ax1: "f 0 = 0" and ax2: "g 0 = 0"
+''')
+        self.assertEqual(sorted(got), ["ax1", "ax2"])
+
+    def test_they_all_report_the_line_they_are_on(self):
+        sec = section_from(HEAD + r'''
+axiomatization f :: "nat" and g :: "nat"
+''' + FOOT)
+        lines = {e.name: e.thy_line for e in sec.entries if e.tag == "AXIOM"}
+        self.assertEqual(lines["f"], lines["g"])
+
+    def test_and_inside_a_proposition_does_not_split_it(self):
+        # Read on the outer view, so the term — and the `\<and>` connective,
+        # whose letters the separator pattern would otherwise match — is
+        # blanked before the scan.
+        got = _axioms(r'''
+axiomatization
+where ax1: "P \<and> Q and R"
+''')
+        self.assertEqual(sorted(got), ["ax1"])
+
+
 class NotEveryColonIsALabel(unittest.TestCase):
 
     def test_colon_inside_a_proposition_is_not_a_name(self):
