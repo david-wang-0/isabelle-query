@@ -103,11 +103,6 @@ class LayoutSurface(unittest.TestCase):
             "parse_root_theories", "resolve_thy_file",
             "_INFRA_ROOTS", "_THY_HEADER_RE", "_tokenize_root",
             "_NONHOL_DISTRIBUTION_BASES", "MARKER_NAME",
-            # Listed because it is part of the module's surface, NOT because
-            # it should stay: `run_guarded` is deprecated, called by nothing
-            # in this repository, and duplicated in `isabelle_watchdog.guard`.
-            # See `[watchdog-guard]`.  A pin is not an endorsement.
-            "run_guarded",
         ]
         for attr in aliases:
             with self.subTest(name=attr):
@@ -117,6 +112,29 @@ class LayoutSurface(unittest.TestCase):
         # Re-exporting upstream's neutral `.isabelle-layout` here would have
         # silently changed the value of a constant this tool documents.
         self.assertEqual(common.MARKER_NAME, ".isabelle-query")
+
+    def test_common_defines_no_code_of_its_own(self):
+        r"""`common.py` is imports and nothing else [watchdog-guard].
+
+        It held one function, `run_guarded`, retained pending a review of the
+        upstream `bin/` tooling that called it.  That review is done: the
+        tooling moved into `isabelle-watchdog`, which carries its own copy at
+        `isabelle_watchdog/guard.py`, so query's was the last thread connecting
+        the two packages and it is gone.
+
+        Asserting emptiness rather than that one name's absence is the point.
+        A re-export module is a place where a helper is easy to park "just for
+        now", and each one parked here is logic living below the layer that
+        uses it.  If something genuinely belongs to query, it belongs in the
+        module that calls it; if it belongs to layout, it belongs upstream.
+        """
+        from isabelle_query import common
+        own = sorted(
+            name for name, obj in vars(common).items()
+            if not name.startswith("__")
+            and getattr(obj, "__module__", None) == common.__name__)
+        self.assertEqual(own, [], "common.py is a re-export shim; these are "
+                                  "defined in it rather than imported")
 
     def test_the_private_surface_has_not_grown(self):
         # Not a style rule: each private name is a reason query cannot state a

@@ -11,14 +11,14 @@ older `isabelle_query.common` keep working.
     from isabelle_layout import iter_sessions, session_theories
     from isabelle_layout.distribution import is_hol_base
 
-Two names are this module's own rather than a straight re-export:
+One name is this module's own rather than a straight re-export:
 
 * `classify_import` — upstream's is private (`_classify_import`), because
   deciding what counts as "infrastructure" is an analysis judgement about a
   corpus rather than a reading of a file.  Aliased back to its old public
   spelling here, where that judgement is wanted.
-* `run_guarded` — defined below, deprecated, and called by nothing in this
-  repository.  See `[watchdog-guard]` in `todo.md`.
+
+The module defines no code of its own: it is imports and nothing else.
 
 Why the parser lives in a separate package at all is recorded where this
 project records design decisions — in the commit, not in a comment that drifts
@@ -26,9 +26,6 @@ from it: `git log --grep='common.py becomes a re-export'`.
 """
 
 from __future__ import annotations
-
-import sys
-from typing import Callable, TypeVar
 
 # --- re-exports from the isabelle-layout package --------------------------
 #
@@ -79,25 +76,3 @@ from isabelle_layout.theories import (  # noqa: F401
 # value of a constant this tool documents.  `default_t_dir` reads both, so
 # behaviour is the same either way; the constant keeps its own meaning.
 from isabelle_layout.project import LEGACY_MARKER_NAME as MARKER_NAME  # noqa: F401
-
-
-_T = TypeVar("_T")
-
-
-def run_guarded(label: str, thunk: Callable[[], _T]) -> "_T | None":
-    """Run `thunk()` for a best-effort side task that must never break
-    its caller.  On any exception, print `<label>: skipped (Type: msg)`
-    to stderr and return None; on success return thunk()'s result.
-
-    DEPRECATED, and the only function this module defines.  Nothing in this
-    repository calls it; its callers are the build-trajectory capture in the
-    upstream ``bin/`` tooling, and `isabelle_watchdog.guard` carries its own
-    copy.  Do not add new callers — see `[watchdog-guard]` in `todo.md`, which
-    is about deleting this.
-    """
-    try:
-        return thunk()
-    except Exception as exc:  # noqa: BLE001 — best-effort by contract
-        print(f"{label}: skipped ({type(exc).__name__}: {exc})",
-              file=sys.stderr)
-        return None
