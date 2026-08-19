@@ -73,14 +73,16 @@ Isabelle binds more than one name per command, and each of them is citable:
 | `fun f and g and h where ...` | the constants `g`, `h` |
 | `definition F where eq_fold: "..."` | the equation `eq_fold` |
 | `datatype t = disc: A (sel: ty) \| B` | `A`, `B`, `disc`, `sel` |
+| `record r = x :: ty` *(one per line)* | the selectors `x` |
 | `locale L = assumes a: "P"` | the assumption `a` |
 | `lemma l: shows x: "P" and y: "Q"` | the conjuncts `x`, `y` |
 
 `show`, `find`, `callers` and `callees` all resolve these to the declaration
-that binds them, and say how — `'termi_z' is an introduction rule of terminate`.
-They are deliberately **not** separate entries: one command has one span, so
-counting `fun f and g and h` three times would triple-count it under `largest`
-and give `enclosing` three owners for each of its lines.
+that binds them, and say how — `'termi_z' is an introduction rule of terminate`,
+`'ip' is a field of state`. They are deliberately **not** separate entries: one
+command has one span, so counting `fun f and g and h` three times would
+triple-count it under `largest` and give `enclosing` three owners for each of
+its lines.
 
 This matters for precision as much as recall. A name the tool cannot find has no
 declaration site to exclude, so its own definition reads as a citation of

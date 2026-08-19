@@ -313,6 +313,33 @@ def _bar_continues(outer: list[str], i: int) -> bool:
     return i < len(outer) and bool(_BAR_LINE_RE.match(outer[i]))
 
 
+def _field_continues(outer: list[str], live: list[str], i: int) -> bool:
+    r"""Does the next line carrying outer syntax, at or after `i`, declare a
+    `record` field?
+
+    A record's field list has no `|` to pick it back up after a blank line, so
+    `_bar_continues` cannot serve it; the marker is the field's own `::`.  The
+    Lem-generated CakeML theories write every record that way —
+
+        record 'a NumNegate_class=
+
+          numNegate_method ::" 'a \<Rightarrow> 'a "
+
+    — and the blank line ended the body scan, so 32 of the AFP's 507 records
+    (6.3%) reported no fields at all.  Same shape of bug as the `|` one, same
+    shape of fix; layout carries no meaning either way.
+
+    Both views, for the reason `_record_fields` needs both: a quoted field name
+    is blanked on the outer one, and `SatSolverCode:22` writes every field that
+    way.  Skipping blank lines here is `_bar_continues`' rule, not a new one.
+    """
+    while i < len(outer) and not outer[i].strip() and not live[i].strip():
+        i += 1
+    return i < len(outer) and bool(
+        _RECORD_FIELD_RE.search(outer[i])
+        or _RECORD_QUOTED_FIELD_RE.search(live[i]))
+
+
 # `and`-separated constants in a declaration HEAD: `fun f and g and h where
 # ...` declares three, and only the first was recorded.  Same for `function` /
 # `primrec` / `inductive` / `inductive_set`.
@@ -356,6 +383,20 @@ _ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
 # type ascription cannot appear here, so dropping it changes nothing over 120
 # AFP entries (176 selectors either way).
 _SELECTOR_RE = re.compile(rf"\(\s*({_ISA_NAME})\s*:(?!:)")
+# A `record` field: `name :: type`, one per field.  Read on the outer view,
+# where the type — inner syntax — is already blanked, so the only `::` left in
+# a record's span is a field's own.  That is what makes this a two-token scan
+# rather than a grammar: the head declares no `::` (`record ('a,'b) r =`), and
+# neither does the parent clause, quoted (`= "'a TS" +`) or bare
+# (`= opt_obsv_state +`).
+_RECORD_FIELD_RE = re.compile(rf"(?<![\w'])({_ISA_NAME})\s*::")
+# ...and the same field with a QUOTED name, which the outer view blanks along
+# with every other quoted span — `record State = "getM" :: LiteralTrail`,
+# `record "globals" = "G_'" :: "nat"`.  A field is quoted for the usual reason,
+# that its spelling would not pass as a bare identifier.  Read on the LIVE view
+# instead, the same way a quoted locale name is; safe there because a *type*
+# never contains a quoted string, so a `"..." ::` can only be a field.
+_RECORD_QUOTED_FIELD_RE = re.compile(r'"([^"\n]+)"\s*::')
 
 
 def _entries_by_line(
@@ -414,7 +455,9 @@ def _constructors(outer: list[str], start: int, end: int,
 
     A `record`'s fields are NOT read here: `record point = parent + x :: nat`
     uses `=` for the parent-type clause and declares fields as bare
-    `name :: type` lines, a different grammar needing its own scan.
+    `name :: type` lines, a different grammar with its own scan — see
+    `_record_fields`.  Pointed at a record, this one reads the parent type as a
+    constructor.
     """
     if start < 1 or end < start:
         return []
@@ -437,6 +480,61 @@ def _constructors(outer: list[str], start: int, end: int,
         add(m.group(2), "constructor")
         for s in _SELECTOR_RE.finditer(alt):
             add(s.group(1), "selector")
+    return found
+
+
+def _record_fields(outer: list[str], live: list[str], start: int,
+                   end: int) -> list[tuple[str, str]]:
+    r"""`(name, "field")` for the selector constants a `record` declares.
+
+        record ('n,'p,'ba) flowgraph_rec =
+          edges :: "('n,'p,'ba) edge set"  \<comment> \<open>annotated edges\<close>
+          main  :: "'p"
+
+    declares the constants `edges` and `main` — total selector functions on the
+    record type, cited everywhere the record is used, and until now indexed
+    nowhere.  522 records in the AFP.
+
+    A separate scan from `_constructors`, not a widening of it, because the two
+    grammars collide on `=`: a datatype's `=` introduces its alternatives, a
+    record's introduces its *parent type*, so pointing the alternative scan at a
+    record would read the parent as a constructor.  Fields are bare
+    `name :: type` items with no `|` between them, which is the other half of
+    why one scan cannot serve both.
+
+    Read on the outer view for the usual reason — a field's type is inner
+    syntax, and `"('n,'p,'ba) edge set"` is full of names that are not fields —
+    with the quoted spelling picked up from the live view, which is the one
+    place that blanking hides the name rather than the noise.  Both views are
+    character-aligned (blanking substitutes spaces), so the two sets of hits
+    merge on `(line, column)` and the result is still in source order.
+
+    Unlike `_constructors` this does NOT exclude the declaration's own name:
+    `Algebra1:4600` writes `record 'a carrier = carrier :: "'a set"`, and the
+    type `carrier` and the selector `carrier` are different things in different
+    namespaces.  A datatype's `datatype 'a t = t ...` is the opposite case — one
+    namespace, so the constructor named for its type is excluded there.
+    """
+    if start < 1 or end < start:
+        return []
+    hits: list[tuple[int, int, str]] = []
+    for n in range(start - 1, min(end, len(outer))):
+        # Line by line, NOT over the joined span: `\s*` matches a newline, so a
+        # scan of the joined text pairs an unquoted type at the end of one line
+        # with the `::` of the next — `"getSATFlag" :: ExtendedBool` followed by
+        # a `\<comment>` line (blank on the outer view) and `"getF" :: Formula`
+        # declared a field called `ExtendedBool`.  A field's name and its `::`
+        # are on one line in every AFP record.
+        for m in _RECORD_FIELD_RE.finditer(outer[n]):
+            hits.append((n, m.start(1), m.group(1)))
+        for m in _RECORD_QUOTED_FIELD_RE.finditer(live[n]):
+            hits.append((n, m.start(1), m.group(1)))
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for _ln, _col, name in sorted(hits):
+        if name not in seen:
+            seen.add(name)
+            found.append((name, "field"))
     return found
 
 
@@ -495,7 +593,8 @@ def _locale_facts(outer: list[str], start: int, end: int,
     return found
 
 
-def _scan_decl_body(lines: list[str], outer: list[str], open_at: list[bool],
+def _scan_decl_body(lines: list[str], outer: list[str], live: list[str],
+                    open_at: list[bool],
                     table: dict[str, str], i: int, decl_line: int,
                     keyword: str = "") -> tuple[int, int, list[str]]:
     """Accumulate a declaration's body from line index `i` (0-indexed, the
@@ -523,7 +622,15 @@ def _scan_decl_body(lines: list[str], outer: list[str], open_at: list[bool],
             # `|` cannot start a new command, so it can only continue this one.
             # `AWN_SOS:14`'s `inductive_set seqp_sos` runs to line 34 and used
             # to end at 26; `Aodv:264`'s `fun` runs to 420 and ended at 300.
-            if not _bar_continues(outer, i + 1):
+            #
+            # A `record` has no `|` between its fields, so its continuation
+            # marker is the field's own `::` — see `_field_continues`.  Gated on
+            # the keyword because `name ::` after a blank line means something
+            # else everywhere else: it is a fresh `fixes`/`assumes` item, or the
+            # signature of the *next* declaration.
+            if not (_bar_continues(outer, i + 1)
+                    or (keyword == "record"
+                        and _field_continues(outer, live, i + 1))):
                 break
             i += 1
             continue
@@ -531,8 +638,21 @@ def _scan_decl_body(lines: list[str], outer: list[str], open_at: list[bool],
                 or (not inside and _is_boundary_at(outer[i])):
             break
         stripped = cline.strip()
-        if not inside and (stripped.startswith("\\<comment>")
-                           or stripped.startswith("text ")):
+        if not inside and stripped.startswith("text "):
+            break
+        # A `\<comment>` note is not a command — it can stand wherever a token
+        # can — so one *inside* a record's field list does not end it.  Records
+        # are annotated field by field (`wa_cond :: "'S set"` under
+        # `\<comment> \<open>Termination condition\<close>`), and breaking there
+        # cost 11 of the AFP's 507 records every field they declare.  Gated on
+        # the keyword and on a field actually following, which is the same
+        # evidence `_field_continues` supplies after a blank line.  Whether the
+        # break is right for the other routes is a live question — a note
+        # between two `fun` equations is equally routine — but it has not been
+        # measured, and widening on the strength of this case would be a guess.
+        if not inside and stripped.startswith("\\<comment>") \
+                and not (keyword == "record"
+                         and _field_continues(outer, live, i + 1)):
             break
         where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
         body.append(f"  {stripped}")
@@ -1721,7 +1841,7 @@ def extract_entries(lines: list[str],
             # declarations are entries in their own right, so covering it
             # would give `enclosing` two owners for every line inside.
             i, decl_end_line, body = _scan_decl_body(
-                lines, outer, open_at, table, i + 1, decl_line)
+                lines, outer, live, open_at, table, i + 1, decl_line)
             buf.extend(body)
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
@@ -1744,7 +1864,7 @@ def extract_entries(lines: list[str],
             # `record state =`.  A type declaration ends where any other does.
             buf = [f"{tag} {rest}"]
             i, decl_end_line, body = _scan_decl_body(
-                lines, outer, open_at, table, i + 1, decl_line)
+                lines, outer, live, open_at, table, i + 1, decl_line, keyword)
             buf.extend(body)
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,
@@ -1752,7 +1872,10 @@ def extract_entries(lines: list[str],
                                  bindings=(
                                      _constructors(outer, decl_line,
                                                    decl_end_line, name)
-                                     if tag == "DATATYPE" else [])))
+                                     if tag == "DATATYPE" else
+                                     _record_fields(outer, live, decl_line,
+                                                    decl_end_line)
+                                     if tag == "RECORD" else [])))
             continue
 
         if route == "axiom":
@@ -1800,7 +1923,7 @@ def extract_entries(lines: list[str],
                 name = _lookahead_name(lines, i + 1, table, parse_fn, outer)
             buf = [f"{tag} {rest}"]
             i, decl_end_line, body = _scan_decl_body(
-                lines, outer, open_at, table, i + 1, decl_line, keyword)
+                lines, outer, live, open_at, table, i + 1, decl_line, keyword)
             buf.extend(body)
             entries.append(Entry(tag, name, "\n".join(buf),
                                  thy_line=decl_line,

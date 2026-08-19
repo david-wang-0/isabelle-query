@@ -348,15 +348,46 @@ datatype 'ent atom = predAtm (predicate: predicate) (args: "'ent list")
                       + FOOT, "t"),
             {"A": "constructor"})
 
-    def test_a_record_declares_no_constructors(self):
-        # `record point = parent + x :: nat` uses `=` for the parent-type
-        # clause and declares fields as bare `name :: type` lines — a
-        # different grammar, deliberately not scanned here.
+    def test_a_record_declares_its_fields(self):
+        # `record`'s `=` introduces its parent type, not alternatives, and its
+        # fields are bare `name :: type` items with no `|` between them — a
+        # different grammar, so a scan of its own (`_record_fields`).  It ran
+        # for a while as no scan at all, leaving every AFP record's selectors
+        # unindexed.
         self.assertEqual(_bindings(HEAD + '''
 record point =
   x :: nat
   y :: nat
-''' + FOOT, "point"), {})
+''' + FOOT, "point"), {"x": "field", "y": "field"})
+
+    def test_a_records_parent_type_is_not_a_field(self):
+        # The collision that kept these two scans apart: point at a record and
+        # the alternative scan reads `point` — the *parent* — as a constructor.
+        # Both spellings of the parent clause occur, quoted and bare.
+        for parent in ('"\'a point"', "point"):
+            with self.subTest(parent=parent):
+                self.assertEqual(
+                    _bindings(HEAD + f'record cpoint = {parent} +\n'
+                              '  col :: nat\n' + FOOT, "cpoint"),
+                    {"col": "field"})
+
+    def test_a_field_type_contributes_no_names(self):
+        # Read on the outer view, as `_constructors` is: the quoted type is
+        # blanked, so `edge` and `set` are not fields.
+        self.assertEqual(
+            _bindings(HEAD + 'record r =\n'
+                      '  edges :: "(\'n, \'p) edge set"\n' + FOOT, "r"),
+            {"edges": "field"})
+
+    def test_a_field_spelled_with_markup_keeps_its_markup(self):
+        # `Slicing`'s `gen_\<alpha>e`, `CoSMed`'s `\<R>\<^sub>A_rel`: a plain
+        # `[A-Za-z][\w']*` reads the first as `gen_` and indexes a name that
+        # does not exist, exactly as it would for a datatype constructor.
+        self.assertEqual(
+            _bindings(HEAD + 'record r =\n'
+                      '  gen_\\<alpha>e :: "nat"\n'
+                      '  \\<R>\\<^sub>A_rel :: "nat"\n' + FOOT, "r"),
+            {"gen_\\<alpha>e": "field", "\\<R>\\<^sub>A_rel": "field"})
 
 
 class LocaleAndClass(unittest.TestCase):
