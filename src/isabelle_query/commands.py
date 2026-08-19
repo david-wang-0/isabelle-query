@@ -339,12 +339,15 @@ def _compile_user_pattern(pattern: str, flags: int = 0) -> "re.Pattern[str]":
         sys.exit(2)
 
 
-def cmd_find(sections: list[TheorySection], pattern: str,
-             flags: "CmdFlags") -> None:
-    pat = _compile_user_pattern(pattern, re.IGNORECASE)
-    by_theory = _sections_by_theory(sections)
+def _find_matches(sections: list[TheorySection], pat: "re.Pattern[str]",
+                  statement: bool) -> list[Entry]:
+    """Entries `pat` selects, in section order — one pattern's hit set.
+
+    Factored out of :func:`cmd_find` so the conjunctive form can intersect
+    several of these rather than reimplement what a match is.
+    """
     matches: list[Entry] = []
-    if flags.statement:
+    if statement:
         # Statement-slice search: match the regex against the declaration
         # text (the lemma/def statement, not the proof body) — a token-level
         # approximation of `find_theorems` ("which entries are *stated about*
@@ -356,10 +359,19 @@ def cmd_find(sections: list[TheorySection], pattern: str,
     else:
         for s in sections:
             for e in s.entries:
-                if pat.search(e.name):
+                # A bound name counts: `rreqs` finds the record that declares
+                # it, so the conjunction sees the same entry either way.
+                if (pat.search(e.name)
+                        or any(pat.search(c) for c in e.bound_names)):
                     matches.append(e)
-                elif any(pat.search(c) for c in e.bound_names):
-                    matches.append(e)  # matched via an extra bound name
+    return matches
+
+
+def cmd_find(sections: list[TheorySection], pattern: str,
+             flags: "CmdFlags") -> None:
+    pat = _compile_user_pattern(pattern, re.IGNORECASE)
+    by_theory = _sections_by_theory(sections)
+    matches = _find_matches(sections, pat, flags.statement)
 
     # `--statement` here selects the match locus, not the render: show the
     # matched entries the usual way (statement + proof preview).
@@ -368,21 +380,73 @@ def cmd_find(sections: list[TheorySection], pattern: str,
     if flags.with_comments:
         # Additionally search inside preamble bodies and annotation
         # content, producing context windows.
-        comment_hits = _find_in_comments(sections, pat, flags.context)
-        if comment_hits:
-            print()
-            print(f"--- comment matches for '{pattern}' "
-                  f"({len(comment_hits)} hit(s)) ---")
-            for hit in comment_hits:
-                print(hit)
+        _emit_comment_matches(sections, [pat], pattern, flags)
+
+
+def cmd_find_and(sections: list[TheorySection], patterns: list[str],
+                 flags: "CmdFlags") -> None:
+    r"""Conjunctive find: the entries matching **every** pattern, once
+    [find-conjunction].
+
+    The default for several patterns is a disjunction — run each search in
+    turn, one report per pattern — which is the "batch of searches" idiom that
+    replaces a shell loop.  The `find_theorems`-shaped question is the other
+    one: *the* entry that mentions all of these.  Hunting a length lemma with
+    `find --statement length encode_entry`, the first pattern alone returns
+    every `length` in the corpus, so the answer arrives as
+    `query find encode | grep length` — the pipe this tool exists to retire.
+
+    Intersecting hit *sets* rather than and-ing the regexes is what makes it
+    compose: the patterns may match different parts of the entry (one the
+    name, one a bound name, one elsewhere in the statement) and in any order,
+    which a single concatenated regex cannot express.
+    """
+    pats = [_compile_user_pattern(p, re.IGNORECASE) for p in patterns]
+    by_theory = _sections_by_theory(sections)
+    label = " AND ".join(patterns)
+
+    matches = _find_matches(sections, pats[0], flags.statement)
+    for pat in pats[1:]:
+        keep = {id(e) for e in _find_matches(sections, pat, flags.statement)}
+        matches = [e for e in matches if id(e) in keep]
+
+    _emit_matches(by_theory, matches, label, flags)
+
+    if flags.with_comments:
+        # The conjunction carries over to prose, per line: a note is a hit only
+        # if every pattern is on it.  Same rule as the entry side — one hit
+        # satisfying all patterns — rather than a union that would quietly
+        # reintroduce the OR the flag was asked to turn off.
+        _emit_comment_matches(sections, pats, label, flags)
+
+
+def _emit_comment_matches(sections: list[TheorySection],
+                          pats: list["re.Pattern[str]"], label: str,
+                          flags: "CmdFlags") -> None:
+    hits = _find_in_comments(sections, pats[0], flags.context,
+                             require=pats[1:])
+    if hits:
+        print()
+        print(f"--- comment matches for '{label}' ({len(hits)} hit(s)) ---")
+        for hit in hits:
+            print(hit)
 
 
 def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
-                      context: int) -> list[str]:
+                      context: int,
+                      require: "list[re.Pattern[str]] | None" = None) -> list[str]:
     """Search inside text blocks and \\<comment> annotations across all
     theories.  Returns formatted hit strings: filename:line + context window.
+    ``require`` (the conjunctive form) adds patterns that must ALSO match the
+    same line or note, so one hit satisfies every pattern rather than the union
+    satisfying them between them.
     """
     hits: list[str] = []
+    extra = require or []
+
+    def matched(text: str) -> bool:
+        return bool(pat.search(text)) and all(r.search(text) for r in extra)
+
     for sec in sections:
         src = sec.source()
         # Text blocks (preambles + standalone)
@@ -391,7 +455,7 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
                 if ln > len(src):
                     break
                 line = src[ln - 1]
-                if pat.search(line):
+                if matched(line):
                     lo = max(tb_start, ln - context)
                     hi = min(tb_end, ln + context)
                     snippet = src[lo - 1:hi]
@@ -407,7 +471,7 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
         # entry the prose is about.
         for e in sec.entries:
             for ln, content, kind in e.annotations:
-                if pat.search(content):
+                if matched(content):
                     hits.append(f"\n{sec.theory}.thy:{ln} "
                                 f"(\\<comment> in {e.name} {kind}): {content}")
     return hits

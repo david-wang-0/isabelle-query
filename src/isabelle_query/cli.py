@@ -163,6 +163,7 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     cmd_deps,
     cmd_enclosing,
     cmd_find,
+    cmd_find_and,
     cmd_grep,
     cmd_largest,
     cmd_lines,
@@ -785,6 +786,12 @@ def _run_largest(ns: argparse.Namespace) -> None:
 
 def _run_find(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
+    if getattr(ns, "conjunction", False) and len(ns.pattern) > 1:
+        # One report, not one per pattern, so `_run_each`'s blank-line
+        # separation is exactly what must not happen here.
+        sections = _scope_to_theories(ns, _load_sections(ns))
+        cmd_find_and(sections, ns.pattern, flags)
+        return
     _run_each(ns, "pattern", lambda secs, pat: cmd_find(secs, pat, flags))
 
 def _run_show(ns: argparse.Namespace) -> None:
@@ -1194,6 +1201,16 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_context_flag(p)
     _add_with_comments_flag(p)
     _add_theory_scope_flag(p)
+    # No `-A` short flag, for the same reason `--names` has no `-n`: `-A` is
+    # grep's after-context, and squatting on it would silently change what a
+    # grep-reflex caller asked for.  `--and` is spelled out.  The dest is
+    # `conjunction` because `and` is a Python keyword — `ns.and` will not
+    # parse, and a dest nobody can write is a trap for the next handler.
+    p.add_argument("--and", dest="conjunction", action="store_true",
+                   help="keep only entries matched by EVERY pattern, reported "
+                        "once (default: one search per pattern, an OR).  The "
+                        "find_theorems-shaped query: `find --statement --and "
+                        "length encode_entry`")
     p.set_defaults(func=_run_find)
 
     # show

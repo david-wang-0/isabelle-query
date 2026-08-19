@@ -20,7 +20,7 @@ does not require installing a CLI. `pip` fetches it for you.
 ```sh
 query summary              # theory overview table (-S: corpus/session aggregate)
 query theory MyTheory      # entries in a theory (-n for terse names)
-query find <regex>         # search entry names (--statement: search statements)
+query find <regex>         # search entry names (--statement: search statements; --and: all patterns)
 query show <name>          # a named entry's declaration + body
 query enclosing FILE:LINE  # which entry + proof block owns a line; inverse of outline
 query callers <name> [-r]  # who references a name  (reverse; -r = transitive)
@@ -42,6 +42,7 @@ Point `query` at any session directory with `-R` (or `--root`):
 query -R AFP/thys largest                          # the biggest entries, by line count
 query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
 query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin, whatever their name
+query -R AFP/thys find --statement --and length tfin  # ...and mentioning length too (--and intersects)
 query -R AFP/thys enclosing Tfin.thy:412           # the lemma and nearest proof block a build error sits in
 query -R AFP/thys enclosing Tfin:88..140           # every entry a diff hunk touches
 query -R AFP/thys grep simp Tfin.thy:88..140       # search just a hunk
