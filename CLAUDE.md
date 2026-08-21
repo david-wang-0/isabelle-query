@@ -124,6 +124,12 @@ bare label, and `.github/workflows/release.yml` publishes the *tagged commit's*
 message as the GitHub Release body. Notes written into the tag annotation are
 silently dropped. Write them in the bump commit, then `make release`.
 
+Build artifacts go in **`dist/`** — plain `python -m build`, no `--outdir`. It is
+the default, it is what `twine upload dist/*` expects, and it is already
+gitignored. (Note `build` does not clean it, so old versions accumulate; name
+the files or clear it first rather than re-offering a published release.) The
+**user** uploads to PyPI, not the assistant.
+
 ## Credit
 
 Artifacts are credited "By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5."
