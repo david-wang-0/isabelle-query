@@ -111,8 +111,18 @@ matter every session:
 
 ## Release status
 
-The released version tracks `pyproject.toml` (currently **0.6.3**). Versioning is
-alpha: breaking CLI changes ship as patch bumps for now.
+The released version tracks `pyproject.toml` (currently **0.7.0**). Versioning is
+alpha, and 0.7.0 is where the policy tightened: a **breaking change now takes
+the minor slot** (0.x semver — 0.6.x → 0.7.0), rather than riding a patch bump
+as it did while the CLI was moving weekly. Patch bumps stay additive. Switch to
+major-for-breaking once the CLI settles.
+
+There is no changelog, by the same reasoning that keeps design decisions in
+commit messages. **Release notes are the version-bump commit's message**, and
+that is load-bearing rather than a convention: `make release` tags HEAD with a
+bare label, and `.github/workflows/release.yml` publishes the *tagged commit's*
+message as the GitHub Release body. Notes written into the tag annotation are
+silently dropped. Write them in the bump commit, then `make release`.
 
 ## Credit
 
