@@ -36,11 +36,22 @@ tool's existing scanners (``graph._scan_methods``, ``commands._proof_blocks``):
 one step per live proof line, keyed on the leading command sequence.  A line may
 combine kinds — ``from a have b: "P" by simp`` is plumbing + goal + closing — so
 a goal-stating command anywhere in the line's *command prefix* (the text before
-the first proposition cartouche) wins the classification, and the leading
-plumbing / trailing closing are recorded on the goal :class:`Step` as fan-in
-sources.  A multi-command physical line is attributed to its goal command; the
-undercount of genuinely multi-*statement* lines matches the ethos of
-``_scan_methods`` (undercount, never overcount).
+its **proposition**) wins the classification, and the leading plumbing /
+trailing closing are recorded on the goal :class:`Step` as fan-in sources.  A
+multi-command physical line is attributed to its goal command; the undercount of
+genuinely multi-*statement* lines matches the ethos of ``_scan_methods``
+(undercount, never overcount).
+
+Locating that proposition is the delicate part, and getting it wrong cost 3.2%
+of the corpus's goal steps until issue #9.  It is *not* simply the line's first
+``"`` / ``\<open>``: a delimiter reached before any goal keyword is a **fact
+reference** in command position (``from \<open>P\<close> have "Q"``), and a
+command's line may carry no delimiter at all because its proposition **wrapped**
+onto the next.  Both are handled — see :func:`_split_command_prefix` and
+:func:`_statement_wrapped` — and both mattered because their rates track
+writing style rather than proof content, so they moved measurements in the same
+direction as a style trend.  Neither raised nor warned; each simply produced a
+record with a smaller number in it.
 
 This module is the authoritative reference for the metric definitions.  The
 exact-vs-estimator split, the reference (elaborated-term) semantics standing
@@ -102,12 +113,72 @@ _PROP_START_RE = re.compile(r'"|\\<open>')
 _CMD_TOKEN_RE = re.compile(r"\.\.|\.|[A-Za-z][\w']*")
 
 
+def _split_command_prefix(text: str) -> tuple[str, int]:
+    r"""Split a proof line into its command prefix and its proposition.
+
+    Returns ``(prefix, prop_col)``: the command keywords and fact names before
+    the proposition, and the column where the proposition opens (``-1`` when the
+    line states none — `by simp`, `qed`, `moreover`, `show ?thesis`).
+
+    A `"` or `\<open>` is **not** by itself evidence of a proposition, which is
+    the whole subtlety here.  Modern Isar cites a fact by writing it out, so
+    `from \<open>P\<close> have "Q"` opens a cartouche in *command* position: it
+    is a fact reference, and the proposition is further right.  A delimiter
+    reached before any goal keyword is therefore skipped, and only a delimiter
+    after one starts the proposition.
+
+    Stopping at the first opener instead — what this did — made the `have`
+    invisible, so the line booked as `plumbing` and its goal was never emitted:
+    **2.68% of AFP goal steps** (issue #9).  The consequence was not only an
+    undercount.  The lost goal's facts stayed pending and attached to the *next*
+    goal, so a `show ?thesis` was recorded as citing a premise it does not cite;
+    and `fanin_mean` *rose*, because the lost goal shrank the denominator.  The
+    backtick and bare spellings (`from p have`) were never affected, so the
+    error grew as a development adopted current style — a scanner artifact
+    moving with the style trend is the kind that survives a release comparison.
+
+    Skipped spans are **blanked, not deleted**, so a column into the prefix is
+    still a column into the line (`_STEP_LABEL_RE` searches it) and no token
+    inside a cited term can read as a command keyword.
+
+    Cartouches nest, so the skip uses the package's balanced scanner rather
+    than a non-greedy regex, which would stop at the first `\<close>` and leave
+    the outer one stranded in the prefix.
+    """
+    out: list[str] = []
+    i = 0
+    seen_goal = False
+    while True:
+        m = _PROP_START_RE.search(text, i)
+        if m is None:
+            out.append(text[i:])
+            return "".join(out), -1
+        segment = text[i:m.start()]
+        out.append(segment)
+        if not seen_goal:
+            seen_goal = any(t in _GOAL_KEYWORDS
+                            for t in _CMD_TOKEN_RE.findall(segment))
+        if seen_goal:
+            return "".join(out), m.start()
+        # A fact reference in command position: skip its balanced span.
+        if text[m.start()] == '"':
+            close = text.find('"', m.start() + 1)
+            end = close + 1 if close >= 0 else -1
+        else:
+            end = _balanced_end(text, "\\<open>", "\\<close>", start=m.start())
+        if end <= m.start():
+            # Unterminated on this line.  Nothing to the right can be read
+            # reliably, so treat it as the proposition — what the scanner did
+            # before, which keeps the residual error one-directional.
+            return "".join(out), m.start()
+        out.append(" " * (end - m.start()))
+        i = end
+
+
 def _command_prefix(stripped: str) -> str:
-    """The part of a proof line before its proposition — the command keywords
-    and fact names that precede the first `"`/`\\<open>`.  For a line with no
-    proposition (`by simp`, `qed`, `moreover`) this is the whole line."""
-    m = _PROP_START_RE.search(stripped)
-    return stripped[:m.start()] if m else stripped
+    """The part of a proof line before its proposition.  See
+    :func:`_split_command_prefix`, which this is the text half of."""
+    return _split_command_prefix(stripped)[0]
 
 
 def _classify_step_line(stripped: str) -> str:
@@ -212,12 +283,62 @@ def _extract_statement(lines: list[str], start_idx: int,
     is no as-written statement to measure.
     """
     first = lines[start_idx]
-    m = _PROP_START_RE.search(first)
-    if m is None:
+    _prefix, col = _split_command_prefix(first)
+    if col < 0:
+        # The command's own line states no proposition.  It may still have one:
+        # a statement wrapped to the next line is a bare goal only in the
+        # record, not in the source.
+        return _statement_wrapped(lines, start_idx, end_idx)
+    if first[col] == '"':
+        return _balance_quote(lines, start_idx, col, end_idx)
+    return _balance_cartouche(lines, start_idx, col, end_idx)
+
+
+# A goal command whose line ENDS at the command (with an optional label), which
+# is what makes looking ahead safe: `show ?thesis` has a remainder and stays
+# bare, `have` and `from p have b:` do not.  `also` / `finally` are excluded —
+# they are goal keywords that never carry a proposition of their own.
+_WRAPPED_GOAL_RE = re.compile(
+    r"\b(?:have|show|hence|thus|obtain|consider|interpret)"
+    r"(?:\s+[A-Za-z][\w'.]*\s*:)?\s*$")
+
+
+def _statement_wrapped(lines: list[str], start_idx: int,
+                       end_idx: int) -> tuple[int, int, str]:
+    r"""A goal whose proposition is wrapped onto a following line (issue #9).
+
+    ``_extract_statement`` searched the command's own line only, so
+
+        have
+          "True \<and> True"
+          by simp
+
+    yielded ``(0, 0, "")`` — indistinguishable in the record from a genuinely
+    bare `show ?thesis`, which is exactly what hid it: ``n_bare`` pools "bare by
+    construction" with "no proposition found".  **1.43% of AFP goal steps**,
+    6.2% of everything reported in ``n_bare``, and strongly style-dependent —
+    5x that rate in a corpus that wraps more.
+
+    Deliberately narrow.  The command line must end *at* the goal keyword and
+    the next non-blank line must *open* with a delimiter; anything else stays
+    bare.  So `obtain x where` on its own line is still missed, since its
+    remainder is not a label — a residue left rather than guessed at, because
+    over-reaching here would invent statements, and the metrics are built to
+    undercount rather than overcount.
+    """
+    if not _WRAPPED_GOAL_RE.search(lines[start_idx].rstrip()):
         return 0, 0, ""
-    if first[m.start()] == '"':
-        return _balance_quote(lines, start_idx, m.start(), end_idx)
-    return _balance_cartouche(lines, start_idx, m.start(), end_idx)
+    for i in range(start_idx + 1, min(end_idx, len(lines) - 1) + 1):
+        if not lines[i].strip():
+            continue      # blank, or prose the scan already blanked
+        m = _PROP_START_RE.match(lines[i].lstrip())
+        if m is None:
+            return 0, 0, ""
+        col = len(lines[i]) - len(lines[i].lstrip())
+        if lines[i][col] == '"':
+            return _balance_quote(lines, i, col, end_idx)
+        return _balance_cartouche(lines, i, col, end_idx)
+    return 0, 0, ""
 
 
 def _balance_quote(lines: list[str], start_idx: int, open_col: int,
@@ -1923,7 +2044,14 @@ class ProofSummary:
     ``shape census`` JSONL stream.  Distributions are over the proof's *goal*
     steps with an as-written proposition (the metric-bearing ones); ``n_bare``
     counts goal steps with none (``show ?thesis`` / ``case`` — width hidden from
-    source, so excluded from the w1/w2 distributions but reported alongside)."""
+    source, so excluded from the w1/w2 distributions but reported alongside).
+
+    ``n_bare`` **pools two different things** — "bare by construction" and "the
+    scanner found no proposition" — which is what hid issue #9(b) for as long as
+    it did: a wrapped statement was silently booked here, where nobody would
+    look for it.  The scanner side is fixed, but the pooling remains, so a rise
+    in ``n_bare`` is not by itself evidence about writing style.  Splitting the
+    two in the emitted record is `[bare-provenance]` in `todo.md`."""
     theory: str
     lemma: str
     n_steps: int
