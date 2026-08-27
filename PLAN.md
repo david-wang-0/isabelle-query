@@ -183,8 +183,9 @@ queries end up slower, say so in `dev/BENCH.md` and prioritise the server mode.
 ## Conventions
 
 - Small single-concern commits; design decisions in commit messages with
-  `[tag]` handles (inherited convention). Trailer:
-  `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+  `[tag]` handles (inherited convention). Trailer credits the model that
+  authored the commit, e.g.
+  `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 - No absolute personal paths (`/home/…`, `~/…`) in any committed file.
 - Scala style: follow the Isabelle distribution's `src/Pure` idiom (2-space
   indent, `object`-per-concept, `isabelle.*` imports), not sbt/IDE idiom.
