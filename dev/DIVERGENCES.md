@@ -9,7 +9,14 @@ mean shipping a known bug.
 
 Measured over the whole AFP (Isabelle2025-2 vintage): 411,181 Scala records vs
 409,277 oracle records over 10,262 theories, 1,952 differing records — all of
-them accounted for below.  The theory set itself is byte-identical.
+them accounted for below.  Over the whole Isabelle distribution `src`: 101,388
+vs 100,879 records over 1,818 theories, 751 differing, all of them D2.  Both
+theory sets are byte-identical.
+
+No entry is ever LOST: over both corpora the set of `theory:line:tag:name`
+identities the oracle reports is a subset of the Scala engine's.  Every
+difference is a declaration the oracle misses, or a span that moves because a
+missed declaration turns out to be the neighbour that bounds it.
 
 The five standard P1 corpora (`Abstract_Completeness`, `AODV`, `Category3`,
 `FOL`, `ZF`) are byte-identical in all four dump variants; none of these cases
@@ -44,20 +51,28 @@ declarations the oracle loses.
 
 ## D2 — `definition\<^marker>\<open>tag ...\<close> name`
 
-**Cost: 16 records over 7 entries.** Ceva, Interval_Analysis, MDP-Rewards,
-Complex_Bounded_Operators, Tabulation_Hashing, First_Order_Terms,
-Differential_Privacy.
+**Cost: 751 records in the Isabelle distribution, 16 in the AFP.**  This is the
+one divergence that is large where it matters most: `HOL/Analysis` tags its
+declarations for the document build throughout, so the oracle silently misses
+509 distribution declarations — `istopology`, `moebius`, `is_Arg`,
+`subtopology`, `pullback_topology`, `retract_of`, `aff_dim` … — plus the 242
+span records their absence shifts.  AFP entries affected: Ceva,
+Interval_Analysis, MDP-Rewards, Complex_Bounded_Operators, Tabulation_Hashing,
+First_Order_Terms, Differential_Privacy.
 
 ```isabelle
-definition\<^marker>\<open>tag important\<close> Triangle_area :: "..."   -- Ceva/Ceva:8
+definition\<^marker>\<open>tag important\<close> istopology :: "..."   -- HOL/Analysis/Abstract_Topology:13
+typedef\<^marker>\<open>tag important\<close> 'a topology = "..."     -- HOL/Analysis/Abstract_Topology:17
 lemma \<^marker>\<open>tag important\<close> fold_absorb:            -- Tabulation_Hashing/Xor:118
 ```
 
 A document marker is written with no space after the command keyword, so the
 oracle's `DECL_RE`, which requires `(?=\s|$)`, does not match at all and the
-declaration is missed entirely.  Where the marker does follow a space, the
-oracle's name parser reads the marker itself as the name
-(`\<^marker>\<open>tag`), because Isabelle markup tokens are name characters.
+declaration is missed entirely.  The custom-command path fails the same way for
+`typedef`: its lead token is read as `typedef\<^marker>`, which is in no keyword
+table.  Where the marker does follow a space, the oracle's name parser reads the
+marker itself as the name (`\<^marker>\<open>tag`), because Isabelle markup
+tokens are name characters.
 
 `\<^marker>` is a formal comment to Isabelle's lexer, so the Scala outer view
 blanks it and the command is recognised; `strip_decl_prefix` then steps over

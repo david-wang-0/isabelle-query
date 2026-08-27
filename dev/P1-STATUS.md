@@ -31,30 +31,49 @@ record fields, locale assumptions and `shows` conjuncts P1 is supposed to
 deliver — would be invisible to the gate and would first surface as a `callers`
 bug in P3.
 
-## Full-corpus sweep
+Seven more distribution sessions — `CCL`, `CTT`, `Sequents`, `FOLP`, `Cube`,
+`LCF`, `Doc` (2,327 entries) — are clean in all four variants too.
 
-Whole `$QUERY_TEST_AFP` (AFP for Isabelle2025-2) as a single root, one process
-per side, on this machine (12 logical cores):
+## Full-corpus sweeps
 
-| | records | wall | peak RSS |
-|---|---|---|---|
-| `isabelle query dump-entries --spans` | 411,181 | **19.9 s** | 4.3 GB |
-| `dev/dump_oracle.py entries --spans` | 409,277 | 37.6 s | 1.1 GB |
-| `isabelle query dump-theories` | 10,262 | 5.4 s | 3.0 GB |
-| `dev/dump_oracle.py theories` | 10,262 | 3.3 s | 58 MB |
+Each corpus as a SINGLE root, one process per side, on this machine (12 logical
+cores):
 
-Theory sets are **byte-identical** over the whole AFP.  Entry records differ in
-1,952 places, all of them documented in `dev/DIVERGENCES.md` (D1–D5) and all of
-them cases where the oracle disagrees with Isabelle's own lexer or its own
-header parser; 1,867 of the 1,952 are a single Python tokenizer bug
-(`\<open>\\<close>` losing its close and swallowing the rest of the file).
+| corpus | side | records | wall | peak RSS |
+|---|---|---|---|---|
+| AFP `thys`, entries `--spans` | Scala | 411,181 | **19.9 s** | 4.3 GB |
+| | oracle | 409,277 | 37.6 s | 1.1 GB |
+| AFP `thys`, theories | Scala | 10,262 | 5.4 s | 3.0 GB |
+| | oracle | 10,262 | 3.3 s | 58 MB |
+| distribution `src`, entries `--spans` | Scala | 101,388 | **5.1 s** | — |
+| | oracle | 100,879 | 6.0 s | — |
+| distribution `src`, theories | Scala | 1,818 | 1.8 s | — |
+| | oracle | 1,818 | 0.5 s | — |
 
-1.9x on entries is the honest number for a first cut, and it is not where the
-rewrite's headroom is: the JVM is doing the same per-byte work as Python but in
-parallel, and the theory-set case (5.4 s vs 3.3 s) shows the ~1 s process
-start-up the wrapper costs.  Discovery is the part that has had no attention —
-it stats the tree repeatedly (`real()` per candidate, a full `.thy` walk per
-session for the stem index) and is single-threaded.  Peak RSS is the JVM's
+Both theory sets are **byte-identical**.  Entry records differ in 1,952 places
+over the AFP and 751 over the distribution, all of them documented in
+`dev/DIVERGENCES.md` (D1–D5) and all of them cases where the oracle disagrees
+with Isabelle's own lexer or its own header parser.  Two causes dominate: a
+Python tokenizer bug on `\<open>\\<close>` swallowing the rest of a file (1,867
+AFP records), and `\<^marker>` document tags written against the command keyword
+(751 distribution records, because `HOL/Analysis` tags throughout).
+
+No entry is ever lost: over both corpora the oracle's set of
+`theory:line:tag:name` identities is a strict subset of the Scala engine's.
+
+1.9x on the AFP and 1.2x on the distribution are the honest numbers for a first
+cut, and neither is where the rewrite's headroom is.  The engine is doing the
+same per-byte work as Python, in parallel; the gap narrows on the smaller
+corpus because the fixed costs — ~1 s for the `isabelle` wrapper plus JVM
+start, and a single-threaded discovery pass — are a larger share of it.  The
+theory-set rows isolate that: 1.8 s against 0.5 s, on work that is nearly all
+`stat`.
+
+Discovery is the part that has had no attention.  It re-`stat`s the tree
+(`real()` per candidate path, a full recursive `.thy` walk per session to build
+the stem index) and runs on one thread; on the AFP that is 5.4 s of the 19.9 s.
+Parallelising it per session, and memoising `real()`, is the obvious next
+performance step and does not interact with parity.  Peak RSS is the JVM's
 default heap policy rather than a working-set measurement.
 
 ## What is implemented
