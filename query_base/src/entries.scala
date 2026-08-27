@@ -265,8 +265,17 @@ object Entries {
   /* names                                                              */
   /* ------------------------------------------------------------------ */
 
+  /* Every formal-comment marker, in both spellings.  A declaration may carry
+     any of them before its name: `\<comment>` glosses it, and
+     `definition\<^marker>\<open>tag important\<close> foo` tags it for the document
+     — which is written without a space after the keyword, so the marker is
+     part of what stands between the command and the name. */
+  val annotation_markers: List[String] =
+    List(Symbol.comment, Symbol.comment_decoded, Symbol.cancel, Symbol.cancel_decoded,
+      Symbol.latex, Symbol.latex_decoded, Symbol.marker, Symbol.marker_decoded).distinct
+
   /* Drop the syntactic noise that can sit between a keyword and the name: a
-     command modifier `(in foo)` / `(sequential)`, a leading margin comment,
+     command modifier `(in foo)` / `(sequential)`, a leading formal comment,
      and — for type declarations — leading type arguments. */
   def strip_decl_prefix(s0: String, typevars: Boolean): String = {
     var s = s0
@@ -276,10 +285,12 @@ object Entries {
         val j = balanced_paren_end(s)
         if (j < 0) go = false else s = Py.lstrip(s.substring(j))
       }
-      else if (s.startsWith(MARGINAL)) {
-        s = Py.lstrip(s.substring(MARGINAL.length))
-        if (s.startsWith("""\<open>""")) {
-          val k = balanced_cartouche_end(s)
+      else if (starts_with_any(s, annotation_markers)) {
+        val marker = annotation_markers.find(s.startsWith).get
+        s = Py.lstrip(s.substring(marker.length))
+        val open_tok = cart_open.find(s.startsWith)
+        if (open_tok.isDefined) {
+          val k = balanced_end(s, open_tok.get, cart_close(cart_open.indexOf(open_tok.get)))
           if (k < 0) go = false else s = Py.lstrip(s.substring(k))
         }
       }
