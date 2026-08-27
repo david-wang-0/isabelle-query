@@ -1,0 +1,106 @@
+/*  Title:      query_base/src/theory.scala
+
+One theory's parse, and a whole root's parse in parallel.
+
+The order matters and is the same order the reference implementation uses:
+the region scan runs FIRST, because one pass feeds three consumers — the
+character columns (`live_source`), the whole-noise LINES derived from them (the
+line-granular masks), and the declaration scan, which must not read a
+commented-out `definition` or an ML `fun` as an entry.  Preambles are attached
+before spans, because a preamble fixes an entry's `src_start` and `src_start`
+is the boundary the entry ABOVE ends at.
+*/
+
+package isabelle.query
+
+
+import isabelle.*
+
+import java.nio.file.{Path => JPath}
+
+import scala.collection.mutable
+
+
+object Theory {
+  /* A theory's own `keywords` clause, read by Isabelle's header parser.  Only
+     the kinds that introduce a citable fact map to a tag; proof, diagnostic,
+     document and load kinds must NOT create an entry. */
+  def header_keywords(path: JPath): Map[String, String] =
+    try {
+      val node = Document.Node.Name(path.toString, theory = Discovery.theory_stem(path))
+      val header = Thy_Header.read(node, Scan.char_reader(File.read(Path.explode(path.toString))))
+      (for {
+        (name, spec) <- header.keywords
+        tag <- Entries.kind_family.get(spec.kind)
+      } yield name -> tag).toMap
+    }
+    catch { case _: Throwable => Map.empty }
+
+  def read(path: JPath): String = File.read(Path.explode(path.toString))
+
+  def parse_one(theory: String, path: JPath, text: String,
+    table: Map[String, String] = Map.empty
+  ): Theory_Section = {
+    val (lines, starts) = Py.split_lines(text)
+    val regions = Regions.scan(text, lines, starts)
+    val nonisar_ranges = Regions.nonisar_ranges(lines, regions.nonisar)
+    val outer = Model.blank_all(lines, regions.inner)
+    val live = Model.blank_all(lines, regions.nonisar)
+
+    val entries =
+      Entries.extract_entries(lines, outer, live, regions.open_at, nonisar_ranges, table)
+
+    val text_blocks = Entries.extract_text_blocks(lines)
+    /* Document bodies and ML come first because a heading is only a heading
+       when a COMMAND introduces it: both heading scans take these spans as the
+       places where one cannot start. */
+    val prose = text_blocks ::: nonisar_ranges
+    val outline = Entries.extract_sections(lines, prose)
+    val heading_spans = Entries.extract_heading_spans(lines, prose)
+    val comment_ranges = Entries.extract_comment_ranges(lines)
+    val comment_lines = Entries.extract_comment_lines(lines, regions.notes)
+
+    Entries.attach_preambles(entries, lines, text_blocks)
+    Entries.compute_spans(entries,
+      outline.map(_._3) :::
+        Entries.structural_command_lines(lines, comment_ranges ::: nonisar_ranges, outer),
+      lines.length)
+    Entries.attach_annotations(entries, comment_lines)
+
+    for (e <- entries) {
+      e.theory = theory
+      e.body_end_line =
+        if (e.proof_line > 0) Entries.proof_extent(lines, e.proof_line, e.thy_end)
+        else if (e.decl_end_line > 0) e.decl_end_line
+        else e.thy_line
+    }
+
+    new Theory_Section(theory, Path.explode(path.toString), entries, lines, regions,
+      outline = outline, text_blocks = text_blocks, heading_spans = heading_spans,
+      comment_ranges = comment_ranges, nonisar_ranges = nonisar_ranges)
+  }
+
+
+  /* A whole root, parsed in parallel.
+
+     The custom-command table is a UNION over every discovered header, mirroring
+     Isabelle's session-wide `Keywords.++`: a theory that USES `AOT_theorem` is
+     parsed correctly even though the command is DECLARED in a different
+     theory's header, which a per-file table cannot do.  It is therefore built
+     in a first pass, before any body is parsed. */
+  def parse_root(root_dir: JPath): List[Theory_Section] = {
+    val found = Discovery.theories(root_dir)
+
+    val owned =
+      Par_List.map((f: Discovery.Found) =>
+        (f, if (f.path.getFileName.toString.endsWith(".thy")) header_keywords(f.path)
+            else Map.empty[String, String]),
+        found)
+    val union = owned.foldLeft(Map.empty[String, String])(_ ++ _._2)
+
+    Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
+      try Some(parse_one(fk._1.name, fk._1.path, read(fk._1.path), union ++ fk._2))
+      catch { case _: Throwable => None },
+      owned).flatten
+  }
+}

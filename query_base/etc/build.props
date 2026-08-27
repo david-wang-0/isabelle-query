@@ -3,6 +3,12 @@ module = $ISABELLE_QUERY_JAR
 requirements = \
   env:ISABELLE_SCALA_JAR
 sources = \
+  src/py_text.scala \
+  src/model.scala \
+  src/regions.scala \
+  src/entries.scala \
+  src/discovery.scala \
+  src/theory.scala \
   src/query_tool.scala
 services = \
   isabelle.query.Query_Tools
