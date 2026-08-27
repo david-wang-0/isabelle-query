@@ -141,6 +141,11 @@ queries end up slower, say so in `dev/BENCH.md` and prioritise the server mode.
 
 ## Phases (each ends with: builds green, difftest green at its tier, committed)
 
+Every phase gate is re-established by an **independent verifier agent**
+(adversarial re-run of the gate, cheat scan of the new code, repo hygiene)
+before the next phase starts; the implementing agent's own green report is
+necessary but not sufficient.
+
 - **P1 — engine core.** Discovery (ROOT + in-entry import closure per
   `SCANNING.md` "What counts as the project"), tokenisation, region semantics
   (`live_source` / `outer_source` equivalents), entry recognition with the full
@@ -156,8 +161,8 @@ queries end up slower, say so in `dev/BENCH.md` and prioritise the server mode.
   `_census_namespace.py` as data). **Gate:** difftest green for these.
 - **P4 — shape family.** `shape summary|steps|lemma|widest|census` per
   `METRICS.md` + `shape.py` (authoritative). Largest single phase; may ship
-  after P5 if needed — the CLI must then say "not yet ported", never silently
-  succeed empty.
+  after the jEdit pair (P5/P6) if that flows better — the CLI must then say
+  "not yet ported", never silently succeed empty.
 - **P5 — jEdit plugin.** `jedit_query` module (template: `jedit_linter`):
   - a **Query dockable** whose presentation follows jEdit's own
     directory-search results window (the HyperSearch Results dockable — tree
@@ -176,7 +181,28 @@ queries end up slower, say so in `dev/BENCH.md` and prioritise the server mode.
     for dirty buffers, mtime-based invalidation otherwise — this warm index is
     the seed of the CLI server mode.
   Manual testing only by the user (never restart their running jEdit; ask).
-- **P6 — polish.** Benchmarks recorded; README/CLAUDE.md rewritten for the
+- **P6 — IDE features** (immediately after P5 — it builds on the plugin's
+  infrastructure; ideally the same agent continues). Baseline survey lives in
+  the gitignored `.dev/JEDIT-NOTES.md` ("Navigation survey"). The slate:
+  - **navigate back/forward**: Isabelle/jEdit already ships complete jump
+    stacks (`isabelle.jedit.Isabelle_Navigator`, actions
+    `navigate-backwards`/`navigate-forwards`) but with no default keybinding
+    or toolbar exposure — expose it (keybindings, dockable/toolbar buttons)
+    rather than re-implementing;
+  - **Find Definition in the sidebar**: render the engine's `show` output
+    (declaration + body) in the query dockable instead of jumping a pane —
+    no such view exists in jEdit today (only the ctrl+hover tooltip and the
+    ctrl+click pane jump);
+  - **click-policy differentiation on dockable results**: single / double /
+    shift / middle click open the hit in the current pane vs a new pane
+    (EditPane split) vs a peek preview — policies configurable via Isabelle
+    options;
+  - **go-to-symbol / quick-open** fuzzy lookup over the query index;
+  - **peek-definition** popup (reuses tooltip + hyperlink-resolution
+    machinery);
+  - **outline**: bundled SideKick already covers much of it via Isabelle's
+    registered parsers — check coverage, fill gaps only.
+- **P7 — polish.** Benchmarks recorded; README/CLAUDE.md rewritten for the
   Scala tool; optional: server mode (`isabelle query -S` daemon reusing the
   warm index); register-for-real instructions.
 
