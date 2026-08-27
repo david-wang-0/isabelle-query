@@ -49,3 +49,6 @@ data/
 .timing*
 .repro*
 .variants*
+
+# Scala rewrite dev area (scratch Isabelle user home, corpora env)
+.dev/

@@ -1,0 +1,8 @@
+title = Isabelle Query
+module = $ISABELLE_QUERY_JAR
+requirements = \
+  env:ISABELLE_SCALA_JAR
+sources = \
+  src/query_tool.scala
+services = \
+  isabelle.query.Query_Tools

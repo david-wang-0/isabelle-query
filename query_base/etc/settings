@@ -1,0 +1,4 @@
+# -*- shell-script -*- :mode=shellscript:
+
+ISABELLE_QUERY_BASE_HOME="$COMPONENT"
+ISABELLE_QUERY_JAR="$ISABELLE_QUERY_BASE_HOME/lib/classes/isabelle_query.jar"

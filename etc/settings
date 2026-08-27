@@ -1,0 +1,3 @@
+# -*- shell-script -*- :mode=shellscript:
+
+# Umbrella component: sub-components are chained via etc/components.
