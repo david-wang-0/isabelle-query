@@ -35,37 +35,50 @@ object Query_Tool {
 
   /* --- development dumps --- */
 
-  private def sorted_sections(root: JPath): (JPath, List[(String, Theory_Section)]) = {
-    val base = Discovery.real(root)
-    val sections = Theory.parse_root(root)
-    val keyed =
-      for (sec <- sections) yield {
-        val p = Discovery.real(Paths.get(sec.path.implode))
-        val rel = (if (p.startsWith(base)) base.relativize(p) else p).toString
-        ((if (rel.endsWith(".thy")) rel.substring(0, rel.length - 4) else rel), sec)
-      }
-    (base, keyed.sortBy(_._1))
+  /* A theory's path relative to the root, which is the record's first field. */
+  private def rel_path(base: JPath, path: JPath): String = {
+    val p = Discovery.real(path)
+    (if (p.startsWith(base)) base.relativize(p) else p).toString
   }
 
+  private def theory_key(base: JPath, path: JPath): String = {
+    val rel = rel_path(base, path)
+    if (rel.endsWith(".thy")) rel.substring(0, rel.length - 4) else rel
+  }
+
+  /* Sorted by theory key, and parsed in BATCHES: over a whole corpus the
+     sections are the memory high-water mark, and nothing after the print needs
+     them.  Batching keeps the parallelism (a batch is one `Par_List.map`) while
+     bounding what is live at once. */
+  private val BATCH = 256
+
   def dump_entries(root: JPath, spans: Boolean, bindings: Boolean): Unit = {
+    val base = Discovery.real(root)
+    val plan = Theory.plan(root)
+    val ordered = plan.found.sortBy(fk => theory_key(base, fk._1.path))
     val out = new PrintWriter(
       new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8), 1 << 16))
     try {
-      for ((key, sec) <- sorted_sections(root)._2; e <- sec.entries) {
-        val buf = new StringBuilder
-        buf ++= key; buf += ':'; buf ++= e.thy_line.toString
-        buf += ':'; buf ++= e.tag; buf += ':'; buf ++= e.name
-        if (spans) {
-          buf ++= ":src=" + e.src_start + "-" + e.thy_end
-          buf ++= ":decl_end=" + e.decl_end_line
-          buf ++= ":proof=" + e.proof_line
-          buf ++= ":body_end=" + e.body_end_line
+      for (batch <- ordered.grouped(BATCH)) {
+        val parsed =
+          Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
+            (theory_key(base, fk._1.path), Theory.parse(fk._1, plan.table(fk._2))), batch)
+        for (case (key, Some(sec)) <- parsed; e <- sec.entries) {
+          val buf = new StringBuilder
+          buf ++= key; buf += ':'; buf ++= e.thy_line.toString
+          buf += ':'; buf ++= e.tag; buf += ':'; buf ++= e.name
+          if (spans) {
+            buf ++= ":src=" + e.src_start + "-" + e.thy_end
+            buf ++= ":decl_end=" + e.decl_end_line
+            buf ++= ":proof=" + e.proof_line
+            buf ++= ":body_end=" + e.body_end_line
+          }
+          if (bindings) {
+            buf ++= ":bind=" + e.bindings.map(b => b._1 + "/" + b._2).mkString(",")
+            buf ++= ":target=" + e.target
+          }
+          out.println(buf.toString)
         }
-        if (bindings) {
-          buf ++= ":bind=" + e.bindings.map(b => b._1 + "/" + b._2).mkString(",")
-          buf ++= ":target=" + e.target
-        }
-        out.println(buf.toString)
       }
     }
     finally out.flush()

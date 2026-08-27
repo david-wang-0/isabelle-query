@@ -34,7 +34,7 @@ if [ ${#corpora[@]} -eq 0 ]; then
   else
     for d in "${QUERY_TEST_AFP:-}/Abstract_Completeness" \
              "${QUERY_TEST_AFP:-}/AODV" \
-             "${QUERY_TEST_AFP:-}/AOT" \
+             "${QUERY_TEST_AFP:-}/Category3" \
              "${QUERY_TEST_DISTRO:-}/FOL" \
              "${QUERY_TEST_DISTRO:-}/ZF"; do
       [ -d "$d" ] && corpora+=("$d")

@@ -88,19 +88,32 @@ object Theory {
      parsed correctly even though the command is DECLARED in a different
      theory's header, which a per-file table cannot do.  It is therefore built
      in a first pass, before any body is parsed. */
-  def parse_root(root_dir: JPath): List[Theory_Section] = {
-    val found = Discovery.theories(root_dir)
+  final case class Plan(
+    found: List[(Discovery.Found, Map[String, String])],
+    union: Map[String, String]
+  ) {
+    def table(own: Map[String, String]): Map[String, String] =
+      if (own.isEmpty) union else union ++ own
+  }
 
+  def plan(root_dir: JPath): Plan = {
     val owned =
       Par_List.map((f: Discovery.Found) =>
         (f, if (f.path.getFileName.toString.endsWith(".thy")) header_keywords(f.path)
             else Map.empty[String, String]),
-        found)
-    val union = owned.foldLeft(Map.empty[String, String])(_ ++ _._2)
+        Discovery.theories(root_dir))
+    Plan(owned, owned.foldLeft(Map.empty[String, String])(_ ++ _._2))
+  }
 
+  /* One theory, or nothing if it cannot be read or parsed — a corpus sweep
+     must not stop at a single unreadable file. */
+  def parse(f: Discovery.Found, table: Map[String, String]): Option[Theory_Section] =
+    try Some(parse_one(f.name, f.path, read(f.path), table))
+    catch { case _: Throwable => None }
+
+  def parse_root(root_dir: JPath): List[Theory_Section] = {
+    val p = plan(root_dir)
     Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
-      try Some(parse_one(fk._1.name, fk._1.path, read(fk._1.path), union ++ fk._2))
-      catch { case _: Throwable => None },
-      owned).flatten
+      parse(fk._1, p.table(fk._2)), p.found).flatten
   }
 }
