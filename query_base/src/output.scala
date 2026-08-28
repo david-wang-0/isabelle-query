@@ -71,5 +71,9 @@ final case class Flags(
   context: Int = 2,
   with_comments: Boolean = false,
   recursive: Boolean = false,
-  external: Boolean = false
+  external: Boolean = false,
+  by_theory: Boolean = false,      // --by-theory (unused)
+  roots: Boolean = false,          // --roots (unused)
+  keep: Set[String] = Set.empty,   // --keep (unused: live roots)
+  drop_names_upto: Int = Usage_Graph.DROP_NAMES_UPTO  // --drop-names-upto (call graph)
 )

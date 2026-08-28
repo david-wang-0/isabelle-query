@@ -4,6 +4,7 @@ requirements = \
   env:ISABELLE_SCALA_JAR
 sources = \
   src/py_text.scala \
+  src/namespace.scala \
   src/model.scala \
   src/regions.scala \
   src/entries.scala \
@@ -11,7 +12,9 @@ sources = \
   src/theory.scala \
   src/output.scala \
   src/render.scala \
+  src/usage_graph.scala \
   src/commands.scala \
+  src/usage.scala \
   src/cli.scala \
   src/query_tool.scala
 services = \

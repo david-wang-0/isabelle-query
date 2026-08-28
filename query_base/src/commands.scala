@@ -401,12 +401,6 @@ object Commands {
   /* find / show                                                        */
   /* ------------------------------------------------------------------ */
 
-  def sections_by_theory(sections: List[Theory_Section]): Map[String, Theory_Section] = {
-    val m = mutable.LinkedHashMap.empty[String, Theory_Section]
-    for (s <- sections) m(s.theory) = s      // last wins, as the reference does
-    m.toMap
-  }
-
   def find_matches(sections: List[Theory_Section], pat: Pattern,
     statement: Boolean
   ): List[Entry] = {
@@ -425,7 +419,7 @@ object Commands {
     flags: Flags
   ): Unit = {
     val pat = compile_user_pattern(err, out, pattern, ignore_case = true)
-    val by_theory = sections_by_theory(sections)
+    val by_theory = Usage_Graph.sections_by_theory(sections)
     val matches = find_matches(sections, pat, flags.statement)
     Render.emit_matches(out, by_theory, matches, pattern, flags)
     if (flags.with_comments) emit_comment_matches(out, sections, List(pat), pattern, flags)
@@ -439,7 +433,7 @@ object Commands {
     patterns: List[String], flags: Flags
   ): Unit = {
     val pats = patterns.map(p => compile_user_pattern(err, out, p, ignore_case = true))
-    val by_theory = sections_by_theory(sections)
+    val by_theory = Usage_Graph.sections_by_theory(sections)
     val label = patterns.mkString(" AND ")
     var matches = find_matches(sections, pats.head, flags.statement)
     for (pat <- pats.tail) {
@@ -509,10 +503,22 @@ object Commands {
     "definition" -> "a defined element of",
     "note" -> "a named fact of")
 
+  /* If `name` is an extra name some declaration binds (see `Entry.bindings`),
+     the entry that binds it and the phrasing that says HOW — an introduction
+     rule and a `shows` conjunct resolve the same way but are not the same
+     thing.  Lets `callers` / `callees` / `show` answer for a name Isabelle
+     minted rather than refusing it. */
+  def resolve_binding(sections: List[Theory_Section], name: String): Option[(String, String)] =
+    sections.iterator.flatMap(sec =>
+      sec.entries.iterator.flatMap(e =>
+        e.bindings.iterator.collect {
+          case (n, kind) if n == name => (e.name, binding_kinds(kind))
+        })).nextOption()
+
   def cmd_show(out: Out, sections: List[Theory_Section], name: String,
     flags: Flags
   ): Unit = {
-    val by_theory = sections_by_theory(sections)
+    val by_theory = Usage_Graph.sections_by_theory(sections)
     val matches = new mutable.ListBuffer[Entry]
     for (s <- sections; e <- s.entries if e.name == name) matches += e
     if (matches.isEmpty)
@@ -544,43 +550,9 @@ object Commands {
   /* line ownership, loci, proof blocks                                 */
   /* ------------------------------------------------------------------ */
 
-  /* Prose, not proof: the document blocks, the section HEADINGS, the per-entry
-     preambles and the lexical non-Isar regions.  `comment_ranges` is
-     deliberately NOT unioned in — a marginal note normally trails live proof
-     text, and dropping the line would lose the citation with the note. */
-  def noise_spans(sec: Theory_Section): List[(Int, Int)] =
-    sec.text_blocks ::: sec.heading_spans ::: sec.nonisar_ranges :::
-      sec.entries.flatMap(_.preamble)
-
   def enclosing_entry(sec: Theory_Section, line_no: Int): Option[Entry] =
     sec.entries.find(e =>
       e.thy_line > 0 && e.thy_end > 0 && e.src_start <= line_no && line_no <= e.thy_end)
-
-  /* Per theory, the entry spans sorted for a binary search on a line. */
-  def build_line_index(sections: List[Theory_Section]
-  ): Map[String, Array[(Int, Int, Entry)]] = {
-    val index = mutable.LinkedHashMap.empty[String, Array[(Int, Int, Entry)]]
-    for (sec <- sections)
-      index(sec.theory) =
-        sec.entries.filter(_.thy_line > 0).map(e => (e.src_start, e.thy_end, e))
-          .sortBy(t => (t._1, t._2)).toArray
-    index.toMap
-  }
-
-  def entry_at_line(index: Array[(Int, Int, Entry)], line_no: Int): Option[Entry] = {
-    var lo = 0
-    var hi = index.length
-    while (lo < hi) {
-      val mid = (lo + hi) / 2
-      if (index(mid)._1 <= line_no) lo = mid + 1 else hi = mid
-    }
-    val idx = lo - 1
-    if (idx < 0) None
-    else {
-      val (start, end, e) = index(idx)
-      if (start <= line_no && line_no <= end) Some(e) else None
-    }
-  }
 
   /* `name (TAG) lo..hi`, or `—` for a line with no owner.  `span` is the one
      content choice that legitimately differs by command: `callers` keeps it
@@ -676,7 +648,7 @@ object Commands {
         else if (entry.thy_end != 0) entry.thy_end
         else lines.length
       val end = end0 min lines.length
-      val noise = Entries.line_mask(lines.length, noise_spans(sec))
+      val noise = Entries.line_mask(lines.length, Usage_Graph.noise_spans(sec))
       val stack = new mutable.ArrayBuffer[(String, String, Int)]
       val blocks = new mutable.ListBuffer[Block]
       var pending: Option[(String, String, Int)] = None
@@ -823,12 +795,12 @@ object Commands {
      `foo` as source.  The raw line is still what is matched first, so
      `--with-comments` still finds prose. */
   def grep_sections(sections: List[Theory_Section], pat: Pattern): List[Hit] = {
-    val line_index = build_line_index(sections)
+    val line_index = Usage_Graph.build_line_index(sections)
     val out = new mutable.ListBuffer[Hit]
     for (sec <- sections) {
       val lines = sec.source
       val live_lines = sec.live_source
-      val noise = Entries.line_mask(lines.length, noise_spans(sec))
+      val noise = Entries.line_mask(lines.length, Usage_Graph.noise_spans(sec))
       val idx = line_index.getOrElse(sec.theory, Array.empty[(Int, Int, Entry)])
       val (win_lo, win_hi) = sec.line_window match {
         case Some((lo, hi)) => (lo, hi.getOrElse(lines.length))
@@ -843,7 +815,7 @@ object Commands {
               !(line_no < noise.length && noise(line_no)) &&
                 Py.found(pat, live_lines(line_no - 1))
             out += Hit(sec.path.getFileName.toString, line_no, Py.rstrip(line),
-              entry_at_line(idx, line_no), is_live, sec.is_thy)
+              Usage_Graph.entry_at_line(idx, line_no), is_live, sec.is_thy)
           }
         }
         line_no += 1

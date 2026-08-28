@@ -193,6 +193,17 @@ object Py {
     (if (n < 0) "-" else "") + buf.toString
   }
 
+  /* Python's `format(x, '.Nf')`, which is NOT `String.format("%.Nf")`.
+     Python rounds the double's EXACT binary value half-to-EVEN; Java's
+     formatter rounds half-UP.  They part company on any value that lands
+     exactly on a midpoint, and a percentage does that regularly: one use of a
+     method out of 16 introducers is `6.25`, which prints `6.2` in the reference
+     and would print `6.3` here.  `BigDecimal(double)` is the exact value, so
+     rounding it half-even reproduces Python. */
+  def format_fixed(x: Double, scale: Int): String =
+    new java.math.BigDecimal(x).setScale(scale, java.math.RoundingMode.HALF_EVEN)
+      .toPlainString
+
   /* Python's `int(s)`: surrounding whitespace and an optional sign, then
      ASCII digits (underscores allowed as separators since 3.6). */
   def parse_int(s0: String): Option[Int] = {

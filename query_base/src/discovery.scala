@@ -134,7 +134,12 @@ object Discovery {
     root_path: JPath,               // resolved, absolute
     in_subdir: Option[String],
     directories: List[String],
-    theories: List[String]
+    theories: List[String],
+    /* The declared parent session (`session Foo = HOL +`).  Not used by
+       discovery — a session's theories are found the same way whatever it sits
+       on — but it is the chain the namespace router follows to a project's base
+       logic, which decides which committed method table applies. */
+    parent: Option[String] = None
   ) {
     def session_dir: JPath = in_subdir match {
       case Some(d) => root_path.getParent.resolve(d)
@@ -154,7 +159,8 @@ object Discovery {
         root_path = abs,
         in_subdir = if (e.path == "." || e.path.isEmpty) None else Some(e.path),
         directories = e.directories,
-        theories = e.theories.flatMap(_._2.map(_._1._1)))
+        theories = e.theories.flatMap(_._2.map(_._1._1)),
+        parent = e.parent)
   }
 
   def iter_sessions(root_dir: JPath): List[Session_Info] =

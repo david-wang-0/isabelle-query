@@ -124,12 +124,17 @@ class Theory_Section(
 
   def thy_lines: Int = lines.length
 
-  private lazy val live: Array[String] = Model.blank_all(lines, regions.nonisar)
-  private lazy val outer: Array[String] = Model.blank_all(lines, regions.inner)
-
   def source: Array[String] = lines
-  def live_source: Array[String] = live
-  def outer_source: Array[String] = outer
+
+  /* COMPUTED, NOT CACHED — and every caller binds the result to a local rather
+     than calling this in a loop.  A cached view is a second full copy of the
+     corpus text held for the life of the process, which at whole-AFP scale is
+     gigabytes for something each consumer reads exactly once (the call graph,
+     the method census, `grep`, `callers`).  The one-call-per-section discipline
+     is what makes a `def` the cheaper shape here; a per-entry caller would need
+     the cache back. */
+  def live_source: Array[String] = Model.blank_all(lines, regions.nonisar)
+  def outer_source: Array[String] = Model.blank_all(lines, regions.inner)
 
   /* 1-indexed inclusive line range. */
   def slice(start: Int, end: Int): Array[String] =

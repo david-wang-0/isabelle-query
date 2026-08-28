@@ -50,12 +50,18 @@ object CLI {
   /* ------------------------------------------------------------------ */
 
   final case class Opt(strings: List[String], dest: String, unary: Boolean = false,
-    append: Boolean = false, noop: Boolean = false, help: String = "")
+    append: Boolean = false, noop: Boolean = false, help: String = "",
+    choices: List[String] = Nil)
 
-  final case class Pos(dest: String, nargs: String, help: String = "")
+  final case class Pos(dest: String, nargs: String, help: String = "",
+    choices: List[String] = Nil, default: Option[String] = None)
 
+  /* `context_default` is a per-command number rather than a constant because
+     `-U` means two things by family: a preview wants 2 lines, a caller listing
+     wants 0.  One flag, one spelling, one help helper — the default is the only
+     part that legitimately differs. */
   final case class Cmd(names: List[String], help: String, opts: List[Opt],
-    pos: List[Pos], exclusive: List[List[String]] = Nil)
+    pos: List[Pos], exclusive: List[List[String]] = Nil, context_default: Int = 2)
 
   final class Ns {
     val flags: mutable.Set[String] = mutable.Set.empty
@@ -104,6 +110,18 @@ object CLI {
   private val theory_scope_flag =
     Opt(List("--theory"), "theory_scope", unary = true, append = true,
       help = "confine the search to theory THY; repeatable")
+  private val recursive_flag =
+    flag("-r", "--recursive")("recursive", "transitive closure")
+  /* Filter short citation names out of the call graph: a length-1 token (`x`,
+     `a`, `f`) is a term variable in nearly every proof, so by default single-
+     char names are not graph nodes.  0 keeps them; 2 also drops 2-char names.
+     Method / keyword / numeral routing is independent of it. */
+  private val drop_names_flag =
+    value("--drop-names-upto")("drop_names_upto",
+      s"exclude citation-graph names of length <= L (default ${Usage_Graph.DROP_NAMES_UPTO}: " +
+        "drop single-char variable collisions; 0 keeps all; 2 also drops 2-char names)")
+  private val external_flag =
+    flag("--external")("external", "cut at the defining theory's boundary")
 
   private val files_pos = Pos("files", "*",
     "restrict the search to .thy files, directories or theory names; `-` reads stdin")
@@ -154,15 +172,65 @@ object CLI {
       List(count_flag.copy(help = "just print the count"), line_number_noop),
       List(files_pos)),
     Cmd(List("lines"), "print line ranges of FILE with a `NR| CONTENT` prefix",
-      Nil, List(Pos("args", "+", "`FILE RANGE...` or `FILE:RANGE ...`"))))
+      Nil, List(Pos("args", "+", "`FILE RANGE...` or `FILE:RANGE ...`"))),
+
+    /* -- the usage family ------------------------------------------------ */
+    Cmd(List("deps"), "theories these import (direct; -r for transitive); reverse is `uses`",
+      List(recursive_flag.copy(help = "transitive closure (all indirect imports)")),
+      List(Pos("theory", "+", "theory name(s) or .thy path(s)"))),
+    Cmd(List("uses"), "theories that import these (direct; -r for transitive); reverse of `deps`",
+      List(recursive_flag.copy(help = "transitive closure (all indirect importers)")),
+      List(Pos("theory", "+", "theory name(s) or .thy path(s)"))),
+    Cmd(List("graph"), "emit the whole citation or import graph as JSON or DOT",
+      List(Opt(List("--format", "-f"), "format", unary = true,
+        help = "json (default) or dot", choices = List("json", "dot")),
+        drop_names_flag, theory_scope_flag),
+      List(Pos("kind", "?", "citation (entry names, from the call graph) or imports " +
+        "(theories, from the `imports` clauses).  Default: citation",
+        choices = List("citation", "imports"), default = Some("citation")))),
+    Cmd(List("refs"), "names a theory cites, grouped by owning theory",
+      List(count_flag.copy(help = "just print the distinct referenced-name count"),
+        names_flag.copy(help = "bare referenced names, one per line, for piping back in"),
+        drop_names_flag,
+        external_flag.copy(help =
+          "exclude names this theory declares itself, leaving only what it takes " +
+            "from elsewhere")),
+      List(Pos("theory", "+", "theory name(s) or .thy path(s)"))),
+    Cmd(List("callers"), "find proof-body usages",
+      List(count_flag, recursive_flag.copy(help = "transitive closure (all indirect callers)"),
+        names_flag, drop_names_flag,
+        context_flag.copy(help = "show N trailing lines after each match (default 0)"),
+        external_flag.copy(help =
+          "exclude callers inside the theory that defines NAME.  Only affects the " +
+            "non-recursive form; transitive closure via -r ignores this flag.")),
+      List(Pos("name", "+", "entry name(s)")), Nil, context_default = 0),
+    Cmd(List("callees"), "entries this entry references; reverse is `callers`",
+      List(count_flag, names_flag, drop_names_flag,
+        recursive_flag.copy(help = "transitive closure (all indirect callees)"),
+        external_flag.copy(help =
+          "exclude callees defined in NAME's own theory, leaving only cross-theory " +
+            "dependencies.  Only affects the non-recursive form.")),
+      List(Pos("name", "+", "entry name(s)"))),
+    Cmd(List("unused"), "list entries with zero callers",
+      List(count_flag,
+        recursive_flag.copy(help = "cascade: include entries whose callers are all unused"),
+        flag("--by-theory")("by_theory", "group by theory with line counts"),
+        flag("--roots")("roots", "forest summary: each root with exclusive subtree size"),
+        Opt(List("--keep"), "keep", unary = true, append = true,
+          help = "treat these names as live roots (never flag as unused, and stop the " +
+            "cascade at them).  Repeatable, or a comma-separated list."),
+        drop_names_flag),
+      Nil),
+    Cmd(List("methods", "method"),
+      "proof-method usage tally; `methods NAME` lists that method's uses",
+      List(all_flag, count_flag, names_flag),
+      List(Pos("name", "?", "a proof method (e.g. simp, auto, induct); omit for the " +
+        "ranked tally of every method used"))))
 
   /* Registered so they are rejected as NOT YET PORTED rather than as unknown:
      a caller who types a real subcommand of the reference tool must be told
      the phase has not landed, not that they mistyped. */
-  val unported: List[(String, String)] = List(
-    "deps" -> "P3", "uses" -> "P3", "graph" -> "P3", "refs" -> "P3",
-    "callers" -> "P3", "callees" -> "P3", "unused" -> "P3",
-    "methods" -> "P3", "method" -> "P3", "shape" -> "P4")
+  val unported: List[(String, String)] = List("shape" -> "P4")
 
   private val root_opt =
     value("-R", "--root")("root", "Isabelle session directory to query")
@@ -300,6 +368,18 @@ object CLI {
     }
     if (remaining.nonEmpty)
       usage_error("unrecognized arguments: " + remaining.mkString(" "))
+
+    /* A `choices=` slot rejects anything else with exit 2 — never a silent
+       fallback to the default, which would answer a different question from
+       the one asked. */
+    def check(what: String, allowed: List[String], v: String): Unit =
+      if (!allowed.contains(v))
+        usage_error(s"argument $what: invalid choice: '$v' (choose from " +
+          allowed.map(c => s"'$c'").mkString(", ") + ")")
+    for (o <- opts if o.choices.nonEmpty; v <- ns.str(o.dest))
+      check(o.strings.mkString("/"), o.choices, v)
+    for (p <- positionals if p.choices.nonEmpty; v <- ns.pos(p.dest))
+      check(p.dest, p.choices, v)
     ns
   }
 
@@ -666,17 +746,23 @@ object CLI {
           usage_error(s"argument $spelling: invalid int value: '$v'"))
     }
 
-  def flags_of(ns: Ns): Flags = {
+  def flags_of(ns: Ns, context_default: Int = 2): Flags = {
     var mode = "first"
     if (ns.bool("all")) mode = "all"
     if (ns.bool("names")) mode = "names"
     if (ns.bool("count")) mode = "count"
     val comments =
       if (ns.bool("no_comments")) "off" else if (ns.bool("comments_only")) "only" else "on"
-    val context = int_arg(ns, "context", "-U/--context", 2)
+    val context = int_arg(ns, "context", "-U/--context", context_default)
+    /* `--keep a,b --keep c` is one list: repeatable AND comma-separated, so a
+       shell loop's output pastes in either way. */
+    val keep = ns.list("keep").flatMap(_.split(",", -1)).filter(Py.strip(_).nonEmpty).toSet
     Flags(mode = mode, verbatim = ns.bool("verbatim"), statement = ns.bool("statement"),
       comments = comments, context = context, with_comments = ns.bool("with_comments"),
-      recursive = ns.bool("recursive"), external = ns.bool("external"))
+      recursive = ns.bool("recursive"), external = ns.bool("external"),
+      by_theory = ns.bool("by_theory"), roots = ns.bool("roots"), keep = keep,
+      drop_names_upto =
+        int_arg(ns, "drop_names_upto", "--drop-names-upto", Usage_Graph.DROP_NAMES_UPTO))
   }
 
   private def each[A](out: Out, subjects: List[A])(body: A => Unit): Unit = {
@@ -688,10 +774,65 @@ object CLI {
     }
   }
 
-  def dispatch(s: Session, name: String, ns: Ns): Unit = {
+  /* ------------------------------------------------------------------ */
+  /* the method / attribute namespace                                    */
+  /* ------------------------------------------------------------------ */
+
+  /* The verbs that actually consult the method/attribute table: the citation
+     router's reject-set (`callers`/`callees`/`refs`/`graph`/`unused`) and the
+     method census.  EVERY other verb is a pure text/structure query, so it must
+     not pay for the table — and above all must not resolve one. */
+  private val namespace_commands: Set[String] =
+    Set("callers", "callees", "unused", "methods", "method", "refs", "graph", "shape")
+
+  /* Bind the router's table for this run, at DISPATCH — after the arguments are
+     read and before the command runs, never at start-up, so a `find` or a `grep`
+     costs nothing for a table it never reads.
+
+     There is one committed default and both the CLI and a direct engine caller
+     get it: the broad HOL-family union (`CONTRIBUTING.md`, "a configurable
+     global that moves a measurement gets ONE default").  The one step DOWN is
+     explicit and evidence-driven: a project whose declared sessions resolve to
+     a base logic that is POSITIVELY not HOL (`ZF`, `FOL`, `CTT`, `Sequents`, …)
+     gets the minimal Pure floor instead, because the HOL union would assert
+     methods that logic does not have.  An unknown base — an out-of-scope parent
+     session name reached under `-R <sub-session>` — is left on the default.
+
+     `$ISABELLE_QUERY_NAMESPACE=committed` pins the default: it short-circuits
+     even the step-down, which is what a caller who wants one fixed table across
+     a mixed corpus asks for. */
+  def configure_namespace(s: Session, command: String): Unit = {
+    if (!namespace_commands(command)) return
+    val env = System.getenv("ISABELLE_QUERY_NAMESPACE")
+    if (env != null && env.toLowerCase == "committed") return
+    try {
+      val sessions = Discovery.iter_sessions(s.active_root)
+      val parents = sessions.map(si => si.name -> si.parent.getOrElse("")).toMap
+      val nonhol =
+        sessions.exists(si =>
+          Namespace.is_known_nonhol_base(Namespace.resolve_base_logic(si.name, parents)))
+      if (nonhol) {
+        Namespace.use_pure_namespace()
+        /* Silent for a Pure-only project — the floor is exact there, and there
+           is nothing to warn about. */
+        val bases =
+          sessions.flatMap(_.parent).filter(_ != "Pure").distinct.sorted
+        if (bases.nonEmpty) {
+          s.out.flush()
+          s.err.println(s"isabelle query: no built heap for this project and its base " +
+            s"logic (${bases.mkString(", ")}) is not HOL, so the committed HOL " +
+            "namespace table does not apply — using the minimal Pure table.")
+        }
+      }
+    }
+    catch { case _: Throwable => () }   // binding a table must never fail a query
+  }
+
+
+  def dispatch(s: Session, name: String, ns: Ns, context_default: Int = 2): Unit = {
     val out = s.out
     val err = s.err
-    val flags = flags_of(ns)
+    val flags = flags_of(ns, context_default)
     name match {
       case "summary" =>
         Commands.cmd_summary(out, load_sections(s, ns), ns.bool("by_session"),
@@ -737,6 +878,31 @@ object CLI {
             Discovery.real(path_of(file_token).getOrElse(Paths.get(file_token))
               .toAbsolutePath))
         Commands.cmd_lines(out, err, src.lines, ranges)
+      case "deps" =>
+        val sections = s.load_index()
+        each(out, ns.pos("theory"))(t =>
+          Usage.cmd_deps(out, sections, t, recursive = ns.bool("recursive")))
+      case "uses" =>
+        val sections = s.load_index()
+        each(out, ns.pos("theory"))(t =>
+          Usage.cmd_deps(out, sections, t, reverse = true, recursive = ns.bool("recursive")))
+      case "refs" =>
+        val sections = s.load_index()
+        each(out, ns.pos("theory"))(t => Usage.cmd_refs(out, sections, t, flags))
+      case "callers" =>
+        val sections = s.load_index()
+        each(out, ns.pos("name"))(n => Usage.cmd_callers(out, sections, n, flags))
+      case "callees" =>
+        val sections = s.load_index()
+        each(out, ns.pos("name"))(n => Usage.cmd_callees(out, sections, n, flags))
+      case "unused" =>
+        Usage.cmd_unused(out, err, s.load_index(), flags)
+      case "methods" =>
+        Usage.cmd_methods(out, s.load_index(), ns.pos("name").headOption, flags)
+      case "graph" =>
+        val sections = scope_to_theories(s, ns, s.load_index())
+        Usage.cmd_graph(out, sections, ns.pos("kind").headOption.getOrElse("citation"),
+          ns.str("format").getOrElse("json"), flags)
       case _ => usage_error(s"unknown command: $name")
     }
   }
@@ -860,7 +1026,8 @@ object CLI {
                       if (!Files.isDirectory(p)) s.fail_root(p, "not a directory (given to -R/--root)")
                       s.root_override = Some(Discovery.real(p.toAbsolutePath))
                     }
-                    dispatch(s, cmd.names.head, ns)
+                    configure_namespace(s, name)
+                    dispatch(s, cmd.names.head, ns, cmd.context_default)
                   }
               }
           }
