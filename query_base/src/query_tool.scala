@@ -21,16 +21,7 @@ import java.nio.file.{Files, Path => JPath, Paths}
 
 
 object Query_Tool {
-  val version = "0.8.0-scala"
-
-  private def usage(): Unit =
-    Output.writeln(
-      """Usage: isabelle query [OPTIONS] COMMAND [ARGS]
-        |
-        |  -V, --version    print version and exit
-        |
-        |Query an Isabelle/Isar project: syntax-aware, no build required.
-        |Commands arrive per PLAN.md.""".stripMargin)
+  val version = CLI.version
 
 
   /* --- development dumps --- */
@@ -104,7 +95,6 @@ object Query_Tool {
 
   def main_tool(args: List[String]): Unit =
     args match {
-      case ("-V" | "--version") :: _ => Output.writeln("query " + version)
       case "dump-entries" :: rest =>
         val dirs = rest.filterNot(_.startsWith("-"))
         if (dirs.length != 1) error("Usage: isabelle query dump-entries ROOT_DIR [--spans]")
@@ -114,7 +104,7 @@ object Query_Tool {
         val dirs = rest.filterNot(_.startsWith("-"))
         if (dirs.length != 1) error("Usage: isabelle query dump-theories ROOT_DIR")
         dump_theories(Paths.get(dirs.head).toAbsolutePath)
-      case _ => usage()
+      case _ => CLI.run(args)
     }
 
   val isabelle_tool: Isabelle_Tool =

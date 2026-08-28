@@ -9,6 +9,10 @@ sources = \
   src/entries.scala \
   src/discovery.scala \
   src/theory.scala \
+  src/output.scala \
+  src/render.scala \
+  src/commands.scala \
+  src/cli.scala \
   src/query_tool.scala
 services = \
   isabelle.query.Query_Tools
