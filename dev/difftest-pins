@@ -1,0 +1,45 @@
+# Pinned differential cases — known, DOCUMENTED divergences from the oracle.
+#
+#   CASE_ID   CORPUS   SECTION   reason
+#
+# CASE_ID and CORPUS may each be `*`.  SECTION names the entry in
+# dev/DIVERGENCES.md that explains the case; a pin with no such entry is not a
+# pin, it is an unexplained failure with the alarm switched off.
+#
+# A pinned case that AGREES is reported as a STALE PIN and fails the run: a pin
+# that no longer describes anything is a lie about the state of the port.
+
+# ---------------------------------------------------------------------------
+# D7 — the oracle's line index crashes on a multi-name `axiomatization`
+#
+# `graph._build_line_index` sorts `(src_start, thy_end, Entry)` tuples.  Two
+# AXIOM entries declared by one `axiomatization` line share both integers, so
+# Python falls through to comparing two `Entry` dataclasses and raises
+# TypeError.  Every command that builds the line index — `grep`, `sorry`, and
+# in P3 the whole call graph — dies with a traceback and exit 1 on any corpus
+# that has such a line.  FOL and ZF both do.
+# ---------------------------------------------------------------------------
+
+grep-name              FOL   D7   oracle TypeError in _build_line_index
+grep-count             FOL   D7   oracle TypeError in _build_line_index
+grep-names             FOL   D7   oracle TypeError in _build_line_index
+grep-with-comments     FOL   D7   oracle TypeError in _build_line_index
+grep-noop-n            FOL   D7   oracle TypeError in _build_line_index
+grep-alternation       FOL   D7   oracle TypeError in _build_line_index
+grep-anchored          FOL   D7   oracle TypeError in _build_line_index
+grep-no-match          FOL   D7   oracle TypeError in _build_line_index
+sorry-default          FOL   D7   oracle TypeError in _build_line_index
+sorry-count            FOL   D7   oracle TypeError in _build_line_index
+sorry-noop-n           FOL   D7   oracle TypeError in _build_line_index
+
+grep-name              ZF    D7   oracle TypeError in _build_line_index
+grep-count             ZF    D7   oracle TypeError in _build_line_index
+grep-names             ZF    D7   oracle TypeError in _build_line_index
+grep-with-comments     ZF    D7   oracle TypeError in _build_line_index
+grep-noop-n            ZF    D7   oracle TypeError in _build_line_index
+grep-alternation       ZF    D7   oracle TypeError in _build_line_index
+grep-anchored          ZF    D7   oracle TypeError in _build_line_index
+grep-no-match          ZF    D7   oracle TypeError in _build_line_index
+sorry-default          ZF    D7   oracle TypeError in _build_line_index
+sorry-count            ZF    D7   oracle TypeError in _build_line_index
+sorry-noop-n           ZF    D7   oracle TypeError in _build_line_index

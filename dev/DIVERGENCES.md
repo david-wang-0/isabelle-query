@@ -165,3 +165,48 @@ reports the marker text.  Both miss `inj_on_Fun_fun`; recovering it needs the
 `goal` route to take the name-lookahead the `def` and `typedecl` routes already
 take, which would rename every `lemma`-alone-on-its-line declaration and so is
 a change to make deliberately, with its own corpus diff.
+
+## D7 — the oracle's line index crashes on a multi-name `axiomatization`
+
+**Cost: `grep` and `sorry` do not run AT ALL in the oracle on 2 of the 5
+standard corpora** (`FOL`, `ZF`), and the same crash will take `callers`,
+`callees`, `unused` and `methods` with it in P3.
+
+```
+$ query -R $QUERY_TEST_DISTRO/ZF sorry
+Traceback (most recent call last):
+  ...
+  File ".../isabelle_query/graph.py", line 52, in _build_line_index
+    spans.sort()
+TypeError: '<' not supported between instances of 'Entry' and 'Entry'
+```
+
+`_build_line_index` builds `(src_start, thy_end, Entry)` triples and sorts
+them.  Python compares tuples element by element and only reaches the third
+component when the first two are equal — which is exactly what one
+`axiomatization` line produces:
+
+```isabelle
+axiomatization gle gless where ...      -- FOL/ex/Locale_Test/Locale_Test1:548
+```
+
+```
+ex/Locale_Test/Locale_Test1:548:AXIOM:gle:src=548-548:decl_end=548:…
+ex/Locale_Test/Locale_Test1:548:AXIOM:gless:src=548-548:decl_end=548:…
+```
+
+Two `Entry` dataclasses with identical spans, `Entry` has no ordering, and the
+sort raises.  ZF hits it in `ZF_Base`, `Coind/Static` and `ex/LList`; FOL in
+`ex/Locale_Test/Locale_Test1`.  The whole command dies with a traceback and
+exit 1 before printing anything.
+
+The Scala engine sorts by the two integers only and leaves equal spans in entry
+order, so `grep` and `sorry` answer normally.  Verified against the source: on
+FOL, `grep subst_all` reports the one live hit at `IFOL.thy:830` and, with
+`--with-comments`, the ML-body mention at `FOL.thy:348` — the two occurrences a
+raw `grep -rn` finds, correctly classified.
+
+Reproducing the crash would mean shipping a `TypeError` as a feature, so this
+is a deliberate divergence.  22 difftest cases are pinned on it (11 each on
+FOL and ZF); the pins carry the exit-status difference (1 vs 0) as well as the
+stdout one.
