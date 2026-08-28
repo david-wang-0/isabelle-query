@@ -128,3 +128,34 @@ graph-drop0            ZF    D7   oracle TypeError in _build_line_index
 # ---------------------------------------------------------------------------
 
 unused-recursive       *     D10  oracle cascade depth is hash-seed dependent
+
+# ---------------------------------------------------------------------------
+# D8 — the demo corpus is under the 64K pipe-buffer threshold
+#
+# `demo/Demo_Core` is a few hundred lines, so the whole answer to `find ... -V`
+# and to `shape census` fits in the pipe buffer: the oracle's writes never fail,
+# it finishes before `head -3` is scheduled, and it exits 0.  This engine writes
+# through a raw file descriptor and reports 141 whatever the size, which is what
+# CONTRIBUTING.md fixes.  D8's own table names the threshold.
+#
+# `demo/Demo_Extras` is NOT pinned and is not expected to be clean: it holds the
+# `definition\<^marker>` the oracle cannot index (D2) on purpose, so ~60 cases
+# differ by exactly one missing entry.  Pinning them would hide the showcase.
+# ---------------------------------------------------------------------------
+
+closed-stdout          Demo_Core   D8   answer fits the pipe buffer: oracle exits 0
+shape-census-pipe      Demo_Core   D8   answer fits the pipe buffer: oracle exits 0
+
+# ---------------------------------------------------------------------------
+# D2 — the demo tree is ONE project, and it contains the marker showcase
+#
+# `demo/.isabelle-query` makes both session directories resolve to `demo`, so
+# that the jEdit walkthrough can query across them (the locale is declared in
+# Demo_Core and instantiated in Demo_Extras).  A marker beats -R nothing and
+# ROOT proximity, so the two cwd-discovery cases read the WHOLE tree -- which
+# includes `definition\<^marker>\<open>tag important\<close> marked_const`, the one
+# declaration the oracle's DECL_RE cannot match.  Every other Demo_Core case
+# passes an explicit -R and is byte-identical.
+# ---------------------------------------------------------------------------
+
+cwd-discovery          Demo_Core   D2   marker widens the root to the tree holding the \<^marker> showcase
