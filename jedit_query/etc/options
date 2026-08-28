@@ -1,0 +1,32 @@
+(* :mode=isabelle-options: *)
+
+(* The Project Query panel's settings, on the Isabelle side.
+
+   The same table lives as jEdit properties (defaults in the plugin's
+   plugin.props), because the panel has to answer before the prover plugin
+   exists and Isabelle options are unreadable in that window.  These are
+   consulted only when CHANGED from the defaults below, which is exactly "the
+   user said something here"; otherwise the jEdit property decides.  The two
+   sets of defaults are identical by construction and dev/p6probe.sh fails if
+   they ever drift. *)
+
+public option jedit_query_gesture_single_click : string = "none"
+  -- "Project Query results: single click (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_gesture_double_click : string = "current"
+  -- "Project Query results: double click (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_gesture_shift_click : string = "new-pane"
+  -- "Project Query results: shift click (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_gesture_alt_click : string = "peek"
+  -- "Project Query results: alt click (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_gesture_middle_click : string = "new-view"
+  -- "Project Query results: middle click (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_gesture_enter : string = "current"
+  -- "Project Query results: ENTER key (none/current/new-pane/new-view/peek)"
+
+public option jedit_query_index_limit : int = 2000
+  -- "Project Query: largest project the index will build, in theories (0 = no limit)"

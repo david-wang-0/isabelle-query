@@ -12,5 +12,6 @@ resources = \
   services.xml
 sources = \
   dockables.scala \
+  options.scala \
   plugin.scala \
   services.scala

@@ -13,6 +13,7 @@ sources = \
   src/query_editor.scala \
   src/query_navigate.scala \
   src/query_peek.scala \
+  src/query_option_pane.scala \
   src/query_dockable.scala \
   src/query_context_menu.scala \
   src/query_actions.scala \

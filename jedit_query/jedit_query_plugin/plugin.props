@@ -12,6 +12,13 @@ plugin.isabelle.jedit_query_plugin.Plugin.description=Syntax-aware queries over 
 plugin.isabelle.jedit_query_plugin.Plugin.activate=startup
 plugin.isabelle.jedit_query_plugin.Plugin.usePluginHome=false
 
+#option pane: a jEdit pane, not an Isabelle one, because it must be readable
+#before the prover plugin exists -- the same reason the gesture table lives in
+#jEdit properties.  The Isabelle side of the table is jedit_query/etc/options.
+plugin.isabelle.jedit_query_plugin.Plugin.option-group=isabelle-project-query
+options.isabelle-project-query.label=Project Query
+options.isabelle-project-query.code=new isabelle.jedit_query_plugin.Option_Pane();
+
 #dependencies
 plugin.isabelle.jedit_query_plugin.Plugin.depend.0=plugin isabelle.jedit_main.Plugin 11.2
 
