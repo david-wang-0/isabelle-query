@@ -561,13 +561,14 @@ object CLI {
     val syntactic =
       parse_policy == "syntax" || src.from_stdin ||
         src.path.getFileName.toString.endsWith(".thy")
-    val lines = src.lines
     if (syntactic) {
-      if (src.preread.isDefined || src.from_stdin)
-        Theory.parse_source(src.label, src.path, lines, s.custom_table)
-      else Theory.parse_one(src.label, src.path, Theory.read(src.path), s.custom_table)
+      src.preread match {
+        case Some(lines) => Theory.parse_source(src.label, src.path, lines, s.custom_table)
+        case None =>
+          Theory.parse_one(src.label, src.path, Theory.read(src.path), s.custom_table)
+      }
     }
-    else Theory.parse_plain(src.label, src.path, lines)
+    else Theory.parse_plain(src.label, src.path, src.lines)
   }
 
   /* Peel an optional `:A..B` window off a grep PATH.  The suffix is a window
@@ -606,10 +607,13 @@ object CLI {
           val (window, token) =
             if (windows) split_path_window(s, token0) else (None, token0)
           val p0 = path_of(token).getOrElse(Paths.get(token))
+          /* The REAL path, not the typed one: the label a section carries (and
+             so the `Foo.thy:LINE` a hit prints) is the resolved file's name,
+             which is what a symlinked positional must report. */
           val p = Discovery.real(p0.toAbsolutePath)
           if (Files.isDirectory(p)) s.sections_from_dir(p, seen, sections)
           else {
-            val src = resolve_file_source(s, token, p0)
+            val src = resolve_file_source(s, token, p)
             val resolved = Discovery.real(src.path.toAbsolutePath)
             if (!seen(resolved)) {
               seen += resolved
@@ -730,7 +734,8 @@ object CLI {
           if (file_token == STDIN_SENTINEL)
             File_Source(STDIN_NAME, stdin_path, Some(read_stdin()))
           else resolve_file_source(s, file_token,
-            path_of(file_token).getOrElse(Paths.get(file_token)))
+            Discovery.real(path_of(file_token).getOrElse(Paths.get(file_token))
+              .toAbsolutePath))
         Commands.cmd_lines(out, err, src.lines, ranges)
       case _ => usage_error(s"unknown command: $name")
     }
@@ -792,14 +797,28 @@ object CLI {
       while (command.isEmpty && rest.nonEmpty) {
         val tok = rest.head
         rest = rest.tail
-        if (tok == "-h" || tok == "--help") top_help_asked = true
-        else if (tok == "-V" || tok == "--version") version_asked = true
-        else if (tok == "-R" || tok == "--root") {
-          if (rest.isEmpty) usage_error("argument -R/--root: expected one argument")
-          top_root = Some(rest.head); rest = rest.tail
+        def take_root(inline: Option[String]): Unit = inline match {
+          case Some(v) => top_root = Some(v)
+          case None =>
+            if (rest.isEmpty) usage_error("argument -R/--root: expected one argument")
+            top_root = Some(rest.head); rest = rest.tail
         }
-        else if (tok.startsWith("--root=")) top_root = Some(tok.substring(7))
-        else if (tok.startsWith("-R") && tok.length > 2) top_root = Some(tok.substring(2))
+        if (tok.startsWith("--")) {
+          val eq = tok.indexOf('=')
+          val (name, inline) =
+            if (eq >= 0) (tok.substring(0, eq), Some(tok.substring(eq + 1))) else (tok, None)
+          /* Abbreviated the same way a subcommand's options are: `--roo DIR`
+             before the command must mean what it means after it. */
+          resolve_long(List(help_opt, root_opt, top_version_opt), name).dest match {
+            case "help" => top_help_asked = true
+            case "version" => version_asked = true
+            case _ => take_root(inline)
+          }
+        }
+        else if (tok == "-h") top_help_asked = true
+        else if (tok == "-V") version_asked = true
+        else if (tok == "-R") take_root(None)
+        else if (tok.startsWith("-R") && tok.length > 2) take_root(Some(tok.substring(2)))
         else if (tok.startsWith("-") && tok.length > 1 && !looks_negative(tok))
           usage_error(s"unrecognized argument: $tok")
         else command = Some(tok)

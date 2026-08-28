@@ -101,6 +101,26 @@ lemma two_pos: "two > 0" by (simp add: two_def)
 
 end
 THY
+# `paragraph` is a heading the recogniser accepts and the outline renderer's
+# indent table does not, so `outline` dies on it — in BOTH implementations, with
+# the same partial stdout and the same exit 1.  Kept in the matrix because that
+# agreement is the thing under test, and it is easy to "fix" one side by
+# accident.
+cat >"$FIX_NOROOT/Para.thy" <<'THY'
+theory Para
+  imports Main
+begin
+
+section \<open>A section\<close>
+
+definition one :: nat where "one = 1"
+
+paragraph \<open>A paragraph, which the outline indent table has no entry for\<close>
+
+lemma one_pos: "one > 0" by (simp add: one_def)
+
+end
+THY
 cp "$FIX_NOROOT/Solo.thy" "$FIX_MARKER/sub/Solo.thy"
 printf 'sub\n' >"$FIX_MARKER/.isabelle-query"
 cat >"$FIX_MD" <<'MD'
@@ -160,6 +180,11 @@ derive_subjects() {
   [ -z "$THY1_PATH" ] && THY1_PATH=$FIX_NOROOT/Solo.thy
   STDIN_FILE=$outdir/stdin.thy
   head -400 "$THY1_PATH" >"$STDIN_FILE"
+  # A symlink to it, because a positional's LABEL comes from the resolved file
+  # (so `Foo.thy:LINE`, not `Link.thy:LINE`) and that is easy to get wrong.
+  THY1_LINK=$outdir/link/Link.thy
+  mkdir -p "$outdir/link"; rm -f "$THY1_LINK"
+  ln -s "$THY1_PATH" "$THY1_LINK"
 }
 
 # --------------------------------------------------------------------------
@@ -301,6 +326,8 @@ emit_cases() {
   c enclosing-path         enclosing "$THY1_PATH:2"
   c lines-path             lines "$THY1_PATH" 2..5
   c theory-path            theory "$THY1_PATH"
+  c grep-symlink           grep "$NAME1" "$THY1_LINK"
+  c lines-symlink          lines "$THY1_LINK" 1..4
 
   # -- more flag shapes ---------------------------------------------------
   c theory-comments-only   theory "$THY1" --comments-only
@@ -329,6 +356,9 @@ emit_cases() {
 
   # -- global behaviour ---------------------------------------------------
   g root-after-subcommand  plain  summary -c -R "$CORPUS"
+  g top-abbrev-root        plain  --roo "$CORPUS" summary -c
+  g top-root-glued         plain  "-R$CORPUS" summary -c
+  g top-root-equals        plain  "--root=$CORPUS" summary -c
   g bad-root               plain  -R /no/such/root/xyz summary
   g bad-root-not-dir       plain  -R "$THY1_PATH" summary
   g empty-root             plain  -R "$FIX_EMPTY" summary
@@ -345,6 +375,8 @@ emit_cases() {
   # Four full renders of the corpus, so the producer is certain to fill the
   # 64K pipe buffer even on the smallest one — otherwise the case is a race
   # between a short write and `head` exiting, and both sides "pass" at 0.
+  g paragraph-outline      plain  -R "$FIX_NOROOT" outline Para
+  g paragraph-summary      plain  -R "$FIX_NOROOT" summary
   g closed-stdout          pipe   find . . . . -a -V
 }
 

@@ -207,7 +207,7 @@ FOL, `grep subst_all` reports the one live hit at `IFOL.thy:830` and, with
 raw `grep -rn` finds, correctly classified.
 
 Reproducing the crash would mean shipping a `TypeError` as a feature, so this
-is a deliberate divergence.  26 difftest cases are pinned on it (13 each on
+is a deliberate divergence.  30 difftest cases are pinned on it (15 each on
 FOL and ZF); the pins carry the exit-status difference (1 vs 0) as well as the
 stdout one.
 
@@ -244,3 +244,28 @@ The rewrite writes through a `Writer` on the raw file descriptor and lets the
 `IOException` propagate, so the failure is caught wherever it happens and the
 status is 141 in both cases.  Pinned as `closed-stdout` on
 `Abstract_Completeness`.
+
+## D9 — regex dialect: two Python-only spellings are rejected, not misread
+
+**Cost: two constructs, neither of which appears in the docs, the tests, or any
+corpus-derived pattern.**
+
+User patterns are Python `re` in the oracle and `java.util.regex` here.  Over
+the subset the tool's own documentation and output teach — literals,
+alternation, character classes, anchors, `\b`, `\d`/`\w`/`\s` (Unicode-aware on
+both sides, via `Pattern.UNICODE_CHARACTER_CLASS`), inline flags `(?i:...)`,
+backreferences, and possessive quantifiers — the two agree, and the
+`_user_pattern` rewrites (`\|` → `|`, escaping `\<...>` markup tokens) are
+ported exactly, including Python's own `re.escape` character set.
+
+Two Python spellings have no `java.util.regex` equivalent:
+
+| pattern | oracle | rewrite |
+|---|---|---|
+| `(?P<n>step)` — Python named group (Java spells it `(?<n>step)`) | matches | `ERROR: invalid regex`, exit 2 |
+| `(?#comment)step` — inline comment | matches | `ERROR: invalid regex`, exit 2 |
+
+Both fail LOUDLY, on stderr with exit 2, which is the behaviour the CLI
+contract already fixes for a bad pattern — never a silent "no matches", which
+is the failure this tool exists to prevent.  Not worth a translation layer: the
+first is spelled `(?<n>...)` here and the second is a comment.
