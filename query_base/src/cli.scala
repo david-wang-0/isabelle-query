@@ -592,13 +592,18 @@ object CLI {
 
   /* `$ISABELLE_LAYOUT_ROOT` / `$ISABELLE_QUERY_ROOT`, else the nearest project
      marker at or above the cwd (proximity beats spelling), else the nearest
-     directory holding a ROOT file, else the cwd itself. */
-  def default_root(): JPath = {
-    val env = env_roots.map(System.getenv).find(v => v != null && v.nonEmpty)
-    env match {
+     directory holding a ROOT file, else the cwd itself.
+
+     Split from `default_root()` so a host that is not the process the user
+     typed in can still apply the rule: the warm server resolves a request
+     against the CLIENT's working directory and the CLIENT's environment, both
+     forwarded over the wire.  The POLICY has one definition — this function —
+     and the two callers differ only in where the two inputs come from. */
+  def default_root_from(start: JPath, env_root: Option[String]): JPath =
+    env_root.filter(_.nonEmpty) match {
       case Some(v) => resolve(expanduser(v))
       case None =>
-        val here = resolve(Paths.get(""))
+        val here = resolve(start)
         val chain = search_chain(here)
         val marker =
           chain.flatMap(d => marker_names.map(d.resolve)).find(Files.isRegularFile(_))
@@ -608,7 +613,10 @@ object CLI {
             chain.find(d => Files.isRegularFile(d.resolve("ROOT"))).getOrElse(here)
         }
     }
-  }
+
+  def default_root(): JPath =
+    default_root_from(Paths.get(""),
+      env_roots.map(System.getenv).find(v => v != null && v.nonEmpty))
 
   /* An empty index is an error, never a result: no real Isabelle project has
      zero theories, so reaching this means the root was wrong, unreadable, or
@@ -661,7 +669,20 @@ object CLI {
 
     private var index_cache: Option[List[Theory_Section]] = None
 
-    def active_root: JPath = root_override.getOrElse(default_root())
+    /* The ambient root, for a run with no `-R`.  A CLI run reads the process's
+       own cwd and environment; a served run reads the CLIENT's, which is why
+       this is a function and not a constant. */
+    var ambient_root: () => JPath = () => default_root()
+
+    /* A warm index, offered by the host for ONE root.  Consulted only when the
+       run's active root is that one: a `-R elsewhere` on the same connection
+       must fall through to a cold parse rather than answer from the wrong
+       tree.  The map is the custom-command keyword union that produced those
+       sections — `resolve_file_source` parses a `.thy` named on the command
+       line against it, so a seeded index has to seed the table too. */
+    var index_provider: JPath => Option[(List[Theory_Section], Map[String, String])] = _ => None
+
+    def active_root: JPath = root_override.getOrElse(ambient_root())
 
     def fail_root(root: JPath, why: String): Nothing = {
       out.flush()
@@ -718,14 +739,21 @@ object CLI {
       index_cache match {
         case Some(secs) => secs
         case None =>
-          custom_table = Map.empty
           val root = active_root
-          val sections = new mutable.ListBuffer[Theory_Section]
-          sections_from_dir(root, mutable.Set.empty[JPath], sections)
-          if (sections.isEmpty) fail_root(root, diagnose_empty_root(root))
-          val secs = sections.toList
-          index_cache = Some(secs)
-          secs
+          index_provider(root) match {
+            case Some((secs, table)) =>
+              custom_table = table
+              index_cache = Some(secs)
+              secs
+            case None =>
+              custom_table = Map.empty
+              val sections = new mutable.ListBuffer[Theory_Section]
+              sections_from_dir(root, mutable.Set.empty[JPath], sections)
+              if (sections.isEmpty) fail_root(root, diagnose_empty_root(root))
+              val secs = sections.toList
+              index_cache = Some(secs)
+              secs
+          }
       }
     }
   }
@@ -1231,12 +1259,22 @@ object CLI {
       s.root_override = Some(Discovery.real(p.toAbsolutePath))
     }
 
-  def run(args: List[String]): Unit = {
-    val out = Out.stdout
-    val err = Out.stderr
+  /* The whole CLI, minus the two things only a process may do: write to file
+     descriptors and exit.  Both callers — `run` below and the warm server's
+     `query_run` — go through here, so there is ONE argument grammar, ONE
+     dispatch and ONE exit-status rule rather than a second CLI grown beside
+     the first.  `prepare` is the host's one hook on the freshly built session
+     (the server seeds a warm index and the client's ambient root through it);
+     it runs before any argument is read, so nothing it sets can depend on
+     them, which is what keeps the hook from becoming a back door into the
+     grammar. */
+  def run_result(args: List[String], out: Out, err: Out,
+    prepare: Session => Unit = _ => ()
+  ): Int = {
     var rc = 0
     try {
       val s = new Session(err, out)
+      prepare(s)
       /* The top level takes its own options until the first positional; from
          the command name on, everything belongs to the subparser — argparse's
          `nargs=PARSER`, which is why `-R` works on either side. */
@@ -1381,6 +1419,11 @@ object CLI {
         rc = c
       case _: Broken_Pipe => rc = EXIT_SIGPIPE
     }
+    rc
+  }
+
+  def run(args: List[String]): Unit = {
+    val rc = run_result(args, Out.stdout, Out.stderr)
     if (rc != 0) sys.exit(rc)
   }
 }
