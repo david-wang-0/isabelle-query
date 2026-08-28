@@ -30,6 +30,8 @@ plugin.isabelle.jedit_query_plugin.Plugin.menu= \
   isabelle-project-query.find-usages \
   isabelle-project-query.find-external-usages \
   isabelle-project-query.find-definition \
+  isabelle-project-query.find-instantiations \
+  isabelle-project-query.find-code-equations \
   isabelle-project-query.peek-definition \
   isabelle-project-query.go-to-symbol \
   - \
@@ -45,6 +47,12 @@ isabelle-project-query.dock-position=bottom
 isabelle-project-query.find-usages.label=Find usages at caret
 isabelle-project-query.find-external-usages.label=Find external usages at caret
 isabelle-project-query.find-definition.label=Find definition at caret
+#No default shortcut for either site verb: three chords are already claimed
+#(CA+LEFT, CA+RIGHT, CAS+n) and a fourth and fifth would meet a real keymap for
+#a verb most users reach from the right-click menu.  Both are bindable from
+#Global Options -> Shortcuts.
+isabelle-project-query.find-instantiations.label=Find instantiations at caret
+isabelle-project-query.find-code-equations.label=Find code equations at caret
 isabelle-project-query.peek-definition.label=Peek definition at caret
 isabelle-project-query.go-to-symbol.label=Go to symbol
 #CAS+N is IntelliJ's go-to-symbol and is unbound in jEdit's default keymap

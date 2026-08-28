@@ -17,6 +17,16 @@
 	    isabelle.jedit_query.Query_Actions.find_definition(view);
 	  </CODE>
 	</ACTION>
+	<ACTION NAME="isabelle-project-query.find-instantiations">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.find_instantiations(view);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.find-code-equations">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.find_code_equations(view);
+	  </CODE>
+	</ACTION>
 	<ACTION NAME="isabelle-project-query.peek-definition">
 	  <CODE>
 	    isabelle.jedit_query.Query_Actions.peek_definition(view);

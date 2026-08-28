@@ -55,6 +55,28 @@ object Query_Actions {
     }
   }
 
+  /* The two site verbs.  Unlike the context menu, an action does NOT gate on
+     the entry kind: it is reached from the keyboard or the Plugins menu, where
+     there is nothing to look at that would explain a missing item, and the
+     panel answers a bad subject with the reason ("'foo' is a LEMMA in Bar, not
+     a locale or class") rather than an empty set.  Refusing to run would say
+     less. */
+  def find_instantiations(view: View): Unit = {
+    GUI_Thread.require {}
+    caret_word(view) match {
+      case Some((buffer, word)) => Query_Dockable.find_instantiations(view, buffer, word.base)
+      case None => Query_Dockable.show(view)
+    }
+  }
+
+  def find_code_equations(view: View): Unit = {
+    GUI_Thread.require {}
+    caret_word(view) match {
+      case Some((buffer, word)) => Query_Dockable.find_code_equations(view, buffer, word.base)
+      case None => Query_Dockable.show(view)
+    }
+  }
+
   /* The same answer as Find definition, in a popup instead of the panel: the
      reading you do not want to leave the pane for. */
   def peek_definition(view: View): Unit = {

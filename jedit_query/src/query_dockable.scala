@@ -92,12 +92,22 @@ object Query_Dockable {
   /* The whole plugin path from the outside: resolve, then list. */
   def find_usages(view: View, buffer: Buffer, name: String, external: Boolean = false): Unit = {
     GUI_Thread.require {}
-    show(view).foreach(_.request(buffer, name, external = external, definition = false))
+    show(view).foreach(_.request(buffer, name, external, Query_Search.Result_Kind.Usages))
   }
 
   def find_definition(view: View, buffer: Buffer, name: String): Unit = {
     GUI_Thread.require {}
-    show(view).foreach(_.request(buffer, name, external = false, definition = true))
+    show(view).foreach(_.request(buffer, name, false, Query_Search.Result_Kind.Definition))
+  }
+
+  def find_instantiations(view: View, buffer: Buffer, name: String): Unit = {
+    GUI_Thread.require {}
+    show(view).foreach(_.request(buffer, name, false, Query_Search.Result_Kind.Instantiations))
+  }
+
+  def find_code_equations(view: View, buffer: Buffer, name: String): Unit = {
+    GUI_Thread.require {}
+    show(view).foreach(_.request(buffer, name, false, Query_Search.Result_Kind.Code_Equations))
   }
 
 
@@ -168,11 +178,31 @@ object Query_Dockable {
      counts hits and the theories they fall in, a declaration counts the source
      lines it is showing — "19 hits in 1 theory" for one lemma is a miscount
      dressed as a summary. */
-  private def count_caption(kind: Query_Search.Result_Kind, c: Counter): String =
+  /* Public and over plain numbers rather than over the private `Counter`, so
+     the headless probe can pin the wording: a caption is the one part of the
+     tree a display-less machine can still check. */
+  def count_caption(kind: Query_Search.Result_Kind, hits: Int, groups: Int): String =
     kind match {
-      case Query_Search.Result_Kind.Definition => plural(c.hits, "line", "lines")
+      case Query_Search.Result_Kind.Definition => plural(hits, "line", "lines")
+      /* A site list counts SITES, not hits: an instantiation is a place where
+         something happens, and "3 hits" would describe the search rather than
+         the answer. */
+      case Query_Search.Result_Kind.Instantiations | Query_Search.Result_Kind.Code_Equations =>
+        plural(hits, "site", "sites") + " in " + plural(groups, "theory", "theories")
       case _ =>
-        plural(c.hits, "hit", "hits") + " in " + plural(c.groups, "theory", "theories")
+        plural(hits, "hit", "hits") + " in " + plural(groups, "theory", "theories")
+    }
+
+  private def count_caption(kind: Query_Search.Result_Kind, c: Counter): String =
+    count_caption(kind, c.hits, c.groups)
+
+  /* What an EMPTY set of this kind has none of. */
+  def empty_noun(kind: Query_Search.Result_Kind): String =
+    kind match {
+      case Query_Search.Result_Kind.Definition => "declaration"
+      case Query_Search.Result_Kind.Instantiations => "instantiations"
+      case Query_Search.Result_Kind.Code_Equations => "code equations"
+      case _ => "usages"
     }
 
   /* Package-visible: the quick-open list renders HTML labels too, and two
@@ -207,6 +237,14 @@ object Query_Dockable {
       val buf = new StringBuilder("<html>")
       buf ++= hit.line.toString
       buf ++= ": "
+      /* A site's ROLE, in italics before the source: it is what the row is
+         about, not part of the line it quotes.  Italic rather than a colour,
+         for the reason above. */
+      if (hit.tag.nonEmpty) {
+        buf ++= "<i>"
+        buf ++= escape(hit.tag)
+        buf ++= "</i>&nbsp;&nbsp;"
+      }
       try {
         val matcher = Py.compile(Commands.isa_word_pattern(target)).matcher(shown)
         var prev = 0
@@ -232,9 +270,12 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
   /* state                                                              */
   /* ------------------------------------------------------------------ */
 
-  /* What Refresh replays. */
+  /* What Refresh replays.  `kind` is the RESULT kind the request produces --
+     the one switch that decides which engine entry point runs -- so a fifth
+     view is a case here and a case in `run`, not a fifth boolean. */
   private final case class Request(
-    file: JPath, name: String, external: Boolean, definition: Boolean)
+    file: JPath, name: String, external: Boolean,
+    kind: Query_Search.Result_Kind = Query_Search.Result_Kind.Usages)
 
   private var last_request: Option[Request] = None
 
@@ -258,7 +299,9 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
           node.getUserObject match {
             case hit: Query_Search.Hit =>
               if (hit.note) Symbol.decode(hit.text).trim
-              else hit.line.toString + ": " + Symbol.decode(hit.text).trim
+              else hit.line.toString + ": " +
+                (if (hit.tag.isEmpty) "" else hit.tag + "  ") +
+                Symbol.decode(hit.text).trim
             case group: Query_Search.Group => group.caption
             case result: Query_Search.Result => result.label
             case null => ""
@@ -578,10 +621,12 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     }
   }
 
-  def request(buffer: Buffer, name: String, external: Boolean, definition: Boolean): Unit = {
+  def request(buffer: Buffer, name: String, external: Boolean,
+    kind: Query_Search.Result_Kind
+  ): Unit = {
     GUI_Thread.require {}
     JEdit_Lib.buffer_file(buffer) match {
-      case Some(file) => run(Request(file.toPath, name, external, definition))
+      case Some(file) => run(Request(file.toPath, name, external, kind))
       case None => set_caption("not a file buffer -- nothing to search")
     }
   }
@@ -605,8 +650,16 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
                 st => GUI_Thread.later { set_caption(index.name + ": " + st.message) })
             val result =
               index.with_namespace {
-                if (req.definition) Query_Search.definition(snapshot, req.name, index.note)
-                else Query_Search.usages(snapshot, req.name, req.external, index.note)
+                req.kind match {
+                  case Query_Search.Result_Kind.Definition =>
+                    Query_Search.definition(snapshot, req.name, index.note)
+                  case Query_Search.Result_Kind.Instantiations =>
+                    Query_Search.instantiations(snapshot, req.name, index.note)
+                  case Query_Search.Result_Kind.Code_Equations =>
+                    Query_Search.code_equations(snapshot, req.name, index.note)
+                  case _ =>
+                    Query_Search.usages(snapshot, req.name, req.external, index.note)
+                }
               }
             GUI_Thread.later { handle(index, result) }
           }
@@ -641,10 +694,12 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
   private def handle(index: Query_Index, result: Query_Search.Result): Unit = {
     GUI_Thread.require {}
 
-    if (result.is_empty) {
-      val what = if (result.kind == Query_Search.Result_Kind.Definition) "declaration" else "usages"
-      set_caption("no " + what + " of " + result.name + " -- " + status(index))
-    }
+    /* A question that could not be asked is not an empty answer: say which,
+       in the words the CLI would have exited 1 with. */
+    if (result.refused.nonEmpty) set_caption(result.refused + " -- " + status(index))
+    else if (result.is_empty)
+      set_caption("no " + Query_Dockable.empty_noun(result.kind) + " of " + result.name +
+        " -- " + status(index))
     else {
       val set_node = new DefaultMutableTreeNode(result)
       for (group <- result.groups) {

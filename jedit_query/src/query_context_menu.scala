@@ -88,8 +88,51 @@ object Query_Context_Menu {
                agree and the menu must not describe one and open the other. */
             item("Peek definition of " + word.base) {
               Query_Peek.at_offset(view, offset)
-            })
+            }) :::
+            site_items(view, buffer, word.base)
       }
+    }
+  }
+
+  /* The two site verbs, offered only where they have an answer.
+
+     ABSENT rather than disabled, and the choice follows the menu this class
+     already builds: its contract is `null` for "nothing to contribute", and
+     it drops the whole menu for a non-theory buffer rather than greying it
+     out.  A permanently grey pair of items on every right-click in a project
+     with no locales would be noise.
+
+     The predicate is the ENGINE's -- `Query_Search.is_subject`, which is
+     `Sites.resolve`, which is what the CLI exits 1 on -- so an item that
+     appears always leads to an answer, and the two front doors can never
+     disagree about what a locale is.
+
+     Reads only the index that is ALREADY built: `snapshot` is a volatile
+     read, never a parse, because this runs on the EDT for every right-click.
+     A cold index therefore offers neither item; the actions (and the keyboard)
+     still reach both, build the index, and report honestly.  This is the one
+     place the menu is less capable than the action, and it is the price of
+     never blocking a right-click. */
+  private def site_items(view: org.gjt.sp.jedit.View, buffer: Buffer,
+    name: String
+  ): List[JMenuItem] = {
+    val snapshot =
+      for {
+        file <- JEdit_Lib.buffer_file(buffer)
+        index <- Query_Index.for_file(file.toPath)
+        snapshot <- index.snapshot
+      } yield snapshot
+    snapshot.toList.flatMap { s =>
+      (if (Query_Search.is_subject(s, name, isabelle.query.Sites.locale_tags))
+        List(item("Find instantiations of " + name) {
+          Query_Dockable.find_instantiations(view, buffer, name)
+        })
+       else Nil) :::
+      (if (Query_Search.is_subject(s, name, isabelle.query.Sites.constant_tags))
+        List(item("Find code equations of " + name) {
+          Query_Dockable.find_code_equations(view, buffer, name)
+        })
+       else Nil)
     }
   }
 

@@ -24,7 +24,7 @@ hit looks like.
 package isabelle.jedit_query
 
 
-import isabelle.query.{Commands, Entry, Render, Theory_Section, Usage}
+import isabelle.query.{Commands, Entry, Render, Sites, Theory_Section, Usage}
 
 import java.nio.file.{Path => JPath}
 
@@ -41,6 +41,11 @@ object Query_Search {
   object Result_Kind {
     case object Usages extends Result_Kind(false)
     case object Definition extends Result_Kind(true)
+    /* Site lists are usages-shaped: a locale with forty interpretations
+       spread over a dozen theories, so the theory nodes open collapsed and
+       the tree's own arrows reveal them. */
+    case object Instantiations extends Result_Kind(false)
+    case object Code_Equations extends Result_Kind(false)
   }
 
   /* One line of source.  `text` is the RAW line, as the engine returns it:
@@ -49,9 +54,14 @@ object Query_Search {
 
      `note` marks a row that is ABOUT the source rather than of it — the
      "[+N more lines]" tail of a truncated declaration body.  It still carries
-     a line, so it still navigates; it is only rendered differently. */
+     a line, so it still navigates; it is only rendered differently.
+
+     `tag` is the syntactic ROLE of a site row -- `sublocale`, `[code del]` --
+     which is the column the CLI prints between the locus and the text and the
+     one thing a site list says that a usages list does not.  Empty for every
+     other kind, so no existing row changes. */
   final case class Hit(theory: String, path: Option[JPath], line: Int, text: String,
-    note: Boolean = false)
+    note: Boolean = false, tag: String = "")
 
   /* `label`, when set, replaces the bare theory name in the caption: a
      declaration's group says what the ENGINE says about it
@@ -65,14 +75,21 @@ object Query_Search {
   }
 
   /* `label` is what the result-set root says; `name` is what a preview
-     highlights. */
+     highlights.
+
+     `refused` is set when the QUESTION could not be asked -- the subject of a
+     site query is not a locale, class or constant this project declares.  It
+     is deliberately not an empty result: the panel must say "not a locale or
+     class here", not "no instantiations", for the same reason the CLI exits 1
+     rather than printing an honest-looking zero. */
   final case class Result(
     kind: Result_Kind,
     label: String,
     name: String,
     groups: List[Group],
     definition: Option[Hit],
-    note: String
+    note: String,
+    refused: String = ""
   ) {
     def hits: Int = groups.foldLeft(0)(_ + _.count)
     def theories: Int = groups.length
@@ -234,4 +251,64 @@ object Query_Search {
       definition = definition_hit(snapshot, name),
       note = note)
   }
+
+
+  /* --- the site families (P6b) --- */
+
+  /* Both site verbs are one shape, so they are one producer: resolve the
+     subject through the ENGINE's predicate (`Sites.resolve` -- the same
+     function the context menu asks before offering the item, so the menu and
+     the panel can never disagree about what a locale is), then group the sites
+     by theory exactly as a usages set is grouped.  The navigation, the
+     gestures and the peek come with `Hit` and are not written again. */
+  private def sites(
+    snapshot: Query_Index.Snapshot,
+    kind: Result_Kind,
+    name: String,
+    noun: String,
+    what: String,
+    tags: Set[String],
+    scan: (List[Theory_Section], String) => List[Sites.Site],
+    note: String
+  ): Result =
+    Sites.resolve(snapshot.sections, name, tags, what) match {
+      case Left(refused) =>
+        Result(kind, noun + " of " + name, name, Nil, definition_hit(snapshot, name),
+          note, refused = refused)
+      case Right(subject) =>
+        val buf = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Hit]]
+        for (site <- scan(snapshot.sections, name))
+          buf.getOrElseUpdate(site.theory, new mutable.ListBuffer[Hit]) +=
+            Hit(site.theory, snapshot.path_of(site.theory), site.line, site.text,
+              tag = site.kind)
+        val groups =
+          (for ((theory, hits) <- buf)
+            yield Group(theory, snapshot.path_of(theory), hits.toList)).toList
+        val how = if (subject.how.isEmpty) "" else " " + Render.EM_DASH + " " + subject.how
+        Result(kind, noun + " of " + name + kind_of(snapshot, name) + how, name, groups,
+          definition_hit(snapshot, name), note)
+    }
+
+  def instantiations(snapshot: Query_Index.Snapshot, name: String,
+    note: String = ""
+  ): Result =
+    sites(snapshot, Result_Kind.Instantiations, name, "instantiations",
+      "a locale or class", Sites.locale_tags, Sites.find_instantiations, note)
+
+  def code_equations(snapshot: Query_Index.Snapshot, name: String,
+    note: String = ""
+  ): Result =
+    sites(snapshot, Result_Kind.Code_Equations, name, "code equations",
+      "a constant", Sites.constant_tags, Sites.find_code_equations, note)
+
+
+  /* --- what the menu may offer --- */
+
+  /* Whether a caret word is a legitimate subject for a site verb.  The index
+     knows entry kinds, so the menu can ask before it offers -- and asks the
+     ENGINE's predicate, so an item that appears always leads to an answer. */
+  def is_subject(snapshot: Query_Index.Snapshot, name: String,
+    tags: Set[String]
+  ): Boolean =
+    Sites.resolve(snapshot.sections, name, tags, "").isRight
 }
