@@ -239,12 +239,18 @@ of 5:
 
 | | oracle (Python, cold) | cold JVM | warm client |
 |---|---:|---:|---:|
-| `show` on a 2-theory entry | 73 ms | 1060 ms | **31 ms** |
+| `show` on a 2-theory entry † | 73 ms | 1060 ms | **31 ms** |
 | `callers` on a 28-theory entry | 290 ms | 1441 ms | **112 ms** |
 | `summary` on `src/HOL` (1451 theories) | 4865 ms | 4197 ms | **64 ms** |
 | `instances` on `src/HOL` | n/a | 4485 ms | **331 ms** |
 | `summary --by-session`, whole AFP | 37,487 ms | 19,497 ms | **269 ms** |
 | `shape census`, whole AFP (256 MB out) | 176,573 ms | **154,160 ms** | 170,447 ms |
+
+† **Corrected after the fact.** That row ran `show expand`, and
+`Abstract_Completeness` declares no `expand` — so all three columns timed the
+same "No entries matching" answer. Re-measured on a subject that exists
+(`show fair_fenum`): 73 / 1091 / **33** ms. See `dev/BENCH.md`'s footnote and
+`dev/P6C-STATUS.md`; the numbers above are left as recorded, with this note.
 
 **The push condition is met**: the thin client beats the Python oracle on every
 interactive query measured, by 2.3x on the smallest and 139x on the largest.

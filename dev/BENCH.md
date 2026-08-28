@@ -38,12 +38,23 @@ own `src`. Paths come from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO`.
 
 | invocation | oracle ms | cold ms | warm ms |
 |---|---:|---:|---:|
-| `show expand` | 73 | 1060 | **31** |
+| `show fair_fenum` [^1] | 73 | 1091 | **33** |
 | `summary` | 72 | 1078 | **38** |
 | `callers mono` | 73 | 1069 | **33** |
 
-The cold column is almost pure JVM: 1.06 s to answer a question about two
+The cold column is almost pure JVM: ~1.1 s to answer a question about two
 files. That is the crossover P2 recorded and the reason the warm mode exists.
+
+[^1]: **This row replaces a bad one.** It read `show expand`, and
+`Abstract_Completeness` declares nothing called `expand` — so all three columns
+timed the same `No entries matching 'expand'.`, measuring the parse and the
+process start and none of the rendering, and agreeing with each other for the
+wrong reason. The old figures were 73 / 1060 / **31** ms. `fair_fenum` is a
+27-line lemma that exists, and the row was re-measured on its own
+(`dev/bench.sh tiny`, added for exactly this) on the same machine and date,
+median of 5, all three answers byte-identical. The other two rows of this tier
+are the original run's; re-measured beside the replacement they came out
+79 / 1105 / 41 and 76 / 1107 / 35, i.e. within noise, so nothing here is stale.
 
 ## (b) medium — `Category3`, 28 theories
 
@@ -195,6 +206,7 @@ stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
 
 ```sh
 source .dev/corpora.env            # or export the two variables yourself
+dev/bench.sh tiny                  # tier (a) alone, for re-measuring one row
 dev/bench.sh small                 # tiers (a)-(c), about two minutes
 dev/bench.sh full                  # adds the whole-AFP tier
 dev/bench.sh memory                # peak RSS at both heaps

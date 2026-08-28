@@ -16,6 +16,8 @@
 # Usage:
 #   dev/bench.sh [small|full|memory|all]
 #
+#   tiny     tier (a) alone                         -- seconds; for re-measuring
+#            one row without disturbing the rest of the table
 #   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
 #   full     adds the whole-AFP tier (d)            -- about twenty
 #   memory   peak RSS, at the stock heap and at -Xmx512m
@@ -164,6 +166,11 @@ echo
 # the warm server
 # --------------------------------------------------------------------------
 
+case "$TIER" in
+  tiny|small|full|memory|all) ;;
+  *) echo "bench: unknown tier '$TIER' (tiny|small|full|memory|all)" >&2; exit 2 ;;
+esac
+
 if [ "$TIER" != "memory" ]; then
   python3 "$CLIENT" --client-status >"$OUT/server-status.txt" 2>&1 ||
     { echo "bench: no warm server -- $(cat "$OUT/server-status.txt")" >&2; exit 1; }
@@ -194,17 +201,24 @@ bench2() {  # rewrite-only verbs: no oracle column exists to compare with
     row "  ^ ANSWERS DISAGREE cold/warm" "" "" ""
 }
 
-if [ "$TIER" = "small" ] || [ "$TIER" = "all" ] || [ "$TIER" = "full" ]; then
+if [ "$TIER" = "tiny" ] || [ "$TIER" = "small" ] || [ "$TIER" = "all" ] ||
+   [ "$TIER" = "full" ]; then
   echo "## (a) tiny -- Abstract_Completeness (2 theories, 81 entries)"
   echo
   row "invocation" "oracle ms" "cold ms" "warm ms"
   printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
     "-----------:" "-----------:" "-----------:"
-  bench3 "show expand" "$TINY" show expand
+  # The subject has to EXIST in the corpus.  `show expand` did not, so all
+  # three columns timed the same "No entries matching" answer -- a row that
+  # measured the parse and nothing else, and agreed across columns for the
+  # wrong reason.  `fair_fenum` is a 27-line lemma in Abstract_Completeness.
+  bench3 "show fair_fenum" "$TINY" show fair_fenum
   bench3 "summary" "$TINY" summary
   bench3 "callers mono" "$TINY" callers mono
   echo
+fi
 
+if [ "$TIER" = "small" ] || [ "$TIER" = "all" ] || [ "$TIER" = "full" ]; then
   echo "## (b) medium -- Category3 (28 theories)"
   echo
   row "invocation" "oracle ms" "cold ms" "warm ms"
