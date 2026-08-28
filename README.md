@@ -87,6 +87,37 @@ pastes into `enclosing`, and a span from `outline` / `largest` pastes into
 
 ### `instances` and `codeqs`, and what they do not see
 
+Each row is `LOCUS  NAME  KIND  source`, one site per line — the name sits where
+`callers` puts its owning entry, and the locus stays first so a row still pastes
+into `enclosing`.
+
+The **name** is what the source calls that site, never something inferred:
+
+```
+Category3/DualCategory:66  dual_category  sublocale  sublocale dual_category \<subseteq> category comp
+HOL/Topological_Spaces:3644  prod  instantiation  instantiation prod :: (topological_space, ...
+HOL/List:3249  rev_conv_fold  [code]  lemma rev_conv_fold [code]: "rev xs = fold Cons xs []"
+```
+
+- `instances` — the written qualifier (`Cop` in `sublocale Cop: dual_category C ..`),
+  else the type constructor an `instantiation` / `instance` names, else the
+  target of a `sublocale L ⊆ M`, else the context the site sits in (the
+  enclosing locale, or the lemma an `interpret` is inside).
+- `codeqs` — the fact that provides the equation: the `lemma` / `lemmas` name
+  carrying the attribute, the binding label a `declare` attaches to
+  (`fib.simps`), or, for a `default` row, the defining entry's own name.
+
+A site the source gives no name at all — a bare `interpretation L ..` at top
+level — prints `?`, the same placeholder the engine uses for an unnamed
+`context`. It is not given the locale's own name, which would make every row
+repeat the question.
+
+**`--sorts`** adds the sort, arity or signature **as the source writes it**:
+`prod :: (topological_space, topological_space) topological_space`,
+`rev :: 'a list ⇒ 'a list`. This tool runs no prover, so **nothing is
+inferred** — a site whose source writes no type shows none, and the flag is a
+way of reading the source, not of typing it.
+
 These two have no Python counterpart and one shared caveat, stated here because
 it is the honest scope rather than a footnote.
 
@@ -120,6 +151,12 @@ Right-click in a theory buffer, or use the *Isabelle Query* dockable:
 - **Find definition** — the declaration *and its body*, rendered in the panel
   rather than jumping a pane. jEdit has no such view otherwise.
 - **Find instantiations** / **Find code equations** — the two verbs above.
+- **Search by name** — a name field in the panel, so a finder can be run on
+  something that is not under the caret (what `code_thms c` gives you at the
+  prompt). Fuzzy completion over the index; the *Find* button offers the
+  finders that name admits, gated exactly as the right-click menu is.
+- **Sorts** — the CLI's `--sorts` as a toggle; it repaints the rows already on
+  screen rather than re-running the query.
 - **Quick-open / go to symbol** — fuzzy lookup over the index.
 - **Peek definition** — a popup that does not move the editor.
 - **Navigate back / forward** — Isabelle already ships complete jump stacks
@@ -166,11 +203,19 @@ It re-checks every source file's mtime and size on every request (12 ms over
 and **falls back to running `isabelle query` cold on any failure** — a slower
 right answer is always available.
 
+The variables the tool reads — `$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
+`$ISABELLE_QUERY_NAMESPACE` — travel **in the request** and are bound for that
+request only. A resident server never reads its own environment for them, so a
+variable set in your shell means the same thing warm as cold, whoever happened
+to start the server. (`$ISABELLE_QUERY_SERVER_LIMIT` is the exception by
+design: it is the *server's* memory bound, not a caller's, and the per-request
+equivalent is `--client-limit`.)
+
 Measured, median of 5 (full table and method in [dev/BENCH.md](dev/BENCH.md)):
 
 | | Python `query` | `isabelle query` | thin client |
 |---|---:|---:|---:|
-| `show` on a 2-theory AFP entry | 73 ms | 1060 ms | **31 ms** |
+| `show` on a 2-theory AFP entry | 73 ms | 1091 ms | **33 ms** |
 | `callers` on a 28-theory entry | 290 ms | 1441 ms | **112 ms** |
 | `summary` on `src/HOL` (1451 theories) | 4865 ms | 4197 ms | **64 ms** |
 | `summary --by-session` over the whole AFP | 37.5 s | 19.5 s | **0.27 s** |

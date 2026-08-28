@@ -55,11 +55,19 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   `fun`/`primrec`/`definition` default equations.
   Read the caveats in `README.md` before trusting a short answer — mixfix
   notation defeats the head rule, and it under-reports there.
+  Each row is `LOCUS  NAME  KIND  source`; `--sorts` adds the sort, arity or
+  signature **the source writes** at that site. No prover runs, so no type is
+  ever inferred: a site that writes none shows none.
 - **An Isabelle/jEdit plugin** — find usages, find definition, find
-  instantiations, find code equations, quick-open, peek, and toolbar/keyboard
-  exposure for Isabelle's existing navigate-back/forward stacks.
+  instantiations, find code equations, search by name, quick-open, peek, and
+  toolbar/keyboard exposure for Isabelle's existing navigate-back/forward
+  stacks.
 - **A warm server** — four commands added to the stock `isabelle server`, plus
-  a stdlib-only Python client. See `dev/BENCH.md`.
+  a stdlib-only Python client. See `dev/BENCH.md`. The variables the tool reads
+  (`$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
+  `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
+  alone, so setting one in your shell means what it means cold — the server
+  never consults its own environment for them.
 - **`-V/--version`** reports `0.8.0-scala`, not `0.7.0`. Deliberately: a script
   that pins a version must be able to tell the two apart.
 
