@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+#
+# dev/bench.sh -- the three ways to ask this tool a question, timed against
+# each other.
+#
+#   oracle   the Python implementation (`query` on PATH), cold
+#   cold     `isabelle query`, a fresh JVM per invocation
+#   warm     query_client.py against a resident server
+#
+# Every number is a MEDIAN of $RUNS runs (default 5, minimum 3), wall clock,
+# measured around the whole invocation exactly as a user pays for it -- process
+# start included, because process start is the thing under discussion.  A
+# discarded warm-up run precedes each series, so no column is charged for the
+# other's page cache.
+#
+# Usage:
+#   dev/bench.sh [small|full|memory|all]
+#
+#   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
+#   full     adds the whole-AFP tier (d)            -- about twenty
+#   memory   peak RSS, at the stock heap and at -Xmx512m
+#   all      everything (the default)
+#
+# Corpora come from $QUERY_TEST_AFP / $QUERY_TEST_DISTRO, as everywhere else;
+# no path is hard-coded.  The scratch Isabelle user home is $USER_HOME,
+# defaulting to the repository's own .dev -- never the real one.  A
+# bench-private server name keeps a developer's own server out of it, and a
+# trap stops the bench's server however the run ends.
+#
+# Read the machine's load before trusting any of this: a number taken beside a
+# build is not a number.
+
+set -u
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+: "${USER_HOME:=$REPO/.dev}"
+export USER_HOME
+
+TIER="${1:-all}"
+RUNS="${RUNS:-5}"
+
+AFP="${QUERY_TEST_AFP:-}"
+DISTRO="${QUERY_TEST_DISTRO:-}"
+
+missing=""
+[ -d "${AFP:-/nonexistent}" ] || missing="$missing  \$QUERY_TEST_AFP (an AFP thys directory)"$'\n'
+[ -d "${DISTRO:-/nonexistent}" ] || missing="$missing  \$QUERY_TEST_DISTRO (the distribution's src)"$'\n'
+command -v query >/dev/null || missing="$missing  the Python oracle \`query\` on PATH"$'\n'
+if [ -n "$missing" ]; then
+  echo "bench: a benchmark without all three columns is not one. Missing:" >&2
+  printf '%s' "$missing" >&2
+  exit 2
+fi
+
+TINY="$AFP/Abstract_Completeness"
+MED="$AFP/Category3"
+HOL="$DISTRO/HOL"
+for d in "$TINY" "$MED" "$HOL"; do
+  [ -d "$d" ] || { echo "bench: no corpus at $d" >&2; exit 2; }
+done
+
+export BENCH_REPO="$REPO"
+OUT="$REPO/.dev/bench-out"
+mkdir -p "$OUT" || exit 2
+CLIENT="$REPO/query_base/lib/scripts/query_client.py"
+SETTINGS="$(isabelle getenv -b ISABELLE_HOME_USER)/etc/settings"
+
+SERVER="bench-$$"
+export ISABELLE_QUERY_CLIENT_SERVER="$SERVER"
+export ISABELLE_QUERY_CLIENT_CACHE="$OUT/client-cache.json"
+export ISABELLE_QUERY_CLIENT_TIMEOUT=3600
+
+cleanup() {
+  isabelle server -x -n "$SERVER" >/dev/null 2>&1
+  pkill -f "server -n $SERVER" >/dev/null 2>&1
+  # The heap pin is a line in a settings file; leaving it behind would change
+  # every later Isabelle invocation in this scratch home.
+  restore_heap
+}
+trap cleanup EXIT INT TERM
+
+HEAP_MARK="# dev/bench.sh heap pin -- removed by the same script"
+pin_heap() {
+  restore_heap
+  {
+    echo "$HEAP_MARK"
+    echo "ISABELLE_TOOL_JAVA_OPTIONS=\"\$ISABELLE_TOOL_JAVA_OPTIONS $1\"  $HEAP_MARK"
+  } >>"$SETTINGS"
+}
+# `grep -v` exits 1 when it filters EVERYTHING away, which is exactly the case
+# here once the pin is the only content -- so the mv must not hang off `&&`.
+# It did, and the pin survived a whole run.
+restore_heap() {
+  [ -f "$SETTINGS" ] || return 0
+  grep -v -F "$HEAP_MARK" "$SETTINGS" >"$SETTINGS.bench" 2>/dev/null
+  mv -f "$SETTINGS.bench" "$SETTINGS"
+}
+
+# --------------------------------------------------------------------------
+# timing
+# --------------------------------------------------------------------------
+
+# The median of an odd number of runs is a real observation, not an average of
+# two; with an even count take the lower middle, which is the conservative
+# direction for a claim that something is fast.
+median() {
+  local n
+  n=$(printf '%s\n' "$@" | wc -l)
+  printf '%s\n' "$@" | sort -n | sed -n "$(( (n + 1) / 2 ))p"
+}
+
+# Milliseconds around one invocation, discarding a warm-up.  stdout goes to a
+# file so the shell is never the bottleneck and so the answers can be diffed.
+time_ms() {
+  local label; label=$(safe_name "$1"); shift
+  local i start times=()
+  "$@" >"$OUT/$label.out" 2>"$OUT/$label.err"
+  for ((i = 0; i < RUNS; i++)); do
+    start=$(date +%s%N)
+    "$@" >"$OUT/$label.out" 2>"$OUT/$label.err"
+    times+=( $(( ($(date +%s%N) - start) / 1000000 )) )
+  done
+  median "${times[@]}"
+}
+
+# `%M` is peak resident set in KB, which is what "how much memory did this
+# cost" means to the machine, not to the allocator.
+peak_kb() {
+  local label; label=$(safe_name "$1"); shift
+  /usr/bin/time -f "%M" -o "$OUT/$label.rss" "$@" \
+    >"$OUT/$label.out" 2>"$OUT/$label.err"
+  tail -1 "$OUT/$label.rss"
+}
+
+# A label is prose; a filename is not.  `summary (src/HOL)` as a path produced
+# two shell errors and a row of zeroes before this existed.
+safe_name() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+
+row() { printf '| %-42s | %10s | %10s | %10s |\n' "$1" "$2" "$3" "$4"; }
+
+# A row is only worth printing if the three columns AGREE about the answer.
+# `md5` of the captured stdout, compared where an oracle column exists.
+same() {
+  [ "$(md5sum <"$OUT/$(safe_name "$1").out" | cut -d' ' -f1)" = \
+    "$(md5sum <"$OUT/$(safe_name "$2").out" | cut -d' ' -f1)" ] &&
+    echo "=" || echo "DIFFERS"
+}
+
+echo "# isabelle-query benchmark"
+echo
+echo "date:      $(date -u '+%Y-%m-%d %H:%M UTC')"
+echo "host:      $(uname -s) $(uname -r) $(uname -m)"
+echo "cpu:       $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ *//')"
+echo "cores:     $(nproc 2>/dev/null)"
+echo "memory:    $(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo 2>/dev/null)"
+echo "isabelle:  $(isabelle getenv -b ISABELLE_IDENTIFIER)"
+echo "oracle:    $(query --version)"
+echo "rewrite:   $(isabelle query -V)"
+echo "load:      $(uptime | sed 's/.*average[s]*: *//')"
+echo "runs:      median of $RUNS"
+echo
+
+# --------------------------------------------------------------------------
+# the warm server
+# --------------------------------------------------------------------------
+
+if [ "$TIER" != "memory" ]; then
+  python3 "$CLIENT" --client-status >"$OUT/server-status.txt" 2>&1 ||
+    { echo "bench: no warm server -- $(cat "$OUT/server-status.txt")" >&2; exit 1; }
+  grep -q STALE "$OUT/server-status.txt" &&
+    { echo "bench: the server is stale; rebuild or restart it" >&2; exit 1; }
+fi
+
+bench3() {  # label, root, then argv
+  local label="$1" root="$2"; shift 2
+  local o c w
+  o=$(time_ms "$label-oracle" query -R "$root" "$@")
+  c=$(time_ms "$label-cold" isabelle query -R "$root" "$@")
+  w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
+  row "$label" "$o" "$c" "$w"
+  local a b
+  a=$(same "$label-oracle" "$label-cold")
+  b=$(same "$label-cold" "$label-warm")
+  [ "$a$b" = "==" ] || row "  ^ ANSWERS DISAGREE: oracle/cold $a, cold/warm $b" "" "" ""
+}
+
+bench2() {  # rewrite-only verbs: no oracle column exists to compare with
+  local label="$1" root="$2"; shift 2
+  local c w
+  c=$(time_ms "$label-cold" isabelle query -R "$root" "$@")
+  w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
+  row "$label" "n/a" "$c" "$w"
+  [ "$(same "$label-cold" "$label-warm")" = "=" ] ||
+    row "  ^ ANSWERS DISAGREE cold/warm" "" "" ""
+}
+
+if [ "$TIER" = "small" ] || [ "$TIER" = "all" ] || [ "$TIER" = "full" ]; then
+  echo "## (a) tiny -- Abstract_Completeness (2 theories, 81 entries)"
+  echo
+  row "invocation" "oracle ms" "cold ms" "warm ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+  bench3 "show expand" "$TINY" show expand
+  bench3 "summary" "$TINY" summary
+  bench3 "callers mono" "$TINY" callers mono
+  echo
+
+  echo "## (b) medium -- Category3 (28 theories)"
+  echo
+  row "invocation" "oracle ms" "cold ms" "warm ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+  bench3 "callers comp_assoc (206 callers)" "$MED" callers comp_assoc
+  bench3 "callers category_axioms" "$MED" callers category_axioms
+  bench3 "shape summary" "$MED" shape summary
+  echo
+
+  echo "## (c) the two rewrite-only verbs -- src/HOL (1451 theories)"
+  echo
+  row "invocation" "oracle ms" "cold ms" "warm ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+  bench2 "instances comm_monoid" "$HOL" instances comm_monoid
+  bench2 "codeqs rev" "$HOL" codeqs rev
+  bench3 "summary" "$HOL" summary
+  echo
+  echo "Recheck cost on a warm src/HOL index (the stat sweep every request pays):"
+  python3 - "$HOL" <<'PY'
+import os, sys, time
+sys.path.insert(0, os.path.join(os.environ["BENCH_REPO"], "query_base", "lib", "scripts"))
+import query_client as Q
+cached = Q.read_cache()
+isabelle = Q.find_isabelle(cached)
+conn = Q.connect(isabelle, cached, os.environ["ISABELLE_QUERY_CLIENT_SERVER"],
+                 False, 3600.0, False)
+root = sys.argv[1]
+head, body = conn.command("query_open", {"root": root, "limit": 0})
+print("  first open:  %s ms, %s theories, %s entries, %s files fingerprinted"
+      % (body.get("build_ms"), body.get("theories"), body.get("entries"),
+         body.get("files_checked")))
+best = None
+for _ in range(5):
+    head, body = conn.command("query_open", {"root": root, "limit": 0})
+    ms = body.get("check_ms")
+    best = ms if best is None else min(best, ms)
+print("  recheck:     %s ms (best of 5), %s theories reparsed"
+      % (best, body.get("reparsed")))
+conn.close()
+PY
+  echo
+fi
+
+if [ "$TIER" = "full" ] || [ "$TIER" = "all" ]; then
+  echo "## (d) the whole AFP -- $(find "$AFP" -name '*.thy' | wc -l) theory files"
+  echo
+  echo "Timed with RUNS=3; the warm column asks for an index over the whole"
+  echo "checkout, which is what --client-limit 0 is for."
+  echo
+  RUNS_SAVED="$RUNS"
+  RUNS=3
+  row "invocation" "oracle ms" "cold ms" "warm ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+  bench3 "summary --by-session" "$AFP" summary --by-session
+  bench3 "shape census" "$AFP" shape census
+  RUNS="$RUNS_SAVED"
+  echo
+fi
+
+if [ "$TIER" = "memory" ] || [ "$TIER" = "all" ]; then
+  echo "## memory -- peak RSS"
+  echo
+  echo "Isabelle's own etc/settings OVERWRITES \$ISABELLE_TOOL_JAVA_OPTIONS from"
+  echo "the environment, and the JVM ignores \$_JAVA_OPTIONS here, so the only"
+  echo "override that takes is a line in \$ISABELLE_HOME_USER/etc/settings."
+  echo "This script writes one, runs, and removes it again."
+  echo
+  printf '| %-42s | %14s | %14s |\n' "invocation" "stock heap MB" "-Xmx512m MB"
+  printf '|%s|%s|%s|\n' "-------------------------------------------" \
+    "---------------:" "---------------:"
+
+  mem_row() {
+    local label="$1" root="$2"; shift 2
+    local a b
+    restore_heap
+    a=$(peak_kb "$label-mem-stock" isabelle query -R "$root" "$@")
+    pin_heap "-Xmx512m"
+    b=$(peak_kb "$label-mem-512" isabelle query -R "$root" "$@")
+    restore_heap
+    local sl; sl=$(safe_name "$label")
+    if ! cmp -s "$OUT/$sl-mem-stock.out" "$OUT/$sl-mem-512.out"; then
+      printf '| %-42s | %14s | %14s |\n' "$label  [ANSWERS DIFFER]" \
+        "$((a / 1024))" "$((b / 1024))"
+    else
+      printf '| %-42s | %14s | %14s |\n' "$label" "$((a / 1024))" "$((b / 1024))"
+    fi
+  }
+
+  mem_row "summary src-HOL" "$HOL" summary
+  mem_row "callers comp_assoc Category3" "$MED" callers comp_assoc
+  mem_row "summary --by-session whole-AFP" "$AFP" summary --by-session
+  echo
+  echo "Python oracle, for scale:"
+  a=$(peak_kb "oracle-mem-hol" query -R "$HOL" summary)
+  printf '  query -R src/HOL summary: %s MB\n' "$((a / 1024))"
+  echo
+fi
+
+python3 "$CLIENT" --client-stop >/dev/null 2>&1
+sleep 1
+echo "server stopped: $(pgrep -f "isabelle server -n $SERVER" | wc -l) process(es) left"
