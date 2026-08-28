@@ -49,6 +49,10 @@ JAR="$REPO/query_base/lib/classes/isabelle_query.jar"
 # A probe-private server name and a probe-private settings cache: nothing here
 # may reach the developer's own server or their real cache file.
 SERVER="p7probe-$$"
+# A SECOND server, started deliberately under a pinned environment (§9b).  It
+# has to be a separate process: the whole question is what a server inherits at
+# start-up, which cannot be asked of one that is already running.
+ENV_SERVER="p7probe-env-$$"
 export ISABELLE_QUERY_CLIENT_SERVER="$SERVER"
 export ISABELLE_QUERY_CLIENT_CACHE="$OUT/client-cache.json"
 
@@ -58,11 +62,13 @@ note() { checks=$((checks + 1)); echo "  ok    $1${2:+  [$2]}"; }
 bad()  { checks=$((checks + 1)); fail=$((fail + 1)); echo "  FAIL  $1  [$2]"; }
 
 cleanup() {
-  isabelle server -x -n "$SERVER" >/dev/null 2>&1
-  # Belt to that brace: a server killed with -9 leaves no socket for `-x` to
-  # talk to, so match on the command line as well.
-  pkill -f "isabelle_server.*$SERVER" >/dev/null 2>&1
-  pkill -f "server -n $SERVER" >/dev/null 2>&1
+  for s in "$SERVER" "$ENV_SERVER"; do
+    isabelle server -x -n "$s" >/dev/null 2>&1
+    # Belt to that brace: a server killed with -9 leaves no socket for `-x` to
+    # talk to, so match on the command line as well.
+    pkill -f "isabelle_server.*$s" >/dev/null 2>&1
+    pkill -f "server -n $s" >/dev/null 2>&1
+  done
 }
 trap cleanup EXIT INT TERM
 
@@ -153,6 +159,96 @@ if cmp -s "$OUT/cold-summary.txt" "$OUT/warm-relroot.txt"; then
 else
   bad "and a RELATIVE -R resolves against the client's cwd" \
     "$(head -1 "$OUT/warm-relroot.txt")"
+fi
+
+# --------------------------------------------------------------------------
+echo
+echo "9b. the environment is per REQUEST, not per server process"
+
+# THE DEFECT THIS SECTION EXISTS FOR.  `isabelle server` inherits the
+# environment of whichever client happened to start it, and keeps it for life.
+# A server first reached by a client with $ISABELLE_QUERY_NAMESPACE=committed
+# therefore answered EVERY later client -- with a clean environment and
+# identical argv -- as though they had pinned it too: on ZF, `callers induct`
+# came back 1 instead of 250, because under the committed HOL table `induct` is
+# a method rather than a citation.
+#
+# It has to be a SECOND server, started deliberately under the pin: the
+# question is what a process inherits at start-up, which cannot be asked of one
+# already running.
+
+isabelle query -R "$ZF" callers induct >"$OUT/zf-plain.txt" 2>/dev/null
+ISABELLE_QUERY_NAMESPACE=committed isabelle query -R "$ZF" callers induct \
+  >"$OUT/zf-pinned.txt" 2>/dev/null
+
+# Non-vacuity first: if the pin made no difference to the cold tool, the two
+# checks below would pass whatever the server did.
+if cmp -s "$OUT/zf-plain.txt" "$OUT/zf-pinned.txt"; then
+  bad "the pin changes the COLD answer (else this section proves nothing)" \
+    "identical: $(head -1 "$OUT/zf-plain.txt")"
+else
+  note "the pin changes the COLD answer (else this section proves nothing)" \
+    "$(head -1 "$OUT/zf-plain.txt") vs $(head -1 "$OUT/zf-pinned.txt")"
+fi
+
+# Start the second server FROM a pinned client, so it inherits the pin.
+ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_NAMESPACE=committed \
+  python3 "$CLIENT" --client-status >"$OUT/env-status.txt" 2>&1
+if grep -q "^server        $ENV_SERVER" "$OUT/env-status.txt"; then
+  note "a server started under the pinned environment is up" "$ENV_SERVER"
+else
+  bad "a server started under the pinned environment is up" \
+    "$(head -2 "$OUT/env-status.txt" | tr '\n' ' ')"
+fi
+
+# The check: a LATER client with a clean environment must get the clean answer.
+# stdout only, as every other parity check compares: the step-down to the Pure
+# floor prints a NOTE on stderr, and folding it in would make the warm file
+# differ from the cold one for the very reason the check is looking for.
+ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" \
+  python3 "$CLIENT" -R "$ZF" callers induct \
+  >"$OUT/env-plain.txt" 2>"$OUT/env-plain.err"
+if cmp -s "$OUT/zf-plain.txt" "$OUT/env-plain.txt" &&
+   grep -q "minimal Pure table" "$OUT/env-plain.err"; then
+  note "an unpinned client gets the unpinned answer from a pinned server" \
+    "$(head -1 "$OUT/env-plain.txt"), and the step-down note reaches it"
+else
+  bad "an unpinned client gets the unpinned answer from a pinned server" \
+    "$(head -1 "$OUT/env-plain.txt")"
+fi
+
+# And the other half: the variable is FORWARDED, not merely ignored, so a
+# client that does set it still gets what it asked for.
+ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_NAMESPACE=committed \
+  python3 "$CLIENT" -R "$ZF" callers induct \
+  >"$OUT/env-pinned.txt" 2>"$OUT/env-pinned.err"
+if cmp -s "$OUT/zf-pinned.txt" "$OUT/env-pinned.txt"; then
+  note "and a pinned client still gets the pinned one (forwarded, not ignored)" \
+    "$(head -1 "$OUT/env-pinned.txt")"
+else
+  bad "and a pinned client still gets the pinned one (forwarded, not ignored)" \
+    "$(head -1 "$OUT/env-pinned.txt")"
+fi
+
+# The root variables travel the same way, and this is what proves the request
+# carries them rather than the server reading its own: no -R, and a cwd that is
+# NOT the project.
+( cd "$OUT" && ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_ROOT="$ZF" \
+    python3 "$CLIENT" callers induct ) >"$OUT/env-root.txt" 2>"$OUT/env-root.err"
+if cmp -s "$OUT/zf-plain.txt" "$OUT/env-root.txt"; then
+  note "\$ISABELLE_QUERY_ROOT is the request's, from an unrelated cwd"
+else
+  bad "\$ISABELLE_QUERY_ROOT is the request's, from an unrelated cwd" \
+    "$(head -1 "$OUT/env-root.txt")"
+fi
+
+ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" python3 "$CLIENT" --client-stop \
+  >"$OUT/env-stop.txt" 2>&1
+sleep 0.3
+if [ "$(pgrep -cf "server -n $ENV_SERVER" 2>/dev/null)" = "0" ]; then
+  note "and the pinned server is stopped again"
+else
+  bad "and the pinned server is stopped again" "still running"
 fi
 
 # --------------------------------------------------------------------------
