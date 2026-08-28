@@ -8,6 +8,7 @@ that is in the tree.
 
     dump_oracle.py entries ROOT_DIR [--spans] [--bindings]
     dump_oracle.py theories ROOT_DIR
+    dump_oracle.py imports ROOT_DIR
 
 Record format for `entries` is `scripts/dump_entries.py`'s, with the theory key
 generalised from `<afp entry>/<stem>` to the theory's path relative to
@@ -162,6 +163,30 @@ def cmd_theories(root: Path) -> None:
         sys.stdout.write(rel + "\n")
 
 
+def cmd_imports(root: Path) -> None:
+    """`THEORY_KEY<TAB>TOKEN TOKEN...` — the RAW `imports`-clause tokens, which
+    `deps` / `uses` / `graph imports` print verbatim for an out-of-project
+    entry.  The Scala side reads the clause with `Thy_Header`, so the two
+    spellings have to be compared before those commands can be trusted."""
+    from isabelle_layout import parse_thy_imports
+    base = root.resolve()
+    pairs, _ = discovered(root)
+    seen = set()
+    rows = []
+    for _name, thy_path in pairs:
+        if not thy_path.exists():
+            continue
+        resolved = thy_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        rel = rel_key(thy_path, base)
+        key = rel[:-4] if rel.endswith(".thy") else rel
+        rows.append(f"{key}\t{' '.join(parse_thy_imports(thy_path))}")
+    for row in sorted(rows):
+        sys.stdout.write(row + "\n")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         sys.stderr.write(__doc__.split("\n\n")[2] + "\n")
@@ -171,6 +196,8 @@ def main(argv: list[str]) -> int:
         cmd_entries(root, "--spans" in argv, "--bindings" in argv)
     elif cmd == "theories":
         cmd_theories(root)
+    elif cmd == "imports":
+        cmd_imports(root)
     else:
         sys.stderr.write(f"dump_oracle: unknown command {cmd!r}\n")
         return 2

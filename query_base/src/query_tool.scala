@@ -75,6 +75,23 @@ object Query_Tool {
     finally out.flush()
   }
 
+  /* The RAW `imports`-clause tokens per theory.  `deps` / `uses` /
+     `graph imports` print such a token verbatim when it names no in-project
+     theory, so the header parser's spelling is observable and has to be
+     diffable against the reference implementation's regex. */
+  def dump_imports(root: JPath): Unit = {
+    val base = Discovery.real(root)
+    val out = new PrintWriter(
+      new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8), 1 << 16))
+    try {
+      val rows =
+        for (f <- Discovery.theories(root))
+          yield theory_key(base, f.path) + "\t" + Discovery.thy_imports(f.path).mkString(" ")
+      for (r <- rows.sorted) out.println(r)
+    }
+    finally out.flush()
+  }
+
   def dump_theories(root: JPath): Unit = {
     val base = Discovery.real(root)
     val out = new PrintWriter(
@@ -100,6 +117,10 @@ object Query_Tool {
         if (dirs.length != 1) error("Usage: isabelle query dump-entries ROOT_DIR [--spans]")
         dump_entries(Paths.get(dirs.head).toAbsolutePath,
           rest.contains("--spans"), rest.contains("--bindings"))
+      case "dump-imports" :: rest =>
+        val dirs = rest.filterNot(_.startsWith("-"))
+        if (dirs.length != 1) error("Usage: isabelle query dump-imports ROOT_DIR")
+        dump_imports(Paths.get(dirs.head).toAbsolutePath)
       case "dump-theories" :: rest =>
         val dirs = rest.filterNot(_.startsWith("-"))
         if (dirs.length != 1) error("Usage: isabelle query dump-theories ROOT_DIR")
