@@ -302,14 +302,21 @@ object CLI {
       List(count_flag.copy(help = "just print the site count"),
         names_flag.copy(help =
           "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
-      List(Pos("name", "+", "locale or class name(s)"))),
+      List(Pos("name", "+", "locale or class name(s).  Reports the DECLARED SOURCE " +
+        "sites, which is the complement of Isar's `print_interps`: that needs a " +
+        "running prover and shows the processed interpretations, including those an " +
+        "imported session installed."))),
     Cmd(List("codeqs"),
       "declared code-equation sites of a constant (`[code]` and kin, plus its " +
         "own default equations)",
       List(count_flag.copy(help = "just print the site count"),
         names_flag.copy(help =
           "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
-      List(Pos("name", "+", "constant name(s)"))),
+      List(Pos("name", "+", "constant name(s).  Reports the DECLARED SOURCE sites, " +
+        "which is the complement of Isar's `print_codesetup` / `code_thms`: those " +
+        "need a running prover and show the PROCESSED setup -- after preprocessing, " +
+        "after `[code del]` has taken effect, and including what an imported session " +
+        "declared."))),
 
     /* -- the shape family (a nested group; see `Cmd.subs`) ---------------- */
     Cmd(List("shape"), "proof-shape metrics (summary|steps|lemma|widest|census)",
