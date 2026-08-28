@@ -536,6 +536,21 @@ object Usage_Graph {
   private val METHOD_INTRO_RE: Pattern =
     Py.compile("""\b(?:by|apply|proof)\b\s*\(?\s*([\w']+)""")
 
+  /* The first proof method named on a line — the token after a `by` / `apply` /
+     `proof` introducer, or "" when the line introduces none (`qed`, a bare `.`,
+     `proof -`).  Purely POSITIONAL: in introducer position the token IS the
+     method, so it is not checked against the bound table.  That check used to be
+     here, and it made the shape automation axis the one whose denominator
+     depended on configuration — an entry's own Eisbach tactic left the step with
+     no method, and since that is `trivial_frac`'s denominator the step did not go
+     unclassified, it left the measure.  Dropping it also makes this agree with
+     `cited_facts_on_line`, which has always read the first token after
+     `by`/`apply` as the method by position; the two scans are meant to partition
+     an introducer line between them, and while one consulted a table and the
+     other did not, they could not. */
+  def leading_method(line: String): String =
+    Py.search(METHOD_INTRO_RE, line).map(_.group(1)).getOrElse("")
+
   final case class Method_Use(theory: String, line_no: Int, owner: Option[Entry],
     text: String)
 

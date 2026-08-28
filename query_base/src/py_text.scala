@@ -204,6 +204,58 @@ object Py {
     new java.math.BigDecimal(x).setScale(scale, java.math.RoundingMode.HALF_EVEN)
       .toPlainString
 
+  /* Python's `repr(float)`, which is what `json.dumps` writes for a float and
+     is NOT `Double.toString`.
+
+     Two halves, and both are observable in a census record:
+
+       * the DIGITS are the shortest decimal string that round-trips.  Found by
+         asking for p significant digits, p = 1 .. 17, and stopping at the first
+         that reads back as the same double.  `BigDecimal(x)` is the double's
+         EXACT value, so rounding it half-even to p digits gives the closest
+         p-digit string — and if any p-digit string round-trips, the closest one
+         does, so this yields the same digits as the reference's Grisu-style
+         shortest repr.  (`String.format("%.Ne")` would round half-UP on an
+         exact midpoint, which is a different string.)
+
+       * the LAYOUT is Python's, not Java's.  Python switches to exponent form
+         when the decimal point sits at or left of position -4, or right of
+         position 16 — `1e+16` but `1000000000000000.0`, `1e-05` but `0.0001` —
+         writes the exponent with at least two digits and a sign, and appends
+         `.0` to anything that would otherwise read as an integer.  Java's
+         `Double.toString` disagrees on all three. */
+  def repr_float(x: Double): String = {
+    if (x.isNaN) "NaN"
+    else if (x.isInfinite) (if (x > 0) "Infinity" else "-Infinity")
+    else if (x == 0.0) (if (1.0 / x < 0) "-0.0" else "0.0")
+    else {
+      val exact = new java.math.BigDecimal(x)
+      var p = 1
+      var rounded: java.math.BigDecimal = null
+      while (rounded == null && p <= 17) {
+        val cand = exact.round(new java.math.MathContext(p, java.math.RoundingMode.HALF_EVEN))
+        if (cand.doubleValue == x) rounded = cand
+        p += 1
+      }
+      if (rounded == null) rounded = exact
+      val norm = rounded.stripTrailingZeros
+      val digits = norm.unscaledValue.abs.toString
+      val decpt = digits.length - norm.scale        // value = 0.digits * 10^decpt
+      val sign = if (x < 0) "-" else ""
+      val body =
+        if (decpt <= -4 || decpt > 16) {
+          val mantissa = if (digits.length == 1) digits else digits.head + "." + digits.tail
+          val e = decpt - 1
+          val es = math.abs(e).toString
+          mantissa + "e" + (if (e < 0) "-" else "+") + (if (es.length < 2) "0" + es else es)
+        }
+        else if (decpt <= 0) "0." + ("0" * -decpt) + digits
+        else if (decpt >= digits.length) digits + ("0" * (decpt - digits.length)) + ".0"
+        else digits.substring(0, decpt) + "." + digits.substring(decpt)
+      sign + body
+    }
+  }
+
   /* Python's `int(s)`: surrounding whitespace and an optional sign, then
      ASCII digits (underscores allowed as separators since 3.6). */
   def parse_int(s0: String): Option[Int] = {

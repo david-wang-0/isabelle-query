@@ -281,6 +281,12 @@ object Namespace {
 
   def proof_methods: Set[String] = methods
   def attribute_names: Set[String] = attributes
+  /* Exposed separately from `non_citation` because the shape width classifier
+     asks a DIFFERENT question: "is this identifier term syntax?" is
+     methods ∪ attributes ∪ keywords, and deliberately NOT the router's
+     reject-set, which also carries `ARG_MODIFIERS` (`add`, `del`, `only`) —
+     inline method arguments, which are not constants. */
+  def keyword_names: Set[String] = keywords
   def non_citation: Set[String] = non_citation_set
 
   /* The one seam a resolved table reaches the router through. */

@@ -239,12 +239,14 @@ object Entries {
     mask
   }
 
-  /* Index just past the close matching a leading open token; -1 if unbalanced.
-     A depth counter is the least machinery a non-regular nesting construct
-     needs, and precisely what a regular expression cannot supply. */
-  def balanced_end(s: String, open_tok: String, close_tok: String): Int = {
+  /* Index just past the close matching the open token at `start`; -1 if
+     unbalanced.  A depth counter is the least machinery a non-regular nesting
+     construct needs, and precisely what a regular expression cannot supply.
+     `start` lets a caller scan a delimiter that opens part-way into the text
+     (the shape scanner skips a cited cartouche in command position). */
+  def balanced_end(s: String, open_tok: String, close_tok: String, start: Int = 0): Int = {
     var depth = 0
-    var i = 0
+    var i = start
     while (i < s.length) {
       if (s.startsWith(open_tok, i)) { depth += 1; i += open_tok.length }
       else if (s.startsWith(close_tok, i)) {
