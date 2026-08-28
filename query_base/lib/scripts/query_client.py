@@ -39,6 +39,14 @@ Environment:
     ISABELLE_QUERY_CLIENT_COLD      set to 1 to force the cold path
     ISABELLE_QUERY_CLIENT_TIMEOUT   default for --client-timeout
     ISABELLE_QUERY_CLIENT_CACHE     where the resolved settings are cached
+
+The variables above configure THIS PROCESS and are never sent.  The variables
+the tool itself reads are a different set (`FORWARDED_ENV` below) and ARE sent,
+per request: a resident server must not read its own environment, because that
+environment is whatever the client which happened to start it exported, and it
+would silently outlive them.  A variable set here therefore means the same
+thing warm as it does cold — which is the only property that lets the client
+be a drop-in for `isabelle query`.
 """
 
 # The import list is part of the budget.  A bare `python3 -c pass` costs about
@@ -73,6 +81,19 @@ START_TIMEOUT = 60.0
 # corpus dumps, sized for a pipe, not for a socket), and `-` reads the
 # client's stdin, which the server has no access to.  Both are cold-only.
 COLD_ONLY_COMMANDS = {"dump-entries", "dump-imports", "dump-theories"}
+
+# Every environment variable the ENGINE reads, mirroring `CLI.request_env` on
+# the other side.  Forwarded per request and bound for that request only.
+#   ISABELLE_LAYOUT_ROOT / ISABELLE_QUERY_ROOT  which project, with no -R
+#   ISABELLE_QUERY_NAMESPACE                    pin the committed method table
+# Deliberately NOT forwarded: ISABELLE_QUERY_JAR and
+# ISABELLE_QUERY_SERVER_LIMIT, which a server reads about ITSELF (its own jar,
+# its own memory bound) and which a client must not be able to redefine.
+FORWARDED_ENV = (
+    "ISABELLE_LAYOUT_ROOT",
+    "ISABELLE_QUERY_ROOT",
+    "ISABELLE_QUERY_NAMESPACE",
+)
 
 
 class Fallback(Exception):
@@ -426,7 +447,15 @@ def absolutize(args):
     which is exactly the set the tool would have resolved as paths; a theory
     name, a pattern or a locus stays untouched.  `-R`'s argument is rewritten
     whether or not it exists, because an unreadable root is a diagnostic the
-    tool must give about the path the user meant."""
+    tool must give about the path the user meant.
+
+    `~` is expanded HERE for the same reason the path is made absolute: the
+    tool expands it against `user.home`, which inside a server is the home of
+    whoever started it.  The shell normally does this first; a quoted `'~/p'`
+    is the case that reaches us."""
+    def resolve(p):
+        return os.path.abspath(os.path.expanduser(p))
+
     out = []
     i = 0
     while i < len(args):
@@ -434,14 +463,14 @@ def absolutize(args):
         if tok in ("-R", "--root"):
             out.append(tok)
             if i + 1 < len(args):
-                out.append(os.path.abspath(args[i + 1]))
+                out.append(resolve(args[i + 1]))
                 i += 1
         elif tok.startswith("--root="):
-            out.append("--root=" + os.path.abspath(tok[len("--root=") :]))
+            out.append("--root=" + resolve(tok[len("--root=") :]))
         elif tok.startswith("-R") and len(tok) > 2:
-            out.append("-R" + os.path.abspath(tok[2:]))
-        elif not tok.startswith("-") and os.path.exists(tok):
-            out.append(os.path.abspath(tok))
+            out.append("-R" + resolve(tok[2:]))
+        elif not tok.startswith("-") and os.path.exists(os.path.expanduser(tok)):
+            out.append(resolve(tok))
         else:
             out.append(tok)
         i += 1
@@ -449,15 +478,19 @@ def absolutize(args):
 
 
 def request(args, limit, verbose):
+    env = {var: os.environ[var] for var in FORWARDED_ENV if os.environ.get(var)}
     env_root = ""
     for var in ("ISABELLE_LAYOUT_ROOT", "ISABELLE_QUERY_ROOT"):
-        if os.environ.get(var):
-            env_root = os.environ[var]
+        if env.get(var):
+            env_root = env[var]
             break
     body = {
         "argv": absolutize(args),
         "cwd": os.getcwd(),
+        # `env_root` is the resolved root variable, which `query_open` also
+        # takes; `env` is the raw set, bound for this request inside the CLI.
         "env_root": env_root,
+        "env": env,
         "client_id": jar_stamp(),
     }
     if limit is not None:

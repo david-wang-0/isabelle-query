@@ -47,6 +47,16 @@ Four decisions are load-bearing.
     table through as a value — is a change to every analysis signature in the
     engine, not to this file.
 
+  * **The environment is per REQUEST, never the server's own.**  The same
+    argument as the namespace, one level up: a resident JVM's environment is
+    whatever the client that happened to start it exported, it is invisible
+    in the argv, and it outlives that client.  A server started under
+    `$ISABELLE_QUERY_NAMESPACE=committed` answered every later client's ZF
+    `callers induct` with 1 instead of 250.  So `query_run` binds
+    `CLI.Session.env` from the request's `env` object — the variables
+    `CLI.request_env` lists, and no others — and the server's own environment
+    is unreachable from a request rather than merely overridden by one.
+
   * **A refusal is a protocol error, never an empty answer.**  Over the
     limit, or a root with no theories, replies `ERROR`.  The point of
     refusing rather than truncating is lost if the refusal arrives looking
@@ -349,7 +359,7 @@ object Query_Server {
      The cost is that a build happens under the engine lock, which the parse
      does not need.  Correctness first: the alternative is guessing again. */
   def run(argv: List[String], cwd: Option[String], env_root: Option[String],
-    limit: Int
+    env: Map[String, String], limit: Int
   ): Result = {
     val out = new StringWriter
     val err = new StringWriter
@@ -362,6 +372,14 @@ object Query_Server {
            union above all — can be read by this one. */
         Namespace.use_census_namespace()
         CLI.run_result(argv, new Out(out), new Out(err), s => {
+          /* THE REQUEST'S environment, and only it.  The server's own is an
+             accident of whoever started it — a client that happened to export
+             `$ISABELLE_QUERY_NAMESPACE=committed` used to pin the table for
+             every later client of that JVM, with no way to tell from the
+             argv.  Binding an explicit (possibly empty) map here is what makes
+             the process environment unreachable rather than merely
+             overridden. */
+          s.env = k => env.get(k).filter(_.nonEmpty)
           for (d <- cwd) s.ambient_root = () => CLI.default_root_from(Paths.get(d), env_root)
           s.index_provider = root =>
             if (!Files.isDirectory(root)) None
@@ -409,6 +427,24 @@ object Query_Server_Protocol {
   private def env_root_of(json: JSON.T): Option[String] =
     JSON.string(json, "env_root").filter(_.nonEmpty)
 
+  /* The request's environment: exactly the variables `CLI.request_env` names,
+     taken from the request and from nowhere else.  A client that sends none
+     gets an EMPTY environment rather than the server's, which is the fix: an
+     inherited variable is invisible in the argv and therefore undebuggable
+     from the caller's side.  `env_root` stays as its own field because
+     `query_open` — which has no argv — needs it too. */
+  private def env_of(json: JSON.Object.T): Map[String, String] = {
+    val obj =
+      json.get("env") match {
+        case Some(JSON.Object(m)) => m
+        case _ => Map.empty[String, JSON.T]
+      }
+    (for {
+      k <- CLI.request_env
+      v <- obj.get(k).collect { case s: String if s.nonEmpty => s }
+    } yield k -> v).toMap
+  }
+
 
   /* `query_version` — who is answering, and is it the code the caller built.
      Cheap on purpose: a client may call it on every invocation. */
@@ -440,6 +476,10 @@ object Query_Server_Protocol {
      decide, by the same rule a typed command follows, which is what lets the
      thin client be a drop-in for the tool.
 
+     `env` is optional and carries the request's own environment (see the
+     header): a request that sends none is run with an EMPTY environment, not
+     with the server's.
+
      The reply carries stdout, stderr and the exit status separately, and the
      status is DATA: exit 1 (unresolved subject) and exit 2 (bad root) are
      answers the CLI gives and the client re-emits.  Only a refusal the CLI
@@ -467,7 +507,7 @@ object Query_Server_Protocol {
           }
 
         val t0 = System.currentTimeMillis()
-        val res = Query_Server.run(argv1, cwd, env_root, limit_of(json))
+        val res = Query_Server.run(argv1, cwd, env_root, env_of(json), limit_of(json))
         val total = System.currentTimeMillis() - t0
         JSON.Object(
           "exit" -> res.exit,

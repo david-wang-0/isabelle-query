@@ -581,7 +581,19 @@ object CLI {
   private def resolve(p: JPath): JPath = Discovery.real(p.toAbsolutePath)
 
   private val marker_names = List(".isabelle-layout", ".isabelle-query")
+
+  /* EVERY environment variable the engine reads, in one place, because "which
+     variables does a request carry" is a question the warm server has to
+     answer exactly (`server.scala`, and `dev/P6C-STATUS.md`).  The three below
+     are per-REQUEST and are forwarded by the thin client;
+     `$ISABELLE_QUERY_JAR` and `$ISABELLE_QUERY_SERVER_LIMIT` are read by the
+     server ABOUT ITSELF and are deliberately not here. */
   private val env_roots = List("ISABELLE_LAYOUT_ROOT", "ISABELLE_QUERY_ROOT")
+  val NAMESPACE_ENV: String = "ISABELLE_QUERY_NAMESPACE"
+  val request_env: List[String] = env_roots ::: List(NAMESPACE_ENV)
+
+  val process_env: String => Option[String] =
+    k => Option(System.getenv(k)).filter(_.nonEmpty)
 
   private def search_chain(start: JPath): List[JPath] = {
     val out = new mutable.ListBuffer[JPath]
@@ -626,8 +638,7 @@ object CLI {
     }
 
   def default_root(): JPath =
-    default_root_from(Paths.get(""),
-      env_roots.map(System.getenv).find(v => v != null && v.nonEmpty))
+    default_root_from(Paths.get(""), env_roots.iterator.flatMap(process_env(_)).nextOption())
 
   /* An empty index is an error, never a result: no real Isabelle project has
      zero theories, so reaching this means the root was wrong, unreadable, or
@@ -670,6 +681,23 @@ object CLI {
   final class Session(val err: Out, val out: Out) {
     var root_override: Option[JPath] = None
 
+    /* THE ENVIRONMENT THIS RUN IS ABOUT, which for a served run is not the
+       one the JVM was started with.
+
+       A process reads its own environment and that is the whole story; a
+       resident server does not, and getting this wrong is a bug the type
+       system cannot see.  A server spawned by a client that had
+       `$ISABELLE_QUERY_NAMESPACE=committed` set inherited it FOR ITS WHOLE
+       LIFE, so every later client -- with a clean environment, and the same
+       argv as a cold run -- got the pinned table: a ZF `callers induct`
+       answered 1 where the typed command answers 250.
+
+       So the environment is a per-REQUEST value, indirected through here.  A
+       command-line run binds the process's own; the warm server binds what the
+       client forwarded and NEVER its own, because the server's environment is
+       an accident of whoever started it. */
+    var env: String => Option[String] = process_env
+
     /* The custom-command union in force for the NEXT parse.  It is state, and
        deliberately so: the reference implementation keeps one module-level
        table, cleared by a whole-root load and merged into by each directory
@@ -683,7 +711,11 @@ object CLI {
     /* The ambient root, for a run with no `-R`.  A CLI run reads the process's
        own cwd and environment; a served run reads the CLIENT's, which is why
        this is a function and not a constant. */
-    var ambient_root: () => JPath = () => default_root()
+    var ambient_root: () => JPath = () => default_root_from(Paths.get(""), env_root)
+
+    /* `$ISABELLE_LAYOUT_ROOT` / `$ISABELLE_QUERY_ROOT`, in that order, read
+       through this run's environment rather than the process's. */
+    def env_root: Option[String] = env_roots.iterator.flatMap(env(_)).nextOption()
 
     /* A warm index, offered by the host for ONE root.  Consulted only when the
        run's active root is that one: a `-R elsewhere` on the same connection
@@ -1008,8 +1040,10 @@ object CLI {
       return
     }
     if (!namespace_commands(command)) return
-    val env = System.getenv("ISABELLE_QUERY_NAMESPACE")
-    if (env != null && env.toLowerCase == "committed") return
+    /* Read through the SESSION's environment, not the process's: in a resident
+       server the process's is whatever the first client happened to export,
+       and it would pin the table for everyone after them. */
+    if (s.env(NAMESPACE_ENV).exists(_.toLowerCase == "committed")) return
     try {
       val sessions = Discovery.iter_sessions(s.active_root)
       val parents = sessions.map(si => si.name -> si.parent.getOrElse("")).toMap
