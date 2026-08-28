@@ -240,6 +240,102 @@ object P5_Probe {
       (Query_Index(hol_root) eq index), "")
   println("PROBE-NOTE " + (if (nonhol.note.isEmpty) "<silent>" else nonhol.note))
 
+  /* ---------------- 7. the jEdit resources ---------------- */
+
+  println("7. the plugin jar -- every class the XML names is loadable")
+
+  /* dockables.xml, services.xml and actions.xml hold BeanShell expressions
+     that jEdit evaluates at plugin-load time, so a typo in a class or method
+     name there fails at start-up and nowhere else.  Read them back out of the
+     built jar and resolve every name against it.  This is the one thing about
+     the Swing half that can be checked without a display. */
+  val shim =
+    Paths.get(Isabelle_System.getenv("JEDIT_SETTINGS"))
+      .resolve("jars").resolve("isabelle_jedit_query.jar")
+
+  if (!Files.isRegularFile(shim)) {
+    println("  skip  plugin jar not built: " + shim.toString)
+    println("        (isabelle scala -e '{ isabelle.Isabelle_System.init(); " +
+      "isabelle.Scala_Project.plugins.foreach(p => p.context().build()) }')")
+  }
+  else {
+    val zip = new java.util.zip.ZipFile(shim.toFile)
+    def resource(name: String): String = {
+      val entry = zip.getEntry(name)
+      if (entry == null) ""
+      else {
+        val in = zip.getInputStream(entry)
+        try new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+        finally in.close()
+      }
+    }
+
+    val loader =
+      new java.net.URLClassLoader(Array(shim.toUri.toURL), getClass.getClassLoader)
+    def load(name: String): Option[Class[?]] =
+      try Some(Class.forName(name, false, loader)) catch { case _: Throwable => None }
+
+    val dockables = resource("dockables.xml")
+    val services = resource("services.xml")
+    val actions = resource("actions.xml")
+    val props = resource("plugin.props")
+
+    check("every resource is in the jar",
+      dockables.nonEmpty && services.nonEmpty && actions.nonEmpty && props.nonEmpty, "")
+
+    /* `new <class>(args)` in dockables.xml and services.xml — the class must
+       exist AND take the number of arguments the expression passes it, which
+       is the whole failure mode this catches. */
+    val constructed =
+      """new\s+([\w.]+)\s*\(([^)]*)\)""".r.findAllMatchIn(dockables + services)
+        .map(m => (m.group(1), m.group(2).trim)).toList
+    check("the XML constructs at least two classes", constructed.length >= 2,
+      constructed.map(_._1).mkString(", "))
+    for ((name, args) <- constructed) {
+      val arity = if (args.isEmpty) 0 else args.split(",").length
+      check("constructor exists: " + name + "/" + arity.toString,
+        load(name).exists(_.getConstructors.exists(_.getParameterCount == arity)), args)
+    }
+
+    /* `<class>.<method>(` in actions.xml */
+    val called =
+      """([\w.]+)\.(\w+)\s*\(\s*(view[^)]*)\)""".r.findAllMatchIn(actions)
+        .map(m => (m.group(1), m.group(2), m.group(3).split(",").length)).toList
+    check("actions.xml calls at least four entry points", called.length >= 4,
+      called.map(_._2).mkString(", "))
+    for ((cls, method, arity) <- called) {
+      check("action target exists: " + cls + "." + method + "/" + arity.toString,
+        load(cls).exists(_.getMethods.exists(m =>
+          m.getName == method && m.getParameterCount == arity)), "")
+    }
+
+    /* the dockable NAME, and the labels every action needs */
+    val dockable_name =
+      """NAME="([^"]+)"""".r.findFirstMatchIn(dockables).map(_.group(1)).getOrElse("")
+    check("dockables.xml agrees with Query_Dockable.NAME",
+      dockable_name == isabelle.jedit_query.Query_Dockable.NAME, dockable_name)
+
+    val action_names = """<ACTION NAME="([^"]+)"""".r.findAllMatchIn(actions).map(_.group(1)).toList
+    check("every action has a label in plugin.props",
+      action_names.forall(n => props.contains(n + ".label")),
+      action_names.mkString(", "))
+
+    /* the gesture defaults the panel reads */
+    check("plugin.props ships the gesture table",
+      List("single-click", "double-click", "shift-click", "middle-click", "enter")
+        .forall(g => props.contains("isabelle-project-query.gesture." + g + "=")), "")
+
+    /* plugin.props must describe the plugin class the jar contains */
+    val plugin_class =
+      """plugin\.([\w.]+)\.name=""".r.findFirstMatchIn(props).map(_.group(1)).getOrElse("")
+    check("plugin.props names a loadable EditPlugin",
+      load(plugin_class).exists(c =>
+        classOf[org.gjt.sp.jedit.EditPlugin].isAssignableFrom(c)), plugin_class)
+
+    zip.close()
+  }
+
+
   println(if (failures == 0) "P5PROBE OK" else "P5PROBE FAILURES " + failures.toString)
 
   /* Isabelle's worker pool holds non-daemon threads, so a probe that merely
