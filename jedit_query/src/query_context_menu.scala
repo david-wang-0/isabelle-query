@@ -82,6 +82,12 @@ object Query_Context_Menu {
             },
             item("Find definition of " + word.base) {
               Query_Dockable.find_definition(view, buffer, word.base)
+            },
+            /* The OFFSET the label was built from, not the caret: a
+               right-click does not move the caret, so the two need not
+               agree and the menu must not describe one and open the other. */
+            item("Peek definition of " + word.base) {
+              Query_Peek.at_offset(view, offset)
             })
       }
     }

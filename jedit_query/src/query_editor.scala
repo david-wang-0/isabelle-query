@@ -40,35 +40,52 @@ object Open_Policy {
   /* A new EditPane in the same view: jEdit's "pane", an IDE's split. */
   case object New_Pane extends Open_Policy("new-pane")
   case object New_View extends Open_Policy("new-view")
+  /* A transient popup: the one policy that does NOT move the editor. */
+  case object Peek extends Open_Policy("peek")
 
-  val values: List[Open_Policy] = List(Nothing, Current, New_Pane, New_View)
+  val values: List[Open_Policy] = List(Nothing, Current, New_Pane, New_View, Peek)
+
+  val names: List[String] = values.map(_.name)
 
   private val by_name: Map[String, Open_Policy] = values.map(p => p.name -> p).toMap
+
+  def of_name(name: String): Option[Open_Policy] = by_name.get(name)
 
 
   /* --- the gesture table --- */
 
   /* Order is precedence: the first gesture whose test fires wins, so
-     shift+double-click is a shift-click. */
+     shift+double-click is a shift-click.  `alt-click` is where peek lands by
+     default — ALT rather than CTRL because ctrl+click is how a JTree extends a
+     discontiguous selection, which this panel uses for multi-node removal. */
   val gestures: List[(String, Open_Policy)] =
     List(
       "middle-click" -> New_View,
+      "alt-click" -> Peek,
       "shift-click" -> New_Pane,
       "double-click" -> Current,
       "single-click" -> Nothing,
       "enter" -> Current)
 
-  def property(gesture: String): String = "isabelle-project-query.gesture." + gesture
+  def property(gesture: String): String = Query_Options.property_name("gesture." + gesture)
 
+  def default_of(gesture: String): Open_Policy =
+    gestures.collectFirst { case (g, p) if g == gesture => p }.getOrElse(Nothing)
+
+  /* One indirection, now over `Query_Options` rather than straight over jEdit
+     properties: the Isabelle option is consulted when it has been changed, the
+     jEdit property otherwise, and a value that is neither `none` nor one of
+     the policy names is REPORTED rather than silently becoming the default. */
   def of_gesture(gesture: String): Open_Policy = {
-    val fallback = gestures.collectFirst { case (g, p) if g == gesture => p }.getOrElse(Nothing)
-    val configured = jEdit.getProperty(property(gesture), fallback.name)
-    by_name.getOrElse(configured, fallback)
+    val fallback = default_of(gesture)
+    by_name.getOrElse(
+      Query_Options.choice("gesture." + gesture, names, fallback.name), fallback)
   }
 
   def gesture_of(evt: MouseEvent): String =
     if (evt == null) "enter"
     else if (evt.getButton == MouseEvent.BUTTON2) "middle-click"
+    else if ((evt.getModifiersEx & InputEvent.ALT_DOWN_MASK) != 0) "alt-click"
     else if ((evt.getModifiersEx & InputEvent.SHIFT_DOWN_MASK) != 0) "shift-click"
     else if (evt.getClickCount >= 2) "double-click"
     else "single-click"
@@ -87,12 +104,36 @@ object Query_Editor {
     try PIDE.get_plugin.isDefined
     catch { case _: Throwable => false }
 
+  /* Where a peek popup is anchored when the caller has no better idea: below
+     the caret of the view's own text area, which is where the eye is. */
+  private def caret_anchor(view: View): Option[(java.awt.Component, java.awt.Point)] =
+    for {
+      text_area <- Option(view).flatMap(v => Option(v.getTextArea))
+      painter <- Option(text_area.getPainter)
+      p <- Option(text_area.offsetToXY(text_area.getCaretPosition))
+    } yield (painter, new java.awt.Point(p.x, p.y + painter.getLineHeight))
+
   /* `line` is 1-indexed, as everything the engine prints is; `goto_file` wants
-     it 0-indexed. */
-  def goto(view: View, path: JPath, line: Int, policy: Open_Policy): Unit = {
+     it 0-indexed.
+
+     `origin` is where a POPUP policy should appear — the component and point
+     of the gesture that asked for it.  Every other policy ignores it, which is
+     why it is optional rather than threaded through the whole table. */
+  def goto(view: View, path: JPath, line: Int, policy: Open_Policy,
+    origin: Option[(java.awt.Component, java.awt.Point)] = None
+  ): Unit = {
     GUI_Thread.require {}
 
-    if (policy != Open_Policy.Nothing) {
+    if (policy == Open_Policy.Peek) {
+      /* The theory NAME the index knows this file by is its stem, by the
+         engine's own rule — so a peek needs no extra argument at the call
+         site, and the gesture table stays a table of policies. */
+      val (component, point) =
+        origin.orElse(caret_anchor(view)).getOrElse((view, new java.awt.Point(0, 0)))
+      Query_Peek.at_line(view, component, point, path,
+        isabelle.query.Discovery.theory_stem(path), line)
+    }
+    else if (policy != Open_Policy.Nothing) {
       val name = buffer_name(path)
       val target =
         policy match {

@@ -17,6 +17,11 @@
 	    isabelle.jedit_query.Query_Actions.find_definition(view);
 	  </CODE>
 	</ACTION>
+	<ACTION NAME="isabelle-project-query.peek-definition">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.peek_definition(view);
+	  </CODE>
+	</ACTION>
 	<ACTION NAME="isabelle-project-query.navigate-backwards">
 	  <CODE>
 	    isabelle.jedit_query.Query_Actions.navigate_backwards(view);

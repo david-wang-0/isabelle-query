@@ -351,12 +351,25 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
       case _ => None
     }
 
-  private def goto_selected(policy: Open_Policy): Unit = {
+  /* Where a peek popup opens: at the gesture, or — for a keyboard gesture and
+     for the popup menu — at the selected row, so it never lands on top of what
+     it is describing. */
+  private def anchor(evt: MouseEvent): Option[(java.awt.Component, java.awt.Point)] = {
+    val point =
+      if (evt != null) Some(evt.getPoint)
+      else
+        Option(tree.getLeadSelectionPath).map(tree.getPathBounds).collect {
+          case r if r != null => new java.awt.Point(r.x, r.y + r.height)
+        }
+    point.map((tree, _))
+  }
+
+  private def goto_selected(policy: Open_Policy, evt: MouseEvent = null): Unit = {
     GUI_Thread.require {}
     for {
       node <- node_of(tree.getLeadSelectionPath)
       (path, line) <- target_of(node)
-    } Query_Editor.goto(view, path, line, policy)
+    } Query_Editor.goto(view, path, line, policy, anchor(evt))
     /* Our own jump is recorded by `goto_file` like any other, so the buttons
        have to follow it here as well as from the EditBus. */
     update_navigation()
@@ -416,6 +429,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
       item("Open") { goto_selected(Open_Policy.Current) }
       item("Open in new pane") { goto_selected(Open_Policy.New_Pane) }
       item("Open in new view") { goto_selected(Open_Policy.New_View) }
+      item("Peek") { goto_selected(Open_Policy.Peek) }
       menu.addSeparator()
     }
     node.filter(!_.isLeaf).foreach { n =>
@@ -439,7 +453,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
           }
           else {
             tree.setSelectionPath(path)
-            goto_selected(Open_Policy.of_click(evt))
+            goto_selected(Open_Policy.of_click(evt), evt)
           }
         }
       }

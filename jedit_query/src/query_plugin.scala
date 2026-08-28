@@ -22,6 +22,8 @@ handling is plugin shutdown.
 package isabelle.jedit_query
 
 
+import isabelle.GUI_Thread
+
 import org.gjt.sp.jedit.{EBMessage, EBPlugin}
 import org.gjt.sp.jedit.msg.{EditPaneUpdate, ViewUpdate}
 
@@ -43,6 +45,9 @@ class Query_Plugin extends EBPlugin {
 
   override def stop(): Unit = {
     Query_Plugin._instance = None
+    /* A peek popup lives in a view's layered pane, not in the dockable, so
+       unloading the plugin has to take it down explicitly. */
+    GUI_Thread.later { Query_Peek.dismiss() }
     Query_Index.forget_all()
   }
 }

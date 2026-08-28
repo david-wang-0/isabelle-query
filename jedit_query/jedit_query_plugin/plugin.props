@@ -23,6 +23,7 @@ plugin.isabelle.jedit_query_plugin.Plugin.menu= \
   isabelle-project-query.find-usages \
   isabelle-project-query.find-external-usages \
   isabelle-project-query.find-definition \
+  isabelle-project-query.peek-definition \
   - \
   isabelle-project-query.navigate-backwards \
   isabelle-project-query.navigate-forwards \
@@ -36,6 +37,7 @@ isabelle-project-query.dock-position=bottom
 isabelle-project-query.find-usages.label=Find usages at caret
 isabelle-project-query.find-external-usages.label=Find external usages at caret
 isabelle-project-query.find-definition.label=Find definition at caret
+isabelle-project-query.peek-definition.label=Peek definition at caret
 isabelle-project-query.show-panel.label=Show Project Query panel
 isabelle-project-query.refresh-index.label=Refresh project index
 
@@ -52,10 +54,17 @@ isabelle-project-query.navigate-forwards.label=Navigate forwards
 isabelle-project-query.navigate-forwards.shortcut=CA+RIGHT
 
 #result navigation: which mouse gesture opens a result where.  Values are
-#none / current / new-pane / new-view; `new-pane` splits the active view.
+#none / current / new-pane / new-view / peek; `new-pane` splits the active
+#view, `peek` opens a transient popup and leaves the editor where it is.
+#An unrecognised value is reported in the activity log and on the status line,
+#never silently defaulted.  Editable in Plugin Options -> Isabelle Project
+#Query, or as the Isabelle options jedit_query_gesture_*.
+#ALT rather than CTRL for peek: ctrl+click is how a JTree extends a
+#discontiguous selection, which this panel uses for multi-node removal.
 isabelle-project-query.gesture.single-click=none
 isabelle-project-query.gesture.double-click=current
 isabelle-project-query.gesture.shift-click=new-pane
+isabelle-project-query.gesture.alt-click=peek
 isabelle-project-query.gesture.middle-click=new-view
 isabelle-project-query.gesture.enter=current
 

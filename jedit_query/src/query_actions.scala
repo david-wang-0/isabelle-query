@@ -55,6 +55,13 @@ object Query_Actions {
     }
   }
 
+  /* The same answer as Find definition, in a popup instead of the panel: the
+     reading you do not want to leave the pane for. */
+  def peek_definition(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Peek.at_caret(view)
+  }
+
   /* Isabelle's own jump stacks, under an action name of ours so a default
      keybinding in `plugin.props` cannot collide with `isabelle.jedit_main`'s
      properties. */
