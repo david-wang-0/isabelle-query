@@ -35,6 +35,23 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export USER_HOME
 
 CORPUS="${1:-${QUERY_TEST_AFP:-}/Category3}"
+DISTRO_HOL="${QUERY_TEST_DISTRO:-}/HOL"
+
+# REFUSE rather than skip.  Sections 6 guards its two corpus blocks with `-d`,
+# so without the corpora this probe used to run its fixture checks, skip the
+# ones that touch a real project, and still print OK -- an "OK" that had not
+# looked at Category3 or src/HOL and could not have.  A gate that passes on
+# less than it claims to cover is worse than one that refuses: the refusal is
+# visible and the false green is not.
+missing=""
+[ -d "$CORPUS" ] || missing="$missing  CORPUS: $CORPUS (\$QUERY_TEST_AFP/Category3, or argument 1)"$'\n'
+[ -d "$DISTRO_HOL" ] || missing="$missing  DISTRO: $DISTRO_HOL (\$QUERY_TEST_DISTRO/HOL)"$'\n'
+if [ -n "$missing" ]; then
+  echo "p6bprobe: the real-corpus checks in section 6 need corpora that are not here:" >&2
+  printf '%s' "$missing" >&2
+  echo "usage: dev/p6bprobe.sh [CORPUS]  (and set \$QUERY_TEST_AFP / \$QUERY_TEST_DISTRO)" >&2
+  exit 2
+fi
 
 OUT="$REPO/.dev/p6bprobe-out"
 FIX="$OUT/fixtures"
@@ -314,7 +331,7 @@ fi
 echo
 echo "6. real corpora -- spot checks verified by hand"
 
-if [ -d "$CORPUS" ]; then
+{
   # Category3: 38 interpretation-family lines mention `category`, but one of
   # them is `sublocale category \<subseteq> identity_functor C ..` -- a site of
   # identity_functor, not of category.  This is the case that separates the
@@ -341,16 +358,13 @@ if [ -d "$CORPUS" ]; then
   else
     bad "and Functor:265 IS a site of identity_functor" "not reported"
   fi
-else
-  echo "  skip  Category3 spot checks (no corpus at $CORPUS)"
-fi
+}
 
 # A distribution constant: `rev` is a primrec in List with one [code] lemma.
 # `rev` is ALSO a locale-local LEMMA in Groups_List, which is exactly the
 # collision that must not turn a good subject into "is a LEMMA, not a
 # constant".
-DISTRO_HOL="${QUERY_TEST_DISTRO:-}/HOL"
-if [ -d "$DISTRO_HOL" ]; then
+{
   got=$(isabelle query -R "$DISTRO_HOL" codeqs rev --names 2>/dev/null)
   if echo "$got" | grep -qx "List:87" && echo "$got" | grep -qx "List:3249"; then
     note "src/HOL: codeqs rev finds the primrec and rev_conv_fold [code]" \
@@ -365,9 +379,7 @@ if [ -d "$DISTRO_HOL" ]; then
   else
     bad "src/HOL: instances comm_monoid answers with loci" "no loci"
   fi
-else
-  echo "  skip  src/HOL spot checks (set \$QUERY_TEST_DISTRO)"
-fi
+}
 
 # --------------------------------------------------------------------------
 # Failability: a probe that has never failed has not been tested.
