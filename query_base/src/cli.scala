@@ -295,6 +295,22 @@ object CLI {
       List(Pos("name", "?", "a proof method (e.g. simp, auto, induct); omit for the " +
         "ranked tally of every method used"))),
 
+    /* -- the site family (no counterpart in the reference tool) ----------- */
+    Cmd(List("instances"),
+      "where a locale or class is instantiated (instantiation / instance / " +
+        "interpretation / sublocale)",
+      List(count_flag.copy(help = "just print the site count"),
+        names_flag.copy(help =
+          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
+      List(Pos("name", "+", "locale or class name(s)"))),
+    Cmd(List("codeqs"),
+      "declared code-equation sites of a constant (`[code]` and kin, plus its " +
+        "own default equations)",
+      List(count_flag.copy(help = "just print the site count"),
+        names_flag.copy(help =
+          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
+      List(Pos("name", "+", "constant name(s)"))),
+
     /* -- the shape family (a nested group; see `Cmd.subs`) ---------------- */
     Cmd(List("shape"), "proof-shape metrics (summary|steps|lemma|widest|census)",
       Nil, Nil, subs = shape_views))
@@ -1041,6 +1057,12 @@ object CLI {
         Usage.cmd_unused(out, err, s.load_index(), flags)
       case "methods" =>
         Usage.cmd_methods(out, s.load_index(), ns.pos("name").headOption, flags)
+      case "instances" =>
+        val sections = s.load_index()
+        each(out, ns.pos("name"))(n => Sites.cmd_instances(out, err, sections, n, flags))
+      case "codeqs" =>
+        val sections = s.load_index()
+        each(out, ns.pos("name"))(n => Sites.cmd_codeqs(out, err, sections, n, flags))
       case "graph" =>
         val sections = scope_to_theories(s, ns, s.load_index())
         Usage.cmd_graph(out, sections, ns.pos("kind").headOption.getOrElse("citation"),
