@@ -530,7 +530,10 @@ object Sites {
       while (go && pos < body.length) {
         name_at(body, pos) match {
           case Some((nm, next)) =>
-            out += nm
+            /* A quoted argument is a constant WITH its type
+               (`"open :: real set \<Rightarrow> bool"`); the constant is the
+               leading name, read by the same reader one level down. */
+            out += name_at(Py.lstrip(nm), 0).map(_._1).getOrElse(nm)
             /* Skip the rest of this argument -- a type ascription, or the
                remainder of a quoted term. */
             var p = next
