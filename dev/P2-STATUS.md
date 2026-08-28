@@ -71,6 +71,32 @@ of the 17 is a session already named in `dev/DIVERGENCES.md`:
 Entry totals 411,181 vs 409,277 — the same two numbers the P1 sweep reported,
 which is the check that P2's aggregation adds no error of its own.
 
+## Timing observations
+
+Not a benchmark (that is P7's `dev/bench.sh`), but what running the matrix 730
+times a side made obvious.  5-run minimum, wall clock:
+
+| corpus | invocation | oracle | Scala |
+|---|---|---|---|
+| Abstract_Completeness (2 thy) | `show step` | 71 ms | 1,024 ms |
+| Category3 (28 thy) | `show preserves_limits` | 243 ms | 1,382 ms |
+| whole AFP (10,262 thy) | `summary --by-session` | 37.6 s | **18.6 s** |
+
+The crossover is exactly where `PLAN.md` predicted it: ~1 s of `isabelle`
+wrapper plus JVM start is a fixed toll that a two-theory query cannot amortise,
+and at Category3's size the JIT has not warmed either (the marginal parse cost
+above the floor is 358 ms against the oracle's 172 ms — reversed from the
+whole-corpus figure).  A single small query is 5-14x SLOWER, and only the
+corpus sweep is faster.
+
+This matters for P2's own users more than P1's did: `enclosing Foo:42` in a
+build-chase loop is the small cold case, and it is the one the rewrite loses.
+It is the argument for the warm-index server mode PLAN parks in P7, and the
+reason the jEdit plugin (P5) shares that index rather than shelling out.
+
+The matrix itself costs ~22 minutes for 730 cases, and about 80% of that is the
+oracle: it re-parses the corpus per invocation, single-threaded.
+
 ## P1 gate
 
 `dev/entrydiff.sh` re-run after every change here: all four variants
