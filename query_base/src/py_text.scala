@@ -56,6 +56,12 @@ object Py {
     if (a == 0) s else s.substring(a)
   }
 
+  def rstrip(s: String): String = {
+    var b = s.length
+    while (b > 0 && is_space(s.charAt(b - 1))) b -= 1
+    if (b == s.length) s else s.substring(0, b)
+  }
+
   def is_blank(s: String): Boolean = {
     var i = 0
     while (i < s.length) {
@@ -149,5 +155,66 @@ object Py {
   def group_or_empty(m: Matcher, i: Int): String = {
     val g = m.group(i)
     if (g == null) "" else g
+  }
+
+  /* Python's `re.escape` (3.7+): only the characters `re` gives a meaning to
+     are escaped, everything else — `<`, `>`, `:`, `!`, `_`, … — is left alone.
+     This is observable, not cosmetic: `_user_pattern` escapes an Isabelle
+     markup token with it, and an over-eager escape (Java's `Pattern.quote`, or
+     escaping `<`) would produce a pattern that means something else. */
+  private val re_special: Set[Char] =
+    "()[]{}?*+-|^$\\.&~# ".toSet ++
+      Set('\t', '\n', '\r', 11.toChar, 12.toChar)
+
+  def re_escape(s: String): String = {
+    val buf = new StringBuilder
+    var i = 0
+    while (i < s.length) {
+      val c = s.charAt(i)
+      if (re_special(c)) buf += '\\'
+      buf += c
+      i += 1
+    }
+    buf.toString
+  }
+
+  /* Python's `format(n, ",")` — the thousands separator the corpus summary
+     prints.  Written out rather than taken from `java.text` so it cannot pick
+     up a locale's grouping (Indian lakh grouping, a NBSP separator, …). */
+  def comma(n: Long): String = {
+    val digits = math.abs(n).toString
+    val buf = new StringBuilder
+    var i = 0
+    while (i < digits.length) {
+      if (i > 0 && (digits.length - i) % 3 == 0) buf += ','
+      buf += digits.charAt(i)
+      i += 1
+    }
+    (if (n < 0) "-" else "") + buf.toString
+  }
+
+  /* Python's `int(s)`: surrounding whitespace and an optional sign, then
+     ASCII digits (underscores allowed as separators since 3.6). */
+  def parse_int(s0: String): Option[Int] = {
+    val s = strip(s0)
+    if (s.isEmpty) None
+    else {
+      val neg = s.charAt(0) == '-'
+      val body = if (s.charAt(0) == '-' || s.charAt(0) == '+') s.substring(1) else s
+      if (body.isEmpty || body.startsWith("_") || body.endsWith("_")) None
+      else {
+        val digits = new StringBuilder
+        var ok = true
+        var prev_us = false
+        for (c <- body) {
+          if (c == '_') { if (prev_us) ok = false; prev_us = true }
+          else if (c >= '0' && c <= '9') { digits += c; prev_us = false }
+          else ok = false
+        }
+        if (!ok) None
+        else try Some((if (neg) "-" else "") + digits.toString).map(_.toInt)
+             catch { case _: NumberFormatException => None }
+      }
+    }
   }
 }

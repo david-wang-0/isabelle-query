@@ -24,6 +24,8 @@ package isabelle.query
 
 import isabelle.*
 
+import java.nio.file.{Path => JPath}
+
 import scala.collection.mutable
 
 
@@ -99,7 +101,7 @@ case class Entry(
 
 class Theory_Section(
   val theory: String,
-  val path: Path,
+  val path: JPath,
   val entries: List[Entry],
   val lines: Array[String],
   val regions: Regions.Result,
@@ -108,8 +110,18 @@ class Theory_Section(
   val heading_spans: List[(Int, Int)] = Nil,
   val comment_ranges: List[(Int, Int)] = Nil,
   val nonisar_ranges: List[(Int, Int)] = Nil,
-  val session: Option[String] = None
+  val session: Option[String] = None,
+  /* False for a non-`.thy` path handed to `grep` as a trailing positional: a
+     Markdown memo has no Isabelle entries, so the search degrades to plain
+     line matching with no owner column and no live/prose classification. */
+  val is_thy: Boolean = true
 ) {
+  /* An inclusive 1-indexed line window from a grep `PATH:A..B` positional, an
+     open upper bound left for the section to resolve to its own length.  A
+     property of THIS load of the section, not of the theory, so it is a var
+     the routing sets rather than a constructor argument every caller passes. */
+  var line_window: Option[(Int, Option[Int])] = None
+
   def thy_lines: Int = lines.length
 
   private lazy val live: Array[String] = Model.blank_all(lines, regions.nonisar)

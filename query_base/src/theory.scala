@@ -39,9 +39,35 @@ object Theory {
   def read(path: JPath): String = File.read(Path.explode(path.toString))
 
   def parse_one(theory: String, path: JPath, text: String,
-    table: Map[String, String] = Map.empty
+    table: Map[String, String] = Map.empty, session: Option[String] = None
   ): Theory_Section = {
     val (lines, starts) = Py.split_lines(text)
+    parse_lines(theory, path, text, lines, starts, table, session)
+  }
+
+  /* A section built from ALREADY-SPLIT lines — the stdin path, where the
+     content never had a file to re-read.  Re-joining with `\n` is exactly what
+     the reference implementation's `splitlines()` round trip amounts to: the
+     universal-newline read has already normalised the breaks. */
+  def parse_source(theory: String, path: JPath, lines: Array[String],
+    table: Map[String, String] = Map.empty
+  ): Theory_Section = {
+    val text = lines.mkString("\n")
+    val (_, starts) = Py.split_lines(text)
+    parse_lines(theory, path, text, lines, starts, table, None)
+  }
+
+  /* A NON-theory source (a Markdown memo passed to `grep`): no entry grammar,
+     no outline, no text blocks.  The Isabelle declaration grammar does not
+     apply to prose, and inventing entries for it would put fictional owners in
+     the search output. */
+  def parse_plain(theory: String, path: JPath, lines: Array[String]): Theory_Section =
+    new Theory_Section(theory, path, Nil, lines, Regions.empty_result, is_thy = false)
+
+  private def parse_lines(theory: String, path: JPath, text: String,
+    lines: Array[String], starts: Array[Int],
+    table: Map[String, String], session: Option[String]
+  ): Theory_Section = {
     val regions = Regions.scan(text, lines, starts)
     val nonisar_ranges = Regions.nonisar_ranges(lines, regions.nonisar)
     val outer = Model.blank_all(lines, regions.inner)
@@ -75,9 +101,10 @@ object Theory {
         else e.thy_line
     }
 
-    new Theory_Section(theory, Path.explode(path.toString), entries, lines, regions,
+    new Theory_Section(theory, path, entries, lines, regions,
       outline = outline, text_blocks = text_blocks, heading_spans = heading_spans,
-      comment_ranges = comment_ranges, nonisar_ranges = nonisar_ranges)
+      comment_ranges = comment_ranges, nonisar_ranges = nonisar_ranges,
+      session = session)
   }
 
 
@@ -108,7 +135,7 @@ object Theory {
   /* One theory, or nothing if it cannot be read or parsed — a corpus sweep
      must not stop at a single unreadable file. */
   def parse(f: Discovery.Found, table: Map[String, String]): Option[Theory_Section] =
-    try Some(parse_one(f.name, f.path, read(f.path), table))
+    try Some(parse_one(f.name, f.path, read(f.path), table, f.session))
     catch { case _: Throwable => None }
 
   def parse_root(root_dir: JPath): List[Theory_Section] = {
