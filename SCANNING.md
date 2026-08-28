@@ -1,4 +1,4 @@
-# How `query` reads a project
+# How `isabelle query` reads a project
 
 What the tool considers to be a declaration, a citation, and a project — the
 behaviour worth knowing before trusting a result. For the `shape` family see
@@ -25,7 +25,7 @@ term — HOL's multiplication section, `fold (*) xs` — opens nothing at all. S
 then read the source with exactly those characters blanked, so a region sharing
 its line with real proof text loses only itself. In `by (simp add: foo) (* not bar
 *)`, `foo` is a citation and `bar` is not; and `using foo by simp \<comment>
-\<open>note\<close>` keeps both the citation and the `simp` that `query methods`
+\<open>note\<close>` keeps both the citation and the `simp` that `isabelle query methods`
 counts.
 
 **Command-introduced prose** — a document block or a heading — is not lexical: it
@@ -109,7 +109,7 @@ count as uses of the entry, while `by simp`, `auto simp: h` and `[symmetric]` ar
 the method or attribute of that name and count as nothing.
 
 Position decides on its own where it can. The token straight after
-`by` / `apply` / `proof` is the method whatever it is called, so `query methods`
+`by` / `apply` / `proof` is the method whatever it is called, so `methods`
 and the shape metrics need no table there — which is what lets them see a tactic
 an entry defines for itself (`by auto2`, `by (cs_concl ...)`), where a fixed table
 never could. Everywhere else — a bare argument, a name in a statement — position
@@ -176,7 +176,7 @@ commands stay fast.
 
 `summary --by-session` rolls the per-theory counts up to the **session** and
 **corpus** level — one row per session plus a grand total — so it is useful
-against a whole corpus (`query -R AFP/thys summary --by-session`), an entry with
+against a whole corpus (`isabelle query -R AFP/thys summary --by-session`), an entry with
 several sessions, or a single session, not just one theory at a time. `-v`
 expands each session to its theories; `-c` prints only the grand totals (entries
 / source lines / theories / sessions). Line totals match `wc -l` over the same

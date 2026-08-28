@@ -1,9 +1,18 @@
 # Contributing to isabelle-query
 
-Normative rules for changing the tool. Orientation (what `query` is, how the
-package is laid out) is in `CLAUDE.md`. User-facing docs are `README.md` (the
-CLI surface), `SCANNING.md` (what counts as a declaration, a citation and a
-session) and `METRICS.md` (the `query shape` reference).
+Normative rules for changing the tool. Orientation (what it is, how the tree is
+laid out) is in `CLAUDE.md`; `PLAN.md` is normative for the rewrite itself.
+User-facing docs are `README.md` (the CLI surface), `MIGRATING.md` (coming from
+the Python tool), `SCANNING.md` (what counts as a declaration, a citation and a
+session) and `METRICS.md` (the `shape` reference).
+
+**Two trees, one contract.** `query_base/` and `jedit_query/` are the live
+Isabelle/Scala component. `src/isabelle_query/` and `tests/` are the **frozen**
+Python reference implementation and its suite — read them, never edit them;
+they are the oracle the Scala side is checked against, and an oracle that moves
+is not one. Rules below marked *(Python)* describe that frozen tree and are
+kept because they explain why the contract is what it is; rules marked *(Scala)*
+are what a change to the live tree must satisfy.
 
 ## Where design decisions are recorded
 
@@ -27,6 +36,12 @@ unpublished. For the proof-shape metrics the public authority is
 
 ## CLI contract (follow when adding or changing commands)
 
+The contract below is stated in the Python implementation's vocabulary because
+that is where it was written down and where it is still enforced by the
+oracle. Every clause **binds the Scala tool identically** — the differential
+harness is what checks it, and a divergence needs an entry in
+`dev/DIVERGENCES.md` with evidence, not a shrug.
+
 Two families, each matching an external convention; a command's primary
 positional decides which one it is.
 
@@ -42,6 +57,25 @@ positional decides which one it is.
   with `_add_path_files_arg` (resolved by `_load_sections`). Members:
   `grep`, `largest`, `sorry` (and `find` once it gains PATH/`--theory`
   scope under `[theory-refs]`).
+
+**The two rewrite-only verbs sit in the lookup family, and their exit contract
+is the reason they were allowed to exist.** *(Scala)* `instances` and `codeqs`
+take a subject list and no PATH positionals. Because they have no oracle, they
+carry the discipline the oracle would otherwise have supplied:
+
+- A subject that is **not a locale/class** (resp. **not a constant**) declared
+  in the project exits `1` with a diagnostic on stderr — never `0` with zero
+  sites. "No instantiations of `foo`" and "`foo` is not a locale" are different
+  answers and a script must be able to tell them apart. This is the same
+  never-empty-success rule one level in.
+- A subject that IS declared and has no sites exits `0`. That is an honest
+  zero.
+- Their scope is stated in `README.md`, not buried: declared source sites only,
+  the complement of `print_interps` / `print_codesetup`; and `codeqs`
+  under-reports where mixfix notation hides the head symbol. A verb that leans
+  the unsafe way says so where the user reads about it.
+
+A third rewrite-only verb would need the same three things before it ships.
 
 **Never return an empty success for a question you could not ask.** A silent
 zero is indistinguishable from an honest zero, so a caller cannot tell a broken
@@ -108,7 +142,51 @@ literal, because the failure mode is a *new* message, not an old one.
 `_prog` is a leaf module — it imports nothing from the package — precisely so
 that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
 
-## Verification
+## Verification — the Scala tree
+
+There is no unit suite here, and that is a decision rather than an omission: the
+tool has an **oracle**, and a differential run says more about a scanner change
+than any number of hand-written assertions could. Four harnesses, in the order
+a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
+`$QUERY_TEST_DISTRO` (see `.dev/corpora.env`) and none from a hard-coded path.
+
+| harness | what it establishes | when |
+|---|---|---|
+| `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
+| `dev/difftest.sh` | 2,086 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence | any change to a command, a flag, or a renderer |
+| `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
+| `dev/p7probe.sh` | the warm server and the thin client | any change to `server.scala`, `cli.scala`, or the client |
+
+Four habits around them, each of which has caught something here:
+
+- **Diff the entry set as a SET, not a count.** A count hides a simultaneous
+  gain and loss; when a header change silently dropped 72 theories it reported
+  an identical entry total.
+- **A probe must REFUSE without its corpora**, never skip into a green. An `OK`
+  that did not look at the corpus it claims to cover is worse than a failure,
+  because it is invisible. Every probe here exits `2` when a corpus is absent.
+- **A probe must be able to fail.** Each ends with a failability section: one
+  expectation is deliberately perturbed and the run must go red. A probe that
+  has never failed has not been tested.
+- **Correct an expectation against the tool, not the tool against the
+  expectation** — but only after establishing which one Isabelle agrees with.
+  Two of `p7probe`'s expectations were wrong (an empty *search* result is exit
+  `0`; exit `1` belongs to the *lookup* family), and the fix was to the probe.
+  Three others were real defects, and the fix was to the server.
+
+**Never edit `query_base/src` while a differential run is in flight** — the
+harness builds, and a mid-run edit tests a tree that no longer exists.
+
+**A resident host must rebind `Namespace`.** It is process-global mutable state
+that decides whether `auto` is a proof method or a fact, and `shape census`
+binds the broad union unconditionally by design. The jEdit plugin serialises
+through one worker thread; the server restores the committed default before
+every request under one lock. A new long-lived caller that does neither will
+read whatever the last one left, and will do it *selectively* — which is how
+this class of bug reads as data rather than as a failure (see the
+configurable-global rule above).
+
+## Verification — the frozen Python tree *(reference only)*
 
 The suite is not sufficient on its own for parser changes; unit tests cannot
 see a scanner failing at scale. Two habits catch what they miss:
@@ -140,4 +218,19 @@ see a scanner failing at scale. Two habits catch what they miss:
   When a branch really is unreachable from valid input, say so in the comment
   and pin it at the helper/regex level, rather than leaving it looking tested.
 
-`pytest -q` stays green after every change.
+`pytest -q` stays green after every change **to that tree** — which, since it is
+frozen, means it should never need running for a change made here. It is listed
+so that anyone who does unfreeze it knows what the bar was.
+
+## The program name
+
+*(Python)* The tool installs under two console script names and reports
+whichever was invoked, via `_prog.prog_name()`; a hardcoded `"query"` is
+guaranteed wrong for one of the two callers, and `tests/test_cli_prog_name.py`
+greps `src/` for the literal.
+
+*(Scala)* There is one name, `isabelle query`, and `CLI.prog` holds it.
+Diagnostics compose it as `"isabelle query: …"`. The warm client is a transport
+and prints the tool's bytes unchanged, so it inherits the name rather than
+introducing a third one.
+

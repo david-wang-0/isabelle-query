@@ -453,3 +453,10 @@ and it needs the P1 entry-set gate re-run over both corpora to land.  For two
 tokens in one AFP proof, that is a P7 change with its own verification, not a
 P4 one.
 
+**P7 did not take it either, and for the same reason.**  P7's own gate was the
+warm server, which touches `cli.scala` and nothing lexical; folding a change to
+the engine's deepest primitive into that phase would have meant one gate
+covering two unrelated risks.  It is carried forward as open work —
+`todo.md`'s `[regex-dialect]` — with the entry-set re-run named as its
+entry condition.  This entry stays the evidence; the todo item is the handle.
+

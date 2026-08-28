@@ -1,4 +1,4 @@
-# Proof-shape metrics — `query shape`
+# Proof-shape metrics — `isabelle query shape`
 
 A command reference for the `shape` family. Where the other subcommands ask
 *what is declared* and *which facts cite which*, `shape` measures the **shape of
@@ -11,19 +11,20 @@ or a token-based *estimator*; estimator columns carry an `_est` suffix, so the
 two are never silently conflated.
 
 The authoritative definitions — each metric's exact rule, the term-level
-semantics an estimator approximates, and its known approximations — are in
-`src/isabelle_query/shape.py`, stated at the metric. This file decodes the
+semantics an estimator approximates, and its known approximations — are stated
+at the metric in `query_base/src/shape.scala` and, for the reference
+implementation, in `src/isabelle_query/shape.py`. This file decodes the
 identifiers and says how to invoke them; it does not restate the definitions,
 which would drift.
 
 ## Views
 
 ```sh
-query shape summary                         # per-theory aggregate table
-query shape steps [THEORY[:A..B]]           # per-step records
-query shape lemma <name>...                 # one proof: every step + M6 curve
-query shape widest [-N n] [PATH...]         # the widest steps
-query shape census                          # stream per-proof JSONL over a corpus
+isabelle query shape summary                  # per-theory aggregate table
+isabelle query shape steps [THEORY[:A..B]]    # per-step records
+isabelle query shape lemma <name>...          # one proof: every step + M6 curve
+isabelle query shape widest [-N n] [PATH...]  # the widest steps
+isabelle query shape census                   # stream per-proof JSONL over a corpus
 ```
 
 | view | takes | output |
@@ -95,12 +96,13 @@ entries, so `(theory, lemma)` alone cannot identify one.
 ## Running a census over a corpus
 
 ```sh
-query -R AFP/thys shape census > afp.jsonl
+isabelle query -R AFP/thys shape census > afp.jsonl
 ```
 
-One process for the whole corpus, one session at a time — do not loop `query`
-over entries in a shell, which pays interpreter and process startup per entry
-and dominates the run. Memory is bounded by the largest single session rather
+One process for the whole corpus, one session at a time — do not loop the tool
+over entries in a shell, which pays JVM startup per entry and dominates the run.
+(If you must query entry by entry, the warm client is what makes that cheap;
+see `README.md`.) Memory is bounded by the largest single session rather
 than by the corpus, and a session that fails to parse is reported on stderr and
 skipped rather than aborting the run.
 
@@ -108,7 +110,7 @@ Output is flushed per session, so a killed run leaves a valid JSONL prefix, and
 `--resume FILE` skips records already present:
 
 ```sh
-query -R AFP/thys shape census --resume afp.jsonl >> afp.jsonl
+isabelle query -R AFP/thys shape census --resume afp.jsonl >> afp.jsonl
 ```
 
 Exit status follows the usual rule: `2` if no session could be read at all,
@@ -168,18 +170,20 @@ things:
   proposition is syntax; `auto` reads as a constant under the broad table and as a
   free variable under the Pure floor.
 
-**Using the package as a library.** Importing the package binds the broad
-committed table, the same one `census` uses, so a direct caller that configures
-nothing agrees with a census — and since the automation axis is positional, the
-axis agrees even if the binding is wrong. Two reasons to change it: call
-`graph.use_pure_namespace()` for a non-HOL project, or
-`graph.configure_namespace(methods, attributes, keywords)` to install a
-session-exact table you resolved yourself.
+**Using the engine as a library.** `isabelle.query.Namespace` starts bound to
+the broad committed table, the same one `census` uses, so a direct caller that
+configures nothing agrees with a census — and since the automation axis is
+positional, the axis agrees even if the binding is wrong. Two reasons to change
+it: call `Namespace.use_pure_namespace()` for a non-HOL project, or
+`Namespace.configure(methods, attributes, keywords)` to install a session-exact
+table you resolved yourself. The binding is **process-global**, so a resident
+host (the jEdit plugin, the warm server) must rebind per project rather than
+inherit whatever the last caller left.
 
 A second, smaller committed table backs `const_canon_est`: a notation table
 mapping operator glyphs to their Isabelle constant (`\<le>` → `less_eq`),
 resolved once from a heap by `scripts/extract_notation.py` and checked in, so
-runtime stays pure-Python. A glyph the table does not carry falls back to itself,
+nothing at runtime needs a prover. A glyph the table does not carry falls back to itself,
 so it only ever dedups, never loses, a constant — and the raw-glyph `const_est`
 beside it stays table-independent.
 
