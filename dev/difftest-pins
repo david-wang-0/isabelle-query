@@ -2,9 +2,13 @@
 #
 #   CASE_ID   CORPUS   SECTION   reason
 #
-# CASE_ID and CORPUS may each be `*`.  SECTION names the entry in
+# CASE_ID and CORPUS are shell GLOBS, so `callees-*` pins a whole command
+# family and a bare `*` still means everything.  SECTION names the entry in
 # dev/DIVERGENCES.md that explains the case; a pin with no such entry is not a
 # pin, it is an unexplained failure with the alarm switched off.
+#
+# A glob must not over-reach: a pinned case that AGREES is a stale pin, so
+# `unused-*` may pin the family only because EVERY member of it differs here.
 #
 # A pinned case that AGREES is reported as a STALE PIN and fails the run: a pin
 # that no longer describes anything is a lie about the state of the port.
@@ -59,3 +63,60 @@ sorry-noop-n           ZF    D7   oracle TypeError in _build_line_index
 # ---------------------------------------------------------------------------
 
 closed-stdout   Abstract_Completeness   D8   oracle exits 120 (shutdown-flush BrokenPipeError)
+
+# ---------------------------------------------------------------------------
+# D7, continued — the P3 usage family on FOL and ZF
+#
+# Every verb that builds the line index dies the same way, so the whole usage
+# family is unrunnable in the oracle on these two corpora.  What is NOT pinned
+# is as informative as what is: `deps` / `uses` / `graph imports` read the
+# import graph and never touch the line index; `callers` without `-r` walks the
+# source directly; `refs No_Such` and the two usage-error cases return before
+# the graph is built.  Those all run, and they are clean.
+# ---------------------------------------------------------------------------
+
+callers-recursive*     FOL   D7   oracle TypeError in _build_line_index
+callees-*              FOL   D7   oracle TypeError in _build_line_index
+unused-*               FOL   D7   oracle TypeError in _build_line_index
+methods-*              FOL   D7   oracle TypeError in _build_line_index
+refs-default           FOL   D7   oracle TypeError in _build_line_index
+refs-count             FOL   D7   oracle TypeError in _build_line_index
+refs-names             FOL   D7   oracle TypeError in _build_line_index
+refs-external          FOL   D7   oracle TypeError in _build_line_index
+refs-last              FOL   D7   oracle TypeError in _build_line_index
+refs-drop0             FOL   D7   oracle TypeError in _build_line_index
+refs-batch             FOL   D7   oracle TypeError in _build_line_index
+graph-default          FOL   D7   oracle TypeError in _build_line_index
+graph-citation         FOL   D7   oracle TypeError in _build_line_index
+graph-dot              FOL   D7   oracle TypeError in _build_line_index
+graph-format-*         FOL   D7   oracle TypeError in _build_line_index
+graph-drop0            FOL   D7   oracle TypeError in _build_line_index
+
+callers-recursive*     ZF    D7   oracle TypeError in _build_line_index
+callees-*              ZF    D7   oracle TypeError in _build_line_index
+unused-*               ZF    D7   oracle TypeError in _build_line_index
+methods-*              ZF    D7   oracle TypeError in _build_line_index
+refs-default           ZF    D7   oracle TypeError in _build_line_index
+refs-count             ZF    D7   oracle TypeError in _build_line_index
+refs-names             ZF    D7   oracle TypeError in _build_line_index
+refs-external          ZF    D7   oracle TypeError in _build_line_index
+refs-last              ZF    D7   oracle TypeError in _build_line_index
+refs-drop0             ZF    D7   oracle TypeError in _build_line_index
+refs-batch             ZF    D7   oracle TypeError in _build_line_index
+graph-default          ZF    D7   oracle TypeError in _build_line_index
+graph-citation         ZF    D7   oracle TypeError in _build_line_index
+graph-dot              ZF    D7   oracle TypeError in _build_line_index
+graph-format-*         ZF    D7   oracle TypeError in _build_line_index
+graph-drop0            ZF    D7   oracle TypeError in _build_line_index
+
+# ---------------------------------------------------------------------------
+# D10 — `unused -r`'s cascade depths are not reproducible in the oracle
+#
+# The reference's cascade tests each name against the unused set AS IT GROWS
+# during a pass, so a chain collapses by however far Python's per-process string
+# hash happens to order it.  Two consecutive oracle runs over the same corpus
+# print different depths.  The unused SET agrees exactly — verified per corpus:
+# strip the `[cascade depth N]` markers and the two outputs are identical.
+# ---------------------------------------------------------------------------
+
+unused-recursive       *     D10  oracle cascade depth is hash-seed dependent

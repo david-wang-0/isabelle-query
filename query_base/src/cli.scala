@@ -778,12 +778,20 @@ object CLI {
   /* the method / attribute namespace                                    */
   /* ------------------------------------------------------------------ */
 
-  /* The verbs that actually consult the method/attribute table: the citation
-     router's reject-set (`callers`/`callees`/`refs`/`graph`/`unused`) and the
-     method census.  EVERY other verb is a pure text/structure query, so it must
-     not pay for the table — and above all must not resolve one. */
+  /* The verbs that reconfigure the method/attribute table for the project.
+     EVERY other verb is a pure text/structure query and must not pay for the
+     table — and above all must not resolve one.
+
+     `refs` and `graph` DO read the table (they build the same citation graph),
+     and are deliberately NOT on this list, because the reference implementation
+     does not list them either: they keep the committed default whatever the
+     project's base logic is.  So on a non-HOL session `callers -r` routes
+     against the Pure floor while `graph` routes against the HOL union, and the
+     two disagree about whether `iff` is a method or a fact.  That is
+     observable in the graph both commands print, so it is behaviour to
+     reproduce, not an internal inconsistency to tidy away. */
   private val namespace_commands: Set[String] =
-    Set("callers", "callees", "unused", "methods", "method", "refs", "graph", "shape")
+    Set("callers", "callees", "unused", "methods", "method", "shape")
 
   /* Bind the router's table for this run, at DISPATCH — after the arguments are
      read and before the command runs, never at start-up, so a `find` or a `grep`

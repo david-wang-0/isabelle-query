@@ -62,11 +62,18 @@ if [ ${#corpora[@]} -eq 0 ]; then
   if [ -n "${QUERY_CORPORA:-}" ]; then
     read -r -a corpora <<<"$QUERY_CORPORA"
   else
+    # FOL and ZF carry the P2 matrix but cannot carry the P3 one: the oracle's
+    # line index dies on their multi-name `axiomatization` (D7), so every verb
+    # that builds a call graph or a method census is a traceback there.
+    # `Sequents` and `CTT` are the two distribution sessions verified free of
+    # it, and are here so the usage family has non-HOL gate corpora at all.
     for d in "${QUERY_TEST_AFP:-}/Abstract_Completeness" \
              "${QUERY_TEST_AFP:-}/AODV" \
              "${QUERY_TEST_AFP:-}/Category3" \
              "${QUERY_TEST_DISTRO:-}/FOL" \
-             "${QUERY_TEST_DISTRO:-}/ZF"; do
+             "${QUERY_TEST_DISTRO:-}/ZF" \
+             "${QUERY_TEST_DISTRO:-}/Sequents" \
+             "${QUERY_TEST_DISTRO:-}/CTT"; do
       [ -d "$d" ] && corpora+=("$d")
     done
   fi
@@ -172,6 +179,19 @@ derive_subjects() {
   # A line well inside the biggest proof — the drill-down case.
   MID=$(( (LEMMA_LO + LEMMA_HI) / 2 ))
   [ "$MID" -lt "$LEMMA_LO" ] && MID=$LEMMA_LO
+
+  # The most- and least-used proof method, for the `methods NAME` form.  On a
+  # corpus where the oracle's line index crashes (D7) this comes back empty and
+  # falls back to `simp`, which is in every method table there is — the case
+  # still runs, it just stops being corpus-derived where the oracle cannot say.
+  METHODS=()
+  mapfile -t METHODS < <(run_oracle -R "$corpus" methods --names 2>/dev/null)
+  METH1=${METHODS[0]:-simp}
+  if [ ${#METHODS[@]} -gt 0 ]; then
+    METHLAST=${METHODS[$(( ${#METHODS[@]} - 1 ))]}
+  else
+    METHLAST=$METH1
+  fi
 
   # A real path to THY1, for the path-form positionals, and a slice of it for
   # the stdin cases.  The SUBJECT is still oracle-derived; only where its file
@@ -378,6 +398,101 @@ emit_cases() {
   g paragraph-outline      plain  -R "$FIX_NOROOT" outline Para
   g paragraph-summary      plain  -R "$FIX_NOROOT" summary
   g closed-stdout          pipe   find . . . . -a -V
+
+  # -- deps / uses (the IMPORT graph) -------------------------------------
+  c deps-default           deps "$THY1"
+  c deps-recursive         deps -r "$THY1"
+  c deps-recursive-long    deps --recursive "$THY1"
+  c deps-last              deps "$THYLAST"
+  c deps-batch             deps "$THY1" "$THYLAST"
+  c deps-unknown           deps No_Such_Theory_Xyz
+  c uses-default           uses "$THY1"
+  c uses-recursive         uses -r "$THY1"
+  c uses-last              uses "$THYLAST"
+  c uses-batch             uses "$THY1" "$THYLAST"
+  c uses-unknown           uses No_Such_Theory_Xyz
+
+  # -- refs (the citation graph, rolled up per theory) ---------------------
+  c refs-default           refs "$THY1"
+  c refs-count             refs "$THY1" -c
+  c refs-names             refs "$THY1" --names
+  c refs-external          refs "$THY1" --external
+  c refs-last              refs "$THYLAST"
+  c refs-drop0             refs "$THY1" --drop-names-upto 0
+  c refs-batch             refs "$THY1" "$THYLAST"
+  c refs-unknown           refs No_Such_Theory_Xyz
+
+  # -- callers -------------------------------------------------------------
+  c callers-default        callers "$NAME1"
+  c callers-count          callers "$NAME1" -c
+  c callers-names          callers "$NAME1" --names
+  c callers-external       callers "$NAME1" --external
+  c callers-context        callers "$NAME1" -U 2
+  c callers-context-glued  callers "$NAME1" -U2
+  c callers-recursive      callers -r "$NAME1"
+  c callers-recursive-count callers -r "$NAME1" -c
+  c callers-recursive-names callers -r "$NAME1" --names
+  c callers-drop0          callers "$NAME1" --drop-names-upto 0
+  c callers-drop-equals    callers "$NAME1" --drop-names-upto=2
+  c callers-drop-abbrev    callers "$NAME1" --drop 0
+  c callers-batch          callers "$NAME1" "$NAME2"
+  c callers-unknown        callers zzz_no_such_name_zzz
+  c callers-bad-drop       callers "$NAME1" --drop-names-upto abc
+
+  # -- callees -------------------------------------------------------------
+  c callees-default        callees "$NAME1"
+  c callees-count          callees "$NAME1" -c
+  c callees-names          callees "$NAME1" --names
+  c callees-external       callees "$NAME1" --external
+  c callees-recursive      callees -r "$NAME1"
+  c callees-recursive-names callees -r "$NAME1" --names
+  c callees-batch          callees "$NAME1" "$NAME2"
+  c callees-unknown        callees zzz_no_such_name_zzz
+
+  # -- unused --------------------------------------------------------------
+  c unused-default         unused
+  c unused-count           unused -c
+  c unused-recursive       unused -r
+  c unused-recursive-count unused -r -c
+  c unused-by-theory       unused --by-theory
+  c unused-by-theory-abbrev unused --by-t
+  c unused-recursive-by-theory unused -r --by-theory
+  c unused-roots           unused --roots
+  c unused-roots-count     unused --roots -c
+  c unused-keep            unused --keep "$NAME1"
+  c unused-keep-list       unused --keep "$NAME1,$NAME2"
+  c unused-keep-repeat     unused --keep "$NAME1" --keep "$NAME2"
+  c unused-keep-unknown    unused --keep zzz_no_such_name_zzz
+  c unused-drop2           unused --drop-names-upto 2
+  c ambiguous-unused-r     unused --r
+
+  # -- methods / method ----------------------------------------------------
+  c methods-default        methods
+  c methods-all            methods -a
+  c methods-count          methods -c
+  c methods-names          methods --names
+  c methods-all-names      methods -a --names
+  c methods-named          methods "$METH1"
+  c methods-named-count    methods "$METH1" -c
+  c methods-named-names    methods "$METH1" --names
+  c methods-least-used     methods "$METHLAST"
+  c methods-alias          method "$METH1"
+  c methods-table-only     methods presburger
+  c methods-unknown        methods zzz_no_such_method_zzz
+
+  # -- graph ---------------------------------------------------------------
+  c graph-default          graph
+  c graph-citation         graph citation
+  c graph-imports          graph imports
+  c graph-dot              graph -f dot
+  c graph-imports-dot      graph imports -f dot
+  c graph-format-long      graph --format dot
+  c graph-format-equals    graph --format=dot
+  c graph-format-glued     graph -fdot
+  c graph-theory-scope     graph --theory "$THY1"
+  c graph-drop0            graph --drop-names-upto 0
+  c graph-bad-kind         graph no_such_kind
+  c graph-bad-format       graph -f xml
 }
 
 # --------------------------------------------------------------------------
@@ -424,20 +539,29 @@ exec_side() {
 # Pins
 # --------------------------------------------------------------------------
 
-is_pinned() {   # $1 = case id, $2 = corpus basename
+# The CASE_ID and CORPUS columns are shell GLOBS, so one line can pin a whole
+# command family on a corpus the oracle cannot run it on (`callers-*  FOL`).
+# `*` alone keeps its old meaning as the everything glob.  Matching in the shell
+# rather than in awk is what makes the pattern a glob rather than a literal.
+_pin_lookup() {   # $1 = case id, $2 = corpus basename; prints the reason
+  local id=$1 corpus=$2 pid pcorpus rest
   [ -f "$pins_file" ] || return 1
-  awk -v id="$1" -v corpus="$2" '
-    /^[[:space:]]*(#|$)/ { next }
-    { if (($1 == id || $1 == "*") && ($2 == corpus || $2 == "*")) found = 1 }
-    END { exit found ? 0 : 1 }' "$pins_file"
+  while read -r pid pcorpus rest; do
+    case $pid in ''|'#'*) continue ;; esac
+    [ -n "$pcorpus" ] || continue
+    # shellcheck disable=SC2053  (glob match is the point)
+    [[ $id == $pid ]] || continue
+    # shellcheck disable=SC2053
+    [[ $corpus == $pcorpus ]] || continue
+    printf '%s\n' "$rest"
+    return 0
+  done <"$pins_file"
+  return 1
 }
 
-pin_reason() {
-  awk -v id="$1" -v corpus="$2" '
-    /^[[:space:]]*(#|$)/ { next }
-    ($1 == id || $1 == "*") && ($2 == corpus || $2 == "*") {
-      $1 = ""; $2 = ""; sub(/^  */, ""); print; exit }' "$pins_file"
-}
+is_pinned() { _pin_lookup "$1" "$2" >/dev/null; }
+
+pin_reason() { _pin_lookup "$1" "$2"; }
 
 # --------------------------------------------------------------------------
 # The run

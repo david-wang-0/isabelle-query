@@ -168,9 +168,10 @@ a change to make deliberately, with its own corpus diff.
 
 ## D7 — the oracle's line index crashes on a multi-name `axiomatization`
 
-**Cost: `grep` and `sorry` do not run AT ALL in the oracle on 2 of the 5
-standard corpora** (`FOL`, `ZF`), and the same crash will take `callers`,
-`callees`, `unused` and `methods` with it in P3.
+**Cost: `grep`, `sorry` and most of the usage family do not run AT ALL in the
+oracle on 2 of the 7 standard corpora** (`FOL`, `ZF`).  P3 confirmed the
+prediction: 66 pinned cases per corpus, 15 from P2 and 51 from the usage
+family.
 
 ```
 $ query -R $QUERY_TEST_DISTRO/ZF sorry
@@ -207,9 +208,17 @@ FOL, `grep subst_all` reports the one live hit at `IFOL.thy:830` and, with
 raw `grep -rn` finds, correctly classified.
 
 Reproducing the crash would mean shipping a `TypeError` as a feature, so this
-is a deliberate divergence.  30 difftest cases are pinned on it (15 each on
+is a deliberate divergence.  132 difftest cases are pinned on it (66 each on
 FOL and ZF); the pins carry the exit-status difference (1 vs 0) as well as the
 stdout one.
+
+Which P3 verbs SURVIVE is the useful part of the map, because it says exactly
+what the line index is for: `deps`, `uses` and `graph imports` read the import
+graph and never build one; `callers` without `-r` walks the source directly;
+and every verb that resolves its subject first (`refs No_Such`) returns before
+the graph exists.  Those run in the oracle on FOL and ZF, and they are clean.
+It also cost the P3 gate two distribution corpora, replaced by `Sequents` and
+`CTT` — the two the oracle can carry, verified by running it there first.
 
 ## D8 — a closed stdout is 141, always; the oracle sometimes says 120
 
@@ -269,3 +278,44 @@ Both fail LOUDLY, on stderr with exit 2, which is the behaviour the CLI
 contract already fixes for a bad pattern — never a silent "no matches", which
 is the failure this tool exists to prevent.  Not worth a translation layer: the
 first is spelled `(?<n>...)` here and the second is a comment.
+
+## D10 — `unused -r`'s cascade depths are not reproducible, even oracle-to-oracle
+
+**Cost: the `[cascade depth N]` marker on `unused -r`, on every corpus.  The
+unused SET, the entry order, the header counts and every other `unused` form
+agree exactly.**
+
+```
+$ cd $QUERY_TEST_AFP/Abstract_Completeness
+$ for i in 1 2 3; do query unused -r | md5sum; done
+ff3ceb082e9b587d9b53db2e15554932  -
+0b77629fe55a49f6ace6ecb22ed9d772  -
+0b0c2f0227edc6b7c228f1e3b2342767  -
+```
+
+Three runs, one corpus, three answers.  `_compute_unused_recursive` iterates
+
+```python
+for name in graph.all_names - set(unused) - keep:
+    callers = graph.callers.get(name, set())
+    if callers and callers <= set(unused):
+        unused[name] = depth
+```
+
+and re-reads `unused` — which the loop body is growing — on every test.  So a
+name whose only caller was marked EARLIER IN THE SAME PASS is given the same
+depth as its caller instead of one more, and how far a chain collapses depends
+on the order names come out of `graph.all_names`, i.e. on Python's per-process
+string hash seed.  `PYTHONHASHSEED=0` makes it repeatable, which is the proof
+rather than a fix: nothing about the corpus decides the number printed.
+
+The rewrite runs the cascade LEVEL-SYNCHRONISED: each pass tests against the
+set as it stood before the pass, so depth 1 means "became unused when the
+depth-0 entries were removed", which is what the flag's help text promises.
+That is deterministic, and it is the only reading under which two runs of a
+build-hygiene check can be diffed.
+
+The divergence is confined to the marker.  Verified on all five corpora the
+oracle can run this on: strip `  [cascade depth N]` from both sides and the
+outputs are byte-identical.  One pinned case (`unused-recursive`, every
+corpus).
