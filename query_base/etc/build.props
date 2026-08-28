@@ -15,6 +15,7 @@ sources = \
   src/usage_graph.scala \
   src/commands.scala \
   src/usage.scala \
+  src/sites.scala \
   src/shape_data.scala \
   src/shape.scala \
   src/shape_cmds.scala \
