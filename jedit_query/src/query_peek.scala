@@ -109,8 +109,12 @@ object Query_Peek {
         Query_Index.background {
           val content =
             try {
-              val snapshot = index.snapshot.getOrElse(index.refreshed(overlay))
-              body(snapshot)
+              /* Refreshed, not "the snapshot if there is one": a peek showing
+                 the lines a file used to have is a wrong answer, and the
+                 refresh is incremental (mtime + size per file, buffer text for
+                 a dirty one) and runs here, off the EDT, where it costs the
+                 popup a few milliseconds and the editor nothing. */
+              body(index.refreshed(overlay))
             }
             catch { case exn: Throwable => Query_Options.status(Exn.message(exn)); None }
           GUI_Thread.later {
