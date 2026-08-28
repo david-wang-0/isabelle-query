@@ -317,5 +317,47 @@ build-hygiene check can be diffed.
 
 The divergence is confined to the marker.  Verified on all five corpora the
 oracle can run this on: strip `  [cascade depth N]` from both sides and the
-outputs are byte-identical.  One pinned case (`unused-recursive`, every
-corpus).
+outputs are byte-identical.  One pinned case, `unused-recursive`, on every
+corpus that can run it at all (on FOL and ZF the D7 family pin gets there
+first).
+
+## D11 — the oracle's method table is resolved from BUILT HEAPS; ours is committed
+
+**Cost: nothing on any gate corpus, and everything on a machine where the
+project being queried happens to have a built session heap.**
+
+`cli._configure_namespace` tries `_namespace_resolve.resolve_project` before
+falling back to a committed table: the router is bound to the union of the
+*dumped* method/attribute name spaces of whichever declared sessions have a
+built heap.  So the answer `callers` gives depends on what has been built on
+the machine, not only on the source being read.  On this one:
+
+```
+$ query -R $QUERY_TEST_AFP callers mono -c
+1361                     # table resolved from built heaps: 172 methods, 440 attributes
+$ ISABELLE_QUERY_NAMESPACE=committed query -R $QUERY_TEST_AFP callers mono -c
+1361                     # census union: 211 methods, 390 attributes
+```
+
+and the same query on a machine with no AFP heaps built would use the *Pure
+floor* instead (the AFP declares ZF-based sessions, so
+`_use_broad_fallback` steps the whole corpus down), which reports **2437** —
+`mono` stops being a known attribute, so `assumes mono: "…"` starts counting as
+a use.  Three tables, three answers, and which one a caller gets is a fact
+about which heaps their Isabelle user home holds rather than about their
+theories.
+
+The rewrite has no heap-dump path — `PLAN.md`'s P3 asks for the committed
+tables as data, and an ML dump is a different kind of dependency from
+"parse the sources".  It therefore reproduces the reference's **no-heap**
+behaviour exactly, which is the branch the reference itself takes on a clean
+machine and on all seven gate corpora (verified: each binds either the census
+union or the Pure floor, never a dump).  Pin both sides with
+`ISABELLE_QUERY_NAMESPACE=committed` and a whole-AFP `callers mono` agrees on
+1,363 output lines with **4 differing lines, all of them D1** — the two
+`Hiding` hits whose owning entry the oracle's unterminated cartouche has
+swallowed.
+
+Closing it means an `isabelle dump`-backed resolver, which belongs with the
+server/plugin work (a warm index has somewhere to keep the result), not with
+the command port.

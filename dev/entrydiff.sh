@@ -36,7 +36,9 @@ if [ ${#corpora[@]} -eq 0 ]; then
              "${QUERY_TEST_AFP:-}/AODV" \
              "${QUERY_TEST_AFP:-}/Category3" \
              "${QUERY_TEST_DISTRO:-}/FOL" \
-             "${QUERY_TEST_DISTRO:-}/ZF"; do
+             "${QUERY_TEST_DISTRO:-}/ZF" \
+             "${QUERY_TEST_DISTRO:-}/Sequents" \
+             "${QUERY_TEST_DISTRO:-}/CTT"; do
       [ -d "$d" ] && corpora+=("$d")
     done
   fi
