@@ -60,8 +60,16 @@ object CLI {
      `-U` means two things by family: a preview wants 2 lines, a caller listing
      wants 0.  One flag, one spelling, one help helper — the default is the only
      part that legitimately differs. */
+  /* `subs` is non-empty for exactly one verb, `shape`, which is a NESTED
+     subcommand group rather than a flat command: its five views share the one
+     step-scanner engine but differ in shape (aggregate table vs per-step stream
+     vs ranked list vs batch census), so a flat verb with mode flags would blur
+     them.  A group takes only the global options itself; everything from the
+     sub-verb name on belongs to the sub-parser, which is argparse's
+     `nargs=PARSER` and the same rule the top level already follows. */
   final case class Cmd(names: List[String], help: String, opts: List[Opt],
-    pos: List[Pos], exclusive: List[List[String]] = Nil, context_default: Int = 2)
+    pos: List[Pos], exclusive: List[List[String]] = Nil, context_default: Int = 2,
+    subs: List[Cmd] = Nil)
 
   final class Ns {
     val flags: mutable.Set[String] = mutable.Set.empty
@@ -125,6 +133,66 @@ object CLI {
 
   private val files_pos = Pos("files", "*",
     "restrict the search to .thy files, directories or theory names; `-` reads stdin")
+
+  private val shape_json_flag =
+    flag("--json")("json", "emit one JSONL record per line instead of the table")
+
+  private val shape_config_flags: List[Opt] = List(
+    value("--config")("config",
+      "M3 corpus config (TOML, one [corpus] table per entry); adds the frame_ratio / " +
+        "frame_mentioned / frame_changed columns to the JSON where a step shows a " +
+        "configuration signal"),
+    value("--corpus")("corpus",
+      "select the [NAME] table from --config (required when the file defines more " +
+        "than one corpus)"))
+
+  private def shape_views: List[Cmd] = List(
+    Cmd(List("summary"), "per-theory shape aggregate table",
+      List(shape_json_flag.copy(help =
+        "emit one per-proof JSONL record per line instead of the table"),
+        Opt(List("--scope"), "scope", unary = true, choices = List("proof", "entry"),
+          help = "size column region: the proof body (default) or the whole entry " +
+            "incl. statement (as `largest` counts)"),
+        Opt(List("--content"), "content", unary = true,
+          choices = List("all", "code", "prose"),
+          help = "size column content: all lines (default), code only (prose " +
+            "stripped — the shared text/comment set), or prose only")),
+      Nil),
+    Cmd(List("steps"),
+      "per-step shape records, optionally scoped to a THEORY or THEORY:A..B locus",
+      List(all_flag.copy(help =
+        "include non-goal steps (context / plumbing / closing); the default shows " +
+          "goal steps only, where the shape metrics attach"),
+        shape_json_flag.copy(help = "emit one per-step JSONL record per line")) :::
+        shape_config_flags,
+      List(Pos("span", "?", "optional scope: a bare THEORY name, or a THEORY:A..B / " +
+        "THEORY:LINE locus (the same grammar `enclosing` / `lines` use, so a span " +
+        "pastes straight in)"))),
+    Cmd(List("lemma"),
+      "full per-step shape view of one proof, its aggregate footer, and its M6 " +
+        "extension curve",
+      List(shape_json_flag.copy(help =
+        "emit one per-step JSONL record per line (every step of the lemma)")) :::
+        shape_config_flags,
+      List(Pos("name", "+", "entry name(s); each is matched exact-then-substring, and " +
+        "multiple are reported in turn (blank-line separated)"))),
+    Cmd(List("widest"),
+      "the N widest steps by a chosen metric (the step analogue of `largest`)",
+      List(value("-N", "--top")("top", "number of steps to show (default 20)"),
+        Opt(List("--metric"), "metric", unary = true,
+          choices = List("w2", "w1", "fanin", "live"),
+          help = "ranking metric: w2 as-written token width (default), w1 free " +
+            "variables, fanin cited facts, live simultaneously-live facts"),
+        shape_json_flag.copy(help = "emit the ranked steps as JSONL")),
+      List(files_pos)),
+    Cmd(List("census"),
+      "stream one per-proof JSONL record per entry (whole-AFP distribution run; " +
+        "streaming + resumable)",
+      List(value("--resume")("resume",
+        "skip entries already present in FILE (a prior census JSONL), so " +
+          "`census -R AFP/thys --resume out.jsonl >> out.jsonl` picks up a killed " +
+          "run where it stopped")),
+      Nil))
 
   val commands: List[Cmd] = List(
     Cmd(List("summary"), "theory overview table (--by-session for an aggregate)",
@@ -225,12 +293,17 @@ object CLI {
       "proof-method usage tally; `methods NAME` lists that method's uses",
       List(all_flag, count_flag, names_flag),
       List(Pos("name", "?", "a proof method (e.g. simp, auto, induct); omit for the " +
-        "ranked tally of every method used"))))
+        "ranked tally of every method used"))),
+
+    /* -- the shape family (a nested group; see `Cmd.subs`) ---------------- */
+    Cmd(List("shape"), "proof-shape metrics (summary|steps|lemma|widest|census)",
+      Nil, Nil, subs = shape_views))
 
   /* Registered so they are rejected as NOT YET PORTED rather than as unknown:
      a caller who types a real subcommand of the reference tool must be told
-     the phase has not landed, not that they mistyped. */
-  val unported: List[(String, String)] = List("shape" -> "P4")
+     the phase has not landed, not that they mistyped.  Empty now that `shape`
+     has landed; kept because the next breaking addition wants it. */
+  val unported: List[(String, String)] = Nil
 
   private val root_opt =
     value("-R", "--root")("root", "Isabelle session directory to query")
@@ -418,14 +491,34 @@ object CLI {
     }
   }
 
-  def cmd_help(out: Out, cmd: Cmd): Unit = {
+  /* A nested group's own help: the global options it takes, then its views.
+     Reached by `shape -h` and by a bare `shape`, which — like argparse with an
+     unchosen subparser — prints this and exits 0. */
+  def group_help(out: Out, cmd: Cmd): Unit = {
+    out.println(s"Usage: isabelle query ${cmd.names.head} [OPTIONS] " +
+      cmd.subs.map(_.names.head).mkString("{", ",", "}") + " ...")
+    out.println("")
+    out.println(cmd.help)
+    out.println("")
+    out.println("options:")
+    for (o <- List(help_opt, root_opt, version_opt)) out.println(opt_line(o))
+    out.println("")
+    out.println(s"${cmd.names.head} commands:")
+    for (c <- cmd.subs) {
+      val n = c.names.head
+      out.println("  " + (if (n.length >= 18) n + "\n" + " " * 20
+                          else n + " " * (20 - n.length - 2)) + c.help)
+    }
+  }
+
+  def cmd_help(out: Out, cmd: Cmd, prefix: String = ""): Unit = {
     val pos = cmd.pos.map(p => p.nargs match {
       case "1" => p.dest.toUpperCase
       case "?" => "[" + p.dest.toUpperCase + "]"
       case "+" => p.dest.toUpperCase + " [" + p.dest.toUpperCase + " ...]"
       case _ => "[" + p.dest.toUpperCase + " ...]"
     }).mkString(" ")
-    out.println(s"Usage: isabelle query ${cmd.names.head} [OPTIONS] $pos")
+    out.println(s"Usage: isabelle query $prefix${cmd.names.head} [OPTIONS] $pos")
     out.println("")
     out.println(cmd.help)
     if (cmd.names.length > 1) out.println("aliases: " + cmd.names.tail.mkString(", "))
@@ -565,6 +658,37 @@ object CLI {
         val rp = Discovery.real(found.path)
         if (!seen(rp)) { seen += rp; sec.foreach(sections += _) }
       }
+    }
+
+    /* Exactly ONE session's theories — the unit of work for a batch corpus run
+       (`shape census`).  Same three phases as `sections_from_dir`, scoped to
+       one session: the custom-command union is rebuilt from THIS session's
+       headers rather than accumulated, which is what makes a batch run produce
+       what the per-invocation runs it replaces produced.
+
+       `seen` is the caller's dedup set and must be SHARED across sessions,
+       exactly as a whole-root load shares one: 47 AFP theory files are
+       referenced by two sessions, and a per-session set would parse and emit
+       each twice — silent duplicate records that inflate every aggregate. */
+    def sections_for_session(si: Discovery.Session_Info, seen: mutable.Set[JPath]
+    ): List[Theory_Section] = {
+      val found =
+        Discovery.session_theories(si).map(p => Discovery.Found(p._1, p._2, Some(si.name)))
+      val owned =
+        Par_List.map((f: Discovery.Found) =>
+          (f, if (f.path.getFileName.toString.endsWith(".thy")) Theory.header_keywords(f.path)
+              else Map.empty[String, String]), found)
+      val union = owned.foldLeft(Map.empty[String, String])(_ ++ _._2)
+      custom_table = union
+      val parsed =
+        Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
+          (fk._1, Theory.parse(fk._1, union)), owned)
+      val sections = new mutable.ListBuffer[Theory_Section]
+      for ((f, sec) <- parsed) {
+        val rp = Discovery.real(f.path)
+        if (!seen(rp)) { seen += rp; sec.foreach(sections += _) }
+      }
+      sections.toList
     }
 
     def load_index(): List[Theory_Section] = {
@@ -809,7 +933,17 @@ object CLI {
      `$ISABELLE_QUERY_NAMESPACE=committed` pins the default: it short-circuits
      even the step-down, which is what a caller who wants one fixed table across
      a mixed corpus asks for. */
-  def configure_namespace(s: Session, command: String): Unit = {
+  def configure_namespace(s: Session, command: String, sub: String = ""): Unit = {
+    /* `shape census` is special, and its binding is UNCONDITIONAL — independent
+       of `$ISABELLE_QUERY_NAMESPACE` and of the project's base logic.  A
+       whole-corpus run spans many logics with no single session to resolve
+       against, and its output is meant to regenerate identically anywhere, so
+       it takes the fixed broad union.  Inheriting whatever the project fallback
+       picked would mean a census stops regenerating identically. */
+    if (command == "shape" && sub == "census") {
+      Namespace.use_census_namespace()
+      return
+    }
     if (!namespace_commands(command)) return
     val env = System.getenv("ISABELLE_QUERY_NAMESPACE")
     if (env != null && env.toLowerCase == "committed") return
@@ -915,6 +1049,110 @@ object CLI {
     }
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* the shape group                                                    */
+  /* ------------------------------------------------------------------ */
+
+  /* Resolve the optional M3 corpus config.  `--config PATH` loads the TOML;
+     `--corpus NAME` selects a table.  With a single-table file the corpus is
+     inferred; with several a `--corpus` is REQUIRED — fail fast rather than
+     pick one silently, since the choice moves a measurement. */
+  private def load_shape_config(s: Session, ns: Ns): Option[Shape.Corpus_Config] =
+    ns.str("config") match {
+      case None => None
+      case Some(path) =>
+        def fail(msg: String): Nothing = {
+          s.out.flush()
+          s.err.println(msg)
+          throw Exit_Code(1)
+        }
+        val configs =
+          try Toml.read_corpus_configs(Paths.get(path))
+          catch { case exn: Toml.Error => fail(s"ERROR: ${exn.message}") }
+        ns.str("corpus") match {
+          case Some(corpus) =>
+            configs.get(corpus) match {
+              case Some(c) => Some(c)
+              case None =>
+                val have =
+                  if (configs.isEmpty) "none" else configs.keys.toList.sorted.mkString(", ")
+                fail(s"ERROR: no [$corpus] table in $path (have: $have)")
+            }
+          case None =>
+            if (configs.size == 1) Some(configs.values.head)
+            else fail(s"ERROR: $path defines ${configs.size} corpora " +
+              s"(${configs.keys.toList.sorted.mkString(", ")}); select one with --corpus")
+        }
+    }
+
+  /* `census`: one process, one SESSION at a time.  The #7 "never answer an
+     empty question silently" contract has to be re-derived here, because "the
+     index came back empty" is a per-session event rather than a whole-run one:
+
+       * no session at all — not an error: a bare directory of `.thy` files has
+         no ROOT and is still a corpus, so it becomes one unnamed group loaded
+         by `load_index`, which raises #7's own diagnosis if even the fallback
+         finds nothing;
+       * every session skipped — nothing was measured and every attempt raised,
+         which is the corpus-scale version of the bug #7 fixed, so it is 2;
+       * some skipped — the question WAS asked and mostly answered: exit 0, but
+         say on stderr how many were lost, so a wrapper is never quietly given a
+         short corpus;
+       * loaded but zero records — an honest zero (a corpus of definitions has
+         no proofs), so exit 0 in silence.  The distinction from the case above
+         is the whole point: `loaded` counts sessions that PARSED, not sessions
+         that produced output. */
+  private def run_census(s: Session, ns: Ns): Unit = {
+    val root = s.active_root
+    val sessions = Discovery.iter_sessions(root)
+    val seen = mutable.Set.empty[JPath]
+    val groups: Iterator[(String, () => List[Theory_Section])] =
+      if (sessions.nonEmpty)
+        sessions.iterator.map(si => (si.name, () => s.sections_for_session(si, seen)))
+      else Iterator(("", () => s.load_index()))
+    val outcome = Shape_Cmds.cmd_shape_census(s.out, s.err, groups, ns.str("resume"))
+    if (outcome.loaded == 0)
+      s.fail_root(root, s"all ${outcome.sessions} session(s) failed to load — " +
+        "no census records produced")
+    if (outcome.skipped > 0) {
+      s.out.flush()
+      s.err.println(s"isabelle query: census completed with ${outcome.skipped} of " +
+        s"${outcome.sessions} session(s) skipped; ${Py.comma(outcome.records)} records " +
+        s"from ${outcome.loaded} session(s)")
+    }
+  }
+
+  def dispatch_shape(s: Session, view: String, ns: Ns): Unit = {
+    val out = s.out
+    val err = s.err
+    view match {
+      case "summary" =>
+        Shape_Cmds.cmd_shape_summary(out, load_sections(s, ns), ns.bool("json"),
+          ns.str("scope").getOrElse("proof"), ns.str("content").getOrElse("all"))
+      case "steps" =>
+        Shape_Cmds.cmd_shape_steps(out, err, load_sections(s, ns),
+          ns.pos("span").headOption, ns.bool("json"), ns.bool("all"),
+          load_shape_config(s, ns))
+      case "lemma" =>
+        /* The config is resolved BEFORE the index is loaded, as the reference
+           does: a bad `--config` is a usage-shaped error and must not be
+           reported after a whole-corpus parse. */
+        val cfg = load_shape_config(s, ns)
+        val sections = load_sections(s, ns)
+        each(out, ns.pos("name"))(n =>
+          Shape_Cmds.cmd_shape_lemma(out, sections, n, ns.bool("json"), cfg))
+      case "widest" =>
+        /* `widest` ranks STEPS by width — syntax-awareness is intrinsic — and it
+           takes trailing PATH positionals like `largest`. */
+        Shape_Cmds.cmd_shape_widest(out, load_sections(s, ns, parse_policy = "syntax"),
+          int_arg(ns, "top", "-N/--top", 20), ns.str("metric").getOrElse("w2"),
+          ns.bool("json"))
+      case "census" => run_census(s, ns)
+      case _ => usage_error(s"unknown shape view: $view")
+    }
+  }
+
   /* `lines FILE RANGE...` or the colon form `lines FILE:RANGE ...`, detected
      by whether the first token parses as a locus.  The colon loci must name
      ONE file: `cmd_lines` reads a single source. */
@@ -953,6 +1191,16 @@ object CLI {
   /* ------------------------------------------------------------------ */
 
   private def find_cmd(name: String): Option[Cmd] = commands.find(_.names.contains(name))
+
+  /* An explicit -R is an ASSERTION by the caller: they said this is a root, so
+     if it is not one that is an error rather than an empty answer. */
+  private def apply_root(s: Session, root: Option[String]): Unit =
+    for (r <- root) {
+      val p = expanduser(r)
+      if (!Files.exists(p)) s.fail_root(p, "no such directory (given to -R/--root)")
+      if (!Files.isDirectory(p)) s.fail_root(p, "not a directory (given to -R/--root)")
+      s.root_override = Some(Discovery.real(p.toAbsolutePath))
+    }
 
   def run(args: List[String]): Unit = {
     val out = Out.stdout
@@ -1013,6 +1261,67 @@ object CLI {
                 case None =>
                   usage_error(s"argument command: invalid choice: '$name' (choose from " +
                     commands.flatMap(_.names).map(n => s"'$n'").mkString(", ") + ")")
+                case Some(group_cmd) if group_cmd.subs.nonEmpty =>
+                  /* A nested group reads its own options exactly as the top
+                     level does — up to the first positional, which is the view
+                     name; everything after it belongs to the view's parser, so
+                     `-R` works on either side of it too. */
+                  var group_root: Option[String] = None
+                  var view: Option[String] = None
+                  var group_help_asked = false
+                  var group_version = false
+                  while (view.isEmpty && rest.nonEmpty) {
+                    val tok = rest.head
+                    rest = rest.tail
+                    def take_root(inline: Option[String]): Unit = inline match {
+                      case Some(v) => group_root = Some(v)
+                      case None =>
+                        if (rest.isEmpty) usage_error("argument -R/--root: expected one argument")
+                        group_root = Some(rest.head); rest = rest.tail
+                    }
+                    if (tok.startsWith("--")) {
+                      val eq = tok.indexOf('=')
+                      val (nm, inline) =
+                        if (eq >= 0) (tok.substring(0, eq), Some(tok.substring(eq + 1)))
+                        else (tok, None)
+                      resolve_long(List(help_opt, root_opt, version_opt), nm).dest match {
+                        case "help" => group_help_asked = true
+                        case "version" => group_version = true
+                        case _ => take_root(inline)
+                      }
+                    }
+                    else if (tok == "-h") group_help_asked = true
+                    else if (tok == "-R") take_root(None)
+                    else if (tok.startsWith("-R") && tok.length > 2) take_root(Some(tok.substring(2)))
+                    else if (tok.startsWith("-") && tok.length > 1 && !looks_negative(tok))
+                      usage_error(s"unrecognized argument: $tok")
+                    else view = Some(tok)
+                  }
+                  if (group_version) out.println(s"$prog $version")
+                  else if (group_help_asked) group_help(out, group_cmd)
+                  else view match {
+                    /* A group with no view chosen prints its help and exits 0 —
+                       argparse's behaviour for an unchosen subparser. */
+                    case None => group_help(out, group_cmd)
+                    case Some(v) =>
+                      group_cmd.subs.find(_.names.contains(v)) match {
+                        case None =>
+                          usage_error("argument " +
+                            group_cmd.subs.map(_.names.head).mkString("{", ",", "}") +
+                            s": invalid choice: '$v' (choose from " +
+                            group_cmd.subs.flatMap(_.names).map(n => s"'$n'").mkString(", ") + ")")
+                        case Some(sub) =>
+                          val ns = parse(cmd_opts(sub), sub.pos, rest ::: Nil)
+                          if (ns.bool("help")) cmd_help(out, sub, group_cmd.names.head + " ")
+                          else if (ns.bool("version")) out.println(s"$prog $version")
+                          else {
+                            apply_root(s, top_root.orElse(group_root).orElse(ns.str("root")))
+                            configure_namespace(s, group_cmd.names.head, sub.names.head)
+                            dispatch_shape(s, sub.names.head, ns)
+                          }
+                      }
+                  }
+
                 case Some(cmd) =>
                   val ns = parse(cmd_opts(cmd), cmd.pos, rest ::: Nil)
                   if (ns.bool("help")) cmd_help(out, cmd)
@@ -1024,16 +1333,7 @@ object CLI {
                         usage_error("argument " + set.map("--" + _.replace('_', '-')).mkString(
                           "/") + ": not allowed with each other")
                     }
-                    val root = top_root.orElse(ns.str("root"))
-                    for (r <- root) {
-                      /* An explicit -R is an ASSERTION by the caller: they said
-                         this is a root, so if it is not one that is an error
-                         rather than an empty answer. */
-                      val p = expanduser(r)
-                      if (!Files.exists(p)) s.fail_root(p, "no such directory (given to -R/--root)")
-                      if (!Files.isDirectory(p)) s.fail_root(p, "not a directory (given to -R/--root)")
-                      s.root_override = Some(Discovery.real(p.toAbsolutePath))
-                    }
+                    apply_root(s, top_root.orElse(ns.str("root")))
                     configure_namespace(s, name)
                     dispatch(s, cmd.names.head, ns, cmd.context_default)
                   }
