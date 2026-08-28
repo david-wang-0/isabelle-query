@@ -433,7 +433,13 @@ object P6_Probe {
     def load(name: String): Option[Class[?]] =
       try Some(Class.forName(name, false, loader)) catch { case _: Throwable => None }
 
-    val props = resource("plugin.props")
+    /* Continuation lines JOINED.  A `.properties` value may be written
+       `key= \` and continued over several lines, which is how the plugin menu
+       is written -- and a `(?m)^key=(.*)$` read of it captured the lone
+       backslash, left an EMPTY menu list, and made the "every menu entry names
+       a real action" check below pass vacuously.  Found by P6b; the size guard
+       under it is what stops it happening again. */
+    val props = resource("plugin.props").replaceAll("""\\\r?\n[ \t]*""", "")
     val actions = resource("actions.xml")
 
     def prop(name: String): Option[String] =
@@ -496,6 +502,8 @@ object P6_Probe {
       prop("plugin.isabelle.jedit_query_plugin.Plugin.menu").toList
         .flatMap(_.split("\\s+")).map(_.trim)
         .filter(s => s.nonEmpty && s != "-" && s != "\\")
+    check("the menu is non-empty, so the check below is not vacuous",
+      menu.length >= 8, menu.mkString(", "))
     check("every menu entry is an action or the dockable",
       menu.forall(m => action_names.contains(m) || m == Query_Dockable.NAME),
       menu.mkString(", "))
