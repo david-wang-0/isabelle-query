@@ -72,6 +72,7 @@ final case class Flags(
   with_comments: Boolean = false,
   recursive: Boolean = false,
   external: Boolean = false,
+  sorts: Boolean = false,        // instances / codeqs: show the WRITTEN sorts
   by_theory: Boolean = false,      // --by-theory (unused)
   roots: Boolean = false,          // --roots (unused)
   keep: Set[String] = Set.empty,   // --keep (unused: live roots)

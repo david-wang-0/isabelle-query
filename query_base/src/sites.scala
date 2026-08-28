@@ -41,12 +41,28 @@ object Sites {
   /* what a site is                                                     */
   /* ------------------------------------------------------------------ */
 
-  /* `kind` is the syntactic role -- what makes this line a site -- and is the
-     column the CLI prints between the locus and the text, because for these
-     verbs the enclosing ENTRY is usually nothing: `interpretation` and
-     `sublocale` declare no entry, so `Commands.owner_field` would print an em
-     dash on nearly every row. */
-  final case class Site(theory: String, line: Int, kind: String, text: String)
+  /* What a row says it IS, when the source does not say.  `?` is the engine's
+     own placeholder for a declaration that carries no name (`Entries`, and
+     SCANNING.md: "an opener that carries no name is left unnamed rather than
+     guessed at"), so a site with nothing written to call it by is spelled the
+     same way rather than blank or invented. */
+  val UNNAMED: String = "?"
+
+  /* `kind` is the syntactic role -- what makes this line a site.
+     `name` is what the row is called: the qualifier / type constructor /
+     providing fact the SOURCE writes at that site, in the column `callers`
+     puts its owning entry in, so the two verbs read like the rest of the tool.
+     `sorts` is the type or sort text written THERE and nowhere else -- shown
+     only under `--sorts`, because for most rows there is none and a column of
+     blanks is worse than no column. */
+  final case class Site(theory: String, line: Int, kind: String, text: String,
+    name: String = UNNAMED, sorts: String = ""
+  ) {
+    /* The name cell.  `--sorts` re-spells it as the source does, `c :: T`;
+       with nothing written there it is the bare name, never an inferred type. */
+    def label(with_sorts: Boolean): String =
+      if (with_sorts && sorts.nonEmpty) name + " :: " + sorts else name
+  }
 
   /* Which declarations may be the subject of each verb.  The CLI refuses
      anything else (exit 1), and the jEdit menu offers the item only for these
@@ -322,18 +338,38 @@ object Sites {
   private val QUALIFIER_RE: Pattern =
     Py.compile("""^\s*(?:[A-Za-z_][\w'.]*)?\s*[?!]?\s*:(?!:)""")
 
-  /* Every locale named at the head of an instance of this expression. */
-  def expression_heads(live: String, outer: String): List[String] = {
-    val out = new mutable.ListBuffer[String]
+  /* The qualifier as WRITTEN, read back off `live` from the span the pattern
+     matched on `outer`.  It is read here and not from the outer view for the
+     same reason the locale name is: `interpretation "and": L ..` writes the
+     qualifier quoted, and outer blanks exactly that.  The `?` / `!` mandatory-
+     ness marker is not part of the name. */
+  private def qualifier_name(live: String, from: Int, to: Int): String = {
+    var q = Py.strip(live.substring(from min live.length, to min live.length))
+    if (q.endsWith(":")) q = Py.rstrip(q.substring(0, q.length - 1))
+    if (q.endsWith("?") || q.endsWith("!")) q = Py.rstrip(q.substring(0, q.length - 1))
+    name_at(Py.lstrip(q), 0).map(_._1).getOrElse("")
+  }
+
+  /* Every instance of this locale expression as (written qualifier, locale).
+     The qualifier belongs to the instance, not to the command: in
+     `interpretation L1 x + q: L2 y` only the second instance is named, and a
+     row that reported `q` for both would be naming the wrong one. */
+  def expression_instances(live: String, outer: String): List[(String, String)] = {
+    val out = new mutable.ListBuffer[(String, String)]
     for ((a, b) <- split_plus(outer)) {
       val seg_outer = outer.substring(a, b)
       val skip =
         Py.matches_at_start(QUALIFIER_RE, seg_outer).map(_.end).getOrElse(0)
+      val qualifier = if (skip == 0) "" else qualifier_name(live, a, a + skip)
       val pos = skip_space(live, a + skip)
-      if (pos < b) name_at(live, pos).foreach(nm => out += nm._1)
+      if (pos < b) name_at(live, pos).foreach(nm => out += ((qualifier, nm._1)))
     }
     out.toList
   }
+
+  /* Every locale named at the head of an instance of this expression. */
+  def expression_heads(live: String, outer: String): List[String] =
+    expression_instances(live, outer).map(_._2)
 
   /* The classes an arity instantiates: the SORT after `::`, past the argument
      sorts.  `instantiation prod :: (exhaustive, exhaustive) exhaustive`
@@ -379,6 +415,61 @@ object Sites {
     }
   }
 
+  /* An arity as the source writes it, split at the `::`: the type constructor
+     being instantiated, and the arity text after it.
+
+     Both halves are VERBATIM (whitespace squashed, because a header may wrap):
+     `--sorts` promises the constraints "as they appear in source", so a quoted
+     brace sort stays quoted and nothing is normalised into a form Isabelle
+     never saw.  The constructor is unquoted when it is a single quoted name
+     (`instantiation "fun" :: ...` instantiates `fun`), and otherwise left
+     alone -- `nat and int :: mynull` names two, and picking one would be a
+     guess. */
+  private def squash(s: String): String = Py.strip(s.replaceAll("\\s+", " "))
+
+  /* A command may carry a document marker before its arguments
+     (`instantiation\<^marker>\<open>tag unimportant\<close> vec :: ...`).  It is
+     part of the COMMAND, not of what follows, and the outer view blanks only
+     the cartouche -- so the `\<^marker>` token is still standing where the
+     type constructor is read from.  Measured on live and cut from both views,
+     which is sound because the views share a length. */
+  private val MARKER_RE: Pattern = Py.compile("""^\s*\\<\^marker>\s*""")
+
+  private def marker_end(live: String): Int =
+    Py.matches_at_start(MARKER_RE, live) match {
+      case None => 0
+      case Some(m) =>
+        if (live.startsWith("""\<open>""", m.end)) {
+          val e = Entries.balanced_end(live, """\<open>""", """\<close>""", m.end)
+          if (e < 0) m.end else e
+        }
+        else m.end
+    }
+
+  def arity_parts(live: String, outer: String): (String, String) = {
+    val sep = outer.indexOf("::")
+    if (sep < 0) ("", "")
+    else {
+      val raw = squash(live.substring(0, sep min live.length))
+      val ctor =
+        name_at(raw, 0) match {
+          case Some((nm, e)) if Py.strip(raw.substring(e)).isEmpty => nm
+          case _ => raw
+        }
+      (ctor, squash(live.substring((sep + 2) min live.length)))
+    }
+  }
+
+  /* The `L` of `sublocale L \<subseteq> M`: where the interpretation is
+     INSTALLED, which is the same thing the enclosing `context L begin` says
+     when the other spelling is used.  Read on live, because the target may be
+     a quoted name; the arrow itself is found on outer. */
+  private def sublocale_target(live: String, outer: String): String =
+    Py.matches_at_start(SUBLOCALE_TARGET_RE, outer) match {
+      case None => ""
+      case Some(_) => name_at(live, skip_space(live, 0)).map(_._1).getOrElse("")
+    }
+
   /* Every instantiation site of `name` in the project, in section-load order
      (the build's own order, so the listing is stable between runs). */
   def find_instantiations(sections: List[Theory_Section], name: String): List[Site] = {
@@ -387,6 +478,24 @@ object Sites {
       val live = sec.live_source
       val outer = sec.outer_source
       val raw = sec.source
+
+      /* The chain of enclosing named target blocks, per line -- what
+         `context L begin ... sublocale M ... end` writes that
+         `sublocale L \<subseteq> M` writes inline.  Built at most once per
+         theory, and only for a theory that actually has a site: it is another
+         pass over the source, and most theories have none. */
+      var stacks: Array[List[(String, String)]] = null
+      def enclosing_name(line: Int): String =
+        Commands.enclosing_entry(sec, line) match {
+          case Some(e) if e.name.nonEmpty && e.name != UNNAMED => e.name
+          case _ =>
+            if (stacks == null) stacks = Entries.block_stacks(outer, live)
+            val idx = line - 1
+            if (idx >= 0 && idx < stacks.length)
+              stacks(idx).lastOption.map(_._2).getOrElse("")
+            else ""
+        }
+
       var i = 1
       while (i <= outer.length) {
         val stripped = Py.lstrip(outer(i - 1))
@@ -395,26 +504,51 @@ object Sites {
           val head = header_at(live, outer, i)
           /* Past the command keyword, in both views at once: the keyword is
              matched on outer but the head is read from live. */
-          val at = outer(i - 1).length - stripped.length + m.end
+          val at0 = outer(i - 1).length - stripped.length + m.end
+          val at = at0 + marker_end(head.live.substring(at0 min head.live.length))
           val body_live = head.live.substring(at min head.live.length)
           val body_outer = head.outer.substring(at min head.outer.length)
-          val cited =
-            /* Bare `instance` closes an `instantiation` block (already counted
-               at its head) and `instance C \<subseteq> D` is a class
-               inclusion, not an instantiation: neither has a `::`, so
-               `arity_classes` answers nothing for both. */
-            if (command == "instantiation" || command == "instance")
-              arity_classes(body_live, body_outer)
-            else {
-              val cut =
-                if (command == "sublocale")
-                  Py.matches_at_start(SUBLOCALE_TARGET_RE, body_outer).map(_.end).getOrElse(0)
-                else 0
-              expression_heads(body_live.substring(cut min body_live.length),
-                body_outer.substring(cut min body_outer.length))
+          val arity = command == "instantiation" || command == "instance"
+          /* Bare `instance` closes an `instantiation` block (already counted
+             at its head) and `instance C \<subseteq> D` is a class inclusion,
+             not an instantiation: neither has a `::`, so `arity_classes`
+             answers nothing for both. */
+          if (arity) {
+            if (arity_classes(body_live, body_outer).exists(denotes(_, name))) {
+              val (ctor, sorts) = arity_parts(body_live, body_outer)
+              out += Site(sec.theory, i, command, Py.rstrip(raw(i - 1)),
+                if (ctor.nonEmpty) ctor else UNNAMED, sorts)
             }
-          if (cited.exists(denotes(_, name)))
-            out += Site(sec.theory, i, command, Py.rstrip(raw(i - 1)))
+          }
+          else {
+            val target = if (command == "sublocale") sublocale_target(body_live, body_outer) else ""
+            val cut =
+              if (command == "sublocale")
+                Py.matches_at_start(SUBLOCALE_TARGET_RE, body_outer).map(_.end).getOrElse(0)
+              else 0
+            val instances =
+              expression_instances(body_live.substring(cut min body_live.length),
+                body_outer.substring(cut min body_outer.length))
+            val matched = instances.filter(qh => denotes(qh._2, name))
+            if (matched.nonEmpty) {
+              /* Written first, derived second: the qualifier the author put on
+                 THIS instance, else the target `sublocale L \<subseteq> M`
+                 names, else whatever context the site sits in -- the enclosing
+                 entry for an `interpret` in a proof, or the enclosing locale
+                 for a bare `interpretation` in a block.  A site with none of
+                 those is left `?` rather than given the locale's own name,
+                 which would make every row say the same word twice. */
+              val written = matched.map(_._1).find(_.nonEmpty).getOrElse("")
+              val label =
+                if (written.nonEmpty) written
+                else if (target.nonEmpty) target
+                else {
+                  val ctx = enclosing_name(i)
+                  if (ctx.nonEmpty) ctx else UNNAMED
+                }
+              out += Site(sec.theory, i, command, Py.rstrip(raw(i - 1)), label)
+            }
+          }
         }
         i += 1
       }
@@ -701,6 +835,59 @@ object Sites {
       underscore_suffixes.exists(s => token == subject + s)
 
 
+  /* --- the signature a declaration writes --- */
+
+  /* `c :: T` in a declaration header, and NOTHING inferred: `--sorts` reports
+     what the author typed, so a `definition` that leaves the type to Isabelle
+     shows none.  Saying so is the point -- a type this tool made up would be
+     the one thing in the output nobody could check against the source.
+
+     The `::` must be visible in OUTER, which is what keeps the `::` of
+     `lemma foo: "f :: nat \<Rightarrow> bool"` -- inside a term -- from being
+     read as the declaration's own; the NAME in front of it is read from LIVE,
+     where a quoted declaration name (`definition "open" :: ...`) still
+     stands. */
+  private val SIG_RE: Pattern =
+    Py.compile("""(?:"([^"]+)"|((?:""" + Entries.ISA_MARKUP + """|[A-Za-z_])(?:""" +
+      Entries.ISA_MARKUP + """|[\w'.])*))\s*::""")
+
+  private def type_text(live: String, outer: String, from0: Int): String = {
+    val from = skip_space(live, from0)
+    if (from >= live.length) ""
+    else
+      live.charAt(from) match {
+        case '"' =>
+          val e = live.indexOf('"', from + 1)
+          if (e < 0) "" else squash(live.substring(from + 1, e))
+        case _ if live.startsWith("""\<open>""", from) =>
+          val e = Entries.balanced_end(live, """\<open>""", """\<close>""", from)
+          if (e < 0) "" else squash(live.substring(from + 7, e - 8))
+        case _ =>
+          /* Unquoted, so it ends where the header does -- `where`, a proof, or
+             the end of what was read. */
+          val rest_outer = outer.substring(from min outer.length)
+          val cut =
+            Py.search_from(HEADER_STOP_RE, rest_outer, 0) match {
+              case Some(m) => m.start
+              case None => rest_outer.length
+            }
+          squash(live.substring(from, (from + cut) min live.length))
+      }
+  }
+
+  def written_type(live: String, outer: String, name: String): String = {
+    val m = SIG_RE.matcher(live)
+    while (m.find()) {
+      val got = if (m.group(1) != null) m.group(1) else m.group(2)
+      val sep = m.end - 2
+      if (got == name && sep >= 0 && sep + 2 <= outer.length &&
+        outer.regionMatches(sep, "::", 0, 2))
+        return type_text(live, outer, m.end)
+    }
+    ""
+  }
+
+
   /* --- the scan --- */
 
   /* Every code-equation site of `name`.  Three producers, and the kind column
@@ -759,12 +946,19 @@ object Sites {
         var attributed = false
         val stop =
           (if (e.decl_end_line >= e.thy_line) e.decl_end_line else e.thy_line) min live.length
+        def head_of(view: Array[String]): String =
+          if (e.thy_line > stop) "" else (e.thy_line to stop).map(k => view(k - 1)).mkString("\n")
+        /* The declaration's own written signature, for `--sorts`.  Computed
+           only for a row that is actually emitted: `written_type` is a regex
+           over the header and there are 78,000 headers in `src/HOL`. */
+        def signature: String = written_type(head_of(live), head_of(outer), e.name)
+        val entry_name = if (e.name.nonEmpty) e.name else UNNAMED
         /* No attribute can be present without the word, and the word is rare:
            this keeps a whole-project scan to one substring test per line. */
         val maybe = e.thy_line <= stop && (e.thy_line to stop).exists(k => live(k - 1).contains("code"))
         if (maybe) {
-          val head_live = (e.thy_line to stop).map(k => live(k - 1)).mkString("\n")
-          val head_outer = (e.thy_line to stop).map(k => outer(k - 1)).mkString("\n")
+          val head_live = head_of(live)
+          val head_outer = head_of(outer)
           val attrs = code_attrs(head_live, head_outer)
           if (attrs.nonEmpty) {
             /* An attribute on the constant's OWN declaration
@@ -779,8 +973,11 @@ object Sites {
                 else subject_here || heads.contains(name)
               if (hit) {
                 attributed = true
+                /* The PROVIDING fact, which for a declaration is its own name
+                   -- the `lemma` carrying the attribute, or the `definition`
+                   when the attribute sits on the defining equation. */
                 found += Site(sec.theory, e.thy_line, "[" + attr.spelling + "]",
-                  Py.rstrip(raw(e.thy_line - 1)))
+                  Py.rstrip(raw(e.thy_line - 1)), entry_name, signature)
               }
             }
           }
@@ -792,7 +989,8 @@ object Sites {
               `default` and once as `[code]`, would say there are two. */
         if (!attributed && default_code_tags(e.tag) &&
           (e.name == name || e.bound_names.contains(name)))
-          found += Site(sec.theory, e.thy_line, "default", Py.rstrip(raw(e.thy_line - 1)))
+          found += Site(sec.theory, e.thy_line, "default", Py.rstrip(raw(e.thy_line - 1)),
+            entry_name, signature)
       }
 
       /* 3. `declare` / `lemmas`, which declare no entry and so are invisible
@@ -809,11 +1007,26 @@ object Sites {
             (if (stripped.startsWith("declare")) 7 else 6)
           if (head.live.contains("code"))
             for (attr <- code_attrs(head.live, head.outer)) {
-              val hit =
-                if (attr.config) dropped_constants(head.live, attr).exists(denotes(_, name))
-                else cited_fact_names(head.outer, at).exists(fact_denotes)
-              if (hit)
-                found += Site(sec.theory, i, "[" + attr.spelling + "]", Py.rstrip(raw(i - 1)))
+              val dropped =
+                if (attr.config) dropped_constants(head.live, attr).filter(denotes(_, name))
+                else Nil
+              val cited = if (attr.config) Nil else cited_fact_names(head.outer, at)
+              val hit = dropped.nonEmpty || cited.exists(fact_denotes)
+              if (hit) {
+                /* The BINDING LABEL: the fact the attribute is attached to,
+                   which is the first name the command writes -- `card_set` in
+                   `declare card_set [code]`, `eq_fold` in
+                   `lemmas eq_fold [code] = ...`.  The later names on a
+                   `lemmas` right-hand side are what the label is bound TO, and
+                   a row named after one of them would say the site is
+                   somewhere it is not.  A `[[code drop: c]]` binds no fact and
+                   is named after the constant it drops. */
+                val label =
+                  if (attr.config) dropped.head
+                  else cited.headOption.getOrElse(UNNAMED)
+                found += Site(sec.theory, i, "[" + attr.spelling + "]",
+                  Py.rstrip(raw(i - 1)), label)
+              }
             }
         }
         i += 1
@@ -831,8 +1044,15 @@ object Sites {
   /* One renderer for both verbs: they answer the same shape of question, so a
      caller who has learned to read one has learned to read the other.
 
+     Four columns: LOCUS, NAME, KIND, source.  The name sits exactly where
+     `callers` and `methods` put their owning entry, so a reader who knows one
+     listing knows this one -- and the locus stays FIRST, which is what keeps
+     `instances L | awk '{print $1}' | xargs isabelle query enclosing` working
+     and what `--names` prints on its own.  It is one name per row, not
+     `code_thms`' name-then-block layout: the flat row is what pastes.
+
      `--names` prints the bare loci, one per line, because for a SITE list the
-     name of a hit IS its locus -- and `theory:line` is the tool's own span
+     identity of a hit IS its locus -- and `theory:line` is the tool's own span
      grammar, so the output pipes straight into `enclosing` / `lines`. */
   private def emit(out: Out, sites: List[Site], name: String, noun: String,
     flags: Flags
@@ -841,12 +1061,15 @@ object Sites {
     else if (flags.mode == "names") for (s <- sites) out.println(s"${s.theory}:${s.line}")
     else if (sites.isEmpty) out.println(s"No ${noun}s found for '$name'.")
     else {
+      val labels = sites.map(_.label(flags.sorts))
       val loc_w = sites.map(s => s"${s.theory}:${s.line}".length).max
+      val name_w = labels.map(_.length).max
       val kind_w = sites.map(_.kind.length).max
       out.println(s"${sites.length} $noun(s) of $name:\n")
-      for (s <- sites) {
+      for ((s, label) <- sites.zip(labels)) {
         val loc = s"${s.theory}:${s.line}"
         out.println(s"  ${loc + " " * (loc_w - loc.length)}  " +
+          s"${label + " " * (name_w - label.length)}  " +
           s"${s.kind + " " * (kind_w - s.kind.length)}  ${Py.strip(s.text)}")
       }
     }

@@ -130,6 +130,15 @@ object CLI {
         "drop single-char variable collisions; 0 keeps all; 2 also drops 2-char names)")
   private val external_flag =
     flag("--external")("external", "cut at the defining theory's boundary")
+  /* WRITTEN text only, and the help says so: this tool never runs a prover, so
+     a type it printed that the source does not contain would be the one column
+     nobody could check. */
+  private val sorts_flag =
+    flag("--sorts")("sorts",
+      "in the name column, add the sort / arity / signature THE SOURCE WRITES " +
+        "at that site (`prod :: (topological_space, topological_space) " +
+        "topological_space`).  Written text only -- no types are inferred, so a " +
+        "site whose source writes none shows none.")
 
   private val files_pos = Pos("files", "*",
     "restrict the search to .thy files, directories or theory names; `-` reads stdin")
@@ -301,7 +310,8 @@ object CLI {
         "interpretation / sublocale)",
       List(count_flag.copy(help = "just print the site count"),
         names_flag.copy(help =
-          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
+          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`"),
+        sorts_flag),
       List(Pos("name", "+", "locale or class name(s).  Reports the DECLARED SOURCE " +
         "sites, which is the complement of Isar's `print_interps`: that needs a " +
         "running prover and shows the processed interpretations, including those an " +
@@ -311,7 +321,8 @@ object CLI {
         "own default equations)",
       List(count_flag.copy(help = "just print the site count"),
         names_flag.copy(help =
-          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`")),
+          "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`"),
+        sorts_flag),
       List(Pos("name", "+", "constant name(s).  Reports the DECLARED SOURCE sites, " +
         "which is the complement of Isar's `print_codesetup` / `code_thms`: those " +
         "need a running prover and show the PROCESSED setup -- after preprocessing, " +
@@ -935,6 +946,7 @@ object CLI {
     Flags(mode = mode, verbatim = ns.bool("verbatim"), statement = ns.bool("statement"),
       comments = comments, context = context, with_comments = ns.bool("with_comments"),
       recursive = ns.bool("recursive"), external = ns.bool("external"),
+      sorts = ns.bool("sorts"),
       by_theory = ns.bool("by_theory"), roots = ns.bool("roots"), keep = keep,
       drop_names_upto =
         int_arg(ns, "drop_names_upto", "--drop-names-upto", Usage_Graph.DROP_NAMES_UPTO))
