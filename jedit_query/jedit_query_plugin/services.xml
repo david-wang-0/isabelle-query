@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!DOCTYPE SERVICES SYSTEM "services.dtd">
+
+<SERVICES>
+    <SERVICE CLASS="org.gjt.sp.jedit.gui.DynamicContextMenuService" NAME="Isabelle_Query_Find_Usages">
+        new isabelle.jedit_query_plugin.Context_Menu();
+    </SERVICE>
+</SERVICES>

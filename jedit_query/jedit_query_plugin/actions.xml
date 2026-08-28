@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!DOCTYPE ACTIONS SYSTEM "actions.dtd">
+
+<ACTIONS>
+	<ACTION NAME="isabelle-project-query.find-usages">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.find_usages(view, false);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.find-external-usages">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.find_usages(view, true);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.show-declaration">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.show_declaration(view);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.show-panel">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.show_panel(view);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.refresh-index">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.refresh_index(view);
+	  </CODE>
+	</ACTION>
+</ACTIONS>

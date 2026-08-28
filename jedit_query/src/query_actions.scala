@@ -1,0 +1,72 @@
+/*  Title:      jedit_query/src/query_actions.scala
+
+The keyboard half of the context menu.
+
+Everything the right-click offers is also an `actions.xml` action, because a
+context menu is unreachable without a mouse and jEdit binds keys to actions,
+not to menu items.  The bodies are one-liners on purpose: the actions are a
+second front door onto exactly the same path, never a second implementation of
+it.
+*/
+
+package isabelle.jedit_query
+
+
+import isabelle.*
+import isabelle.jedit.JEdit_Lib
+
+import org.gjt.sp.jedit.View
+
+
+object Query_Actions {
+  /* The word at the caret of the view's current text area. */
+  private def caret_word(view: View): Option[(org.gjt.sp.jedit.Buffer, Query_Word.Word)] = {
+    val text_area = if (view == null) null else view.getTextArea
+    if (text_area == null) None
+    else {
+      for {
+        buffer <- Query_Context_Menu.buffer_of(text_area)
+        if Query_Context_Menu.is_theory(buffer)
+        word <- Query_Context_Menu.word_at(buffer, text_area.getCaretPosition)
+      } yield (buffer, word)
+    }
+  }
+
+  def find_usages(view: View, external: Boolean = false): Unit = {
+    GUI_Thread.require {}
+    caret_word(view) match {
+      case Some((buffer, word)) =>
+        Query_Dockable.find_usages(view, buffer, word.base, external)
+      case None =>
+        Query_Dockable.show(view)
+    }
+  }
+
+  def find_external_usages(view: View): Unit = find_usages(view, external = true)
+
+  /* Where the name at the caret is declared, as a result set in the panel —
+     the same node model and the same navigation as a usages set, opened
+     expanded because it is one line. */
+  def show_declaration(view: View): Unit = {
+    GUI_Thread.require {}
+    caret_word(view) match {
+      case Some((buffer, word)) => Query_Dockable.find_definition(view, buffer, word.base)
+      case None => Query_Dockable.show(view)
+    }
+  }
+
+  def show_panel(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Dockable.show(view)
+  }
+
+  def refresh_index(view: View): Unit = {
+    GUI_Thread.require {}
+    for {
+      buffer <- Option(view).map(_.getBuffer)
+      file <- JEdit_Lib.buffer_file(buffer)
+      index <- Query_Index.for_file(file.toPath)
+    } index.invalidate()
+    Query_Dockable.show(view).foreach(_.refresh())
+  }
+}

@@ -1,0 +1,16 @@
+title = Isabelle/jEdit Query Plugin
+module = $JEDIT_SETTINGS/jars/isabelle_jedit_query.jar
+requirements = \
+  env:ISABELLE_SCALA_JAR \
+  env:JEDIT_JARS \
+  env:ISABELLE_QUERY_JAR \
+  env:JEDIT_QUERY_JAR
+resources = \
+  actions.xml \
+  dockables.xml \
+  plugin.props \
+  services.xml
+sources = \
+  dockables.scala \
+  plugin.scala \
+  services.scala

@@ -1,0 +1,47 @@
+## Isabelle/jEdit Query plugin properties
+##
+##:wrap=soft:maxLineLen=100:
+
+#identification
+plugin.isabelle.jedit_query_plugin.Plugin.name=Isabelle Project Query
+plugin.isabelle.jedit_query_plugin.Plugin.author=Andr\u00E1s Salamon, with Claude
+plugin.isabelle.jedit_query_plugin.Plugin.version=0.8.0
+plugin.isabelle.jedit_query_plugin.Plugin.description=Syntax-aware queries over the Isabelle project sources: find usages of a fact, without a build and without waiting for the prover.
+
+#system parameters
+plugin.isabelle.jedit_query_plugin.Plugin.activate=startup
+plugin.isabelle.jedit_query_plugin.Plugin.usePluginHome=false
+
+#dependencies
+plugin.isabelle.jedit_query_plugin.Plugin.depend.0=plugin isabelle.jedit_main.Plugin 11.2
+
+#menu actions and dockables
+plugin.isabelle.jedit_query_plugin.Plugin.menu.label=Isabelle Project Query
+plugin.isabelle.jedit_query_plugin.Plugin.menu= \
+  isabelle-project-query \
+  - \
+  isabelle-project-query.find-usages \
+  isabelle-project-query.find-external-usages \
+  isabelle-project-query.show-declaration \
+  isabelle-project-query.refresh-index
+
+isabelle-project-query.label=Project Query panel
+isabelle-project-query.title=Project Query
+isabelle-project-query.dock-position=bottom
+
+isabelle-project-query.find-usages.label=Find usages at caret
+isabelle-project-query.find-external-usages.label=Find external usages at caret
+isabelle-project-query.show-declaration.label=Show declaration at caret
+isabelle-project-query.show-panel.label=Show Project Query panel
+isabelle-project-query.refresh-index.label=Refresh project index
+
+#result navigation: which mouse gesture opens a result where.  Values are
+#none / current / new-pane / new-view; `new-pane` splits the active view.
+isabelle-project-query.gesture.single-click=none
+isabelle-project-query.gesture.double-click=current
+isabelle-project-query.gesture.shift-click=new-pane
+isabelle-project-query.gesture.middle-click=new-view
+isabelle-project-query.gesture.enter=current
+
+#keep earlier result sets as siblings rather than replacing them
+isabelle-project-query.stack=true

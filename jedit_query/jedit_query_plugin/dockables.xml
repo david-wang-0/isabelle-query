@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!DOCTYPE DOCKABLES SYSTEM "dockables.dtd">
+
+<DOCKABLES>
+    <DOCKABLE NAME="isabelle-project-query" MOVABLE="TRUE">
+        new isabelle.jedit_query_plugin.Query_Dockable(view, position);
+    </DOCKABLE>
+</DOCKABLES>
