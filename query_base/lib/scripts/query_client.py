@@ -592,12 +592,25 @@ def main(argv):
         cold(isabelle, argv)
     except socket.timeout:
         # Falling back would repeat work that has already run longer than the
-        # caller allowed; say so instead of doubling the wait.
+        # caller allowed; say so instead of doubling the wait.  (Checked before
+        # OSError below, of which it is a subclass.)
         sys.stderr.write(
             "query: no answer within %ss -- raise --client-timeout, "
             "or use --client-cold\n" % opts["timeout"]
         )
         return 2
+    except OSError as exn:
+        # A socket that dies mid-request -- the server killed, the connection
+        # reset.  Nothing has been written to stdout yet (that happens only
+        # after a complete OK reply), so re-running cold cannot duplicate
+        # output, and a traceback here would be a worse answer than a slow one.
+        note(opts["verbose"], "falling back: %s" % exn)
+        cold(isabelle, argv)
+    except (ValueError, KeyError, TypeError) as exn:
+        # A reply this client cannot make sense of is a protocol mismatch, and
+        # a protocol mismatch is exactly what the cold path is for.
+        note(opts["verbose"], "falling back: malformed reply: %s" % exn)
+        cold(isabelle, argv)
     except KeyboardInterrupt:
         return 130
 

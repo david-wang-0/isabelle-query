@@ -65,7 +65,7 @@ package isabelle.query
 
 import isabelle.*
 
-import java.io.{StringWriter, Writer}
+import java.io.StringWriter
 import java.nio.file.{Files, Path => JPath, Paths}
 import java.nio.file.attribute.BasicFileAttributes
 
@@ -200,10 +200,9 @@ object Query_Server {
     private var reparsed: Int = 0
     private var _uses: Long = 0L
 
-    def theories: Int = lock.synchronized(sections.length)
-    def entries: Int = lock.synchronized(sections.foldLeft(0)(_ + _.entries.length))
-    def uses: Long = lock.synchronized(_uses)
-
+    /* Everything an index will say about itself, in one place: three separate
+       accessors would be three separate lock acquisitions describing three
+       different moments. */
     def stats: JSON.Object.T =
       lock.synchronized {
         JSON.Object(
