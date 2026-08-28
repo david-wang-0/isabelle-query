@@ -14,7 +14,7 @@ Three front ends over one engine:
 
 | | |
 |---|---|
-| **`isabelle query`** | the command line — 24 verbs, `-h` on each |
+| **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
 | **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
 | **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — see [dev/BENCH.md](dev/BENCH.md) |
 

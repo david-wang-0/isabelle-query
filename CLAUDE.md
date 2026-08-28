@@ -13,7 +13,7 @@ An **Isabelle component, in Isabelle/Scala**, that answers structural questions
 about an Isabelle/Isar project by parsing its `.thy` sources — **no build, no
 proof replay, no prover process.** Three front ends over one engine:
 
-- **`isabelle query …`** — the command line, 24 verbs.
+- **`isabelle query …`** — the command line: 22 verbs, 24 names.
 - **the Isabelle/jEdit plugin** — find usages / definition / instantiations /
   code equations, quick-open, peek, and navigation exposure.
 - **a warm server + thin client** — four commands folded into the stock
