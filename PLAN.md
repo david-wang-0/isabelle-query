@@ -193,10 +193,18 @@ necessary but not sufficient.
     (declaration + body) in the query dockable instead of jumping a pane —
     no such view exists in jEdit today (only the ctrl+hover tooltip and the
     ctrl+click pane jump);
+  - **sidebar result-view contract** (P5 built the architecture; P6 completes
+    it): find-definition and find-usages share ONE result-tree machinery and
+    identical navigation; find-definition renders EXPANDED by default,
+    find-usages snippets COLLAPSED, with per-item expand and
+    expand-all/collapse-all; expansion arrows follow the HyperSearch
+    sidebar's per-file-match arrow idiom;
   - **click-policy differentiation on dockable results**: single / double /
     shift / middle click open the hit in the current pane vs a new pane
-    (EditPane split) vs a peek preview — policies configurable via Isabelle
-    options;
+    (EditPane split) vs a peek preview — one configurable gesture→action
+    indirection, defaults double-click = active pane, shift-click = new
+    pane (P5 shipped the indirection over jEdit properties; P6 adds peek
+    and, if workable pre-PIDE, an Isabelle-options surface);
   - **go-to-symbol / quick-open** fuzzy lookup over the query index;
   - **peek-definition** popup (reuses tooltip + hyperlink-resolution
     machinery);
