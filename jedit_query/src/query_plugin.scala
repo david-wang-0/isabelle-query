@@ -23,10 +23,21 @@ package isabelle.jedit_query
 
 
 import org.gjt.sp.jedit.{EBMessage, EBPlugin}
+import org.gjt.sp.jedit.msg.{EditPaneUpdate, ViewUpdate}
 
 
 class Query_Plugin extends EBPlugin {
-  override def handleMessage(message: EBMessage): Unit = {}
+  /* The one message the panel cares about.  `EditPaneUpdate` covers
+     `PositionChanging`, which is precisely what `Isabelle_Navigator` records
+     on, so the back/forward buttons follow the same events the history does.
+     `GUI_Thread.later` rather than inline: the two plugins handle the same
+     message and their order is not defined, and deferring puts our read of the
+     history after Isabelle's write to it. */
+  override def handleMessage(message: EBMessage): Unit =
+    message match {
+      case _: EditPaneUpdate | _: ViewUpdate => Query_Dockable.update_navigation()
+      case _ =>
+    }
 
   override def start(): Unit = { Query_Plugin._instance = Some(this) }
 

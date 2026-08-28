@@ -23,6 +23,10 @@ plugin.isabelle.jedit_query_plugin.Plugin.menu= \
   isabelle-project-query.find-usages \
   isabelle-project-query.find-external-usages \
   isabelle-project-query.show-declaration \
+  - \
+  isabelle-project-query.navigate-backwards \
+  isabelle-project-query.navigate-forwards \
+  - \
   isabelle-project-query.refresh-index
 
 isabelle-project-query.label=Project Query panel
@@ -34,6 +38,18 @@ isabelle-project-query.find-external-usages.label=Find external usages at caret
 isabelle-project-query.show-declaration.label=Show declaration at caret
 isabelle-project-query.show-panel.label=Show Project Query panel
 isabelle-project-query.refresh-index.label=Refresh project index
+
+#Isabelle/jEdit already keeps the jump stacks (isabelle.jedit.Isabelle_Navigator)
+#and registers navigate-backwards / navigate-forwards for them, but ships no
+#label and no shortcut, so they are reachable only from the action dialog.
+#These two actions drive the SAME navigator under our own names -- writing a
+#.shortcut for isabelle.jedit_main's action would be a property collision with
+#the next Isabelle release.  CA+LEFT / CA+RIGHT are unused by jEdit's default
+#keymap (which binds no CA+ chord at all) and are the IDE convention.
+isabelle-project-query.navigate-backwards.label=Navigate backwards
+isabelle-project-query.navigate-backwards.shortcut=CA+LEFT
+isabelle-project-query.navigate-forwards.label=Navigate forwards
+isabelle-project-query.navigate-forwards.shortcut=CA+RIGHT
 
 #result navigation: which mouse gesture opens a result where.  Values are
 #none / current / new-pane / new-view; `new-pane` splits the active view.

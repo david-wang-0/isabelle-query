@@ -17,6 +17,16 @@
 	    isabelle.jedit_query.Query_Actions.show_declaration(view);
 	  </CODE>
 	</ACTION>
+	<ACTION NAME="isabelle-project-query.navigate-backwards">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.navigate_backwards(view);
+	  </CODE>
+	</ACTION>
+	<ACTION NAME="isabelle-project-query.navigate-forwards">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.navigate_forwards(view);
+	  </CODE>
+	</ACTION>
 	<ACTION NAME="isabelle-project-query.show-panel">
 	  <CODE>
 	    isabelle.jedit_query.Query_Actions.show_panel(view);

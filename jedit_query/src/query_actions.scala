@@ -55,6 +55,21 @@ object Query_Actions {
     }
   }
 
+  /* Isabelle's own jump stacks, under an action name of ours so a default
+     keybinding in `plugin.props` cannot collide with `isabelle.jedit_main`'s
+     properties. */
+  def navigate_backwards(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Navigate.backward(view)
+    Query_Dockable.update_navigation()
+  }
+
+  def navigate_forwards(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Navigate.forward(view)
+    Query_Dockable.update_navigation()
+  }
+
   def show_panel(view: View): Unit = {
     GUI_Thread.require {}
     Query_Dockable.show(view)

@@ -74,6 +74,11 @@ object Query_Dockable {
   private[jedit_query] def unregister(view: View): Unit =
     GUI_Thread.require { instances -= view }
 
+  /* Called from the plugin's EditBus handler: the jump history changes on
+     every caret move, and the panel's back/forward buttons follow it. */
+  def update_navigation(): Unit =
+    GUI_Thread.later { instances.values.foreach(_.update_navigation()) }
+
   def show(view: View): Option[Query_Dockable] = {
     GUI_Thread.require {}
     val wm = view.getDockableWindowManager
@@ -338,6 +343,9 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
       node <- node_of(tree.getLeadSelectionPath)
       (path, line) <- target_of(node)
     } Query_Editor.goto(view, path, line, policy)
+    /* Our own jump is recorded by `goto_file` like any other, so the buttons
+       have to follow it here as well as from the EditBus. */
+    update_navigation()
   }
 
   private def remove_selected(): Unit = {
@@ -456,7 +464,27 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     b
   }
 
+  /* The two navigation buttons drive `Isabelle_Navigator`, which is the
+     history EVERY jump in the editor lands in — not a per-panel one.  They sit
+     first because that is where a browser puts them, and they are disabled
+     (with a tooltip that says why) whenever the prover plugin is not up. */
+  private val back_button =
+    button(Query_Navigate.BACK, Query_Navigate.back_tip)(Query_Navigate.backward(view))
+  private val forward_button =
+    button(Query_Navigate.FORWARD, Query_Navigate.forward_tip)(Query_Navigate.forward(view))
+
+  def update_navigation(): Unit = {
+    GUI_Thread.require {}
+    back_button.setEnabled(Query_Navigate.can_backward)
+    forward_button.setEnabled(Query_Navigate.can_forward)
+    back_button.setToolTipText(Query_Navigate.back_tip)
+    forward_button.setToolTipText(Query_Navigate.forward_tip)
+  }
+
   private val buttons = new Box(BoxLayout.X_AXIS)
+  buttons.add(back_button)
+  buttons.add(forward_button)
+  buttons.add(Box.createHorizontalStrut(8))
   buttons.add(button("Refresh", "re-read the project and re-run the last query")(refresh()))
   buttons.add(button("Expand", "expand every result set")(expand_all()))
   buttons.add(button("Collapse", "collapse every result set")(collapse_all()))
@@ -624,6 +652,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
 
   override def init(): Unit = {
     Query_Dockable.register(view, this)
+    update_navigation()
     set_caption(
       Option(view.getBuffer).flatMap(JEdit_Lib.buffer_file)
         .flatMap(f => Query_Index.for_file(f.toPath)) match {

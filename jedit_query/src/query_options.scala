@@ -40,9 +40,11 @@ import scala.jdk.CollectionConverters.*
 
 
 object Query_Options {
-  /* Every jEdit property this plugin owns starts here; the dockable name is
-     the same string, which is deliberate -- one plugin, one namespace. */
-  val PREFIX: String = Query_Dockable.NAME + "."
+  /* Every jEdit property this plugin owns starts here.  Spelt out rather than
+     derived from `Query_Dockable.NAME`, so that reading a property does not
+     drag the Swing half of the plugin into class initialisation; that the two
+     agree is a probe check, not a compile-time coupling. */
+  val PREFIX: String = "isabelle-project-query."
 
   /* `isabelle-project-query.gesture.double-click` <-> Isabelle option
      `jedit_query_gesture_double_click`.  Isabelle option names are
