@@ -33,7 +33,7 @@ object P6B_Probe {
   def main(args: Array[String]): Unit = {
   import isabelle.*
   import isabelle.query.{Sites, Theory_Section}
-  import isabelle.jedit_query.{Query_Dockable, Query_Index, Query_Search}
+  import isabelle.jedit_query.{Query_Dockable, Query_Index, Query_Name_Search, Query_Search}
 
   import java.nio.file.{Files, Paths}
 
@@ -203,7 +203,7 @@ object P6B_Probe {
   val index = Query_Index(fix_root)
   val snapshot = index.refreshed(Map.empty)
   check("the fixture project indexes",
-    snapshot.theories == 2 && snapshot.entries > 0,
+    snapshot.theories == 3 && snapshot.entries > 0,
     snapshot.theories.toString + " theories, " + snapshot.entries.toString + " entries")
 
   def loci(sites: List[Sites.Site]): List[String] =
@@ -305,6 +305,104 @@ object P6B_Probe {
       .exists(_.how.contains("constructor of mytree")), "")
 
 
+  /* ---------------- 2b. row names and written sorts (P6c) ---------------- */
+
+  println("2b. the row name, its fallback chain, and --sorts")
+
+  def insts(text: String): List[(String, String)] =
+    Sites.expression_instances(text, blank_terms(text))
+
+  check("a qualifier is the instance's own name",
+    insts(""" nat_magma: magma "(+)" """) == List(("nat_magma", "magma")),
+    insts(""" nat_magma: magma "(+)" """).mkString(","))
+  check("a QUOTED qualifier is read unquoted",
+    insts(""" "and": semilattice_neutr x""") == List(("and", "semilattice_neutr")),
+    insts(""" "and": semilattice_neutr x""").mkString(","))
+  check("the `?` mandatory marker is not part of the name",
+    insts(" weak?: weak_complete_lattice x") == List(("weak", "weak_complete_lattice")),
+    insts(" weak?: weak_complete_lattice x").mkString(","))
+  check("an unqualified instance carries no name of its own",
+    insts(" magma f") == List(("", "magma")), insts(" magma f").mkString(","))
+  check("each instance of a compound expression is named separately",
+    insts(" L1 x + q: L2 y") == List(("", "L1"), ("q", "L2")),
+    insts(" L1 x + q: L2 y").mkString(","))
+
+  def parts(text: String): (String, String) = Sites.arity_parts(text, blank_terms(text))
+
+  check("an arity splits into the type constructor and the sorts as WRITTEN",
+    parts(" prod :: (topological_space, topological_space) topological_space") ==
+      (("prod", "(topological_space, topological_space) topological_space")),
+    parts(" prod :: (topological_space, topological_space) topological_space").toString)
+  check("a quoted type constructor is still the constructor",
+    parts(""" "fun" :: (type, ord) ord""") == (("fun", "(type, ord) ord")),
+    parts(""" "fun" :: (type, ord) ord""").toString)
+  check("a quoted brace sort is not normalised away",
+    parts(""" bool :: "{mynull, ord}" """) == (("bool", """"{mynull, ord}"""")),
+    parts(""" bool :: "{mynull, ord}" """).toString)
+
+  def wt(text: String, n: String): String = Sites.written_type(text, blank_terms(text), n)
+
+  check("a written signature is read from the declaration head",
+    wt("""definition twice :: "nat \<Rightarrow> nat" where""", "twice") ==
+      """nat \<Rightarrow> nat""",
+    wt("""definition twice :: "nat \<Rightarrow> nat" where""", "twice"))
+  check("an unquoted type ends where the header does",
+    wt("definition null_nat :: nat where", "null_nat") == "nat",
+    wt("definition null_nat :: nat where", "null_nat"))
+  check("a `::` inside a TERM is not the declaration's own signature",
+    wt("""lemma foo: "f :: nat \<Rightarrow> bool" """, "f").isEmpty,
+    wt("""lemma foo: "f :: nat \<Rightarrow> bool" """, "f"))
+  check("a declaration that writes no type is given none",
+    wt("""lemma twice_alt [code]: "twice n = 2 * n" """, "twice_alt").isEmpty, "")
+
+  def names_of(sites: List[Sites.Site]): List[String] = sites.map(_.name)
+  def labels_of(sites: List[Sites.Site], sorts: Boolean): List[String] =
+    sites.map(_.label(sorts))
+
+  /* `Names_Fix.thy` is written for exactly this: one site per link of the
+     chain, in this order. */
+  check("the name chain: block, qualifier, `?`, qualifier, enclosing entry",
+    names_of(inst("plain")) ==
+      List("holder", "sub", Sites.UNNAMED, "inner", "anon_interpret"),
+    names_of(inst("plain")).mkString(", "))
+  check("a bare `interpretation L ..` is left UNNAMED, not given L's own name",
+    inst("plain").find(_.line == 18).map(_.name).contains(Sites.UNNAMED),
+    inst("plain").find(_.line == 18).map(_.name).getOrElse("<missing>"))
+  check("a qualified sublocale is named by its qualifier, not by its target",
+    inst("plain").find(_.line == 20).map(_.name).contains("inner"),
+    inst("plain").find(_.line == 20).map(_.name).getOrElse("<missing>"))
+  check("and an unqualified `sublocale L \\<subseteq> M` is named by L",
+    names_of(inst("magma")).contains("semi"), names_of(inst("magma")).mkString(", "))
+
+  check("an arity row is named after the type constructor it instantiates",
+    names_of(inst("mynull")) == List("nat", "bool", "prod"),
+    names_of(inst("mynull")).mkString(", "))
+  check("--sorts re-spells an arity row as the source writes it",
+    labels_of(inst("mynull"), true) ==
+      List("nat :: mynull", """bool :: "{mynull, ord}"""",
+        "prod :: (mynull, mynull) mynull"),
+    labels_of(inst("mynull"), true).mkString(" | "))
+  check("and without it the cell is the bare subject",
+    labels_of(inst("mynull"), false) == List("nat", "bool", "prod"),
+    labels_of(inst("mynull"), false).mkString(", "))
+  check("an interpretation writes no sort, so --sorts adds nothing to one",
+    labels_of(inst("plain"), true) == labels_of(inst("plain"), false), "")
+
+  check("a code row is named after the fact that provides the equation",
+    names_of(code("twice")) == List("twice", "twice_alt", "twice_lemmas", "twice"),
+    names_of(code("twice")).mkString(", "))
+  check("a `declare` row takes the BINDING LABEL it attaches to",
+    names_of(code("fib")) == List("fib", "fib.simps"),
+    names_of(code("fib")).mkString(", "))
+  check("a `default` row takes the defining entry's own name",
+    names_of(code("half")) == List("half", "cond_code"),
+    names_of(code("half")).mkString(", "))
+  check("--sorts adds the written signature, and only where one is written",
+    labels_of(code("twice"), true) ==
+      List("""twice :: nat \<Rightarrow> nat""", "twice_alt", "twice_lemmas", "twice"),
+    labels_of(code("twice"), true).mkString(" | "))
+
+
   /* ---------------- 3. the plugin seam ---------------- */
 
   println("3. Query_Search / Query_Dockable -- the two new result kinds")
@@ -372,6 +470,81 @@ object P6B_Probe {
       !Query_Search.is_subject(snapshot, "no_such_thing", Sites.locale_tags), "")
 
 
+  /* --- the row name and the Sorts toggle, in the panel (P6c) --- */
+
+  val null_result = Query_Search.instantiations(snapshot, "mynull")
+  check("the panel's rows carry the CLI's names",
+    null_result.groups.flatMap(_.hits).map(_.name) == names_of(inst("mynull")),
+    null_result.groups.flatMap(_.hits).map(_.name).mkString(", "))
+  check("and its written sorts, kept SEPARATE so a toggle need not re-query",
+    null_result.groups.flatMap(_.hits).map(_.sorts) == inst("mynull").map(_.sorts),
+    null_result.groups.flatMap(_.hits).map(_.sorts).mkString(" | "))
+  check("the Sorts toggle spells a row exactly as `--sorts` does", {
+    val hits = null_result.groups.flatMap(_.hits)
+    hits.map(Query_Dockable.hit_name(_, false)) == labels_of(inst("mynull"), false) &&
+      hits.map(Query_Dockable.hit_name(_, true)) == labels_of(inst("mynull"), true)
+  }, null_result.groups.flatMap(_.hits).map(Query_Dockable.hit_name(_, true)).mkString(" | "))
+  check("the name reaches the rendered leaf, BEFORE the italic role", {
+    val hit = null_result.groups.head.hits.head
+    val html = Query_Dockable.hit_html("mynull", hit)
+    html.contains(hit.name) && html.indexOf(hit.name) < html.indexOf("<i>")
+  }, Query_Dockable.hit_html("mynull", null_result.groups.head.hits.head))
+  check("and the toggle changes that leaf without a second query", {
+    /* The `bool` row: its sort is quoted, so the HTML escaping is exercised at
+       the same time.  Pinned as a PREFIX rather than by `contains`, because the
+       source line quoted on the right of the row has a `::` of its own -- the
+       first draft of this check passed on that one. */
+    val hit = null_result.groups.flatMap(_.hits)(1)
+    val head = "<html>" + hit.line.toString + ": "
+    Query_Dockable.hit_html("mynull", hit, true)
+      .startsWith(head + "bool :: &quot;{mynull, ord}&quot;&nbsp;&nbsp;<i>") &&
+      Query_Dockable.hit_html("mynull", hit, false).startsWith(head + "bool&nbsp;&nbsp;<i>")
+  }, Query_Dockable.hit_html("mynull", null_result.groups.flatMap(_.hits)(1), true))
+  check("a usages row has no name, so nothing about it changed",
+    Query_Search.usages(snapshot, "twice").groups.flatMap(_.hits).forall(_.name.isEmpty), "")
+
+
+  /* --- search by name, from the panel (P6c) --- */
+
+  println("3b. Query_Name_Search -- the panel's name field")
+
+  val snap = Some(snapshot)
+  check("an exact declaration name resolves to itself",
+    Query_Name_Search.resolve(snap, "twice") == "twice" &&
+      Query_Name_Search.resolve(snap, "  twice  ") == "twice",
+    Query_Name_Search.resolve(snap, "twice"))
+  check("a partial one resolves through go-to-symbol's own ranking",
+    Query_Name_Search.resolve(snap, "twicealt") == "twice_alt",
+    Query_Name_Search.resolve(snap, "twicealt"))
+  check("a name that matches nothing is passed through unchanged",
+    Query_Name_Search.resolve(snap, "zz_no_such_name") == "zz_no_such_name" &&
+      Query_Name_Search.resolve(snap, "") == "", "")
+  check("a COLD index resolves nothing and refuses nothing",
+    Query_Name_Search.resolve(None, "twice") == "twice", "")
+
+  check("usages and definition are offered for ANY name",
+    Query_Name_Search.finders(snap, "zz_no_such_name").map(_.label) ==
+      List("Find usages", "Find external usages", "Find definition"),
+    Query_Name_Search.finders(snap, "zz_no_such_name").map(_.label).mkString(", "))
+  check("the site verbs are offered exactly where the context menu offers them", {
+    val loc = Query_Name_Search.finders(snap, "magma").map(_.label)
+    val con = Query_Name_Search.finders(snap, "twice").map(_.label)
+    loc.contains("Find instantiations") && !loc.contains("Find code equations") &&
+      con.contains("Find code equations") && !con.contains("Find instantiations")
+  }, Query_Name_Search.finders(snap, "magma").map(_.label).mkString(", "))
+  check("a cold index offers only the ungated three, as the menu does",
+    Query_Name_Search.finders(None, "magma") == Query_Name_Search.ungated, "")
+  check("an empty field offers nothing at all",
+    Query_Name_Search.finders(snap, "").isEmpty, "")
+  check("the hint says what the typed text resolved to, and what it is",
+    Query_Name_Search.hint(snap, "twice").contains("DEF") &&
+      Query_Name_Search.hint(snap, "twicealt").startsWith("→ twice_alt"),
+    Query_Name_Search.hint(snap, "twice") + " / " + Query_Name_Search.hint(snap, "twicealt"))
+  check("the candidate list is the fuzzy one, and is bounded",
+    Query_Name_Search.candidates(snap, "t", 3).length <= 3 &&
+      Query_Name_Search.candidates(None, "t", 3).isEmpty, "")
+
+
   /* ---------------- 4. the plugin resources ---------------- */
 
   println("4. the plugin jar -- the two new actions and their menu entries")
@@ -429,13 +602,27 @@ object P6B_Probe {
       menu.forall(m => action_names.contains(m) || m == Query_Dockable.NAME),
       menu.mkString(", "))
 
+    /* P6c: the panel's name field needs a keyboard route, and the Sorts
+       toggle needs a default that is written down rather than assumed. */
+    val search_action = "isabelle-project-query.search-by-name"
+    check("the search-by-name action exists, is labelled and is on the menu",
+      action_names.contains(search_action) &&
+        prop(search_action + ".label").exists(_.nonEmpty) && menu.contains(search_action),
+      prop(search_action + ".label").getOrElse("<no label>"))
+    check("and ships no default shortcut either",
+      prop(search_action + ".shortcut").isEmpty, "")
+    check("the Sorts toggle has a written default, and it is off",
+      prop(Query_Dockable.SORTS_PROPERTY).contains("false"),
+      prop(Query_Dockable.SORTS_PROPERTY).getOrElse("<unset>"))
+
     /* The action bodies are BeanShell, so a renamed method fails at
        plugin-load time and nowhere else: resolve them here instead. */
     val bodies =
       """<ACTION NAME="([^"]+)">\s*<CODE>\s*([^<]*)</CODE>""".r.findAllMatchIn(actions)
         .map(m => (m.group(1), m.group(2).trim)).toMap
     val target_re = """([\w.]+)\.(\w+)\(view""".r
-    check("both action bodies resolve to a real method", new_actions.forall { a =>
+    check("both action bodies resolve to a real method",
+      (new_actions ::: List(search_action)).forall { a =>
       bodies.get(a).flatMap(b => target_re.findFirstMatchIn(b)).exists { m =>
         try {
           val cls = Class.forName(m.group(1) + "$")

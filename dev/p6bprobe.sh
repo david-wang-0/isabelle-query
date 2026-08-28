@@ -74,6 +74,7 @@ session P6B_Fix = HOL +
   theories
     Sites_Fix
     Code_Fix
+    Names_Fix
 ROOT
 
 cat >"$FIX/Sites_Fix.thy" <<'THY'
@@ -195,6 +196,42 @@ lemma decoy_code: "True"
   by simp
 
 \<^cancel>\<open>lemma cancelled_code [code]: "twice n = 0"\<close>
+
+end
+THY
+
+# P6c.  The ROW NAME is a separate fixture, and a separate theory, precisely so
+# the line numbers pinned above do not move: every one of them is an
+# expectation.  What this file is for is the FALLBACK CHAIN -- the written
+# qualifier, the sublocale target, the enclosing block, the enclosing entry,
+# and the honest `?` when the source writes none of them.
+cat >"$FIX/Names_Fix.thy" <<'THY'
+theory Names_Fix
+  imports Main
+begin
+
+locale plain =
+  fixes p :: "'a \<Rightarrow> 'a"
+
+locale holder =
+  fixes q :: "'a \<Rightarrow> 'a"
+begin
+
+interpretation plain q ..
+
+sublocale sub: plain q ..
+
+end
+
+interpretation plain id ..
+
+sublocale holder \<subseteq> inner: plain q ..
+
+lemma anon_interpret: "True"
+proof -
+  interpret plain id ..
+  show ?thesis by simp
+qed
 
 end
 THY
@@ -321,6 +358,59 @@ if isabelle query -R "$FIX" enclosing $(cat "$OUT/cli-inst.txt") >"$OUT/encl.txt
   note "every locus pastes into \`enclosing\`" "$(grep -c . "$OUT/encl.txt") loci"
 else
   bad "every locus pastes into \`enclosing\`" "$(head -2 "$OUT/encl.txt")"
+fi
+
+# P6c: the ROW gained a name column, so output-is-input has to be shown again
+# on the HUMAN-readable form -- the locus is still the first field of a row,
+# which is what a `awk '{print $1}'` pipeline depends on.  Under --sorts too,
+# because that is the column most likely to grow a space.
+for extra in "" "--sorts"; do
+  # shellcheck disable=SC2086
+  q instances magma $extra | sed -n 's/^  \([^ ]*\)  .*/\1/p' >"$OUT/row-loci.txt"
+  # shellcheck disable=SC2046
+  if [ "$(grep -c . "$OUT/row-loci.txt")" = 5 ] &&
+     isabelle query -R "$FIX" enclosing $(cat "$OUT/row-loci.txt") >"$OUT/row-encl.txt" 2>/dev/null &&
+     [ "$(grep -c . "$OUT/row-encl.txt")" = 5 ] &&
+     ! grep -q "expected FILE:LINE" "$OUT/row-encl.txt"; then
+    note "the first field of a printed row still pastes into \`enclosing\`${extra:+ ($extra)}"
+  else
+    bad "the first field of a printed row still pastes into \`enclosing\`${extra:+ ($extra)}" \
+      "$(head -2 "$OUT/row-loci.txt" | tr '\n' ' ')"
+  fi
+done
+
+# The name column, end to end: the whole fallback chain in one listing.
+got=$(q instances plain | sed -n 's/^  [^ ]*  \([^ ]*\)  .*/\1/p' | tr '\n' ' ')
+if [ "$got" = "holder sub ? inner anon_interpret " ]; then
+  note "the name column is the fallback chain" "$got"
+else
+  bad "the name column is the fallback chain" "got [$got]"
+fi
+
+# --sorts is WRITTEN text: it appears where the source writes a sort, verbatim,
+# and nowhere else.
+q instances mynull --sorts >"$OUT/sorts-on.txt"
+ok=1
+for want in 'nat :: mynull' 'bool :: "{mynull, ord}"' 'prod :: (mynull, mynull) mynull'; do
+  grep -qF "  $want  " "$OUT/sorts-on.txt" || ok=0
+done
+# ... and OFF the NAME cell is bare.  Matched on the cell, not on the line: the
+# source column quoted at the right of every arity row has a `::` of its own,
+# and a `grep ' :: '` over the line passes on that one.
+bare=$(q instances mynull | sed -n 's/^  [^ ]*  \([^ ]*\)  .*/\1/p' | tr '\n' ' ')
+[ "$bare" = "nat bool prod " ] || ok=0
+if [ "$ok" = 1 ]; then
+  note "--sorts prints each arity as the source writes it, and off prints none" "$bare"
+else
+  bad "--sorts prints each arity as the source writes it, and off prints none" \
+    "off=[$bare] on=[$(sed -n 3p "$OUT/sorts-on.txt")]"
+fi
+
+got=$(q codeqs twice --sorts | grep -c ' :: ')
+if [ "$got" = "1" ]; then
+  note "and adds nothing to a row whose declaration writes no type" "1 of 4 rows"
+else
+  bad "and adds nothing to a row whose declaration writes no type" "$got rows carry ::"
 fi
 
 # --------------------------------------------------------------------------
