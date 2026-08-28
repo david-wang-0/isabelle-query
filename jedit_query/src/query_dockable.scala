@@ -199,28 +199,30 @@ object Query_Dockable {
      half the themes. */
   def hit_html(name: String, hit: Query_Search.Hit): String = {
     val shown = Symbol.decode(hit.text).trim
-    val target = Symbol.decode(name)
     /* A note is ABOUT the source ("[+17 more lines, to 94]"), so it carries no
        line number and nothing in it is a citation to highlight. */
-    if (hit.note) return "<html><i>" + escape(shown) + "</i></html>"
-    val buf = new StringBuilder("<html>")
-    buf ++= hit.line.toString
-    buf ++= ": "
-    try {
-      val matcher = Py.compile(Commands.isa_word_pattern(target)).matcher(shown)
-      var prev = 0
-      while (matcher.find()) {
-        buf ++= escape(shown.substring(prev, matcher.start))
-        buf ++= "<b>"
-        buf ++= escape(shown.substring(matcher.start, matcher.end))
-        buf ++= "</b>"
-        prev = matcher.end
+    if (hit.note) "<html><i>" + escape(shown) + "</i></html>"
+    else {
+      val target = Symbol.decode(name)
+      val buf = new StringBuilder("<html>")
+      buf ++= hit.line.toString
+      buf ++= ": "
+      try {
+        val matcher = Py.compile(Commands.isa_word_pattern(target)).matcher(shown)
+        var prev = 0
+        while (matcher.find()) {
+          buf ++= escape(shown.substring(prev, matcher.start))
+          buf ++= "<b>"
+          buf ++= escape(shown.substring(matcher.start, matcher.end))
+          buf ++= "</b>"
+          prev = matcher.end
+        }
+        buf ++= escape(shown.substring(prev))
       }
-      buf ++= escape(shown.substring(prev))
+      catch { case _: Throwable => buf ++= escape(shown) }
+      buf ++= "</html>"
+      buf.toString
     }
-    catch { case _: Throwable => buf ++= escape(shown) }
-    buf ++= "</html>"
-    buf.toString
   }
 }
 

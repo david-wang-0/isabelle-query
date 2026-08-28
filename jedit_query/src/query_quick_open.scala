@@ -48,6 +48,13 @@ object Query_Quick_Open {
     active = None
   }
 
+  /* A dialog that closed itself (ESC, a jump, focus moving away) must drop out
+     of the registry too, or `dismiss` keeps a disposed window alive. */
+  private[jedit_query] def forget(dialog: Query_Quick_Open): Unit = {
+    GUI_Thread.require {}
+    if (active.contains(dialog)) active = None
+  }
+
   def open(view: View): Unit = {
     GUI_Thread.require {}
     val index =
@@ -231,9 +238,14 @@ class Query_Quick_Open private[jedit_query] (view: View, index: Query_Index) {
   dialog.setLocationRelativeTo(view)
 
   /* A quick-open that survives losing focus is a window the user has to close;
-     it should behave like the popup it is. */
+     it should behave like the popup it is.  Only AFTER it has been focused
+     once, though: `setVisible` can bounce focus before the dialog settles, and
+     a dialog that closes itself on the way up is worse than one that lingers. */
+  @volatile private var was_focused = false
+
   dialog.addWindowFocusListener(new WindowAdapter {
-    override def windowLostFocus(evt: WindowEvent): Unit = close()
+    override def windowGainedFocus(evt: WindowEvent): Unit = was_focused = true
+    override def windowLostFocus(evt: WindowEvent): Unit = if (was_focused) close()
   })
 
   def close(): Unit = {
@@ -241,6 +253,7 @@ class Query_Quick_Open private[jedit_query] (view: View, index: Query_Index) {
     delay.revoke()
     dialog.setVisible(false)
     dialog.dispose()
+    Query_Quick_Open.forget(this)
   }
 
   def start(): Unit = {

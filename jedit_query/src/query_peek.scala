@@ -181,8 +181,6 @@ object Query_Peek {
     active = None
   }
 
-  def is_active: Boolean = active.isDefined
-
   private def open(view: View, origin: Component, point: Point, content: Content): Unit = {
     GUI_Thread.require {}
     dismiss()
