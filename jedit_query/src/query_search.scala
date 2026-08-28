@@ -24,7 +24,7 @@ hit looks like.
 package isabelle.jedit_query
 
 
-import isabelle.query.Usage
+import isabelle.query.{Commands, Entry, Render, Theory_Section, Usage}
 
 import java.nio.file.{Path => JPath}
 
@@ -45,11 +45,23 @@ object Query_Search {
 
   /* One line of source.  `text` is the RAW line, as the engine returns it:
      file form, `\<alpha>` and all.  Decoding for display is the view's
-     business. */
-  final case class Hit(theory: String, path: Option[JPath], line: Int, text: String)
+     business.
 
-  final case class Group(theory: String, path: Option[JPath], hits: List[Hit]) {
+     `note` marks a row that is ABOUT the source rather than of it — the
+     "[+N more lines]" tail of a truncated declaration body.  It still carries
+     a line, so it still navigates; it is only rendered differently. */
+  final case class Hit(theory: String, path: Option[JPath], line: Int, text: String,
+    note: Boolean = false)
+
+  /* `label`, when set, replaces the bare theory name in the caption: a
+     declaration's group says what the ENGINE says about it
+     (`Render.format_name_line`), extent and all, rather than repeating the
+     theory a third time. */
+  final case class Group(theory: String, path: Option[JPath], hits: List[Hit],
+    label: String = ""
+  ) {
     def count: Int = hits.length
+    def caption: String = if (label.nonEmpty) label else theory
   }
 
   /* `label` is what the result-set root says; `name` is what a preview
@@ -90,20 +102,83 @@ object Query_Search {
       case _ => fallback
     }
 
+  /* --- resolving a name to the declaration that owns it --- */
+
+  /* `entry_by_name` is a direct map read.  The fallback is the ENGINE's own
+     rule, not a new one: `Commands.cmd_show` resolves a name that some
+     declaration BINDS — a `shows` conjunct, an introduction rule, a datatype
+     constructor, a `.simps` — to the declaration binding it, and phrases how
+     through `Commands.binding_kinds`.  Refusing that here would make "Show
+     declaration of foo.simps" answer nothing for a name Isabelle genuinely
+     minted.  The scan is linear over already-parsed entries and only runs when
+     the map misses. */
+  final case class Found(theory: String, entry: Entry, how: String)
+
+  def resolve(snapshot: Query_Index.Snapshot, name: String): Option[Found] =
+    snapshot.definition(name).map { case (theory, entry) => Found(theory, entry, "") }
+      .orElse(
+        snapshot.sections.iterator.flatMap(sec =>
+          sec.entries.iterator.flatMap(e =>
+            e.bindings.iterator.collect {
+              case (n, kind) if n == name =>
+                Found(sec.theory, e, Commands.binding_kinds.getOrElse(kind, "bound by"))
+            })).nextOption())
+
   /* The declaration site, when the project declares the name at all.  A
      citation of something the project only IMPORTS (`mono`, `refl`) resolves
      to nothing, and that is a legitimate answer — the usages are still real. */
   def definition_hit(snapshot: Query_Index.Snapshot, name: String): Option[Hit] =
-    snapshot.definition(name).map { case (theory, entry) =>
-      Hit(theory, snapshot.path_of(theory), entry.thy_line,
-        source_line(snapshot, theory, entry.thy_line, entry.text))
+    resolve(snapshot, name).map { found =>
+      Hit(found.theory, snapshot.path_of(found.theory), found.entry.thy_line,
+        source_line(snapshot, found.theory, found.entry.thy_line, found.entry.text))
     }
 
   private def kind_of(snapshot: Query_Index.Snapshot, name: String): String =
-    snapshot.definition(name) match {
-      case Some((theory, entry)) => " (" + entry.tag + " in " + theory + ")"
+    resolve(snapshot, name) match {
+      case Some(found) => " (" + found.entry.tag + " in " + found.theory + ")"
       case None => ""
     }
+
+
+  /* --- the declaration, as lines --- */
+
+  /* How many source lines of a declaration the panel shows before it says how
+     many it left.  A `definition` is three lines and a big induction is three
+     hundred, and the second must not fill the tree; the tail row still
+     navigates, so nothing is unreachable. */
+  val BODY_LIMIT: Int = 40
+
+  /* `thy_line .. body_end` — the declaration and its proof, which is what
+     "show me the definition" means.  Deliberately NOT `src_start`: a leading
+     `text \<open>…\<close>` block is documentation and can be longer than the
+     lemma, and the group caption already names the full `[src A..B]` extent
+     the engine computed.
+
+     Every row is a REAL source line with its own number, rather than the
+     engine's rendered `show` output.  `Render.render_entry` interleaves
+     synthetic lines (a header, `[+N more proof lines]`) that have no line to
+     jump to, and a tree whose rows navigate cannot afford rows that do not. */
+  def body_hits(sec: Theory_Section, e: Entry, limit: Int = BODY_LIMIT): List[Hit] = {
+    val path = Some(sec.path)
+    if (e.thy_line <= 0) List(Hit(sec.theory, path, 1, e.text))
+    else {
+      val start = e.thy_line
+      val stop = {
+        val body_end = if (e.body_end_line != 0) e.body_end_line else e.thy_end
+        (if (body_end >= start) body_end else start) min sec.lines.length
+      }
+      val shown = if (limit > 0) (start + limit - 1) min stop else stop
+      val rows =
+        (for ((text, i) <- sec.slice(start, shown).zipWithIndex)
+          yield Hit(sec.theory, path, start + i, text)).toList
+      val rest = stop - shown
+      if (rest <= 0) rows
+      else
+        rows :+ Hit(sec.theory, path, shown + 1,
+          "[+" + rest.toString + " more line" + (if (rest == 1) "" else "s") +
+            ", to " + stop.toString + "]", note = true)
+    }
+  }
 
   /* Must run on the index's worker thread, inside `with_namespace`: whether a
      line that says `auto` is a citation or a method invocation depends on the
@@ -123,22 +198,40 @@ object Query_Search {
       definition = definition_hit(snapshot, name),
       note = note)
 
-  /* Where a name is declared.  A direct lookup on the index — no scan — and
-     the same node model, so the panel's navigation is unchanged.  The IDE
-     phase replaces the leaf's preview with the declaration and its body; the
-     shape of the answer does not change with it. */
+  /* Where a name is declared, and what it says there.  Same three levels and
+     the same navigation as a usages set — only the leaves differ: the
+     declaration's own source lines instead of the lines that cite it, which is
+     why the kind opens EXPANDED.  The group caption is the engine's
+     `format_name_line`, extent annotation and all, so the panel and
+     `isabelle query find --names` describe a declaration identically. */
   def definition(
     snapshot: Query_Index.Snapshot,
     name: String,
-    note: String = ""
+    note: String = "",
+    limit: Int = BODY_LIMIT
   ): Result = {
-    val hit = definition_hit(snapshot, name)
+    val found = resolve(snapshot, name)
+    val groups =
+      for {
+        f <- found.toList
+        sec <- snapshot.section(f.theory).toList
+      } yield Group(f.theory, Some(sec.path), body_hits(sec, f.entry, limit),
+        label = Render.format_name_line(sec, f.entry))
+
+    val how =
+      found.map(_.how).filter(_.nonEmpty) match {
+        case Some(how) => " " + Render.EM_DASH + " " + how + " " + found.get.entry.name
+        case None => ""
+      }
+
     Result(
       kind = Result_Kind.Definition,
-      label = "definition of " + name + kind_of(snapshot, name),
+      label = "definition of " + name + kind_of(snapshot, name) + how,
       name = name,
-      groups = hit.toList.map(h => Group(h.theory, h.path, List(h))),
-      definition = hit,
+      groups = groups,
+      /* The result-set node itself jumps to the declaration line, not to the
+         first row of the body, which for a bound name is the same thing. */
+      definition = definition_hit(snapshot, name),
       note = note)
   }
 }

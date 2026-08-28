@@ -164,6 +164,17 @@ object Query_Dockable {
   private def plural(n: Int, one: String, many: String): String =
     n.toString + " " + (if (n == 1) one else many)
 
+  /* The result-set caption counts what the kind actually holds: a usages set
+     counts hits and the theories they fall in, a declaration counts the source
+     lines it is showing — "19 hits in 1 theory" for one lemma is a miscount
+     dressed as a summary. */
+  private def count_caption(kind: Query_Search.Result_Kind, c: Counter): String =
+    kind match {
+      case Query_Search.Result_Kind.Definition => plural(c.hits, "line", "lines")
+      case _ =>
+        plural(c.hits, "hit", "hits") + " in " + plural(c.groups, "theory", "theories")
+    }
+
   private def escape(s: String): String = {
     val buf = new StringBuilder
     for (c <- s) {
@@ -187,6 +198,9 @@ object Query_Dockable {
   def hit_html(name: String, hit: Query_Search.Hit): String = {
     val shown = Symbol.decode(hit.text).trim
     val target = Symbol.decode(name)
+    /* A note is ABOUT the source ("[+17 more lines, to 94]"), so it carries no
+       line number and nothing in it is a citation to highlight. */
+    if (hit.note) return "<html><i>" + escape(shown) + "</i></html>"
     val buf = new StringBuilder("<html>")
     buf ++= hit.line.toString
     buf ++= ": "
@@ -238,8 +252,10 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
       value match {
         case node: DefaultMutableTreeNode =>
           node.getUserObject match {
-            case hit: Query_Search.Hit => hit.line.toString + ": " + Symbol.decode(hit.text).trim
-            case group: Query_Search.Group => group.theory
+            case hit: Query_Search.Hit =>
+              if (hit.note) Symbol.decode(hit.text).trim
+              else hit.line.toString + ": " + Symbol.decode(hit.text).trim
+            case group: Query_Search.Group => group.caption
             case result: Query_Search.Result => result.label
             case null => ""
             case obj => obj.toString
@@ -266,13 +282,11 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
           node.getUserObject match {
             case result: Query_Search.Result =>
               setFont(bold_font)
-              val c = Query_Dockable.count(node)
               setText(result.label + " -- " +
-                Query_Dockable.plural(c.hits, "hit", "hits") + " in " +
-                Query_Dockable.plural(c.groups, "theory", "theories"))
+                Query_Dockable.count_caption(result.kind, Query_Dockable.count(node)))
             case group: Query_Search.Group =>
               setFont(bold_font)
-              setText(group.theory + " (" + Query_Dockable.count(node).hits.toString + ")")
+              setText(group.caption + " (" + Query_Dockable.count(node).hits.toString + ")")
             case hit: Query_Search.Hit =>
               setFont(plain_font)
               setText(Query_Dockable.hit_html(result_name(node), hit))

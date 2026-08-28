@@ -46,8 +46,8 @@ object Query_Actions {
 
   /* Where the name at the caret is declared, as a result set in the panel —
      the same node model and the same navigation as a usages set, opened
-     expanded because it is one line. */
-  def show_declaration(view: View): Unit = {
+     EXPANDED because showing it is the whole request. */
+  def find_definition(view: View): Unit = {
     GUI_Thread.require {}
     caret_word(view) match {
       case Some((buffer, word)) => Query_Dockable.find_definition(view, buffer, word.base)

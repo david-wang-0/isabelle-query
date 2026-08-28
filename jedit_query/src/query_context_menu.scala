@@ -80,7 +80,7 @@ object Query_Context_Menu {
             item("Find external usages of " + word.base) {
               Query_Dockable.find_usages(view, buffer, word.base, external = true)
             },
-            item("Show declaration of " + word.base) {
+            item("Find definition of " + word.base) {
               Query_Dockable.find_definition(view, buffer, word.base)
             })
       }

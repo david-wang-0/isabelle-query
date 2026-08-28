@@ -22,7 +22,7 @@ plugin.isabelle.jedit_query_plugin.Plugin.menu= \
   - \
   isabelle-project-query.find-usages \
   isabelle-project-query.find-external-usages \
-  isabelle-project-query.show-declaration \
+  isabelle-project-query.find-definition \
   - \
   isabelle-project-query.navigate-backwards \
   isabelle-project-query.navigate-forwards \
@@ -35,7 +35,7 @@ isabelle-project-query.dock-position=bottom
 
 isabelle-project-query.find-usages.label=Find usages at caret
 isabelle-project-query.find-external-usages.label=Find external usages at caret
-isabelle-project-query.show-declaration.label=Show declaration at caret
+isabelle-project-query.find-definition.label=Find definition at caret
 isabelle-project-query.show-panel.label=Show Project Query panel
 isabelle-project-query.refresh-index.label=Refresh project index
 
