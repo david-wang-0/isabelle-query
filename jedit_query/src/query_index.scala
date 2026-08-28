@@ -35,6 +35,18 @@ keyword union: it is built root-wide from every theory HEADER before any body
 is parsed, so a `keywords` clause typed into an unsaved buffer is only picked up
 after a save.  The union's identity is part of the cache key, so when it does
 change every section is reparsed rather than half of them being wrong.
+
+The size guard is the fourth decision.  `root_of` walks up to the NEAREST ROOT,
+which is the right answer to "which project is this buffer in" but makes the
+eagerness unbounded: an AFP checkout carries a `thys/ROOT` of its own, so a
+buffer that resolves to it means ten thousand theories, and discovery alone
+reads every one of their headers — serially, in the import closure — before a
+single body is parsed.  So the guard runs BEFORE discovery, on the only measure
+available that costs no reads: how many `.thy` files lie under the root.  It
+over-counts (an orphan theory is never loaded), which is the safe direction for
+an upper bound.  Over the limit the index REFUSES rather than truncating: a
+partial index answers "no usages" for a name that is used, and a panel that
+silently under-reports is worse than one that says it will not answer.
 */
 
 package isabelle.jedit_query
@@ -79,6 +91,30 @@ object Query_Index {
   }
 
   final case class Failed(message: String) extends Status
+
+
+  /* ------------------------------------------------------------------ */
+  /* the size guard                                                     */
+  /* ------------------------------------------------------------------ */
+
+  /* Chosen against the two corpora that matter: the distribution's `src/HOL`
+     is 1451 theories and indexes in about four seconds on this machine, and
+     must keep working; an AFP checkout's own `thys/ROOT` is 10336 and must
+     not.  Zero or less means no limit, for someone who knows what they are
+     asking for. */
+  val LIMIT_DEFAULT: Int = 2000
+
+  def limit: Int = Query_Options.integer("index-limit", LIMIT_DEFAULT)
+
+  def over_limit(candidates: Int, limit: Int): Boolean = limit > 0 && candidates > limit
+
+  /* Both ways out, in the message, because the caption is the only place the
+     user will look. */
+  def limit_message(name: String, candidates: Int, limit: Int): String =
+    "project too large: " + candidates.toString + " theories under " + name +
+      ", limit " + limit.toString +
+      " -- raise " + Query_Options.property_name("index-limit") +
+      ", or mark the directory you mean with a .isabelle-query file"
 
 
   /* ------------------------------------------------------------------ */
@@ -281,10 +317,29 @@ final class Query_Index private[jedit_query] (val root: JPath) {
     val start = System.currentTimeMillis()
     set(Query_Index.Indexing(0, 0), progress)
 
+    /* Before discovery, on a directory walk that reads nothing. */
+    val cap = Query_Index.limit
+    if (cap > 0) {
+      val on_disk =
+        Discovery.walk(root, p => p.getFileName.toString.endsWith(".thy")).length
+      if (Query_Index.over_limit(on_disk, cap)) {
+        val why = Query_Index.limit_message(name, on_disk, cap)
+        set(Query_Index.Failed(why), progress)
+        error(why)
+      }
+    }
+
     val plan = Theory.plan(root)
     val total = plan.found.length
     if (total == 0) {
       val why = CLI.diagnose_empty_root(root)
+      set(Query_Index.Failed(why), progress)
+      error(why)
+    }
+    /* Again on the discovered set: a ROOT may reach theories that do not live
+       under the root directory the walk covered. */
+    if (Query_Index.over_limit(total, cap)) {
+      val why = Query_Index.limit_message(name, total, cap)
       set(Query_Index.Failed(why), progress)
       error(why)
     }

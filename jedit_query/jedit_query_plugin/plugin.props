@@ -45,3 +45,8 @@ isabelle-project-query.gesture.enter=current
 
 #keep earlier result sets as siblings rather than replacing them
 isabelle-project-query.stack=true
+
+#how many theories a project may hold before the index refuses to build it.
+#The distribution's src/HOL is ~1450 and must keep working; an AFP checkout's
+#own thys/ROOT is ~10000 and must not.  0 or less means no limit.
+isabelle-project-query.index-limit=2000

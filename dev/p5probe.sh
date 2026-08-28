@@ -43,6 +43,20 @@ echo
 # registered component's module, so a plain scala_build is all it takes.
 isabelle scala_build || exit $?
 
+# The jar jEdit's own PluginJAR loader scans is a DYNAMIC module: scala_build
+# does not produce it, `isabelle.jedit.JEdit_Main` does, at start-up.  Build it
+# here.  Section 7 of the probe reads its resources back out of it, and a check
+# that quietly skips itself when its input is missing -- while the script still
+# prints OK -- is not a check at all.
+isabelle scala -e '{ isabelle.Isabelle_System.init();
+  isabelle.Scala_Project.plugins.foreach(p => p.context().build()) }' || exit $?
+
+SHIM="$(isabelle getenv -b JEDIT_SETTINGS)/jars/isabelle_jedit_query.jar"
+if [ ! -f "$SHIM" ]; then
+  echo "p5probe: the plugin shim jar was not built: $SHIM" >&2
+  exit 1
+fi
+
 CLASSES="$REPO/.dev/p5probe-classes"
 rm -rf "$CLASSES"
 mkdir -p "$CLASSES" || exit 2

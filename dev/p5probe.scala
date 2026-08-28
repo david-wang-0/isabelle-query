@@ -253,8 +253,13 @@ object P5_Probe {
     Paths.get(Isabelle_System.getenv("JEDIT_SETTINGS"))
       .resolve("jars").resolve("isabelle_jedit_query.jar")
 
+  /* A FAILURE, not a skip: the shim jar is what jEdit actually loads, and
+     `dev/p5probe.sh` builds it before running this.  Skipping the section while
+     the script still reported OK is how a broken `dockables.xml` would have
+     reached a start-up. */
+  check("the plugin shim jar is built", Files.isRegularFile(shim), shim.toString)
+
   if (!Files.isRegularFile(shim)) {
-    println("  skip  plugin jar not built: " + shim.toString)
     println("        (isabelle scala -e '{ isabelle.Isabelle_System.init(); " +
       "isabelle.Scala_Project.plugins.foreach(p => p.context().build()) }')")
   }
