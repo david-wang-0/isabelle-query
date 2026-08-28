@@ -1,0 +1,17 @@
+(* The session declares ONE theory.  Demo_Ops, Demo_Types and Demo_Legacy
+   arrive through the `imports` closure of Demo_Proofs -- exactly the set
+   `isabelle build` compiles, and exactly the set `query` loads.
+
+   Demo_Sketch.thy sits in this directory and is imported by nothing, so it is
+   an orphan: the build never reads it and `query` never lists it.
+
+   quick_and_dirty is on because Demo_Proofs has a deliberate `sorry` for the
+   `sorry` verb to find; without it a batch build refuses to cheat. *)
+
+session Demo_Core = HOL +
+  description \<open>
+    Structure, usage and proof-shape demonstrations for `isabelle query`.
+  \<close>
+  options [quick_and_dirty, document = false]
+  theories
+    Demo_Proofs

@@ -1,0 +1,14 @@
+(* The second session, so that `summary --by-session` has something to
+   aggregate.  It declares one theory again; Demo_Sites arrives by import.
+
+   Its theories import Demo_Core's, which is a CROSS-SESSION import: `query`
+   does not follow it, so Demo_Proofs is listed once, under Demo_Core. *)
+
+session Demo_Extras = Demo_Core +
+  description \<open>
+    Locale instantiation sites, code-equation sites, and one construct the
+    Python oracle cannot index.
+  \<close>
+  options [document = false]
+  theories
+    Demo_Code
