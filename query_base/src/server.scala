@@ -229,15 +229,23 @@ object Query_Server {
         val known = sections.map(_.path)
         val print1 = fingerprint(root, known)
         checked_ms = System.currentTimeMillis() - t0
-        if (print.contains(print1) && sections.nonEmpty) { reparsed = 0; return }
 
-        val t1 = System.currentTimeMillis()
-        /* Before discovery, which reads a header per theory: the walk above
-           already counted the candidates, and over-counting (an orphan theory
-           is never loaded) is the safe direction for an upper bound. */
+        /* The cap is checked on EVERY refresh, before the unchanged-sources
+           short cut, and that ordering is the point: a cap that only applied
+           when something had to be reparsed would let the FIRST request
+           through and refuse the second, or — worse — silently serve a root
+           the caller had just asked not to be served.  The limit belongs to
+           the request, not to the index.
+
+           The count comes from the walk above, which reads nothing.  It
+           over-counts (an orphan theory is never loaded), and over-counting
+           is the safe direction for an upper bound. */
         val candidates = print1.files.keysIterator.count(_.endsWith(".thy"))
         if (limit > 0 && candidates > limit) error(limit_message(root, candidates, limit))
 
+        if (print.contains(print1) && sections.nonEmpty) { reparsed = 0; return }
+
+        val t1 = System.currentTimeMillis()
         val plan = Theory.plan(root)
         if (plan.found.isEmpty) error(CLI.diagnose_empty_root(root))
         if (limit > 0 && plan.found.length > limit)
@@ -327,25 +335,49 @@ object Query_Server {
      answerable if exactly one request is in flight. */
   private val engine_lock = new Object
 
-  final case class Result(exit: Int, out: String, err: String)
+  final case class Result(exit: Int, out: String, err: String, index: Option[Index],
+    refresh_ms: Long)
 
-  def run(index: Option[Index], argv: List[String], cwd: Option[String],
-    env_root: Option[String]
+  /* The warm index is provided LAZILY, for whatever root the run resolves.
+
+     Eagerly warming a root guessed from the client's working directory was
+     wrong in a way worth recording: `-R` lives in the `argv`, so the guess and
+     the run disagreed whenever a caller passed one — and the guessed root
+     could refuse (empty, or over the cap) for a query that never went near it.
+     Only `CLI.Session.active_root` knows the answer, and it asks this function
+     with it in hand.
+
+     The cost is that a build happens under the engine lock, which the parse
+     does not need.  Correctness first: the alternative is guessing again. */
+  def run(argv: List[String], cwd: Option[String], env_root: Option[String],
+    limit: Int
   ): Result = {
     val out = new StringWriter
     val err = new StringWriter
+    var used: Option[Index] = None
+    var refresh_ms = 0L
     val rc =
       engine_lock.synchronized {
         /* Back to the state a fresh process starts in, so nothing an earlier
-           request bound — a `shape census`'s unconditional broad union above
-           all — can be read by this one. */
+           request bound — the corpus-wide shape view's unconditional broad
+           union above all — can be read by this one. */
         Namespace.use_census_namespace()
         CLI.run_result(argv, new Out(out), new Out(err), s => {
           for (d <- cwd) s.ambient_root = () => CLI.default_root_from(Paths.get(d), env_root)
-          for (ix <- index) s.index_provider = r => { val p = ix.provide(r); p.foreach(_ => ix.used()); p }
+          s.index_provider = root =>
+            if (!Files.isDirectory(root)) None
+            else {
+              val ix = index_for(root)
+              val t0 = System.currentTimeMillis()
+              ix.refresh(limit)
+              refresh_ms += System.currentTimeMillis() - t0
+              ix.used()
+              used = Some(ix)
+              ix.provide(root)
+            }
         })
       }
-    Result(rc, out.toString, err.toString)
+    Result(rc, out.toString, err.toString, used, refresh_ms)
   }
 }
 
@@ -421,33 +453,34 @@ object Query_Server_Protocol {
         val cwd = cwd_of(json)
         val env_root = env_root_of(json)
 
-        val index =
-          JSON.string(json, "index_id").filter(_.nonEmpty) match {
-            case Some(id) =>
-              Some(Query_Server.index_by_id(id).getOrElse(error("no such index: " + id)))
-            case None =>
-              val root = root_of(json, cwd, env_root)
-              if (Files.isDirectory(root)) Some(Query_Server.index_for(root)) else None
+        /* An explicit `index_id` pins the root: the caller has opened one and
+           wants THAT one, so `-R` elsewhere is a mistake worth naming rather
+           than quietly honouring. */
+        val pinned =
+          JSON.string(json, "index_id").filter(_.nonEmpty).map(id =>
+            Query_Server.index_by_id(id).getOrElse(error("no such index: " + id)))
+        val argv1 =
+          pinned match {
+            case Some(ix) if !argv.exists(a => a == "-R" || a.startsWith("-R") ||
+              a == "--root" || a.startsWith("--root=")) =>
+              List("-R", ix.root.toString) ::: argv
+            case _ => argv
           }
-        /* The refresh runs OUTSIDE the engine lock: parsing reads no global
-           table, and a long reparse must not stop another project's query. */
-        val t0 = System.currentTimeMillis()
-        for (ix <- index) ix.refresh(limit_of(json))
-        val t1 = System.currentTimeMillis()
 
-        val res = Query_Server.run(index, argv, cwd, env_root)
-        val t2 = System.currentTimeMillis()
+        val t0 = System.currentTimeMillis()
+        val res = Query_Server.run(argv1, cwd, env_root, limit_of(json))
+        val total = System.currentTimeMillis() - t0
         JSON.Object(
           "exit" -> res.exit,
           "output" -> res.out,
           "error" -> res.err,
-          "index_id" -> index.map(_.id).getOrElse(""),
+          "index_id" -> res.index.map(_.id).getOrElse(""),
           /* What the answer cost inside the server, split at the seam that
-             matters: how long the staleness recheck took, and how long the
-             query itself did.  A benchmark that cannot see this split cannot
-             tell a slow project from a slow query. */
-          "refresh_ms" -> (t1 - t0),
-          "run_ms" -> (t2 - t1),
+             matters: how long the staleness recheck and any reparse took, and
+             how long the rest of the query did.  A benchmark that cannot see
+             this split cannot tell a slow project from a slow query. */
+          "refresh_ms" -> res.refresh_ms,
+          "run_ms" -> (total - res.refresh_ms),
           "component_id" -> Query_Server.component_id)
     }
   }
