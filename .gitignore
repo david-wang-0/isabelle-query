@@ -55,3 +55,4 @@ data/
 
 # Compiled component output (isabelle scala_build regenerates it).
 query_base/lib/classes/
+jedit_query/lib/classes/

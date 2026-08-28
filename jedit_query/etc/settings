@@ -1,0 +1,4 @@
+# -*- shell-script -*- :mode=shellscript:
+
+JEDIT_QUERY_HOME="$COMPONENT"
+JEDIT_QUERY_JAR="$JEDIT_QUERY_HOME/lib/classes/isabelle_query_plugin.jar"

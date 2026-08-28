@@ -1,0 +1,13 @@
+title = Isabelle/jEdit Query
+module = $JEDIT_QUERY_JAR
+requirements = \
+  env:ISABELLE_SCALA_JAR \
+  env:JEDIT_JARS \
+  env:ISABELLE_QUERY_JAR
+sources = \
+  src/jedit_query_plugin.scala \
+  src/query_word.scala \
+  src/query_index.scala \
+  src/query_search.scala
+services = \
+  isabelle.jedit_query.JEdit_Query_Plugin
