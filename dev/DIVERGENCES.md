@@ -404,3 +404,52 @@ Run UNPINNED, the two implementations agree on that line and on the whole of
 including the stderr warning.  So the step-down logic is verified equal; it is
 simply not what the pinned gate measures, and pinning both sides is what makes
 the gate compare one table against itself.
+
+## D12 — `\w` is not the same character class in Python and Java
+
+**Cost: 1 record in 306,525 over the whole AFP, in two derived count fields; 0
+on all seven gate corpora.**
+
+```isabelle
+  \<comment> \<open>Then (u²+v²)*D = (cy*u-(cx-bx)*v)² ...\<close>   -- Feuerbach/Feuerbach:359
+```
+
+The engine's lexical atom is
+
+```
+ISA_WORD_CHAR = (?:\\<\^?\w+>|[\w'])
+```
+
+and every scanner built on it inherits whatever `\w` means.  The two dialects
+disagree in **both directions**:
+
+| character | category | Python `\w` | Java `\w` (`UNICODE_CHARACTER_CLASS`) |
+|---|---|---|---|
+| `²` U+00B2, `½` U+00BD | `No` | **yes** | no |
+| `Ⅸ` U+2168 | `Nl` | yes | yes |
+| combining acute U+0301 | `Mn` | no | **yes** |
+| `é`, `α` | `Ll` | yes | yes |
+
+Python's `\w` is `str.isalnum() or '_'`, i.e. `L* ∪ Nd ∪ Nl ∪ No ∪ _`; Java's is
+`\p{Alpha} ∪ \p{M} ∪ \p{Nd} ∪ \p{Pc} ∪ join controls`.  So `\p{No}` is a word
+character for the reference and not for the rewrite, and a combining mark is
+one for the rewrite and not for the reference.
+
+Only one thing in the whole AFP notices.  `u²` is ONE proposition token to the
+reference and two (`u`, `²`) here, so `Feuerbach/special` reports
+`proof_tokens` 2,151 against the oracle's 2,149 — the line has three `²`, but
+`)²` splits into two tokens on both sides, so only the two glued to a letter
+move.  No entry NAME is affected (the P1 entry-set dump is byte-identical over
+both corpora), and no gate corpus contains such a character at all.
+
+Not fixed here, and the reason is proportion.  A faithful `\w` means a small
+regex-dialect translation layer in `Py.compile` — `\w` → `[\p{L}\p{N}_]`,
+`\W` → its complement, and `\s` → Python's `str.isspace()` set, which also
+differs (Python calls `\x1c`–`\x1f` whitespace and Unicode does not).  `\b`
+cannot be rewritten as a class at all, because Java derives it from its own
+`\w`.  That layer sits under the deepest lexical primitive in the engine, so
+it changes what a NAME is, what `grep` matches and what the call graph sees,
+and it needs the P1 entry-set gate re-run over both corpora to land.  For two
+tokens in one AFP proof, that is a P7 change with its own verification, not a
+P4 one.
+
