@@ -263,6 +263,12 @@ object CLI {
       else pos_args += tok
     }
 
+    /* `-h` / `--version` fire while the arguments are being READ and exit, so
+       they override whatever else is on the line — including a missing
+       required positional.  `query grep -h` must print help, not complain
+       that PATTERN is absent. */
+    if (ns.flags("help") || ns.flags("version")) return ns
+
     /* Positionals are distributed over the declared slots in order: a fixed
        slot takes one, and the single variable slot takes what is left over
        after the fixed ones behind it are satisfied. */
@@ -645,6 +651,17 @@ object CLI {
   /* dispatch                                                           */
   /* ------------------------------------------------------------------ */
 
+  /* A `type=int` argparse option rejects a non-integer with exit 2; silently
+     falling back to the default would answer a different question from the one
+     asked, which is the failure mode this tool exists to avoid. */
+  private def int_arg(ns: Ns, dest: String, spelling: String, default: Int): Int =
+    ns.str(dest) match {
+      case None => default
+      case Some(v) =>
+        Py.parse_int(v).getOrElse(
+          usage_error(s"argument $spelling: invalid int value: '$v'"))
+    }
+
   def flags_of(ns: Ns): Flags = {
     var mode = "first"
     if (ns.bool("all")) mode = "all"
@@ -652,8 +669,7 @@ object CLI {
     if (ns.bool("count")) mode = "count"
     val comments =
       if (ns.bool("no_comments")) "off" else if (ns.bool("comments_only")) "only" else "on"
-    val context =
-      ns.str("context").flatMap(Py.parse_int).getOrElse(2)
+    val context = int_arg(ns, "context", "-U/--context", 2)
     Flags(mode = mode, verbatim = ns.bool("verbatim"), statement = ns.bool("statement"),
       comments = comments, context = context, with_comments = ns.bool("with_comments"),
       recursive = ns.bool("recursive"), external = ns.bool("external"))
@@ -687,7 +703,7 @@ object CLI {
           if (ns.bool("entry")) "entry" else if (ns.bool("blocks")) "blocks" else "nearest"
         Commands.cmd_enclosing(out, err, load_sections(s, ns), ns.pos("locus"), mode)
       case "largest" =>
-        val top = ns.str("top").flatMap(Py.parse_int).getOrElse(20)
+        val top = int_arg(ns, "top", "-N/--top", 20)
         Commands.cmd_largest(out, load_sections(s, ns, parse_policy = "syntax"), top)
       case "find" =>
         val patterns = ns.pos("pattern")

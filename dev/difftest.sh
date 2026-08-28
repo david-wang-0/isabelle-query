@@ -77,6 +77,40 @@ if [ ${#corpora[@]} -eq 0 ]; then
 fi
 
 # --------------------------------------------------------------------------
+# Fixtures — the roots and streams the global-behaviour cases need.  Built
+# here rather than named in the matrix so the script owns nothing outside its
+# own scratch directory.
+# --------------------------------------------------------------------------
+
+fixtures=$outdir/fixtures
+FIX_EMPTY=$fixtures/empty
+FIX_NOROOT=$fixtures/rootless
+FIX_MARKER=$fixtures/marked
+FIX_MD=$fixtures/notes.md
+mkdir -p "$FIX_EMPTY" "$FIX_NOROOT" "$FIX_MARKER/sub"
+cat >"$FIX_NOROOT/Solo.thy" <<'THY'
+theory Solo
+  imports Main
+begin
+
+text \<open>A theory in a directory with no ROOT: found by the fallback glob.\<close>
+
+definition two :: nat where "two = 2"
+
+lemma two_pos: "two > 0" by (simp add: two_def)
+
+end
+THY
+cp "$FIX_NOROOT/Solo.thy" "$FIX_MARKER/sub/Solo.thy"
+printf 'sub\n' >"$FIX_MARKER/.isabelle-query"
+cat >"$FIX_MD" <<'MD'
+# notes
+
+The entry grammar does not apply to prose, so `grep` over this file is
+plain line matching with no owning-entry column.
+MD
+
+# --------------------------------------------------------------------------
 # Subject derivation — everything below comes out of the oracle, per corpus.
 # --------------------------------------------------------------------------
 
@@ -119,16 +153,26 @@ derive_subjects() {
   MID=$(( (LEMMA_LO + LEMMA_HI) / 2 ))
   [ "$MID" -lt "$LEMMA_LO" ] && MID=$LEMMA_LO
 
-  # A file path, for the path-form positionals.
-  THY1_PATH=$(run_oracle -R "$corpus" grep 'theory' "$THY1" --names 2>/dev/null |
-                head -1 | awk '{print $1}' | sed 's/:[0-9]*$//')
+  # A real path to THY1, for the path-form positionals, and a slice of it for
+  # the stdin cases.  The SUBJECT is still oracle-derived; only where its file
+  # sits on disk is a filesystem fact.
+  THY1_PATH=$(find "$corpus" -name "$THY1.thy" -print -quit 2>/dev/null)
+  [ -z "$THY1_PATH" ] && THY1_PATH=$FIX_NOROOT/Solo.thy
+  STDIN_FILE=$outdir/stdin.thy
+  head -400 "$THY1_PATH" >"$STDIN_FILE"
 }
 
 # --------------------------------------------------------------------------
 # The matrix.  One `c ID ARG...` per case.
 # --------------------------------------------------------------------------
 
-c() { local id=$1; shift; printf '%s' "$id"; printf '\t%s' "$@"; printf '\n'; }
+# A case record is `ID <TAB> MODE <TAB> ARG...`.  MODE says HOW to run the two
+# sides, which is the only thing the global-behaviour cases need that the plain
+# ones do not: `root` prepends `-R CORPUS`, `plain` passes argv untouched, and
+# the rest exercise the ways a root is found or a stream is fed.
+c() { local id=$1; shift; printf '%s\troot' "$id"; printf '\t%s' "$@"; printf '\n'; }
+g() { local id=$1 mode=$2; shift 2
+      printf '%s\t%s' "$id" "$mode"; printf '\t%s' "$@"; printf '\n'; }
 
 emit_cases() {
   # -- summary ------------------------------------------------------------
@@ -247,13 +291,102 @@ emit_cases() {
   c show-substring         show "${NAME1:0:3}"
   c show-unknown           show zzz_no_such_name_zzz
 
+  # -- path positionals (the file/dir routing, not a bare theory name) -----
+  c grep-path              grep "$NAME1" "$THY1_PATH"
+  c grep-dir               grep "$NAME1" "$CORPUS"
+  c grep-non-thy           grep "the" "$FIX_MD"
+  c largest-path           largest -N 3 "$THY1_PATH"
+  c sorry-path             sorry "$THY1_PATH"
+  c summary-path           summary "$THY1_PATH"
+  c enclosing-path         enclosing "$THY1_PATH:2"
+  c lines-path             lines "$THY1_PATH" 2..5
+  c theory-path            theory "$THY1_PATH"
+
+  # -- more flag shapes ---------------------------------------------------
+  c theory-comments-only   theory "$THY1" --comments-only
+  c outline-comments-only  outline "$THY1" --comments-only
+  c find-a-names           find "$NAME1" -a --names
+  c find-markup            find '\\<^sub>'
+  c find-context0          find "$NAME1" -U 0
+  c show-context0          show "$NAME1" -U 0
+  c grep-cartouche         grep '\\<open>'
+  c grep-equals-context    find --context=4 "$NAME1"
+
+  # -- the argument grammar itself ----------------------------------------
+  c dashdash               grep -- "$NAME1"
+  c bundled-shorts         show "$NAME1" -ac
+  c excl-slice             show "$NAME1" -V --statement
+  c excl-drilldown         enclosing "$LEMMA_THY:$MID" -e -b
+  c excl-comments          theory "$THY1" --no-comments --comments-only
+  c bad-int-context        find "$NAME1" -U abc
+  c bad-int-top            largest -N abc
+  c unknown-flag           find "$NAME1" --no-such-flag
+  c ambiguous-prefix       find "$NAME1" --co
+  c and-with-comments      find --and --with-comments "$NAME1" "$NAME2"
+  c grep-names-comments    grep "$NAME1" --names --with-comments
+  c lines-colon-multi      lines "$THY1:1..3" "$THY1:10..12"
+  c summary-two-files      summary "$THY1" "$THYLAST"
+
   # -- global behaviour ---------------------------------------------------
-  c root-after-subcommand  summary -c -R "$CORPUS"
-  c bad-root               -R /no/such/root/xyz summary
+  g root-after-subcommand  plain  summary -c -R "$CORPUS"
+  g bad-root               plain  -R /no/such/root/xyz summary
+  g bad-root-not-dir       plain  -R "$THY1_PATH" summary
+  g empty-root             plain  -R "$FIX_EMPTY" summary
+  g rootless-glob          plain  -R "$FIX_NOROOT" summary
+  g rootless-glob-session  plain  -R "$FIX_NOROOT" summary -S
+  g env-root               env    summary -c
+  g env-root-find          env    find "$NAME1" --names
+  g cwd-discovery          cwd    summary -c
+  g cwd-discovery-outline  cwd    outline "$THY1"
+  g marker-file            marker summary -S
+  g stdin-grep             stdin  grep "lemma" -
+  g stdin-lines            stdin  lines - 1..8
+  g stdin-sorry            stdin  sorry -
+  # Four full renders of the corpus, so the producer is certain to fill the
+  # 64K pipe buffer even on the smallest one — otherwise the case is a race
+  # between a short write and `head` exiting, and both sides "pass" at 0.
+  g closed-stdout          pipe   find . . . . -a -V
 }
 
-# Cases whose argv already carries its own `-R`, so the driver must not add one.
-case_has_own_root() { case $1 in root-after-subcommand|bad-root) return 0 ;; *) return 1 ;; esac; }
+# --------------------------------------------------------------------------
+# Running one side of one case.  The MODE column decides how the root is found
+# and where stdin comes from; everything else is the same argv on both sides.
+# --------------------------------------------------------------------------
+
+exec_side() {
+  local side=$1 mode=$2; shift 2
+  local rc
+  case $mode in
+    root)   set -- -R "$CORPUS" "$@" ;;
+    stdin|pipe) set -- -R "$CORPUS" "$@" ;;
+    *)      ;;
+  esac
+  case $mode in
+    env)
+      if [ "$side" = oracle ]; then ISABELLE_QUERY_ROOT=$CORPUS run_oracle "$@" </dev/null
+      else ISABELLE_QUERY_ROOT=$CORPUS run_scala "$@" </dev/null; fi ;;
+    cwd)
+      if [ "$side" = oracle ]; then (cd "$CORPUS" && run_oracle "$@" </dev/null)
+      else (cd "$CORPUS" && run_scala "$@" </dev/null); fi ;;
+    marker)
+      if [ "$side" = oracle ]; then (cd "$FIX_MARKER" && run_oracle "$@" </dev/null)
+      else (cd "$FIX_MARKER" && run_scala "$@" </dev/null); fi ;;
+    stdin)
+      if [ "$side" = oracle ]; then run_oracle "$@" <"$STDIN_FILE"
+      else run_scala "$@" <"$STDIN_FILE"; fi ;;
+    pipe)
+      # A closed stdout mid-stream: the status under test is the PRODUCER'S,
+      # which is what `head` throwing away the rest of a long listing makes a
+      # daily occurrence.
+      if [ "$side" = oracle ]; then run_oracle "$@" </dev/null | head -3
+      else run_scala "$@" </dev/null | head -3; fi
+      rc=${PIPESTATUS[0]}
+      return "$rc" ;;
+    *)
+      if [ "$side" = oracle ]; then run_oracle "$@" </dev/null
+      else run_scala "$@" </dev/null; fi ;;
+  esac
+}
 
 # --------------------------------------------------------------------------
 # Pins
@@ -289,20 +422,15 @@ for CORPUS in "${corpora[@]}"; do
 
   while IFS=$'\t' read -r -a rec; do
     id=${rec[0]}
-    args=("${rec[@]:1}")
+    mode=${rec[1]}
+    args=("${rec[@]:2}")
     [ -n "$select_pat" ] && [[ $id != $select_pat ]] && continue
     total=$((total + 1))
 
-    if case_has_own_root "$id"; then
-      oargs=("${args[@]}")
-    else
-      oargs=(-R "$CORPUS" "${args[@]}")
-    fi
-
     o_out="$outdir/$tag.$id.oracle"; o_err="$outdir/$tag.$id.oracle.err"
     s_out="$outdir/$tag.$id.scala";  s_err="$outdir/$tag.$id.scala.err"
-    run_oracle "${oargs[@]}" >"$o_out" 2>"$o_err" </dev/null; o_rc=$?
-    run_scala "${oargs[@]}" >"$s_out" 2>"$s_err.raw" </dev/null; s_rc=$?
+    exec_side oracle "$mode" "${args[@]}" >"$o_out" 2>"$o_err"; o_rc=$?
+    exec_side scala "$mode" "${args[@]}" >"$s_out" 2>"$s_err.raw"; s_rc=$?
     strip_noise <"$s_err.raw" >"$s_err"; rm -f "$s_err.raw"
 
     same_out=0; cmp -s "$o_out" "$s_out" && same_out=1

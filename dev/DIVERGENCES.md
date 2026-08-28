@@ -207,6 +207,40 @@ FOL, `grep subst_all` reports the one live hit at `IFOL.thy:830` and, with
 raw `grep -rn` finds, correctly classified.
 
 Reproducing the crash would mean shipping a `TypeError` as a feature, so this
-is a deliberate divergence.  22 difftest cases are pinned on it (11 each on
+is a deliberate divergence.  26 difftest cases are pinned on it (13 each on
 FOL and ZF); the pins carry the exit-status difference (1 vs 0) as well as the
 stdout one.
+
+## D8 — a closed stdout is 141, always; the oracle sometimes says 120
+
+**Cost: 1 difftest case, on the smallest corpus.**
+
+`CONTRIBUTING.md` fixes the closed-stdout status at 141 — `128 + SIGPIPE`, what
+a shell reports for a process killed by SIGPIPE, so a pipeline and a `$?` check
+read the same as they do for `yes | head`.  The oracle implements it by
+catching `BrokenPipeError` around the command body, pointing fd 1 at
+`/dev/null` (so the interpreter's own shutdown flush has somewhere to go) and
+exiting 141.
+
+That only works when the failing write lands INSIDE the command body.  When the
+whole answer fits in the interpreter's buffers and the first failing write is
+the shutdown flush, the `except` never runs and Python exits 120 with the
+message the comment beside that handler describes as fixed:
+
+```
+$ query -R $QUERY_TEST_AFP/Abstract_Completeness find . . . . -a -V | head -3
+Exception ignored while flushing sys.stdout:
+BrokenPipeError: [Errno 32] Broken pipe
+$ echo ${PIPESTATUS[0]}
+120
+```
+
+Reproducibly 120 on `Abstract_Completeness` and reproducibly 141 on the other
+four standard corpora, for the same invocation — the status depends on how much
+output happened to be buffered when the reader went away, which is not
+something a caller can reason about.
+
+The rewrite writes through a `Writer` on the raw file descriptor and lets the
+`IOException` propagate, so the failure is caught wherever it happens and the
+status is 141 in both cases.  Pinned as `closed-stdout` on
+`Abstract_Completeness`.

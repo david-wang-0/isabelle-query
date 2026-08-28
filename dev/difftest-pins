@@ -28,6 +28,8 @@ grep-noop-n            FOL   D7   oracle TypeError in _build_line_index
 grep-alternation       FOL   D7   oracle TypeError in _build_line_index
 grep-anchored          FOL   D7   oracle TypeError in _build_line_index
 grep-no-match          FOL   D7   oracle TypeError in _build_line_index
+grep-dir               FOL   D7   oracle TypeError in _build_line_index
+grep-cartouche         FOL   D7   oracle TypeError in _build_line_index
 sorry-default          FOL   D7   oracle TypeError in _build_line_index
 sorry-count            FOL   D7   oracle TypeError in _build_line_index
 sorry-noop-n           FOL   D7   oracle TypeError in _build_line_index
@@ -40,6 +42,16 @@ grep-noop-n            ZF    D7   oracle TypeError in _build_line_index
 grep-alternation       ZF    D7   oracle TypeError in _build_line_index
 grep-anchored          ZF    D7   oracle TypeError in _build_line_index
 grep-no-match          ZF    D7   oracle TypeError in _build_line_index
+grep-dir               ZF    D7   oracle TypeError in _build_line_index
+grep-cartouche         ZF    D7   oracle TypeError in _build_line_index
 sorry-default          ZF    D7   oracle TypeError in _build_line_index
 sorry-count            ZF    D7   oracle TypeError in _build_line_index
 sorry-noop-n           ZF    D7   oracle TypeError in _build_line_index
+
+# ---------------------------------------------------------------------------
+# D8 — the oracle exits 120, not 141, when the broken pipe is only noticed by
+# the interpreter's shutdown flush.  Corpus-dependent: 120 on the smallest
+# corpus, 141 on the other four, for the same invocation.
+# ---------------------------------------------------------------------------
+
+closed-stdout   Abstract_Completeness   D8   oracle exits 120 (shutdown-flush BrokenPipeError)

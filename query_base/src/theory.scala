@@ -53,7 +53,14 @@ object Theory {
     table: Map[String, String] = Map.empty
   ): Theory_Section = {
     val text = lines.mkString("\n")
-    val (_, starts) = Py.split_lines(text)
+    /* The offsets are computed, not re-derived by splitting: a trailing EMPTY
+       line survives here and would not survive a round trip through
+       `split_lines`, which drops the empty tail a final break leaves — and the
+       region scan indexes `starts` by line, so one line of drift is an
+       out-of-bounds read rather than a wrong answer. */
+    val starts = new Array[Int](lines.length)
+    var off = 0
+    for (i <- lines.indices) { starts(i) = off; off += lines(i).length + 1 }
     parse_lines(theory, path, text, lines, starts, table, None)
   }
 
