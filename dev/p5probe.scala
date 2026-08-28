@@ -70,6 +70,16 @@ object P5_Probe {
   /* Past the end of the line the scan falls back to the last symbol, so a
      line that ends in punctuation has no word there and one that ends in a
      name does. */
+  val l6 = """  have "P \<Longrightarrow> Q" by simp"""
+  check("a bare symbol token is syntax, not a name", word(l6, 15) == "<none>", word(l6, 15))
+  check("the word beside it still resolves", word(l6, 4) == "have", word(l6, 4))
+
+  /* A buffer is Isabelle-DECODED: the same name reaches this scanner with the
+     control symbol as one character, and must come back encoded. */
+  val l7 = "  using bar\u21e91 by simp"
+  check("a decoded buffer yields the encoded name",
+    word(l7, 9) == """bar\<^sub>1""", word(l7, 9))
+
   val l5 = """  using mono_dtree"""
   check("past the end, after punctuation", word(l1, 999) == "<none>", word(l1, 999))
   check("past the end, after a name", word(l5, 999) == "mono_dtree", word(l5, 999))

@@ -100,7 +100,16 @@ object Query_Word {
         /* A bare numeral is a literal, not a citation. */
         val numeral = base.nonEmpty && base.forall(c => Symbol.is_ascii_digit(c))
 
-        if (base.isEmpty || numeral) None
+        /* Syntax, not a name: a run made only of `\<...>` tokens is `\<in>` or
+           `\<Longrightarrow>`, and offering to find its usages would find every
+           arrow in the project.  Tested on the SYMBOLS, not on the string —
+           the encoded form of `\<alpha>` is full of ASCII letters, and none of
+           them is a letter in the name. */
+        val bare_syntax =
+          !enc.slice(a, b).exists(s =>
+            s.length == 1 && (Symbol.is_ascii_letter(s.charAt(0)) || s.charAt(0) == '_'))
+
+        if (base.isEmpty || numeral || bare_syntax) None
         else {
           /* The self-check: does the ENGINE's pattern find this word on this
              line?  Run against the encoded line, which is the text the engine

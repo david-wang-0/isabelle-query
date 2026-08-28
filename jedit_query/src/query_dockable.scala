@@ -45,8 +45,8 @@ import java.awt.BorderLayout
 import java.awt.event.{ActionEvent, KeyAdapter, KeyEvent, MouseAdapter, MouseEvent}
 import java.nio.file.{Path => JPath}
 
-import javax.swing.{AbstractAction, Box, BoxLayout, JButton, JCheckBox, JLabel, JPopupMenu,
-  JScrollPane, JTree, KeyStroke, UIManager}
+import javax.swing.{AbstractAction, Box, BoxLayout, JButton, JCheckBox, JLabel, JPanel,
+  JPopupMenu, JScrollPane, JTree, KeyStroke, UIManager}
 import javax.swing.tree.{DefaultMutableTreeNode, DefaultTreeModel, TreeCellRenderer,
   TreePath, TreeSelectionModel}
 
@@ -350,7 +350,6 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         }
       }
       tree.clearSelection()
-      tree_model.nodeStructureChanged(tree_root)
     }
   }
 
@@ -457,14 +456,19 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     b
   }
 
-  private val controls = new Box(BoxLayout.X_AXIS)
-  controls.add(caption)
-  controls.add(Box.createGlue())
-  controls.add(button("Refresh", "re-read the project and re-run the last query")(refresh()))
-  controls.add(button("Expand", "expand every result set")(expand_all()))
-  controls.add(button("Collapse", "collapse every result set")(collapse_all()))
-  controls.add(button("Clear", "remove every result set")(clear()))
-  controls.add(stack_button)
+  private val buttons = new Box(BoxLayout.X_AXIS)
+  buttons.add(button("Refresh", "re-read the project and re-run the last query")(refresh()))
+  buttons.add(button("Expand", "expand every result set")(expand_all()))
+  buttons.add(button("Collapse", "collapse every result set")(collapse_all()))
+  buttons.add(button("Clear", "remove every result set")(clear()))
+  buttons.add(stack_button)
+
+  /* BorderLayout rather than one Box: the caption takes the remaining width
+     and a JLabel clips itself with an ellipsis, where a Box would let a long
+     status line push the buttons out of the panel. */
+  private val controls = new JPanel(new BorderLayout)
+  controls.add(caption, BorderLayout.CENTER)
+  controls.add(buttons, BorderLayout.EAST)
 
   add(controls, BorderLayout.NORTH)
   set_content(new JScrollPane(tree))
@@ -589,9 +593,18 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         set_node.add(group_node)
       }
 
-      if (!stack_button.isSelected) tree_root.removeAllChildren()
-      tree_root.add(set_node)
-      tree_model.reload(tree_root)
+      /* Inserting rather than reloading keeps the expansion state of the
+         result sets already on the tree; a reload would collapse all of them
+         every time a new query lands. */
+      if (stack_button.isSelected) {
+        tree_root.add(set_node)
+        tree_model.nodesWereInserted(tree_root, Array(tree_root.getChildCount - 1))
+      }
+      else {
+        tree_root.removeAllChildren()
+        tree_root.add(set_node)
+        tree_model.reload(tree_root)
+      }
 
       /* The result set itself always opens, so its theories are visible; the
          theories open only for a kind that says so. */
