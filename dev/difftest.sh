@@ -50,7 +50,13 @@ done
 
 # The Scala side runs against the repo's own scratch Isabelle home, never the
 # user's: a work-in-progress component must not be visible to a real session.
-run_oracle() { query "$@"; }
+#
+# The oracle is pinned to its committed method/attribute table: unpinned, it
+# binds tables dumped from whichever declared sessions happen to have BUILT
+# HEAPS on this machine (DIVERGENCES.md D11), so the same matrix would pass on
+# one machine and report false failures on another.  The rewrite implements
+# the committed branch, which is what a clean machine takes.
+run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
 run_scala() { USER_HOME="$repo/.dev" isabelle query "$@"; }
 
 # `### Missing Isabelle component` lines are this scratch home's own noise, not
