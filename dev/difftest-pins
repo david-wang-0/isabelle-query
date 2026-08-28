@@ -64,6 +64,14 @@ sorry-noop-n           ZF    D7   oracle TypeError in _build_line_index
 
 closed-stdout   Abstract_Completeness   D8   oracle exits 120 (shutdown-flush BrokenPipeError)
 
+# The same defect from the other side: when the WHOLE answer fits in the 64K
+# pipe buffer the oracle's writes never fail at all, so it exits 0 for a
+# `census | head -3` that the rewrite reports as 141.  Deterministic in the
+# output size, not a race: exactly the two corpora whose census is under 64K
+# (Abstract_Completeness 34K, CTT 54K); the other five are 141 on both sides.
+shape-census-pipe   Abstract_Completeness   D8   whole census fits the pipe buffer; oracle exits 0
+shape-census-pipe   CTT                     D8   whole census fits the pipe buffer; oracle exits 0
+
 # ---------------------------------------------------------------------------
 # D7, continued — the P3 usage family on FOL and ZF
 #

@@ -51,13 +51,25 @@ done
 # The Scala side runs against the repo's own scratch Isabelle home, never the
 # user's: a work-in-progress component must not be visible to a real session.
 #
-# The oracle is pinned to its committed method/attribute table: unpinned, it
-# binds tables dumped from whichever declared sessions happen to have BUILT
-# HEAPS on this machine (DIVERGENCES.md D11), so the same matrix would pass on
-# one machine and report false failures on another.  The rewrite implements
-# the committed branch, which is what a clean machine takes.
+# BOTH sides are pinned to the committed method/attribute table.  Unpinned, the
+# oracle binds tables dumped from whichever declared sessions happen to have
+# BUILT HEAPS on this machine (DIVERGENCES.md D11), so the same matrix would
+# pass on one machine and report false failures on another.
+#
+# The pin has to be SYMMETRIC, and P4 is where that started to matter.  Pinning
+# only the oracle short-circuits its step-DOWN to the Pure floor as well, so on
+# a non-HOL corpus the oracle kept the broad HOL union while the rewrite —
+# correctly reproducing what the reference does on a clean machine — stepped
+# down.  Every table-reading verb then compared two DIFFERENT tables: invisible
+# for `callers` / `methods` on the gate corpora, but plainly visible in `shape
+# steps` on ZF, where `field` is a proof method under the union and a free
+# variable under the floor (`u \<in> field(r)`: w1 2 against 3).  Pinning both
+# sides compares one table against itself, which is what a differential test is
+# for.  The step-down path is then not exercised here; it is checked by running
+# both sides UNPINNED, which is a machine-dependent measurement (D11) and so
+# belongs in the phase status notes rather than in the gate.
 run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
-run_scala() { USER_HOME="$repo/.dev" isabelle query "$@"; }
+run_scala() { ISABELLE_QUERY_NAMESPACE=committed USER_HOME="$repo/.dev" isabelle query "$@"; }
 
 # `### Missing Isabelle component` lines are this scratch home's own noise, not
 # the tool's diagnostics.
@@ -143,6 +155,26 @@ The entry grammar does not apply to prose, so `grep` over this file is
 plain line matching with no owning-entry column.
 MD
 
+# M3 corpus configs for the `shape steps` / `shape lemma` --config surface.
+# The committed one is the real thing; the other three exercise the selection
+# rules and the two ways a config can be rejected.
+M3_CONFIG=$repo/configs/m3.toml
+FIX_TOML_MULTI=$fixtures/multi.toml
+FIX_TOML_BAD=$fixtures/bad.toml
+FIX_TOML_MISSING=$fixtures/no-such-config.toml
+cat >"$FIX_TOML_MULTI" <<'TOML'
+# Two tables, so a bare --config is ambiguous and must be refused.
+[Alpha]
+constructors = ["Cfg"]
+selectors = ["fst", "snd"]
+relations = ["sim"]
+
+[Beta]
+selectors = ["hd"]   # trailing comment, and no constructors/relations keys
+TOML
+printf 'this is not a toml document\n' >"$FIX_TOML_BAD"
+rm -f "$FIX_TOML_MISSING"
+
 # --------------------------------------------------------------------------
 # Subject derivation — everything below comes out of the oracle, per corpus.
 # --------------------------------------------------------------------------
@@ -164,7 +196,7 @@ derive_subjects() {
       awk 'NF >= 5 && $1 ~ /^[0-9]+$/ { print $1, $2, $3, $4, $5 }')
 
   NAME1=""; NAME2=""
-  LEMMA_THY=""; LEMMA_LO=""; LEMMA_HI=""
+  LEMMA_THY=""; LEMMA_LO=""; LEMMA_HI=""; LEMMA_NAME=""
   local size tag name thy span
   for r in "${rows[@]}"; do
     read -r size tag name thy span <<<"$r"
@@ -173,10 +205,12 @@ derive_subjects() {
     if [ -z "$NAME2" ] && [ "$name" != "$NAME1" ]; then NAME2=$name; fi
     if [ -z "$LEMMA_THY" ] && { [ "$tag" = LEMMA ] || [ "$tag" = THEOREM ]; }; then
       LEMMA_THY=$thy
+      LEMMA_NAME=$name
       LEMMA_LO=${span#(}; LEMMA_LO=${LEMMA_LO%%..*}
       LEMMA_HI=${span%)}; LEMMA_HI=${LEMMA_HI##*..}
     fi
   done
+  [ -z "$LEMMA_NAME" ] && LEMMA_NAME=$NAME1
   [ -z "$NAME1" ] && NAME1=$THY1
   [ -z "$NAME2" ] && NAME2=$NAME1
   if [ -z "$LEMMA_THY" ]; then
@@ -211,6 +245,17 @@ derive_subjects() {
   THY1_LINK=$outdir/link/Link.thy
   mkdir -p "$outdir/link"; rm -f "$THY1_LINK"
   ln -s "$THY1_PATH" "$THY1_LINK"
+
+  # A PREFIX of this corpus's own per-proof census, for `shape census
+  # --resume`: the flag skips records already present, so resuming from a
+  # prefix must emit exactly the rest.  Derived from the ORACLE like every
+  # other subject, so the fixture cannot encode the rewrite's answer.  `head`
+  # closes the pipe, which stops the producer early on a big corpus — the
+  # fixture only has to be a valid prefix, and on the smallest corpora it is
+  # the whole census, which exercises the everything-skipped path too.
+  # (`$tag` is shadowed by a local in the loop above, hence the basename.)
+  CENSUS_PREFIX=$outdir/$(basename "$corpus").census-prefix.jsonl
+  run_oracle -R "$corpus" shape census 2>/dev/null | head -n 200 >"$CENSUS_PREFIX"
 }
 
 # --------------------------------------------------------------------------
@@ -499,6 +544,92 @@ emit_cases() {
   c graph-drop0            graph --drop-names-upto 0
   c graph-bad-kind         graph no_such_kind
   c graph-bad-format       graph -f xml
+
+  # -- shape summary -------------------------------------------------------
+  c shape-summary          shape summary
+  c shape-summary-json     shape summary --json
+  c shape-summary-scope-entry   shape summary --scope entry
+  c shape-summary-scope-proof   shape summary --scope proof
+  c shape-summary-content-code  shape summary --content code
+  c shape-summary-content-prose shape summary --content prose
+  c shape-summary-scope-content shape summary --scope entry --content code
+  c shape-summary-scope-equals  shape summary --scope=entry
+  c shape-summary-json-scope    shape summary --json --scope entry
+  c shape-summary-bad-scope     shape summary --scope no_such_scope
+  c shape-summary-bad-content   shape summary --content no_such_content
+
+  # -- shape steps ---------------------------------------------------------
+  c shape-steps            shape steps
+  c shape-steps-all        shape steps -a
+  c shape-steps-all-long   shape steps --all
+  c shape-steps-json       shape steps --json
+  c shape-steps-json-all   shape steps -a --json
+  c shape-steps-theory     shape steps "$THY1"
+  c shape-steps-theory-last shape steps "$THYLAST"
+  c shape-steps-locus      shape steps "$LEMMA_THY:$LEMMA_LO..$LEMMA_HI"
+  c shape-steps-open-hi    shape steps "$LEMMA_THY:$LEMMA_LO.."
+  c shape-steps-single-line shape steps "$LEMMA_THY:$MID"
+  c shape-steps-locus-json shape steps "$LEMMA_THY:$LEMMA_LO..$LEMMA_HI" --json
+  c shape-steps-empty-span shape steps "$THY1:999990..999999"
+  c shape-steps-unknown    shape steps No_Such_Theory_Xyz
+  c shape-steps-not-locus  shape steps not-a-locus
+  # --config: the M3 frame_ratio columns, and every way the selection can fail.
+  c shape-steps-config     shape steps --config "$M3_CONFIG" --json
+  c shape-steps-config-plain shape steps --config "$M3_CONFIG"
+  c shape-steps-config-corpus shape steps --config "$M3_CONFIG" --corpus Cook_Levin --json
+  c shape-steps-config-multi-pick \
+                           shape steps --config "$FIX_TOML_MULTI" --corpus Alpha --json
+  c shape-steps-config-multi-pick2 \
+                           shape steps --config "$FIX_TOML_MULTI" --corpus Beta --json
+  c shape-steps-config-no-corpus shape steps --config "$FIX_TOML_MULTI"
+  c shape-steps-config-bad-corpus shape steps --config "$M3_CONFIG" --corpus No_Such_Corpus
+  c shape-steps-config-missing shape steps --config "$FIX_TOML_MISSING"
+  c shape-steps-config-bad shape steps --config "$FIX_TOML_BAD"
+  c shape-steps-config-equals shape steps "--config=$M3_CONFIG" --json
+  c shape-steps-ambiguous-co shape steps --co "$M3_CONFIG"
+
+  # -- shape lemma ---------------------------------------------------------
+  c shape-lemma            shape lemma "$LEMMA_NAME"
+  c shape-lemma-json       shape lemma "$LEMMA_NAME" --json
+  c shape-lemma-largest    shape lemma "$NAME1"
+  c shape-lemma-batch      shape lemma "$NAME1" "$NAME2"
+  c shape-lemma-substring  shape lemma "${LEMMA_NAME:0:3}"
+  c shape-lemma-config     shape lemma "$LEMMA_NAME" --config "$M3_CONFIG" --json
+  c shape-lemma-unknown    shape lemma zzz_no_such_name_zzz
+  c shape-lemma-no-arg     shape lemma
+
+  # -- shape widest --------------------------------------------------------
+  c shape-widest           shape widest
+  c shape-widest-n3        shape widest -N 3
+  c shape-widest-n-glued   shape widest -N3
+  c shape-widest-top-long  shape widest --top 5
+  c shape-widest-n0        shape widest -N 0
+  c shape-widest-huge      shape widest -N 100000
+  c shape-widest-w1        shape widest --metric w1
+  c shape-widest-fanin     shape widest --metric fanin
+  c shape-widest-live      shape widest --metric live
+  c shape-widest-w2        shape widest --metric w2
+  c shape-widest-metric-equals shape widest --metric=w1
+  c shape-widest-json      shape widest --json -N 5
+  c shape-widest-scoped    shape widest "$THY1" -N 5
+  c shape-widest-path      shape widest "$THY1_PATH" -N 5
+  c shape-widest-bad-n     shape widest -N abc
+  c shape-widest-bad-metric shape widest --metric no_such_metric
+
+  # -- shape census --------------------------------------------------------
+  c shape-census           shape census
+  c shape-census-resume    shape census --resume "$CENSUS_PREFIX"
+  c shape-census-resume-missing shape census --resume "$FIX_TOML_MISSING"
+  c shape-census-resume-garbage shape census --resume "$FIX_TOML_BAD"
+
+  # -- the shape group's own argument grammar ------------------------------
+  c shape-bad-view         shape no_such_view
+  g shape-root-before-view plain  shape -R "$CORPUS" summary
+  g shape-root-after-view  plain  shape summary -R "$CORPUS"
+  g shape-root-glued-group plain  shape "-R$CORPUS" summary
+  g shape-root-equals-view plain  shape summary "--root=$CORPUS"
+  g shape-bad-group-flag   plain  shape --json summary
+  g shape-census-pipe      pipe   shape census
 }
 
 # --------------------------------------------------------------------------

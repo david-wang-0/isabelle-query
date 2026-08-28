@@ -254,6 +254,28 @@ The rewrite writes through a `Writer` on the raw file descriptor and lets the
 status is 141 in both cases.  Pinned as `closed-stdout` on
 `Abstract_Completeness`.
 
+**P4 found the same defect from the other side, and it is sharper.**  When the
+WHOLE answer fits in the 64K pipe buffer, the oracle's writes never fail at
+all: it fills the buffer without blocking, finishes, and exits **0** — while
+`head` is still being scheduled.  `shape census | head -3` is the case, and the
+split is exactly the output size, not a race:
+
+| corpus | census bytes | oracle | rewrite |
+|---|---:|---|---|
+| `Abstract_Completeness` | 34,320 | **0** | 141 |
+| `CTT` | 54,522 | **0** | 141 |
+| `Sequents` | 298,272 | 141 | 141 |
+| `FOL` | 383,077 | 141 | 141 |
+| `Category3` | 1,020,051 | 141 | 141 |
+| `AODV` | 1,677,225 | 141 | 141 |
+| `ZF` | 5,267,121 | 141 | 141 |
+
+Five runs each, stable.  So the oracle's closed-stdout status is 0, 120 or 141
+depending on how much output there happened to be — which is the same fact D8
+already records, now with the threshold named.  The rewrite is 141 throughout,
+which is what `CONTRIBUTING.md` fixes.  Pinned as `shape-census-pipe` on the
+two corpora under 64K; a pin on the other five would be stale.
+
 ## D9 — regex dialect: two Python-only spellings are rejected, not misread
 
 **Cost: two constructs, neither of which appears in the docs, the tests, or any
@@ -361,3 +383,24 @@ swallowed.
 Closing it means an `isabelle dump`-backed resolver, which belongs with the
 server/plugin work (a warm index has somewhere to keep the result), not with
 the command port.
+
+**P4 made the difftest pin symmetric, and that is a correction.**  Until P4 the
+harness pinned only the ORACLE to `committed`.  That short-circuits the
+reference's step-DOWN to the Pure floor as well, so on a non-HOL corpus the
+oracle kept the broad HOL union while the rewrite — correctly reproducing what
+the reference does on a clean machine — stepped down, and every table-reading
+verb compared two *different* tables.  It happened to be invisible for
+`callers` / `methods` on the gate corpora.  It is plainly visible in `shape
+steps` on ZF, where `field` is a proof method under the census union and a free
+variable under the Pure floor:
+
+```
+Zorn:484   goal   6   2   0   0   u \<in> field(r)     # both sides, union
+Zorn:484   goal   6   3   0   0   u \<in> field(r)     # both sides, Pure floor
+```
+
+Run UNPINNED, the two implementations agree on that line and on the whole of
+`shape steps`: the oracle steps ZF down to the floor and so does the rewrite,
+including the stderr warning.  So the step-down logic is verified equal; it is
+simply not what the pinned gate measures, and pinning both sides is what makes
+the gate compare one table against itself.
