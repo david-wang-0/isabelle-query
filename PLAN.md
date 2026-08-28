@@ -210,9 +210,19 @@ necessary but not sufficient.
     machinery);
   - **outline**: bundled SideKick already covers much of it via Isabelle's
     registered parsers — check coverage, fill gaps only.
-- **P7 — polish.** Benchmarks recorded; README/CLAUDE.md rewritten for the
-  Scala tool; optional: server mode (`isabelle query -S` daemon reusing the
-  warm index); register-for-real instructions.
+- **P7 — polish + warm server.** Benchmarks recorded; README/CLAUDE.md
+  rewritten for the Scala tool; register-for-real instructions. Server mode
+  (decided; study + protocol sketch in the gitignored `.dev/SERVER-NOTES.md`):
+  **extend the stock `isabelle server`** with a `Server.Commands` service from
+  this component (the command table folds in component services — no Isabelle
+  patch), rather than a custom daemon — inheriting its lifecycle, discovery
+  registry, and loopback + per-user-password security. Ship a **non-JVM thin
+  client** (small Python, line-protocol socket; measured warm round trip
+  ~7 ms vs the Python tool's ~76 ms cold floor and cold `isabelle query`'s
+  ~850 ms) — it may eventually take over the `query` console name for
+  drop-in warm parity. A `query_version` handshake detects a stale server
+  predating a component rebuild. The in-process Scala API stays the
+  documented path for headless-PIDE hosts.
 
 ## Conventions
 
