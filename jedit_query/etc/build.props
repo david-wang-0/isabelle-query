@@ -14,6 +14,7 @@ sources = \
   src/query_navigate.scala \
   src/query_peek.scala \
   src/query_fuzzy.scala \
+  src/query_name_search.scala \
   src/query_option_pane.scala \
   src/query_dockable.scala \
   src/query_quick_open.scala \

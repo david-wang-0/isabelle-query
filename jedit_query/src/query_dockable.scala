@@ -45,8 +45,10 @@ import java.awt.BorderLayout
 import java.awt.event.{ActionEvent, KeyAdapter, KeyEvent, MouseAdapter, MouseEvent}
 import java.nio.file.{Path => JPath}
 
-import javax.swing.{AbstractAction, Box, BoxLayout, JButton, JCheckBox, JLabel, JPanel,
-  JPopupMenu, JScrollPane, JTree, KeyStroke, UIManager}
+import javax.swing.{AbstractAction, Box, BoxLayout, DefaultListCellRenderer,
+  DefaultListModel, JButton, JCheckBox, JLabel, JList, JPanel, JPopupMenu, JScrollPane,
+  JTextField, JTree, KeyStroke, ListSelectionModel, UIManager}
+import javax.swing.event.{DocumentEvent, DocumentListener}
 import javax.swing.tree.{DefaultMutableTreeNode, DefaultTreeModel, TreeCellRenderer,
   TreePath, TreeSelectionModel}
 
@@ -62,6 +64,18 @@ object Query_Dockable {
      owns that name for its prover Query panel (find_theorems / find_consts /
      print_context), and two dockables cannot share a name. */
   val NAME = "isabelle-project-query"
+
+  /* Persisted like `Stack`: a display preference, remembered per user. */
+  val SORTS_PROPERTY = "isabelle-project-query.sorts"
+
+  /* The button that opens the finder menu beside the name field. */
+  val FIND_LABEL = "Find"
+
+  /* Focus the name field of this view's panel, opening the panel first. */
+  def focus_search(view: View): Unit = {
+    GUI_Thread.require {}
+    show(view).foreach(_.focus_name_field())
+  }
 
   /* Open dockables, so an action or a context menu can push a result into the
      one belonging to its own view.  `getDockableWindow` returns null until the
@@ -227,7 +241,14 @@ object Query_Dockable {
      built for simply renders unhighlighted.  No colours: an HTML label keeps
      them when the row is selected, and a hard-coded colour is unreadable on
      half the themes. */
-  def hit_html(name: String, hit: Query_Search.Hit): String = {
+  /* What a site row is CALLED, as the CLI's name column spells it: bare, or
+     with the written sort when the Sorts toggle is on.  Shared with the CLI
+     through `Sites.Site.label` would be the ideal, but a `Hit` is the panel's
+     own record; the two are pinned against each other in `dev/p6bprobe`. */
+  def hit_name(hit: Query_Search.Hit, sorts: Boolean): String =
+    if (sorts && hit.sorts.nonEmpty) hit.name + " :: " + hit.sorts else hit.name
+
+  def hit_html(name: String, hit: Query_Search.Hit, sorts: Boolean = false): String = {
     val shown = Symbol.decode(hit.text).trim
     /* A note is ABOUT the source ("[+17 more lines, to 94]"), so it carries no
        line number and nothing in it is a citation to highlight. */
@@ -237,6 +258,13 @@ object Query_Dockable {
       val buf = new StringBuilder("<html>")
       buf ++= hit.line.toString
       buf ++= ": "
+      /* The site's NAME, then its ROLE in italics, then the source.  The name
+         is plain: bold already means "an occurrence of what you searched for"
+         below, and a second meaning for one weight would make both unreadable. */
+      if (hit.name.nonEmpty) {
+        buf ++= escape(Symbol.decode(hit_name(hit, sorts)))
+        buf ++= "&nbsp;&nbsp;"
+      }
       /* A site's ROLE, in italics before the source: it is what the row is
          about, not part of the line it quotes.  Italic rather than a colour,
          for the reason above. */
@@ -279,6 +307,13 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
 
   private var last_request: Option[Request] = None
 
+  /* Whether site rows show their written sorts.  Read from the PROPERTY, not
+     from the checkbox below: the tree and its renderer are built first, and a
+     renderer that reached forward into a control declared after it would work
+     only by accident of initialisation order. */
+  private def sorts_on: Boolean =
+    jEdit.getBooleanProperty(Query_Dockable.SORTS_PROPERTY, false)
+
 
   /* ------------------------------------------------------------------ */
   /* the tree                                                           */
@@ -300,6 +335,8 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
             case hit: Query_Search.Hit =>
               if (hit.note) Symbol.decode(hit.text).trim
               else hit.line.toString + ": " +
+                (if (hit.name.isEmpty) ""
+                 else Symbol.decode(Query_Dockable.hit_name(hit, sorts_on)) + "  ") +
                 (if (hit.tag.isEmpty) "" else hit.tag + "  ") +
                 Symbol.decode(hit.text).trim
             case group: Query_Search.Group => group.caption
@@ -336,7 +373,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
               setText(group.caption + " (" + Query_Dockable.count(node).hits.toString + ")")
             case hit: Query_Search.Hit =>
               setFont(plain_font)
-              setText(Query_Dockable.hit_html(result_name(node), hit))
+              setText(Query_Dockable.hit_html(result_name(node), hit, sorts_on))
             case _ => setFont(plain_font)
           }
         case _ => setFont(plain_font)
@@ -532,6 +569,20 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
   stack_button.addActionListener((_: ActionEvent) =>
     jEdit.setBooleanProperty("isabelle-project-query.stack", stack_button.isSelected))
 
+  /* The CLI's `--sorts`, as a toggle.  It changes only what a row SAYS, and
+     both halves are already on every `Hit`, so it repaints the tree instead of
+     re-running the query — a result set on screen must not be lost to a
+     display choice. */
+  private val sorts_button = new JCheckBox("Sorts")
+  sorts_button.setToolTipText(
+    "on site rows, show the sort / arity / signature the SOURCE writes " +
+      "(no types are inferred)")
+  sorts_button.setSelected(sorts_on)
+  sorts_button.addActionListener((_: ActionEvent) => {
+    jEdit.setBooleanProperty(Query_Dockable.SORTS_PROPERTY, sorts_button.isSelected)
+    tree.repaint()
+  })
+
   private def button(label: String, tip: String)(body: => Unit): JButton = {
     val b = new JButton(label)
     b.setToolTipText(tip)
@@ -565,11 +616,209 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
   buttons.add(button("Collapse", "collapse every result set")(collapse_all()))
   buttons.add(button("Clear", "remove every result set")(clear()))
   buttons.add(stack_button)
+  buttons.add(sorts_button)
+
+
+  /* --- search by name --- */
+
+  /* Isar's diagnostics take the name as an argument (`code_thms c`); the
+     right-click menu takes it from the caret.  This is the first: an input,
+     resolved against the index, and then any finder that applies.
+
+     The completion list is a NON-FOCUSABLE popup driven from the field's own
+     key handler, rather than a second window: a dialog here would be
+     `Query_Quick_Open` again, and the panel already has somewhere to put
+     results. */
+  private val name_field = new JTextField(14)
+  name_field.setToolTipText(
+    "a declaration name; ENTER finds its usages, " + Query_Dockable.FIND_LABEL +
+      " offers the rest")
+
+  private val completion = new JPopupMenu
+  completion.setFocusable(false)
+  private val completion_model = new DefaultListModel[Query_Fuzzy.Match]
+  private val completion_list = new JList[Query_Fuzzy.Match](completion_model)
+  completion_list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+  completion_list.setVisibleRowCount(8)
+  completion_list.setFocusable(false)
+  locally {
+    val scroll = new JScrollPane(completion_list)
+    scroll.setPreferredSize(new java.awt.Dimension(360, 160))
+    completion.add(scroll)
+  }
+
+  /* The snapshot the field reads: whatever the index ALREADY has.  A volatile
+     read, never a parse — this runs per keystroke on the EDT, exactly as the
+     context menu's kind check does. */
+  private def current_snapshot: Option[Query_Index.Snapshot] =
+    for {
+      buffer <- Option(view.getBuffer)
+      file <- JEdit_Lib.buffer_file(buffer)
+      index <- Query_Index.for_file(file.toPath)
+      snapshot <- index.snapshot
+    } yield snapshot
+
+  private def hide_completion(): Unit = {
+    GUI_Thread.require {}
+    if (completion.isVisible) completion.setVisible(false)
+  }
+
+  private def show_completion(): Unit = {
+    GUI_Thread.require {}
+    val typed = name_field.getText.trim
+    val hits =
+      if (typed.isEmpty) Nil
+      else Query_Name_Search.candidates(current_snapshot, typed, Query_Quick_Open.LIMIT)
+    completion_model.clear()
+    hits.take(50).foreach(completion_model.addElement)
+    if (completion_model.getSize > 0) {
+      completion_list.setSelectedIndex(0)
+      if (!completion.isVisible && name_field.isShowing)
+        completion.show(name_field, 0, name_field.getHeight)
+    }
+    else hide_completion()
+    set_caption(Query_Name_Search.hint(current_snapshot, typed))
+  }
+
+  /* Coalesced exactly as go-to-symbol coalesces: holding a key down must not
+     schedule one full scan per repeat. */
+  private val completion_delay: Delay =
+    Delay.last(Time.seconds(0.05), gui = true) { show_completion() }
+
+  name_field.getDocument.addDocumentListener(new DocumentListener {
+    def insertUpdate(e: DocumentEvent): Unit = completion_delay.invoke()
+    def removeUpdate(e: DocumentEvent): Unit = completion_delay.invoke()
+    def changedUpdate(e: DocumentEvent): Unit = completion_delay.invoke()
+  })
+
+  private def move_completion(delta: Int): Unit = {
+    val n = completion_model.getSize
+    if (n > 0) {
+      val i = ((completion_list.getSelectedIndex + delta) max 0) min (n - 1)
+      completion_list.setSelectedIndex(i)
+      completion_list.ensureIndexIsVisible(i)
+    }
+  }
+
+  /* What the field currently MEANS: the highlighted completion if the list is
+     up, else the typed text resolved exact-then-fuzzy. */
+  private def field_name: String = {
+    val typed = name_field.getText.trim
+    if (completion.isVisible) Option(completion_list.getSelectedValue) match {
+      case Some(m) => m.name
+      case None => Query_Name_Search.resolve(current_snapshot, typed)
+    }
+    else Query_Name_Search.resolve(current_snapshot, typed)
+  }
+
+  private def run_finder(finder: Query_Name_Search.Finder): Unit = {
+    GUI_Thread.require {}
+    val name = field_name
+    hide_completion()
+    if (name.isEmpty) set_caption("type a declaration name to search for")
+    else
+      Option(view.getBuffer) match {
+        case Some(buffer) => request(buffer, name, finder.external, finder.kind)
+        case None => set_caption("no buffer -- nothing to search")
+      }
+  }
+
+  /* The finders this name admits, as a menu.  Built when it is opened, from
+     the snapshot at that moment, so it says the same thing the right-click
+     menu would. */
+  private def finder_menu(anchor: java.awt.Component): Unit = {
+    GUI_Thread.require {}
+    val name = field_name
+    val menu = new JPopupMenu
+    val offered = Query_Name_Search.finders(current_snapshot, name)
+    if (offered.isEmpty)
+      menu.add(new AbstractAction("(type a declaration name)") {
+        def actionPerformed(e: ActionEvent): Unit = ()
+      }).setEnabled(false)
+    else
+      for (finder <- offered)
+        menu.add(new AbstractAction(finder.label + " of " + name) {
+          def actionPerformed(e: ActionEvent): Unit = run_finder(finder)
+        })
+    GenericGUIUtilities.showPopupMenu(menu, anchor, 0, anchor.getHeight)
+  }
+
+  private val find_button: JButton =
+    button(Query_Dockable.FIND_LABEL,
+      "the finders this name admits (the site verbs only where they have an answer)") {
+      finder_menu(find_button)
+    }
+
+  name_field.addKeyListener(new KeyAdapter {
+    override def keyPressed(evt: KeyEvent): Unit =
+      evt.getKeyCode match {
+        case KeyEvent.VK_ESCAPE if completion.isVisible => hide_completion(); evt.consume()
+        case KeyEvent.VK_DOWN => move_completion(1); evt.consume()
+        case KeyEvent.VK_UP => move_completion(-1); evt.consume()
+        case KeyEvent.VK_PAGE_DOWN => move_completion(10); evt.consume()
+        case KeyEvent.VK_PAGE_UP => move_completion(-10); evt.consume()
+        /* ENTER runs the default finder; the button (or CTRL+ENTER) offers the
+           rest, because a menu on every ENTER would be one gesture too many
+           for the thing people ask for nine times in ten. */
+        case KeyEvent.VK_ENTER if evt.isControlDown =>
+          finder_menu(name_field); evt.consume()
+        case KeyEvent.VK_ENTER =>
+          run_finder(Query_Name_Search.ungated.head); evt.consume()
+        case _ =>
+      }
+  })
+
+  completion_list.setCellRenderer(new DefaultListCellRenderer {
+    override def getListCellRendererComponent(l: JList[?], value: Object, i: Int,
+      selected: Boolean, focus: Boolean
+    ): java.awt.Component = {
+      val c = super.getListCellRendererComponent(l, value, i, selected, focus)
+      value match {
+        case m: Query_Fuzzy.Match =>
+          setText("<html>" + Query_Dockable.escape(Symbol.decode(m.name)) +
+            (current_snapshot.flatMap(_.definition(m.name)) match {
+              case Some((theory, entry)) =>
+                "  <font color=\"gray\">" +
+                  Query_Dockable.escape(entry.tag + " -- " + theory + ":" +
+                    entry.thy_line.toString) + "</font>"
+              case None => ""
+            }) + "</html>")
+        case _ =>
+      }
+      c
+    }
+  })
+
+  completion_list.addMouseListener(new MouseAdapter {
+    override def mousePressed(evt: MouseEvent): Unit = {
+      val i = completion_list.locationToIndex(evt.getPoint)
+      if (i >= 0) {
+        completion_list.setSelectedIndex(i)
+        name_field.setText(completion_model.getElementAt(i).name)
+        hide_completion()
+        name_field.requestFocusInWindow()
+      }
+    }
+  })
+
+  private val search_box = new Box(BoxLayout.X_AXIS)
+  search_box.add(new JLabel("Name: "))
+  search_box.add(name_field)
+  search_box.add(find_button)
+  search_box.add(Box.createHorizontalStrut(8))
+
+  /* Focus the field, for the action that gives this a keyboard route. */
+  def focus_name_field(): Unit = {
+    GUI_Thread.require {}
+    name_field.requestFocusInWindow()
+    name_field.selectAll()
+  }
 
   /* BorderLayout rather than one Box: the caption takes the remaining width
      and a JLabel clips itself with an ellipsis, where a Box would let a long
      status line push the buttons out of the panel. */
   private val controls = new JPanel(new BorderLayout)
+  controls.add(search_box, BorderLayout.WEST)
   controls.add(caption, BorderLayout.CENTER)
   controls.add(buttons, BorderLayout.EAST)
 

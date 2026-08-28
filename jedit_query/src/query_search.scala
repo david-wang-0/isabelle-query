@@ -59,9 +59,15 @@ object Query_Search {
      `tag` is the syntactic ROLE of a site row -- `sublocale`, `[code del]` --
      which is the column the CLI prints between the locus and the text and the
      one thing a site list says that a usages list does not.  Empty for every
-     other kind, so no existing row changes. */
+     other kind, so no existing row changes.
+
+     `name` / `sorts` are the site's own name and the sort or signature the
+     source writes at it, exactly as the CLI's name column carries them.  BOTH
+     are kept, rather than one pre-rendered string, so the Sorts toggle
+     re-renders the tree that is already on screen instead of re-running the
+     query -- a display choice must not cost a parse. */
   final case class Hit(theory: String, path: Option[JPath], line: Int, text: String,
-    note: Boolean = false, tag: String = "")
+    note: Boolean = false, tag: String = "", name: String = "", sorts: String = "")
 
   /* `label`, when set, replaces the bare theory name in the caption: a
      declaration's group says what the ENGINE says about it
@@ -280,7 +286,7 @@ object Query_Search {
         for (site <- scan(snapshot.sections, name))
           buf.getOrElseUpdate(site.theory, new mutable.ListBuffer[Hit]) +=
             Hit(site.theory, snapshot.path_of(site.theory), site.line, site.text,
-              tag = site.kind)
+              tag = site.kind, name = site.name, sorts = site.sorts)
         val groups =
           (for ((theory, hits) <- buf)
             yield Group(theory, snapshot.path_of(theory), hits.toList)).toList

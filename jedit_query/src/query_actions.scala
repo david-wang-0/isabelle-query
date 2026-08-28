@@ -91,6 +91,15 @@ object Query_Actions {
     Query_Quick_Open.open(view)
   }
 
+  /* The panel's own name field -- the keyboard route to it, since a text field
+     in a dockable is otherwise reachable only with the mouse.  Distinct from
+     go-to-symbol on purpose: that JUMPS to a declaration, this SEARCHES from
+     one and leaves a result set behind. */
+  def search_by_name(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Dockable.focus_search(view)
+  }
+
   /* Isabelle's own jump stacks, under an action name of ours so a default
      keybinding in `plugin.props` cannot collide with `isabelle.jedit_main`'s
      properties. */

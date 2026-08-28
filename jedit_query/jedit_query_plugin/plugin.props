@@ -34,6 +34,7 @@ plugin.isabelle.jedit_query_plugin.Plugin.menu= \
   isabelle-project-query.find-code-equations \
   isabelle-project-query.peek-definition \
   isabelle-project-query.go-to-symbol \
+  isabelle-project-query.search-by-name \
   - \
   isabelle-project-query.navigate-backwards \
   isabelle-project-query.navigate-forwards \
@@ -58,6 +59,10 @@ isabelle-project-query.go-to-symbol.label=Go to symbol
 #CAS+N is IntelliJ's go-to-symbol and is unbound in jEdit's default keymap
 #(CS+n is new-file-in-mode, which is why the plain chord is not used).
 isabelle-project-query.go-to-symbol.shortcut=CAS+n
+#Opens the panel and focuses its name field.  No default shortcut: the panel's
+#own field is the affordance, and a fourth chord would meet a real keymap for
+#something two clicks away.
+isabelle-project-query.search-by-name.label=Search by name (panel)
 isabelle-project-query.show-panel.label=Show Project Query panel
 isabelle-project-query.refresh-index.label=Refresh project index
 
@@ -90,6 +95,11 @@ isabelle-project-query.gesture.enter=current
 
 #keep earlier result sets as siblings rather than replacing them
 isabelle-project-query.stack=true
+
+#site rows: show the sort / arity / signature the SOURCE writes at each site
+#(the CLI's --sorts).  Off by default -- most rows write none, and a column of
+#blanks says less than no column.  Nothing here is inferred.
+isabelle-project-query.sorts=false
 
 #how many theories a project may hold before the index refuses to build it.
 #The distribution's src/HOL is ~1450 and must keep working; an AFP checkout's
