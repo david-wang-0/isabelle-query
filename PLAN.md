@@ -210,16 +210,27 @@ necessary but not sufficient.
     machinery);
   - **outline**: bundled SideKick already covers much of it via Isabelle's
     registered parsers — check coverage, fill gaps only.
-- **P6b — find instantiations** (after find-usages and find-definition are
-  in; before P7). New capability, no Python counterpart: given a locale or
-  class, list its instantiation sites — `instantiation` blocks,
-  `interpretation`/`global_interpretation` and `sublocale` declarations whose
-  subject is that name (live text only, as everywhere). Engine query + a new
-  CLI verb (rewrite-only: excluded from the differential matrix by
-  construction — covered by the probe/unit harnesses instead, with
-  hand-computed fixtures per the repo's correctness doctrine) + jEdit
-  context-menu action and a third dockable result kind (collapsed by
-  default, same navigation and gesture policies as usages).
+- **P6b — find instantiations + find code equations** (after find-usages and
+  find-definition are in; before P7). New capabilities, no Python
+  counterpart; both are same-shaped "sites in a syntactic role citing a
+  name" scans on the existing citation machinery (live text only, as
+  everywhere):
+  - *instantiations* of a locale/class: `instantiation` blocks,
+    `interpretation`/`global_interpretation` and `sublocale` declarations
+    whose subject is that name;
+  - *code equations* of a constant: declarations carrying a code attribute
+    (`[code]`, `[code equation]`, `[code abstract]`, and kin) whose
+    statement mentions the constant, `declare c [code …]` and
+    `lemmas … [code] = …` sites, plus the implicit default equations of the
+    constant's own `fun`/`primrec`/`definition`. Scope stated honestly in
+    docs: declared source sites — the complement of Isar's
+    `print_codesetup`/`code_thms`, which need a running prover and show the
+    processed setup (`[code del]`, preprocessing) a static scan cannot.
+  Each: engine query + a new CLI verb (rewrite-only: excluded from the
+  differential matrix by construction — covered by the probe/unit harnesses
+  instead, with hand-computed fixtures per the repo's correctness doctrine)
+  + jEdit context-menu action and further dockable result kinds (collapsed
+  by default, same navigation and gesture policies as usages).
 - **P7 — polish + warm server.** Benchmarks recorded; README/CLAUDE.md
   rewritten for the Scala tool; register-for-real instructions. Server mode
   (decided; study + protocol sketch in the gitignored `.dev/SERVER-NOTES.md`):
