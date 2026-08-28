@@ -175,7 +175,9 @@ object Query_Dockable {
         plural(c.hits, "hit", "hits") + " in " + plural(c.groups, "theory", "theories")
     }
 
-  private def escape(s: String): String = {
+  /* Package-visible: the quick-open list renders HTML labels too, and two
+     escapers is one too many. */
+  private[jedit_query] def escape(s: String): String = {
     val buf = new StringBuilder
     for (c <- s) {
       c match {

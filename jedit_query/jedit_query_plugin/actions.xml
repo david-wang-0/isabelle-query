@@ -22,6 +22,11 @@
 	    isabelle.jedit_query.Query_Actions.peek_definition(view);
 	  </CODE>
 	</ACTION>
+	<ACTION NAME="isabelle-project-query.go-to-symbol">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.go_to_symbol(view);
+	  </CODE>
+	</ACTION>
 	<ACTION NAME="isabelle-project-query.navigate-backwards">
 	  <CODE>
 	    isabelle.jedit_query.Query_Actions.navigate_backwards(view);

@@ -62,6 +62,13 @@ object Query_Actions {
     Query_Peek.at_caret(view)
   }
 
+  /* Type a few letters, land on a declaration: the whole project's name list,
+     filtered without touching the engine. */
+  def go_to_symbol(view: View): Unit = {
+    GUI_Thread.require {}
+    Query_Quick_Open.open(view)
+  }
+
   /* Isabelle's own jump stacks, under an action name of ours so a default
      keybinding in `plugin.props` cannot collide with `isabelle.jedit_main`'s
      properties. */
