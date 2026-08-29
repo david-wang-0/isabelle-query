@@ -28,6 +28,8 @@
 #   delegate three rows through the auto-delegating CLI  -- about a minute
 #   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
 #   full     adds the whole-AFP tier (d)            -- about twenty
+#   heavy    tier (e): one big session (src/HOL/Analysis) and the two
+#            largest AFP entries, with hot subjects -- about five minutes
 #   memory   peak RSS, at the stock heap and at -Xmx512m
 #   all      everything (the default)
 #
@@ -175,8 +177,8 @@ echo
 # --------------------------------------------------------------------------
 
 case "$TIER" in
-  tiny|small|full|memory|delegate|all) ;;
-  *) echo "bench: unknown tier '$TIER' (tiny|small|full|memory|delegate|all)" >&2
+  tiny|small|full|heavy|memory|delegate|all) ;;
+  *) echo "bench: unknown tier '$TIER' (tiny|small|full|heavy|memory|delegate|all)" >&2
      exit 2 ;;
 esac
 
@@ -287,6 +289,40 @@ if [ "$TIER" = "full" ] || [ "$TIER" = "all" ]; then
   bench3 "summary --by-session" "$AFP" summary --by-session
   bench3 "shape census" "$AFP" shape census
   RUNS="$RUNS_SAVED"
+  echo
+fi
+
+if [ "$TIER" = "heavy" ] || [ "$TIER" = "all" ]; then
+  ANA="$DISTRO/HOL/Analysis"
+  AC2="$AFP/AutoCorres2"
+  JT="$AFP/JinjaThreads"
+  hmissing=""
+  for d in "$ANA" "$AC2" "$JT"; do [ -d "$d" ] || hmissing="$hmissing $d"; done
+  if [ -n "$hmissing" ]; then
+    echo "bench: the heavy tier's corpora are not here:$hmissing" >&2
+    exit 2
+  fi
+
+  echo "## (e) heavy -- one big session, and the two largest AFP entries"
+  echo
+  echo "src/HOL/Analysis is 106 theories / 178k lines under a session-less"
+  echo "root; AutoCorres2 (120k lines) and JinjaThreads (89k) are the largest"
+  echo "AFP entries by theory volume.  Subjects are HOT on purpose (the bench"
+  echo "rule from tier (a): a subject that does not exist times the parse and"
+  echo "nothing else): \`has_integral\` has 515 callers under the oracle here,"
+  echo "\`refines\` 1,063, \`wf_prog\` 200.  Caller rows may print a DISAGREE"
+  echo "marker: the rewrite's import-reachability filter (DIVERGENCES D13)"
+  echo "drops attributions the citing theory cannot see, by design."
+  echo
+  row "invocation" "oracle ms" "cold ms" "warm ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+  bench3 "Analysis: summary" "$ANA" summary
+  bench3 "Analysis: callers has_integral (515)" "$ANA" callers has_integral
+  bench3 "Analysis: shape summary" "$ANA" shape summary
+  bench3 "AutoCorres2: callers refines (1063)" "$AC2" callers refines
+  bench3 "JinjaThreads: summary" "$JT" summary
+  bench3 "JinjaThreads: callers wf_prog (200)" "$JT" callers wf_prog
   echo
 fi
 

@@ -150,10 +150,46 @@ what a directory listing costs.
    messages.
 
 The two Scala columns are byte-identical at 306,525 records; the oracle's
-304,987 differ by the documented D-series. **Use the cold tool for a census.**
-The client cannot know that for you — it is a transport, not a planner — so
-this is a fact for the user, which is why it is stated here and in
-`dev/P7-STATUS.md` rather than hidden in a heuristic.
+304,987 differ by the documented D-series. **Use the cold tool for a census** —
+and since P7d you do so by typing nothing: as the default front end the client
+now mirrors the delegate's census bypass, so a census through *any* spelling
+runs cold. A 2026-08-29 re-measure shows the bypass doing its job: the "warm"
+census column lands at 155.6 s against 154.3 s cold, i.e. the column now times
+the cold path reached through the client, not 256 MB through the socket.
+
+## (e) heavy — one big session, and the two largest AFP entries
+
+Taken 2026-08-29, same machine and method (median of 5, load < 0.5). The tier
+exists because (a)–(b) are small and (c)–(d) are extreme; this is the middle
+a working formalization actually lives in. Corpora: `src/HOL/Analysis` (106
+theories, 178k lines, a session-less root — directory discovery on both
+sides), and the two largest AFP entries by theory volume, `AutoCorres2` (120k
+lines) and `JinjaThreads` (89k). Subjects are hot on purpose, per tier (a)'s
+rule: `has_integral` has 515 callers under the oracle, `refines` 1,063,
+`wf_prog` 200 — every row pays for a real scan, not a lucky miss.
+
+| invocation | oracle ms | cold ms | warm ms |
+|---|---:|---:|---:|
+| Analysis `summary` | 930 | 2,043 | **88** |
+| Analysis `callers has_integral` (515) | 1,115 | 2,376 | **76** |
+| Analysis `shape summary` | 6,083 | 4,911 | **2,370** |
+| AutoCorres2 `callers refines` (1,063) | 886 | 2,195 | **144** |
+| JinjaThreads `summary` | 593 | 1,838 | **80** |
+| JinjaThreads `callers wf_prog` (200) | 700 | 1,988 | **148** |
+
+Three things the middle tier shows:
+
+1. **At 100–180k lines the oracle still finishes under the JVM's start-up**,
+   so the cold rewrite loses every parse-bound row. The crossover is the one
+   compute-bound row, `shape summary`, where the engine's speed pays for the
+   JVM even cold (4.9 s against 6.1 s).
+2. **Warm is 8–15× the oracle** on lookups and citation scans — and since
+   P7d the warm column is what a plain `isabelle query` costs.
+3. The `summary` and `shape summary` rows print a DISAGREE marker: the
+   documented divergences surfacing in an unpinned run (the entry set —
+   11,274 oracle vs 11,676 rewrite on Analysis — is the D-series' "no entry
+   is ever lost" direction). The three `callers` rows agree byte for byte,
+   import-reachability filter and all.
 
 ## Memory — peak RSS
 
