@@ -595,13 +595,26 @@ object CLI {
 
   /* EVERY environment variable the engine reads, in one place, because "which
      variables does a request carry" is a question the warm server has to
-     answer exactly (`server.scala`, and `dev/P6C-STATUS.md`).  The three below
+     answer exactly (`server.scala`, and `dev/P6C-STATUS.md`).  The four below
      are per-REQUEST and are forwarded by the thin client;
      `$ISABELLE_QUERY_JAR` and `$ISABELLE_QUERY_SERVER_LIMIT` are read by the
-     server ABOUT ITSELF and are deliberately not here. */
-  private val env_roots = List("ISABELLE_LAYOUT_ROOT", "ISABELLE_QUERY_ROOT")
+     server ABOUT ITSELF and are deliberately not here.
+
+     `root_env` is the subset that names a DIRECTORY, and it is a separate list
+     because the delegating CLI derives a request's root from the first one
+     that is set — a check that must not be reached by simply not being the
+     namespace variable, or every switch added here would become a root. */
+  val root_env: List[String] = List("ISABELLE_LAYOUT_ROOT", "ISABELLE_QUERY_ROOT")
+  private val env_roots = root_env
   val NAMESPACE_ENV: String = "ISABELLE_QUERY_NAMESPACE"
-  val request_env: List[String] = env_roots ::: List(NAMESPACE_ENV)
+  /* `off` turns import-visibility filtering off, restoring the name-only
+     attribution the Python reference implements (dev/DIVERGENCES.md D13).
+     Deliberately env-only, exactly as `$ISABELLE_QUERY_NAMESPACE` is: a global
+     that moves a measurement gets ONE channel as well as one default, and an
+     argv flag would be a second one the plugin and the library caller do not
+     have. */
+  val REACHABILITY_ENV: String = "ISABELLE_QUERY_REACHABILITY"
+  val request_env: List[String] = env_roots ::: List(NAMESPACE_ENV, REACHABILITY_ENV)
 
   val process_env: String => Option[String] =
     k => Option(System.getenv(k)).filter(_.nonEmpty)
@@ -1039,6 +1052,18 @@ object CLI {
      `$ISABELLE_QUERY_NAMESPACE=committed` pins the default: it short-circuits
      even the step-down, which is what a caller who wants one fixed table across
      a mixed corpus asks for. */
+  /* Bind import-visibility filtering for this run, from THIS request's
+     environment, in BOTH directions and unconditionally.
+
+     Unconditional because the variable it writes is process-global and a warm
+     server serves many clients: binding it only when a client asks for `off`
+     would pin the switch for everyone after them — the defect
+     `configure_namespace` records at length, avoided here by construction
+     rather than by care.  It costs one environment lookup, so there is no verb
+     list to keep in step either. */
+  def configure_reachability(s: Session): Unit =
+    Reach.set_enabled(!Reach.env_disables(s.env(REACHABILITY_ENV)))
+
   def configure_namespace(s: Session, command: String, sub: String = ""): Unit = {
     /* `shape census` is special, and its binding is UNCONDITIONAL — independent
        of `$ISABELLE_QUERY_NAMESPACE` and of the project's base logic.  A
@@ -1332,6 +1357,10 @@ object CLI {
     try {
       val s = new Session(err, out)
       prepare(s)
+      /* Before any argument is read, because it is free and because the
+         alternative is a per-verb list: every verb that attributes a name to a
+         declaration reads this, and the ones that do not are unaffected. */
+      configure_reachability(s)
       /* The top level takes its own options until the first positional; from
          the command name on, everything belongs to the subparser — argparse's
          `nargs=PARSER`, which is why `-R` works on either side. */

@@ -464,9 +464,10 @@ object Query_Delegate {
   private def request(args: List[String]): JSON.Object.T = {
     val forwarded =
       (for (k <- CLI.request_env; v <- CLI.process_env(k)) yield k -> (v: JSON.T)).toMap
+    /* `CLI.root_env`, not "the request variables minus the namespace one": the
+       request list grows, and a switch added to it is not a directory. */
     val env_root =
-      CLI.request_env.filter(_ != CLI.NAMESPACE_ENV).iterator.
-        flatMap(CLI.process_env(_)).nextOption().getOrElse("")
+      CLI.root_env.iterator.flatMap(CLI.process_env(_)).nextOption().getOrElse("")
     JSON.Object(
       "argv" -> absolutize(args),
       "cwd" -> Paths.get("").toAbsolutePath.toString,

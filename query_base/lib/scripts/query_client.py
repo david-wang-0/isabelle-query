@@ -93,6 +93,9 @@ COLD_ONLY_COMMANDS = {"dump-entries", "dump-imports", "dump-theories"}
 # the other side.  Forwarded per request and bound for that request only.
 #   ISABELLE_LAYOUT_ROOT / ISABELLE_QUERY_ROOT  which project, with no -R
 #   ISABELLE_QUERY_NAMESPACE                    pin the committed method table
+#   ISABELLE_QUERY_REACHABILITY                 `off`: attribute a citation
+#                                               without the import-visibility
+#                                               filter
 # Deliberately NOT forwarded: ISABELLE_QUERY_JAR and
 # ISABELLE_QUERY_SERVER_LIMIT, which a server reads about ITSELF (its own jar,
 # its own memory bound) and which a client must not be able to redefine.
@@ -100,6 +103,7 @@ FORWARDED_ENV = (
     "ISABELLE_LAYOUT_ROOT",
     "ISABELLE_QUERY_ROOT",
     "ISABELLE_QUERY_NAMESPACE",
+    "ISABELLE_QUERY_REACHABILITY",
 )
 
 
