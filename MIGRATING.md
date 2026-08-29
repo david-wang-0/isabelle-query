@@ -68,7 +68,8 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   in this process; stdin runs, the development dumps, `shape census` and
   `-h`/`--version` never delegate). See `dev/BENCH.md`. The variables the tool reads
   (`$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
-  `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
+  `$ISABELLE_QUERY_NAMESPACE`, `$ISABELLE_QUERY_REACHABILITY`) are sent **with
+  each request** and bound for it
   alone, so setting one in your shell means what it means cold — the server
   never consults its own environment for them.
 - **`-V/--version`** reports `0.8.0-scala`, not `0.7.0`. Deliberately: a script
@@ -76,11 +77,12 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
 
 ## What is deliberately different
 
-Twelve recorded divergences, each with the evidence in `dev/DIVERGENCES.md`.
+Thirteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`.
 Eleven of them are cases where the Python implementation disagrees with
 Isabelle's own lexer or header parser, and reproducing it would mean shipping a
-known bug. **No entry is ever lost**: the set of declarations the oracle
-reports is a strict subset of what this engine reports, on both corpora.
+known bug; D13 is the one that is neither a bug nor a fix but a **narrowing**,
+and it has a switch. **No entry is ever lost**: the set of declarations the
+oracle reports is a strict subset of what this engine reports, on both corpora.
 
 | | what changes for you |
 |---|---|
@@ -96,6 +98,7 @@ reports is a strict subset of what this engine reports, on both corpora.
 | **D10** | `unused -r`'s `[cascade depth N]` marker is not reproducible in the oracle even against itself; ours is deterministic. |
 | **D11** | The method/attribute table is the **committed** one, not one resolved from whichever heaps happen to be built on your machine — so two machines give the same answer. Step down to the Pure floor happens by base logic, as before. |
 | **D12** | `\w` is Java's, not Python's: `²`/`½` are word characters to the oracle and not here; a combining mark is one here and not there. 1 record in 306,525 over the whole AFP, in two derived count fields. **Not fixed** — see `dev/DIVERGENCES.md` for why the fix is a lexer-level change needing its own gate. |
+| **D13** | A citation is attributed only to a declaration the citing theory can **see** — its own, or one in its `imports` closure. Over the whole AFP `callers mono` drops from 1,361 to 566; `unused` may honestly grow. `$ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution. |
 
 ## Things that move
 

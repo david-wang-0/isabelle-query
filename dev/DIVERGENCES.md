@@ -460,3 +460,105 @@ covering two unrelated risks.  It is carried forward as open work —
 `todo.md`'s `[regex-dialect]` — with the entry-set re-run named as its
 entry condition.  This entry stays the evidence; the todo item is the handle.
 
+
+## D13 — a citation is attributed only to a declaration its theory can SEE
+
+**Cost: nothing on any gate corpus, and everything on a corpus with more than
+one import tree.**  This is the one entry here that is neither a reproduced bug
+nor a corrected one: it is a **narrowing** of what the tool claims, it can only
+remove an answer, and it has a switch.
+
+The reference implementation attributes a citation by NAME alone.  It finds the
+token `mono` on a line, looks up the entries called `mono`, and reports the
+line as a caller of all of them.  Over one session that is right — everything
+in the session can see everything the session declares.  Over a corpus it is
+not:
+
+```
+$ ISABELLE_QUERY_REACHABILITY=off isabelle query -R $QUERY_TEST_AFP callers mono -c
+1361
+$ isabelle query -R $QUERY_TEST_AFP callers mono -c
+566
+```
+
+795 of those 1,361 hits are impossible.  The shape of every one of them:
+
+```
+$ isabelle query -R $QUERY_TEST_AFP callers mono -U 0 | grep Mono_Bool_Tran:45
+  Mono_Bool_Tran:45   mono_const (LEMMA) 44..47  "mono (\<lambda>_. c)"     # off only
+
+$ isabelle query -R $QUERY_TEST_AFP deps Mono_Bool_Tran -r
+Import-transitive dependencies of Mono_Bool_Tran:
+  Complete_Lattice_Prop  (109 src lines, 10 entries)  [direct]
+  Conj_Disj  (270 src lines, 28 entries)  [direct]
+  WellFoundedTransitive  (132 src lines, 8 entries)  [depth 1]
+  Main  [out-of-project]
+```
+
+`MonoBoolTranAlgebra`'s whole import closure is three in-project theories and
+`Main`, and none of the three declares a `mono`.  The `mono` on that line is
+HOL's own `Orderings.mono`, arriving through an `imports Main` that `query`
+deliberately does not follow — so the line was being reported as a caller of
+two dozen unrelated AFP lemmas that happen to be spelled `mono`, in
+`Abs_Int0`, `EpiMonoIso`, `Heyting`, `Safety_Logic`, `Constructions` and the
+rest.  Not one of them is in scope where it is cited.
+
+**The rule.**  A site in theory T may be attributed to a declaration in theory
+D iff `D = T`, or D is in T's transitive in-project `imports` closure.  It is a
+NECESSARY condition on visibility, not a sufficient one, so:
+
+- it only ever **drops** an attribution; nothing new is invented;
+- a site that still reaches several same-named declarations stays
+  multi-attributed — inside `src/HOL`, where everything imports `Main`,
+  `callers rev` answers **668 either way**, because every theory there really
+  can see `List.rev`;
+- a name the project declares NOWHERE is not filtered at all.  `callers`
+  answers for any token, and about a token that is not declared here no import
+  closure has an opinion;
+- **position within a theory is not consulted.**  A citation above the
+  declaration it names is still attributed to it.  The linear-position
+  refinement is real future work, not a silent partial: it needs an ordering
+  the entry index already has, and it would make the rule depend on where a
+  `lemmas` or a locale re-export sits.
+
+It applies at the two attribution points, so every verb inherits it from one
+place: the citation router's candidate filter (`callers -r`, `callees`, `refs`,
+`graph citation`, `unused`) and the single-name section filter (`callers`,
+`instances`, `codeqs`).  **`unused` may honestly GROW** — an entry kept alive
+only by an unreachable same-name citation is now correctly dead.  `shape` is
+untouched and out of scope: it counts cited TOKENS per step and never
+attributes one to an entry.  `methods` likewise — a proof method is identified
+by position, not by lookup.
+
+Two approximations, both deliberately on the permissive side, because this
+filter must never remove an attribution that could be real:
+
+- the graph is keyed by theory NAME, and where a corpus declares one theory
+  name twice (the AFP has many a `Misc`) the adjacency is the UNION of every
+  section of that name.  `Usage.import_depths`, which `deps` and `refs` read,
+  takes the last-wins section instead; the two agree except on such a
+  duplicate, where this one reaches further;
+- a declaration is any entry or bound name of that spelling, whatever its tag.
+
+And one place where it is deliberately broader than `deps`: an import spelled
+as a **path**.  `HOL-MicroJava` reaches across its own subdirectories with
+`imports ../BV/Altern`, which discovery follows — those theories are in the
+index — but the name-level rule cannot map it, because its `.` rule finds the
+`.` of `..`.  For `deps` that is a cosmetic `[out-of-project]` line and stays
+(it is what the reference prints).  For the closure it would be a HOLE, and a
+hole prunes: `callers rev` over the distribution was 608 against 668 before
+`Reach.import_target` learned the leaf rule.  `dev/p7cprobe.sh` §8 is the
+standing canary for it.
+
+**The compatibility mode, and why the gate uses it.**
+`$ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution exactly.  A
+differential matrix can only measure a difference, never an improvement, so
+`dev/difftest.sh` pins the rewrite side to `off` — asymmetrically, because the
+oracle has no such notion to pin — and the standard totals are unchanged, which
+is the statement that pin exists to make: nothing else moved.  The improvement
+itself is verified where it can be, by the hand-computed fixtures in
+`dev/p7cprobe.sh` and by the whole-AFP measurement in `dev/P7C-STATUS.md`.
+
+The variable is env-only, like `$ISABELLE_QUERY_NAMESPACE` and for the same
+reason: a global that moves a measurement gets one default AND one channel, and
+an argv flag would exist on only one of the four front doors.

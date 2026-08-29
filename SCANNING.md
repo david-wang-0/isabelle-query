@@ -172,6 +172,29 @@ would process.
 The call graph behind the usage scans is constructed only when needed, so most
 commands stay fast.
 
+### And what a citation may be about
+
+A name in a proof denotes something the theory can **see**, so a citation site
+in theory `T` is attributed to a declaration in theory `D` only when `D` is `T`
+itself or lies in `T`'s transitive `imports` closure. This matters exactly where
+a root holds more than one import tree — a whole corpus, or a tree of unrelated
+entries — because a name-level scan otherwise credits a token to every
+declaration that happens to be spelled the same way. Over the whole AFP,
+`callers mono` reports 566 usages rather than 1,361; over `src/HOL`, where
+everything imports `Main`, `callers rev` is unchanged, because there every
+theory really can see `List.rev`.
+
+It is a *necessary* condition and nothing more. It only ever removes a
+possibility: a site that can still see several same-named declarations is
+reported against all of them, and a name the project does not declare at all is
+not filtered (`callers` answers for any token, and an external name has no
+in-project declaration to be visible or invisible). **Position inside a theory
+is not consulted** — a citation written above the declaration it names is still
+attributed to it. `unused` can therefore report *more* entries than a name-only
+scan would: an entry whose only caller could never have called it is dead.
+
+`ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution.
+
 ## Aggregating across a corpus
 
 `summary --by-session` rolls the per-theory counts up to the **session** and

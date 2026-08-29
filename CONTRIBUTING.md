@@ -111,6 +111,17 @@ has to differ by context, make each context bind what it wants — a branch that
 relies on "the default is already right" stops being right the moment the default
 moves, and nothing fails when it does.
 
+The Scala port has a **second** global of this shape, and it was built to that
+rule from the start: import-visibility filtering of citation attribution
+(`Reach.enabled`, `dev/DIVERGENCES.md` D13). The default is on, it is the same
+default for the CLI, the warm server, the jEdit plugin and a direct `Reach`
+caller, and the only writer is `CLI.configure_reachability` — which binds it per
+request, in BOTH directions and unconditionally, so a resident server cannot
+hand one client's pin to the next. It also gets ONE **channel**:
+`$ISABELLE_QUERY_REACHABILITY`, no argv flag. A flag would exist on exactly one
+of those four front doors, and a switch that only one caller can reach is the
+same defect in a different place.
+
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
 inline:

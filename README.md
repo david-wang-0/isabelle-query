@@ -134,10 +134,24 @@ reads no identifier at all. This is irreducible without a parser that knows the
 project's `notation` declarations, and it **under-reports** — the one place
 these scans lean the unsafe way. If `codeqs c` looks short, check with `grep`.
 
-Neither verb separates same-named constants: `codeqs rev` over `src/HOL`
-reports `List.rev`, `Imperative_Reverse.rev` and `Linked_Lists.rev` together.
-That is inherent to a name-based tool (`callers` has it too), but a site
-listing invites the reader to treat the rows as one constant's equations.
+Neither verb separates same-named constants *within* what a theory can see:
+`codeqs rev` over `src/HOL` reports `List.rev`, `Imperative_Reverse.rev` and
+`Linked_Lists.rev` together, because every theory there imports `Main` and so
+could be naming any of them. That much is inherent to a name-based tool
+(`callers` has it too), and a site listing invites the reader to treat the rows
+as one constant's equations.
+
+What *is* separated is the impossible case. A site is reported only in a theory
+that can **see** a declaration of the name — its own, or one in its transitive
+`imports` closure — so across disjoint trees the rows no longer run together.
+Over the whole AFP `callers mono` drops from 1,361 hits to 566: the 795 that go
+are in theories whose entire import closure declares no `mono`, where the token
+is HOL's own `Orderings.mono` arriving through an `imports Main` that `query`
+does not follow. The same filter is what `callers`, `callees`, `refs`,
+`unused`, `graph citation`, `instances` and `codeqs` all read.
+
+`ISABELLE_QUERY_REACHABILITY=off` turns it off, restoring name-only
+attribution.
 
 Both exit `1` when the subject is not a locale/class (resp. not a constant)
 declared in the project, rather than reporting zero sites.
@@ -240,7 +254,8 @@ The server itself is shared: `$ISABELLE_QUERY_CLIENT_SERVER` names it (default
 alike, so pointing one at a scratch server points both.
 
 The variables the tool reads — `$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
-`$ISABELLE_QUERY_NAMESPACE` — travel **in the request** and are bound for that
+`$ISABELLE_QUERY_NAMESPACE`, `$ISABELLE_QUERY_REACHABILITY` — travel **in the
+request** and are bound for that
 request only. A resident server never reads its own environment for them, so a
 variable set in your shell means the same thing warm as cold, whoever happened
 to start the server. (`$ISABELLE_QUERY_SERVER_LIMIT` is the exception by
