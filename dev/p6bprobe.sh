@@ -63,7 +63,9 @@ fi
 OUT="$REPO/.dev/p6bprobe-out"
 FIX="$OUT/fixtures"
 rm -rf "$OUT"
-mkdir -p "$FIX" || exit 2
+# P6d: two of the fixture's sessions live in SUBDIRECTORIES, which is the whole
+# point of them -- the panel's directory level is derived from a theory's path.
+mkdir -p "$FIX/Nested" "$FIX/Deep/Down" || exit 2
 
 fail=0
 checks=0
@@ -76,12 +78,27 @@ bad()  { checks=$((checks + 1)); fail=$((fail + 1)); echo "  FAIL  $1  [$2]"; }
 # insert lines without moving them.
 # --------------------------------------------------------------------------
 
+# `in DIR` on the last two, so their theories keep BARE names (`Nested_Fix`, not
+# `Nested/Nested_Fix`) and the directory is carried only by the path -- which is
+# how a real project is laid out, and therefore the only shape in which the
+# panel's directory level is worth testing.  Writing them as path-qualified
+# `theories "Nested/Nested_Fix"` entries instead gives the theory a name with a
+# slash in it, which is NOT what Isabelle calls it and which the reachability
+# filter then prunes (dev/P6D-STATUS.md records that as a finding).
 cat >"$FIX/ROOT" <<'ROOT'
 session P6B_Fix = HOL +
   theories
     Sites_Fix
     Code_Fix
     Names_Fix
+
+session P6B_Nested in Nested = P6B_Fix +
+  theories
+    Nested_Fix
+
+session P6B_Deep in "Deep/Down" = P6B_Nested +
+  theories
+    Deeper_Fix
 ROOT
 
 cat >"$FIX/Sites_Fix.thy" <<'THY'
@@ -243,6 +260,36 @@ qed
 end
 THY
 
+# P6d.  The DIRECTORY level, and the reason it exists: `quad` is registered in
+# one directory and RETRACTED in another.  A flat per-theory list says both
+# happen; only the layout says where.  These two theories declare their own
+# constant, so no count pinned above moves.
+cat >"$FIX/Nested/Nested_Fix.thy" <<'THY'
+theory Nested_Fix
+  imports Code_Fix
+begin
+
+definition quad :: "nat \<Rightarrow> nat" where
+  "quad n = twice (twice n)"
+
+lemma quad_code [code]: "quad n = 4 * n"
+  by (simp add: quad_def twice_def)
+
+end
+THY
+
+# One session two directories deep, with nothing else under `Deep`: the
+# single-child chain the panel shows as ONE node reading `Deep/Down`.
+cat >"$FIX/Deep/Down/Deeper_Fix.thy" <<'THY'
+theory Deeper_Fix
+  imports Nested_Fix
+begin
+
+declare quad_code [code del]
+
+end
+THY
+
 echo "fixtures: $FIX"
 echo "corpus:   $CORPUS"
 echo
@@ -345,6 +392,10 @@ expect_out "instances magma -c"  "5" instances magma -c
 expect_out "instances mynull -c" "3" instances mynull -c
 expect_out "codeqs twice -c"     "4" codeqs twice -c
 expect_out "codeqs fib -c"       "2" codeqs fib -c
+# P6d's two subdirectory sessions.  A count here as well as in the Scala layer
+# because the panel's tree is built from the ENGINE's answer: if this moves, the
+# hierarchy checks are measuring something else.
+expect_out "codeqs quad -c"      "3" codeqs quad -c
 
 # --names is the loci, and they are the tool's own span grammar: they must
 # round-trip through `enclosing`.

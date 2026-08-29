@@ -202,8 +202,9 @@ object P6B_Probe {
 
   val index = Query_Index(fix_root)
   val snapshot = index.refreshed(Map.empty)
+  /* Five: three in the root, and P6d's two in subdirectories. */
   check("the fixture project indexes",
-    snapshot.theories == 3 && snapshot.entries > 0,
+    snapshot.theories == 5 && snapshot.entries > 0,
     snapshot.theories.toString + " theories, " + snapshot.entries.toString + " entries")
 
   def loci(sites: List[Sites.Site]): List[String] =
@@ -407,9 +408,19 @@ object P6B_Probe {
 
   println("3. Query_Search / Query_Dockable -- the two new result kinds")
 
-  check("both new kinds open COLLAPSED, as usages do",
-    !Query_Search.Result_Kind.Instantiations.expand_groups &&
-      !Query_Search.Result_Kind.Code_Equations.expand_groups, "")
+  /* P6d reverses P6b here: with a directory level above them, the theory nodes
+     of a site set open, because a tree of nothing but directory names is less
+     than the flat list it replaced.  Usages and definition are untouched. */
+  check("both site kinds open EXPANDED, and carry a directory level",
+    Query_Search.Result_Kind.Instantiations.expand_groups &&
+      Query_Search.Result_Kind.Code_Equations.expand_groups &&
+      Query_Search.Result_Kind.Instantiations.folders &&
+      Query_Search.Result_Kind.Code_Equations.folders, "")
+  check("and the other two views are exactly as they were",
+    !Query_Search.Result_Kind.Usages.expand_groups &&
+      Query_Search.Result_Kind.Definition.expand_groups &&
+      !Query_Search.Result_Kind.Usages.folders &&
+      !Query_Search.Result_Kind.Definition.folders, "")
 
   check("a site set counts sites, a usages set hits, a definition lines",
     Query_Dockable.count_caption(Query_Search.Result_Kind.Instantiations, 5, 1) ==
@@ -502,6 +513,143 @@ object P6B_Probe {
   }, Query_Dockable.hit_html("mynull", null_result.groups.flatMap(_.hits)(1), true))
   check("a usages row has no name, so nothing about it changed",
     Query_Search.usages(snapshot, "twice").groups.flatMap(_.hits).forall(_.name.isEmpty), "")
+
+
+  /* --------- 3c. the folder / file hierarchy (P6d) --------- */
+
+  println("3c. Query_Search.tree -- directories above the theories")
+
+  /* The tree is arithmetic over a `Group`'s PATH and nothing else -- no
+     filesystem, no index -- so a synthetic group list is the whole input, and
+     the shapes a real corpus has can be written down directly.  Built under
+     the fixture root rather than an invented absolute one, so nothing here
+     depends on where this checkout happens to be. */
+  def syn_hit(line: Int, tag: String): Query_Search.Hit =
+    Query_Search.Hit("T", None, line, "  lemma f [" + tag + "]: \"f = g\"", tag = "[" + tag + "]")
+
+  def syn_group(theory: String, rel: String, hits: Int): Query_Search.Group =
+    Query_Search.Group(theory, Some(fix_root.resolve(rel)),
+      (1 to hits).map(i => syn_hit(i, if (i == 1) "code" else "code del")).toList)
+
+  /* One of each shape a project really has: a theory in the root, a directory
+     with files AND a sub-directory (which must NOT collapse), a two-segment
+     chain with nothing else in it, and a three-segment one. */
+  val synthetic =
+    List(
+      syn_group("Top", "Top.thy", 1),
+      syn_group("Tree", "Data_Structures/Tree.thy", 2),
+      syn_group("Trie", "Data_Structures/Trie.thy", 1),
+      syn_group("Braun", "Data_Structures/sub/Braun.thy", 1),
+      syn_group("Rev", "Imperative_HOL/ex/Rev.thy", 1),
+      syn_group("Links", "Imperative_HOL/ex/Links.thy", 3),
+      syn_group("Far", "a/b/c/Far.thy", 1))
+
+  val syn = Query_Search.tree(fix_root, synthetic)
+
+  def all_groups(f: Query_Search.Folder): List[Query_Search.Group] =
+    f.folders.flatMap(all_groups) ::: f.groups
+
+  def sub(f: Query_Search.Folder, name: String): Query_Search.Folder =
+    f.folders.find(_.name == name).getOrElse(Query_Search.Folder("<missing>", Nil, Nil))
+
+  check("a theory in the ROOT stays at the top level, beside the directories",
+    syn.groups.map(_.theory) == List("Top"), syn.groups.map(_.theory).mkString(", "))
+  check("the top level is the directories, in the order the engine emitted them",
+    syn.folders.map(_.name) == List("Data_Structures", "Imperative_HOL/ex", "a/b/c"),
+    syn.folders.map(_.name).mkString(" | "))
+  check("a single-child chain collapses to ONE node, however long",
+    sub(syn, "a/b/c").groups.map(_.theory) == List("Far") &&
+      sub(syn, "a/b/c").folders.isEmpty && sub(syn, "Imperative_HOL/ex").files == 2,
+    sub(syn, "a/b/c").name)
+  check("but a directory with files of its OWN is a level, not a prefix",
+    sub(syn, "Data_Structures").folders.map(_.name) == List("sub") &&
+      sub(syn, "Data_Structures").groups.map(_.theory) == List("Tree", "Trie"),
+    sub(syn, "Data_Structures").folders.map(_.name).mkString(", "))
+
+  check("a directory counts everything BELOW it, at any depth",
+    sub(syn, "Data_Structures").sites == 4 && sub(syn, "Data_Structures").files == 3 &&
+      sub(syn, "Imperative_HOL/ex").sites == 4 && sub(syn, "a/b/c").sites == 1,
+    sub(syn, "Data_Structures").sites.toString + " sites in " +
+      sub(syn, "Data_Structures").files.toString + " files")
+  check("and the whole tree accounts for every site and every file",
+    syn.sites == 10 && syn.files == 7 &&
+      syn.sites == synthetic.map(_.count).sum && syn.files == synthetic.length,
+    syn.sites.toString + " / " + syn.files.toString)
+  check("no group is lost, duplicated or reordered within its directory",
+    all_groups(syn).map(_.theory).sorted == synthetic.map(_.theory).sorted,
+    all_groups(syn).map(_.theory).mkString(", "))
+  check("and a leaf's TAG survives the move -- the `[code del]` marking is the point",
+    all_groups(syn).flatMap(_.hits).map(_.tag).distinct.sorted == List("[code del]", "[code]"),
+    all_groups(syn).flatMap(_.hits).map(_.tag).distinct.mkString(", "))
+
+  check("a theory the index knows no path for hangs at the top level",
+    Query_Search.tree(fix_root,
+      List(Query_Search.Group("X", None, List(syn_hit(1, "code"))))).groups.length == 1, "")
+  check("a theory OUTSIDE the root is one node, not a chain of `..`", {
+    val out = fix_root.getParent.resolve("elsewhere").resolve("Out.thy")
+    val t = Query_Search.tree(fix_root, List(Query_Search.Group("Out", Some(out),
+      List(syn_hit(1, "code")))))
+    t.folders.map(_.name) == List(out.getParent.toString) && t.groups.isEmpty
+  }, "")
+  check("directory_of is the whole derivation, and it is path arithmetic",
+    Query_Search.directory_of(fix_root, Some(fix_root.resolve("A.thy"))).isEmpty &&
+      Query_Search.directory_of(fix_root, Some(fix_root.resolve("a/b/C.thy"))) ==
+        List("a", "b") &&
+      Query_Search.directory_of(fix_root, None).isEmpty, "")
+  check("an empty result set has an empty tree",
+    Query_Search.tree(fix_root, Nil).is_empty, "")
+
+  check("a directory caption is the KIND's own phrasing, over what is below it",
+    Query_Dockable.folder_caption(Query_Search.Result_Kind.Instantiations,
+      "Data_Structures", 4, 3) == "Data_Structures (4 sites in 3 theories)",
+    Query_Dockable.folder_caption(Query_Search.Result_Kind.Instantiations,
+      "Data_Structures", 4, 3))
+  check("a file caption spells the noun for a site set",
+    Query_Dockable.group_caption(Query_Search.Result_Kind.Code_Equations, "List", 2) ==
+      "List (2 sites)" &&
+      Query_Dockable.group_caption(Query_Search.Result_Kind.Code_Equations, "List", 1) ==
+        "List (1 site)",
+    Query_Dockable.group_caption(Query_Search.Result_Kind.Code_Equations, "List", 2))
+  check("and keeps the bare number the other two views have always shown",
+    Query_Dockable.group_caption(Query_Search.Result_Kind.Usages, "List", 7) == "List (7)" &&
+      Query_Dockable.group_caption(Query_Search.Result_Kind.Definition, "rev", 3) == "rev (3)",
+    Query_Dockable.group_caption(Query_Search.Result_Kind.Usages, "List", 7))
+
+  /* End to end, on the fixture: `quad` is registered in `Nested/` and retracted
+     in `Deep/Down/`.  This is the case the feature exists for, and the only
+     part of it a synthetic group list cannot show -- that the paths the INDEX
+     hands back really do relativise against the root the panel builds from. */
+  check("quad is registered in one directory and retracted in another",
+    loci(code("quad")) == List("Nested_Fix:5", "Nested_Fix:8", "Deeper_Fix:5") &&
+      kinds(code("quad")) == List("default", "[code]", "[code del]"),
+    loci(code("quad")).mkString(", ") + " / " + kinds(code("quad")).mkString(", "))
+
+  val quad_result = Query_Search.code_equations(snapshot, "quad")
+  val quad_tree = Query_Search.tree(fix_root, quad_result.groups)
+
+  check("and the panel hangs the two theories under the two directories",
+    quad_tree.folders.map(_.name) == List("Nested", "Deep" + Query_Search.SEPARATOR + "Down") &&
+      quad_tree.groups.isEmpty,
+    quad_tree.folders.map(_.name).mkString(" | "))
+  check("a real single-child chain collapses too",
+    sub(quad_tree, "Deep/Down").groups.map(_.theory) == List("Deeper_Fix"),
+    sub(quad_tree, "Deep/Down").groups.map(_.theory).mkString(", "))
+  check("with the counts the two captions will print",
+    sub(quad_tree, "Nested").sites == 2 && sub(quad_tree, "Nested").files == 1 &&
+      sub(quad_tree, "Deep/Down").sites == 1 && sub(quad_tree, "Deep/Down").files == 1,
+    sub(quad_tree, "Nested").sites.toString + " / " + sub(quad_tree, "Deep/Down").sites.toString)
+  check("and the retraction still says so on the leaf, under its directory", {
+    val leaf = sub(quad_tree, "Deep/Down").groups.head.hits.head
+    leaf.tag == "[code del]" &&
+      Query_Dockable.hit_html("quad", leaf).contains("<i>[code del]</i>")
+  }, Query_Dockable.hit_html("quad",
+    sub(quad_tree, "Deep/Down").groups.head.hits.head))
+
+  /* The other direction: a project whose theories are all in its root gets no
+     directory level at all, so it looks EXACTLY as it did before P6d. */
+  check("a flat project gains no level and no node",
+    Query_Search.tree(fix_root, inst_result.groups).folders.isEmpty &&
+      Query_Search.tree(fix_root, inst_result.groups).groups == inst_result.groups, "")
 
 
   /* --- search by name, from the panel (P6c) --- */
