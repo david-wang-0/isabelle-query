@@ -308,6 +308,39 @@ apply unchanged. New for P6c:
     share one row; at a narrow dock width the *caption* is what ellipsises (it
     is the BorderLayout centre), not the field or the buttons.
 
+### The right-click regression — re-test after relaunch
+
+Reported live: right-click an identifier and the context menu appeared and
+vanished, sometimes pasting the clipboard or opening jEdit's clipboard history.
+It was never a dismissal. jEdit shows this popup on the mouse **press** and
+re-anchors it to the window's bottom edge when it does not fit, which leaves
+the pointer *inside* the popup on an item; Swing then routes the button
+**release** of that same click into that item and clicks it. Four to six
+top-level rows were enough to move that fold up over a third of the text area.
+The contribution is now one submenu — one row, and `JMenu` is the one entry
+kind a stray release cannot fire. Items 32 and 33 still hold, with their items
+now read *inside* that submenu.
+
+51. **One entry, and it survives its own click.** Right-click an identifier in
+    a `.thy`: exactly one new entry, **Project Query: NAME**, above jEdit's
+    "Customize this menu". The menu **stays up when the button is released**,
+    with no paste and no clipboard-history window. Repeat on the last visible
+    line, right above the docked panel — that is where the old fold landed,
+    and it is the case that must pass.
+52. **The verbs moved, nothing else did.** Hover **Project Query: NAME**: *Find
+    usages*, *Find external usages*, *Find definition*, *Peek definition*, plus
+    the site verbs item 32 gates. Each does exactly what its top-level twin
+    did, and *Peek definition* still peeks the word under the **pointer**, not
+    the caret — right-click a different identifier from the one the caret is
+    on and check the popup shows the one the title names.
+53. **Nothing to contribute is still nothing.** Right-click whitespace, a bare
+    numeral, and inside a non-`.thy` buffer: no *Project Query* entry, and no
+    stray separator left behind in jEdit's own menu.
+
+One residual, not ours to fix: the underlying jEdit/JDK defect is still there,
+so a tall enough stock menu in a short enough window can still eat its own
+click with no plugin loaded at all. We add one row to it instead of six.
+
 ## Watch-outs for whoever comes next
 
 1. **The name column is a fifth thing `Sites` computes per site, and one of

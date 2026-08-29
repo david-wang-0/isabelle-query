@@ -314,6 +314,42 @@ object P5_Probe {
           m.getName == method && m.getParameterCount == arity)), "")
     }
 
+    /* THE CONTEXT MENU CONTRIBUTES ONE ENTRY, AND IT IS A SUBMENU.
+
+       jEdit shows the text-area popup during the mouse PRESS and, when the
+       menu does not fit, re-anchors it flush with the window's bottom edge --
+       which leaves the pointer INSIDE the popup, on an item.  Swing then
+       routes the button RELEASE of that same click into that item
+       (`BasicPopupMenuUI.MouseGrabber` -> `MenuSelectionManager` ->
+       `BasicMenuItemUI.menuDragMouseReleased` -> `doClick`), and the JDK has
+       no guard against a release older than the popup.  So every ROW this
+       service adds moves that fold further up the text area: the height of a
+       shared-popup contribution is a correctness property, not a taste.  A
+       `JMenu` is additionally the one entry kind that cannot be fired that
+       way at all -- `BasicMenuUI`'s `menuDragMouseReleased` is empty.
+
+       Checked on the TYPE, not on a built menu: building one needs a live
+       `JEditTextArea` and there is no display here -- and the type says more
+       than a sample would, because `Option[JMenu]` cannot hold two rows. */
+    val contribution =
+      Class.forName("isabelle.jedit_query.Query_Context_Menu$").getMethods
+        .find(_.getName == "menu").map(_.getGenericReturnType)
+    check("the context menu contributes one entry, and it is a JMenu",
+      contribution.exists {
+        case p: java.lang.reflect.ParameterizedType =>
+          p.getRawType == classOf[Option[?]] &&
+            p.getActualTypeArguments.toList == List(classOf[javax.swing.JMenu])
+        case _ => false
+      },
+      contribution.map(_.getTypeName).getOrElse("<no Query_Context_Menu.menu>"))
+
+    /* And the "nothing to contribute" contract is `null`, never an empty
+       array -- jEdit adds a SEPARATOR for a non-empty list, so an empty array
+       leaves a stray divider in everyone else's menu.  Runnable headlessly
+       because a null text area never reaches Swing. */
+    check("a null text area contributes null, not an empty array",
+      new isabelle.jedit_query.Query_Context_Menu().createMenu(null, null) == null, "")
+
     /* the dockable NAME, and the labels every action needs */
     val dockable_name =
       """NAME="([^"]+)"""".r.findFirstMatchIn(dockables).map(_.group(1)).getOrElse("")
