@@ -201,8 +201,8 @@ commit messages.
 
 Two layers, credited separately. The original Python tool (the frozen
 `src/isabelle_query/` tree and everything inherited from upstream) is "By
-András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5." Everything this fork
-added — the Scala component, every capability the Python tool never had
-(`instances`, `codeqs`, the jEdit plugin and its IDE features, the warm
-server), and `demo/` — is "By David Wang, with Claude Fable 5 and Claude
-Opus 5." Do not credit new artifacts or new features to the upstream author.
+András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5." The Scala component,
+the `instances` and `codeqs` verbs, the jEdit plugin and its IDE features,
+the warm server and thin client, and `demo/` are "By David Wang, with Claude
+Fable 5 and Claude Opus 5." Do not credit new artifacts or new features to
+the upstream author.
