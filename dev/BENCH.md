@@ -16,6 +16,14 @@ measuring the delegated path under the cold label — the same shape of mistake
 `dev/P6C-STATUS.md` §5 records for the tiny tier's subject. The flag restores
 exactly the previous behaviour, so the figures below are unchanged.
 
+Since P7d the spellings have moved but the columns have not: a plain
+`isabelle query` now *is* the warm column (the shim in
+`query_base/lib/Tools/query` runs the thin client), the delegated column is
+what `$ISABELLE_QUERY_NO_CLIENT=1` buys, and cold is still `--no-server`,
+which routes past client and server both. The measurements stand; only the
+name of the default path changed — from the slowest warm route to the
+fastest.
+
 Every figure is a **median** of 5 runs (3 for the whole-AFP tier), wall clock,
 measured around the whole invocation exactly as a user pays for it — process
 start included, because process start is the thing under discussion. A

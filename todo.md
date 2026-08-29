@@ -231,12 +231,13 @@ evidence; the entries here are the handles.
       three more (CTT).  Entry condition is therefore a D-series entry, its
       own pins, and `dev/entrydiff.sh` re-run over the five P1 corpora.
 
-- [ ] `[client-console-name]` The warm client has no console name — it is
-      invoked as `python3 query_base/lib/scripts/query_client.py`.  Giving it
-      the `query` name (a `lib/Tools/` script, or an alias) would make it a
-      drop-in for the Python tool, which is what `PLAN.md` §P7 anticipated.
-      Deliberately not taken: it decides what `query` means on a user's PATH,
-      and that is an installer's call, not the component's.
+- [ ] `[client-console-name]` Half closed by `[p7d-shim]`: the warm client is
+      now what a plain `isabelle query` runs (`query_base/lib/Tools/query`),
+      so it has a console name — the component's own.  What REMAINS open is
+      the bare `query` name on a user's PATH, a drop-in for the Python tool,
+      which is what `PLAN.md` §P7 anticipated.  Still deliberately not taken:
+      it decides what `query` means on a user's PATH, and that is an
+      installer's call, not the component's.
 
 ## Done
 

@@ -729,15 +729,14 @@ structured proofs, which is the comparison the family exists for.
 # 5. The warm server
 
 The same command line against a resident JVM. The client is a stdlib-only
-Python script; no JVM is on the fast path.
+Python script; no JVM is on the fast path — and it is what a plain
+`isabelle query` runs, so the warm path needs no extra spelling.
 
 ```sh
-Q=query_base/lib/scripts/query_client.py
-
-python3 "$Q" -R demo summary -c            # starts a server on first use
-python3 "$Q" -R demo callers total_append -r
-python3 "$Q" --client-status
-python3 "$Q" --client-stop
+isabelle query -R demo summary -c          # starts a server on first use
+isabelle query -R demo callers total_append -r
+isabelle query --client-status
+isabelle query --client-stop
 ```
 
 ```
@@ -751,12 +750,12 @@ Timing, on this corpus — the floor is the JVM, and the warm path removes it:
 
 ```sh
 for i in 1 2 3; do
-  /usr/bin/time -f 'cold %e' isabelle query -R demo callers total_append -r >/dev/null
-  /usr/bin/time -f 'warm %e' python3 "$Q" -R demo callers total_append -r >/dev/null
+  /usr/bin/time -f 'cold %e' isabelle query --no-server -R demo callers total_append -r >/dev/null
+  /usr/bin/time -f 'warm %e' isabelle query -R demo callers total_append -r >/dev/null
 done
 ```
 
-| | `isabelle query` | thin client |
+| | `--no-server` (cold JVM) | thin client (plain `isabelle query`) |
 |---|---:|---:|
 | `callers total_append -r` on `demo` | 1100 ms | **40 ms** |
 

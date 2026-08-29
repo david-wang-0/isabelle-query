@@ -14,15 +14,12 @@ query -R AFP/thys callers foo            # before
 isabelle query -R AFP/thys callers foo   # after
 ```
 
-For a project you query often, the warm client is the same command line again,
-at a fraction of the cost:
-
-```sh
-python3 <checkout>/query_base/lib/scripts/query_client.py -R AFP/thys callers foo
-```
-
-Alias it to `query` if you like — it takes the same arguments, prints the same
-bytes, and returns the same exit status.
+For a project you query often, the same spelling is already warm: a plain
+`isabelle query` runs the thin client against a resident server (starting one
+on first use, and falling back to the JVM tool wherever `python3` is missing),
+so repeat questions come back in ~35 ms with nothing extra to type.
+`--no-server` opts a single invocation out; `isabelle query --client-stop`
+shuts the server down.
 
 ## What is identical
 

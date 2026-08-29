@@ -16,7 +16,7 @@ Three front ends over one engine:
 |---|---|
 | **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
 | **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
-| **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — and `isabelle query` finds that server by itself, so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
+| **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
 
 Written in Isabelle/Scala against the distribution's own parsing stack:
 `Token.explode` is the real Isar outer-syntax lexer, `Thy_Header` the real
@@ -213,35 +213,39 @@ inherits the server's lifecycle, discovery registry, and security model
 new listens on anything.
 
 The client is a small stdlib-only Python script that speaks the server's
-documented line protocol; no JVM is on the fast path.
+documented line protocol; no JVM is on the fast path. **And it is what a plain
+`isabelle query` runs**: the component ships an external tool under the tool's
+own name, which `isabelle` dispatches to before any JVM starts. A warm answer
+in ~35 ms is the default spelling, not something to opt into.
 
 ```sh
-Q=<checkout>/query_base/lib/scripts/query_client.py
-
-python3 "$Q" summary                  # starts a server on first use
-python3 "$Q" --client-status          # what is resident, and what it cost
-python3 "$Q" --client-stop            # shut it down
-python3 "$Q" --client-cold <args>     # bypass the server entirely
+isabelle query summary                # the thin client; starts a server on first use
+isabelle query --client-status       # what is resident, and what it cost
+isabelle query --client-stop         # shut it down
+isabelle query --no-server <args>    # no client, no server: one JVM, right here
 ```
 
 It re-checks every source file's mtime and size on every request (12 ms over
 `src/HOL`'s 1468 files), detects a rebuilt component and restarts the server,
-and **falls back to running `isabelle query` cold on any failure** — a slower
-right answer is always available.
+and **falls back to the JVM tool on any failure** — a slower right answer is
+always available. `python3` is a soft dependency: where it is missing, the
+same spelling runs the JVM front end below and everything still works, one
+second slower.
 
-### `isabelle query` uses that server too
+### The JVM front end delegates too
 
-The command line is not left out. A plain `isabelle query` looks for the same
-server, starts one if there is none, and runs the query there — so a warm index
-is not something you have to know about to get. It still pays its own JVM
-start, which the thin client does not, so it is the slowest of the three warm
-routes; what it removes is everything *above* that floor, which on a large
-corpus is most of the wall clock.
+Invocations that need a JVM anyway — `--no-server`, help and version, a
+missing `python3`, `$ISABELLE_QUERY_NO_CLIENT=1`, or any client failure —
+land in the Scala tool, and it is not left out either: it looks for the same
+server, starts one if there is none, and runs the query there. It still pays
+its own JVM start, which the thin client does not; what it removes is
+everything *above* that floor, which on a large corpus is most of the wall
+clock.
 
 ```sh
-isabelle query summary                # delegated if a server is up, else it starts one
+ISABELLE_QUERY_NO_CLIENT=1 …          # skip the thin client (still delegates)
 isabelle query --no-server summary    # run it right here, in this process
-ISABELLE_QUERY_NO_SERVER=1 …          # the same switch for a shell; the flag wins
+ISABELLE_QUERY_NO_SERVER=1 …          # the same switch for a shell; also skips the client
 ISABELLE_QUERY_SERVER_VERBOSE=1 …     # say which path was taken, on stderr
 ```
 
@@ -276,7 +280,7 @@ equivalent is `--client-limit`.)
 
 Measured, median of 5 (full table and method in [dev/BENCH.md](dev/BENCH.md)):
 
-| | Python `query` | `isabelle query` | thin client |
+| | Python `query` | JVM tool, cold | thin client (a plain `isabelle query`) |
 |---|---:|---:|---:|
 | `show` on a 2-theory AFP entry | 73 ms | 1091 ms | **33 ms** |
 | `callers` on a 28-theory entry | 290 ms | 1441 ms | **112 ms** |

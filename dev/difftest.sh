@@ -86,10 +86,16 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
 # be up.
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
-# equally necessary question: does the DELEGATED path give the end user the
-# same answers the oracle gives?  It is the same 2,086-case matrix, taken
-# through the socket.  The server is probe-private and stopped on the way out,
-# for the reason dev/p7probe.sh gives at greater length.
+# equally necessary question: does the WARM path give the end user the same
+# answers the oracle gives?  It is the same 2,086-case matrix, taken through
+# the socket.  The server is probe-private and stopped on the way out, for the
+# reason dev/p7probe.sh gives at greater length.
+#
+# Since P7d a bare `isabelle query` resolves to the THIN CLIENT, so the warm
+# run above exercises shim -> client -> server, which is the path a user's
+# fingers actually take.  Add ISABELLE_QUERY_NO_CLIENT=1 to take the same
+# matrix through the JVM delegate instead; the default `--no-server` run is
+# routed past the client by the shim itself, so the cold column needs nothing.
 if [ "${QUERY_DIFFTEST_DELEGATE:-0}" = "1" ]; then
   export ISABELLE_QUERY_CLIENT_SERVER="difftest-$$"
   unset ISABELLE_QUERY_NO_SERVER
