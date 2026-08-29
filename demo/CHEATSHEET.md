@@ -91,3 +91,5 @@
 - `CA+LEFT` / `CA+RIGHT` → Isabelle's own navigate back / forward stacks
 - SideKick on `Demo_Types.thy` → the same tree as `Q outline Demo_Types`
 - Caret on `total`, action find-instantiations → refusal caption, no empty result set
+- Find instantiations / code equations → one directory node (`Demo_Extras`, where
+  every site is), the theory under it, the rows visible without a click

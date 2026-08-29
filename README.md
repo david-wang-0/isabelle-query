@@ -164,7 +164,8 @@ Right-click in a theory buffer, or use the *Isabelle Query* dockable:
   name index, not PIDE markup, so it answers without waiting for the prover.
 - **Find definition** — the declaration *and its body*, rendered in the panel
   rather than jumping a pane. jEdit has no such view otherwise.
-- **Find instantiations** / **Find code equations** — the two verbs above.
+- **Find instantiations** / **Find code equations** — the two verbs above,
+  presented as a **directory → file → site tree**.
 - **Search by name** — a name field in the panel, so a finder can be run on
   something that is not under the caret (what `code_thms c` gives you at the
   prompt). Fuzzy completion over the index; the *Find* button offers the
@@ -176,6 +177,17 @@ Right-click in a theory buffer, or use the *Isabelle Query* dockable:
 - **Navigate back / forward** — Isabelle already ships complete jump stacks
   (`Isabelle_Navigator`) with no default keybinding or toolbar exposure; the
   plugin exposes them rather than re-implementing them.
+
+The two site views group by **directory** as well as by file, because a site
+list mixes registrations with retractions — `[code]` in one file, `[code del]`
+in another — and where in the project each is written is what tells them apart.
+The levels come from each theory's own path relative to the project root; a
+directory chain with nothing else in it (`Deep/Down/`) is shown as one node
+rather than as two arrows, so a project whose theories all sit in its root
+looks exactly as it did and one with session subdirectories gains a single
+level. Every level carries its own count, directories open down to the file
+level, and the site rows themselves are visible without a click. Usages and
+find-definition keep the flat per-theory presentation.
 
 Results share one tree, following jEdit's own HyperSearch Results idiom:
 grouped by file, line-numbered previews, successive result sets kept as
