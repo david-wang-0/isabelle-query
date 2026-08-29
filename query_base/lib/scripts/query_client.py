@@ -83,7 +83,10 @@ START_TIMEOUT = 60.0
 
 # These write straight to the process's own stdout inside the JVM (they are
 # corpus dumps, sized for a pipe, not for a socket), and `-` reads the
-# client's stdin, which the server has no access to.  Both are cold-only.
+# client's stdin, which the server has no access to.  Both are cold-only, as is
+# any invocation carrying a token that names something in the current directory
+# (see `ambiguous`).  The same list, for the same reasons, is
+# `Query_Delegate.bypass` in `query_base/src/delegate.scala`.
 COLD_ONLY_COMMANDS = {"dump-entries", "dump-imports", "dump-theories"}
 
 # Every environment variable the ENGINE reads, mirroring `CLI.request_env` on
@@ -443,23 +446,27 @@ def note(verbose, msg):
         sys.stderr.write("query-client: %s\n" % msg)
 
 
+def resolve(p):
+    return os.path.abspath(os.path.expanduser(p))
+
+
 def absolutize(args):
     """A served run happens in the server's working directory, not the user's,
     so a relative path in the argument list would resolve somewhere else.
 
-    Only tokens that NAME AN EXISTING FILE OR DIRECTORY here are rewritten,
-    which is exactly the set the tool would have resolved as paths; a theory
-    name, a pattern or a locus stays untouched.  `-R`'s argument is rewritten
-    whether or not it exists, because an unreadable root is a diagnostic the
-    tool must give about the path the user meant.
+    Exactly ONE argument is rewritten: `-R`/`--root`'s, in all four spellings.
+    It is rewritten whether or not it exists, because an unreadable root is a
+    diagnostic the tool must give about the path the user meant, and it is safe
+    to rewrite because that option's argument is a directory in every
+    invocation there is -- no grammar has to be consulted to know it.
 
     `~` is expanded HERE for the same reason the path is made absolute: the
     tool expands it against `user.home`, which inside a server is the home of
     whoever started it.  The shell normally does this first; a quoted `'~/p'`
-    is the case that reaches us."""
-    def resolve(p):
-        return os.path.abspath(os.path.expanduser(p))
+    is the case that reaches us.
 
+    Every OTHER relative path is handled by not serving the request at all;
+    see `ambiguous` below."""
     out = []
     i = 0
     while i < len(args):
@@ -473,12 +480,39 @@ def absolutize(args):
             out.append("--root=" + resolve(tok[len("--root=") :]))
         elif tok.startswith("-R") and len(tok) > 2:
             out.append("-R" + resolve(tok[2:]))
-        elif not tok.startswith("-") and os.path.exists(os.path.expanduser(tok)):
-            out.append(resolve(tok))
         else:
             out.append(tok)
         i += 1
     return out
+
+
+def ambiguous(args):
+    """THE ARGUMENT THIS TRANSPORT MUST NOT DECIDE.
+
+    Whether a positional is a path or a pattern is a fact about the COMMAND:
+    `find .` searches for the regex `.`, `grep pat .` searches the directory
+    `.`, and the two tokens are spelled identically.  This client used to
+    rewrite every token that named an existing file, which turned the first
+    into a search for the caller's absolute working directory -- and the wrong
+    answer arrived looking like a correct empty result, `No entries matching
+    '/home/...'`.  Rewriting none of them instead would send the second to the
+    server's own `/`.
+
+    Neither guess is available, so the invocation runs COLD, where relative
+    means what the user meant.  A token that names nothing is not ambiguous:
+    the server resolves it exactly as a local run would.  `-R`'s argument is
+    skipped -- `absolutize` has already dealt with it."""
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in ("-R", "--root"):
+            i += 1
+        elif len(tok) > 1 and tok.startswith("-"):
+            pass
+        elif os.path.exists(os.path.expanduser(tok)):
+            return tok
+        i += 1
+    return None
 
 
 def request(args, limit, verbose):
@@ -615,8 +649,10 @@ def main(argv):
             return 2
 
     first = next((a for a in argv if not a.startswith("-")), None)
-    if force_cold or first in COLD_ONLY_COMMANDS or "-" in argv:
-        note(opts["verbose"], "cold path")
+    live = ambiguous(argv)
+    if force_cold or first in COLD_ONLY_COMMANDS or "-" in argv or live:
+        note(opts["verbose"],
+             "cold path" if not live else "cold path: relative to this directory: %r" % live)
         cold(isabelle, argv)
 
     start = time.monotonic()

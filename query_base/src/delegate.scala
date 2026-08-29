@@ -216,7 +216,9 @@ object Query_Delegate {
                     because it iterates sessions itself rather than going
                     through `load_index`
        help/version pure text, no project, no reason to need a server up
-       nothing      a bare `isabelle query` prints its usage */
+       nothing      a bare `isabelle query` prints its usage
+       a live path  it may be a path or a pattern, and only the grammar knows
+                    (see `ambiguous`) */
   def bypass(args: List[String]): Option[String] = {
     if (args.isEmpty) Some("no arguments")
     else if (args.contains(STDIN_TOKEN)) Some("reads stdin")
@@ -225,7 +227,7 @@ object Query_Delegate {
       if (pos.headOption.exists(COLD_ONLY_COMMANDS)) Some("development dump")
       else if (pos.take(2) == List("shape", "census")) Some("shape census")
       else if (args.takeWhile(_ != "--").exists(HELP_TOKENS)) Some("help or version")
-      else None
+      else ambiguous(args).map(t => "relative to this directory: " + quote(t))
     }
   }
 
@@ -377,17 +379,17 @@ object Query_Delegate {
   /* ------------------------------------------------------------------ */
 
   /* A served run happens in the SERVER's working directory, so a relative path
-     in the argument list would resolve somewhere else.  Only tokens that name
-     an existing file or directory are rewritten — exactly the set the tool
-     would have resolved as paths; a theory name, a pattern or a locus is left
-     alone.  `-R`'s argument is rewritten whether or not it exists, because an
-     unreadable root is a diagnostic the tool must give about the path the user
-     meant.  `~` is expanded here because inside a server `user.home` is the
-     home of whoever started it.
+     in the argument list would resolve somewhere else.  Exactly ONE argument is
+     rewritten here: `-R`/`--root`'s, in all four spellings.  It is rewritten
+     whether or not it exists, because an unreadable root is a diagnostic the
+     tool must give about the path the user meant, and it is safe to rewrite
+     because that option's argument is a directory in every invocation there
+     is — no grammar has to be consulted to know it.  `~` is expanded here
+     because inside a server `user.home` is the home of whoever started it.
 
-     This is `absolutize` in `query_client.py`, in Scala; the two must agree. */
+     Every OTHER relative path is handled by refusing to delegate at all; see
+     `ambiguous` below for why guessing is not available. */
   def absolutize(args: List[String]): List[String] = {
-    def resolve(p: String): String = CLI.expanduser(p).toAbsolutePath.normalize.toString
     val out = new mutable.ListBuffer[String]
     var rest = args
     while (rest.nonEmpty) {
@@ -399,15 +401,48 @@ object Query_Delegate {
       }
       else if (tok.startsWith("--root=")) out += "--root=" + resolve(tok.substring(7))
       else if (tok.startsWith("-R") && tok.length > 2) out += "-R" + resolve(tok.substring(2))
-      else if (!tok.startsWith("-") && exists(tok)) out += resolve(tok)
       else out += tok
     }
     out.toList
   }
 
+  private def resolve(p: String): String =
+    CLI.expanduser(p).toAbsolutePath.normalize.toString
+
   private def exists(token: String): Boolean =
     try java.nio.file.Files.exists(CLI.expanduser(token))
     catch { case _: Throwable => false }
+
+  /* THE ARGUMENT THIS LAYER MUST NOT DECIDE.  Whether a positional is a path
+     or a pattern is a fact about the COMMAND: `find .` searches for the regex
+     `.`, `grep pat .` searches the directory `.`, and the two tokens are
+     spelled identically.  A transport that rewrote every token naming an
+     existing file would turn the first into a search for the caller's absolute
+     working directory — the answer was `No entries matching '/home/...'`, and
+     it looked like a correct empty result.  A transport that rewrote none of
+     them would send the second to the server's own `/`.
+
+     So neither guess is available, and the third option is the right one: an
+     invocation carrying a token that could be either runs HERE, where relative
+     means what the user meant.  It costs the warm path for `grep pat .` and
+     buys never being wrong about it.  A token that names nothing is NOT
+     ambiguous — the server resolves it exactly as this process would, and
+     gives the same "not a path or known theory" if it resolves to nothing.
+
+     `-R`'s argument is skipped: it is a path by construction and `absolutize`
+     has already dealt with it. */
+  def ambiguous(args: List[String]): Option[String] = {
+    var rest = args
+    var found: Option[String] = None
+    while (rest.nonEmpty && found.isEmpty) {
+      val tok = rest.head
+      rest = rest.tail
+      if (tok == "-R" || tok == "--root") { if (rest.nonEmpty) rest = rest.tail }
+      else if (tok.startsWith("-") && tok.length > 1) ()
+      else if (exists(tok)) found = Some(tok)
+    }
+    found
+  }
 
   /* `CLI.request_env` is the contract — every variable the ENGINE reads, and
      no others.  Read from THIS process, bound for THIS request inside the
@@ -536,8 +571,9 @@ object Query_Delegate {
       val o = Out.stdout
       o.print(out)
       o.flush()
+      note("wrote " + out.length + " chars, exit " + rc)
       rc
     }
-    catch { case _: Broken_Pipe => CLI.EXIT_SIGPIPE }
+    catch { case _: Broken_Pipe => note("stdout closed"); CLI.EXIT_SIGPIPE }
   }
 }
