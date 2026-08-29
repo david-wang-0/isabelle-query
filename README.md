@@ -312,4 +312,9 @@ Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
 
 ## Authors & license
 
-By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5. [MIT](LICENSE).
+The original (Python) isabelle-query is by András Salamon, with Claude Opus
+4.6, 4.7, 4.8, and 5 — see [upstream](https://github.com/ott2/isabelle-query),
+kept in-tree under `src/isabelle_query/` as the frozen reference
+implementation. The Scala rewrite, the jEdit plugin, the warm server, and the
+demo project are by David Wang, with Claude Fable 5 and Claude Opus 5.
+[MIT](LICENSE).

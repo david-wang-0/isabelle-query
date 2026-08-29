@@ -924,4 +924,6 @@ from its real output, never composed.
 
 ## Credit
 
-By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5.
+By David Wang, with Claude Fable 5 and Claude Opus 5. (The tool it
+demonstrates forks András Salamon's isabelle-query — see the repository
+README for the full attribution.)

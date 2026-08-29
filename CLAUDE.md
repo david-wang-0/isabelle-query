@@ -199,5 +199,9 @@ commit messages.
 
 ## Credit
 
-Artifacts are credited "By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and
-5."
+Two layers, credited separately. The original Python tool (the frozen
+`src/isabelle_query/` tree and everything inherited from upstream) is "By
+András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5." Everything this fork
+added — the Scala component, the jEdit plugin, the server, `demo/` — is "By
+David Wang, with Claude Fable 5 and Claude Opus 5." Do not credit new
+artifacts to the upstream author.
