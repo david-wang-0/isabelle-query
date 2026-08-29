@@ -52,7 +52,7 @@ definition total :: "int list \<Rightarrow> int"
 lemma total_append: \<comment> \<open>the total of a concatenation splits\<close>
   "total (xs @ ys) = total xs + total ys"
   unfolding total_eq
-  by simp \<comment> \<open>sum\_list already distributes over append, so nothing is left to do\<close>
+  by simp \<comment> \<open>the list sum already distributes over append\<close>
 
 subsection \<open>One statement, two named conjuncts\<close>
 
@@ -73,7 +73,15 @@ lemma mono: "m \<le> n \<Longrightarrow> f\<^sub>1 m \<le> f\<^sub>1 n"
   by (simp add: f\<^sub>1_def)
 
 lemma f\<^sub>1_le_double: "f\<^sub>1 m \<le> f\<^sub>1 (m + m)"
-  using mono by simp
+  using mono by simp \<comment> \<open>chained fact\<close>
+
+lemma f\<^sub>1_mono_rule:
+  assumes "m \<le> n"
+  shows "f\<^sub>1 m \<le> f\<^sub>1 n"
+  using assms by (rule mono) \<comment> \<open>argument of a rule\<close>
+
+lemma f\<^sub>1_le_suc: "f\<^sub>1 m \<le> f\<^sub>1 (Suc m)"
+  by (simp add: mono) \<comment> \<open>bare method argument\<close>
 
 section \<open>Declarations inside a target\<close>
 

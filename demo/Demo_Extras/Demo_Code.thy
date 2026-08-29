@@ -83,8 +83,10 @@ section \<open>An abstract type\<close>
 text \<open>
   An abstract code equation reads \<open>projection (constructor args) = \<dots>\<close>, whose
   outermost head is the projection and whose subject is the constructor, so
-  the head rule collects both. \<^verbatim>\<open>codeqs elems\<close> and \<^verbatim>\<open>codeqs NDlist\<close> each report
-  this line.
+  the head rule collects both. \<^verbatim>\<open>codeqs NDlist\<close> reports it; \<^verbatim>\<open>codeqs elems\<close>
+  exits 1, because a \<^verbatim>\<open>typedef\<close> morphism is not an entry this scanner declares
+  and the verb refuses a subject it cannot resolve rather than reporting an
+  honest-looking zero.
 \<close>
 
 typedef ndlist = "{xs :: nat list. distinct xs}"

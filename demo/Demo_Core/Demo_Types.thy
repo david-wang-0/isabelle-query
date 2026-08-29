@@ -95,9 +95,9 @@ text \<open>
   each is written on its own line and so is independently locatable.
 \<close>
 
-axiomatization cost :: "instr \<Rightarrow> nat"
-  and fuel :: nat
-  where cost_pos: "0 < cost i"
-    and fuel_pos: "0 < fuel"
+axiomatization cost :: "instr \<Rightarrow> nat" and
+  fuel :: nat where
+  cost_pos: "0 < cost i" and
+  fuel_pos: "0 < fuel"
 
 end
