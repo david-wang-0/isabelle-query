@@ -704,10 +704,10 @@ fi
 # existing file into an absolute path, "exactly the set the tool would have
 # resolved as paths".  It is not that set: `find .` searches for the REGEX `.`,
 # and the rewrite turned it into a search for the caller's own directory --
-# answering `No entries matching '/home/...'`, which reads exactly like a
-# correct empty result.  Whether a positional is a path or a pattern is a fact
-# about the command, so neither front end decides it: such an invocation runs
-# cold.
+# answering `No entries matching '<the caller's own cwd>'`, which reads
+# exactly like a correct empty result.  Whether a positional is a path or a
+# pattern is a fact about the command, so neither front end decides it: such
+# an invocation runs cold.
 
 delegv -R "$AFP" find . -a >"$OUT/d-dot.txt" 2>"$OUT/d-dot.err"
 isabelle query -R "$AFP" find . -a >"$OUT/d-dot-cold.txt" 2>/dev/null

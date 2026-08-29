@@ -495,7 +495,7 @@ def ambiguous(args):
     rewrite every token that named an existing file, which turned the first
     into a search for the caller's absolute working directory -- and the wrong
     answer arrived looking like a correct empty result, `No entries matching
-    '/home/...'`.  Rewriting none of them instead would send the second to the
+    '<cwd>'`.  Rewriting none of them instead would send the second to the
     server's own `/`.
 
     Neither guess is available, so the invocation runs COLD, where relative
