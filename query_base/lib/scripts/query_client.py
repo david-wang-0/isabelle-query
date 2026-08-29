@@ -499,9 +499,15 @@ def ambiguous(args):
     server's own `/`.
 
     Neither guess is available, so the invocation runs COLD, where relative
-    means what the user meant.  A token that names nothing is not ambiguous:
-    the server resolves it exactly as a local run would.  `-R`'s argument is
-    skipped -- `absolutize` has already dealt with it."""
+    means what the user meant.  Two kinds of token are not ambiguous, and
+    excluding them is what keeps the rule from swallowing the warm path whole:
+    one that names nothing (the server resolves it exactly as a local run
+    would), and one that is ABSOLUTE (it means the same thing in any working
+    directory, so no rewriting is needed and none is done).  A `~`-prefixed
+    token IS ambiguous despite looking absolute: expanding it could corrupt a
+    pattern, and not expanding it would send it to a server whose home is
+    somebody else's.  `-R`'s argument is skipped -- `absolutize` has already
+    dealt with it."""
     i = 0
     while i < len(args):
         tok = args[i]
@@ -509,7 +515,10 @@ def ambiguous(args):
             i += 1
         elif len(tok) > 1 and tok.startswith("-"):
             pass
-        elif os.path.exists(os.path.expanduser(tok)):
+        elif tok.startswith("~"):
+            if os.path.exists(os.path.expanduser(tok)):
+                return tok
+        elif not tok.startswith("/") and os.path.exists(tok):
             return tok
         i += 1
     return None

@@ -425,12 +425,25 @@ object Query_Delegate {
      So neither guess is available, and the third option is the right one: an
      invocation carrying a token that could be either runs HERE, where relative
      means what the user meant.  It costs the warm path for `grep pat .` and
-     buys never being wrong about it.  A token that names nothing is NOT
-     ambiguous — the server resolves it exactly as this process would, and
-     gives the same "not a path or known theory" if it resolves to nothing.
+     buys never being wrong about it.
 
-     `-R`'s argument is skipped: it is a path by construction and `absolutize`
-     has already dealt with it. */
+     Two kinds of token are NOT ambiguous, and excluding them is what keeps the
+     rule from swallowing the warm path whole:
+
+       * one that names nothing — the server resolves it exactly as this
+         process would, and gives the same "not a path or known theory" when it
+         resolves to nothing;
+       * one that is ABSOLUTE — it means the same thing in any working
+         directory, so it needs no rewriting and none is done: whether the
+         grammar reads it as a path or as a pattern, the server reads it the
+         same way this process would have.
+
+     A `~`-prefixed token IS ambiguous even though it looks absolute: expanding
+     it could corrupt a pattern, and not expanding it would send it to a server
+     whose `user.home` is somebody else's.
+
+     `-R`'s argument is skipped: it is a directory by construction and
+     `absolutize` has already dealt with it. */
   def ambiguous(args: List[String]): Option[String] = {
     var rest = args
     var found: Option[String] = None
@@ -439,7 +452,8 @@ object Query_Delegate {
       rest = rest.tail
       if (tok == "-R" || tok == "--root") { if (rest.nonEmpty) rest = rest.tail }
       else if (tok.startsWith("-") && tok.length > 1) ()
-      else if (exists(tok)) found = Some(tok)
+      else if (tok.startsWith("~")) { if (exists(tok)) found = Some(tok) }
+      else if (!tok.startsWith("/") && exists(tok)) found = Some(tok)
     }
     found
   }

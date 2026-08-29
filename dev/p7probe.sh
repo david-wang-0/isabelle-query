@@ -730,9 +730,10 @@ else
     "$(tr '\n' ' ' <"$OUT/c-dot.err" | cut -c1-70)"
 fi
 
-# The other half: a token that names NOTHING is not ambiguous, and must still
-# be served -- otherwise the rule would take every ordinary query off the warm
-# path the moment someone ran it from a directory full of theory files.
+# The other half, and it is what keeps the rule from swallowing the warm path
+# whole: a token that names NOTHING is not ambiguous, and neither is an
+# ABSOLUTE one -- it means the same thing in any working directory, so it needs
+# no rewriting and gets none.
 delegv -R "$AFP" find fair_fenum -a >"$OUT/d-name.txt" 2>"$OUT/d-name.err"
 isabelle query -R "$AFP" find fair_fenum -a >"$OUT/d-name-cold.txt" 2>/dev/null
 if grep -q "^query-delegate: delegated" "$OUT/d-name.err" &&
@@ -741,6 +742,18 @@ if grep -q "^query-delegate: delegated" "$OUT/d-name.err" &&
 else
   bad "a name that is not a file is still delegated" \
     "$(tr '\n' ' ' <"$OUT/d-name.err" | cut -c1-70)"
+fi
+
+AFP_THY=$(find "$AFP" -name '*.thy' -print -quit 2>/dev/null)
+delegv -R "$AFP" grep lemma "$AFP_THY" >"$OUT/d-abs.txt" 2>"$OUT/d-abs.err"
+isabelle query -R "$AFP" grep lemma "$AFP_THY" >"$OUT/d-abs-cold.txt" 2>/dev/null
+if grep -q "^query-delegate: delegated" "$OUT/d-abs.err" &&
+   cmp -s "$OUT/d-abs.txt" "$OUT/d-abs-cold.txt" && [ -s "$OUT/d-abs.txt" ]; then
+  note "and an ABSOLUTE path argument is delegated, unrewritten" \
+    "$(wc -l <"$OUT/d-abs.txt") hits"
+else
+  bad "and an ABSOLUTE path argument is delegated, unrewritten" \
+    "$(tr '\n' ' ' <"$OUT/d-abs.err" | cut -c1-70)"
 fi
 
 # --- 15h. the opt-out, and that it starts nothing --------------------------
