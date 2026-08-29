@@ -22,7 +22,6 @@ sources = \
   src/shape_cmds.scala \
   src/cli.scala \
   src/server.scala \
-  src/delegate.scala \
   src/query_tool.scala
 services = \
   isabelle.query.Query_Tools \

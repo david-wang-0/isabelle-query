@@ -347,12 +347,12 @@ object CLI {
     flag("-V", "--version")("version", "show the version and exit")
 
   /* DISPLAY ONLY, and deliberately not in the grammar: `--no-server` is read
-     and removed before any argument is parsed (`Query_Delegate.strip_flag`),
-     because it selects which JVM runs the query rather than anything about the
+     and removed before any argument is parsed (`strip_no_server` below),
+     because it selects WHO runs the query rather than anything about the
      query.  Listing it here is what keeps `isabelle query -h` honest; putting
-     it in `resolve_long` would let an abbreviation reach the parser, be
-     accepted as a no-op, and delegate anyway — the one outcome the flag exists
-     to prevent. */
+     it in `resolve_long` would let an abbreviation reach the parser and be
+     accepted as a no-op — an invocation that asked not to be served and was
+     served anyway, which is the one outcome the flag exists to prevent. */
   private val no_server_opt =
     flag("--no-server")("no_server",
       "run in this process; do not use (or start) the warm `isabelle query` server")
@@ -1506,6 +1506,34 @@ object CLI {
       case _: Broken_Pipe => rc = EXIT_SIGPIPE
     }
     rc
+  }
+
+  /* `--no-server` off the front, before anything reads the argv.
+
+     The flag is the user's way of saying "not through the warm server", and
+     since P8 the only thing that can honour it is the `lib/Tools/query` shim,
+     which routes such an invocation straight here.  By the time this process
+     exists the wish has already been granted; what is left is to remove the
+     token, because the grammar above does not know it and would report it as
+     an unrecognized argument.
+
+     Removed anywhere before a bare `--`, and only in the exact spelling: an
+     abbreviation gets the grammar's usual complaint, which is a better answer
+     than silently accepting a flag whose meaning this process cannot act on.
+
+     It is still stripped HERE, and not only in the shim, because `Query_Main`
+     is a public entry point — a caller who spells the JVM path directly must
+     get the same reading of the same argv. */
+  def strip_no_server(args: List[String]): List[String] = {
+    val out = new mutable.ListBuffer[String]
+    var only_pos = false
+    for (tok <- args) {
+      if (only_pos) out += tok
+      else if (tok == "--") { only_pos = true; out += tok }
+      else if (tok == "--no-server") ()
+      else out += tok
+    }
+    out.toList
   }
 
   def run(args: List[String]): Unit = {

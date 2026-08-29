@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
 """Thin client for the warm `isabelle query` server.
 
-`isabelle query` spends about 850 ms starting a JVM before it looks at a single
-theory, which is most of the cost of a small query.  The engine's answer to
-that is a `Server.Commands` service folded into the stock `isabelle server`
-(see `query_base/src/server.scala`); this is the other half — a client that
-speaks the server's documented line protocol directly, so nothing on the fast
-path is a JVM.
+A cold `isabelle query` costs about 870 ms before it prints anything, and the
+warm mode exists to remove two quite different parts of that.  Naming them
+correctly matters, because the tool's own documentation had this wrong through
+P7 and the wrong version argues for the wrong design:
+
+  ~405 ms  `scala_build` -- a whole SECOND JVM, whose only job is to check
+           whether this component needs recompiling
+  ~180 ms  the `bin/isabelle` settings shell, sourced again by `isabelle java`
+   ~30 ms  the JVM itself.  That is all it is.
+  ~250 ms  Isabelle/Scala class loading over a 53-jar class path
+     THEN  the actual parse -- 421 ms for a 28-theory AFP entry, 2755 ms for
+           `src/HOL`, ~19 s for the whole AFP
+
+Skipping the first four is what a resident process buys, and it is the smaller
+half.  The larger half is the last line: the server holds the PARSED corpus, so
+a repeat question re-stats the files (12 ms over `src/HOL`'s 1468) instead of
+re-reading them.  No amount of compiling makes a cold process do that, which is
+why the answer here is a warm index rather than a faster start.
+
+The engine's half of it is a `Server.Commands` service folded into the stock
+`isabelle server` (see `query_base/src/server.scala`); this is the other half —
+a client that speaks the server's documented line protocol directly, so nothing
+on the fast path is a JVM.
 
 Deliberately stdlib-only and deliberately small.  It is a TRANSPORT, not a
 second front end: it does not know the tool's options, does not validate them,
@@ -17,8 +34,17 @@ served answer and a typed one differ only in who wrote the bytes.
 The safety rule, in order of priority: never a wrong answer, then never a
 hang, then fast.  Every failure mode — no server, a refused connection, a
 protocol the client does not know, a component rebuilt under a running server
-— falls back to running `isabelle query` cold.  A slower right answer is
+— declines, and the cold path answers instead.  A slower right answer is
 always available; a wrong one must not be.
+
+DECLINING IS AN EXIT STATUS, NOT AN EXEC.  This script exits EXIT_RUN_COLD (97)
+having written nothing, and `lib/Tools/query` — which called it, and which is
+the only router — runs the JVM.  Before P8 it re-exec'd `isabelle query`
+itself, which since P7d meant re-entering this very script through the shim: a
+hop that needed an environment mark to keep it from looping, and that landed in
+a JVM carrying a second copy of the routing policy (`delegate.scala`), which
+then re-tried the registry this client had just failed on.  One direction, one
+policy, no mark.
 
 Usage:
     query_client.py [--client-OPTION ...] ARG ...
@@ -37,18 +63,18 @@ carry the `--client-` prefix so they cannot collide with the tool's own:
 Since P7d this script needs no path to reach: the component's
 `lib/Tools/query` shim makes it what a plain `isabelle query` runs, routing to
 the JVM front end only where a JVM is needed (`--no-server`, help/version,
-$ISABELLE_QUERY_NO_CLIENT=1, or no python3).  The shim decides WHO answers;
-this script's own routing below decides no more than it did before.
+$ISABELLE_QUERY_NO_CLIENT=1, or no python3).  The shim also splits the argv,
+keeping the `--client-*` options for this script and the rest for the cold
+path, so a decline can be run without them.
 
 Environment:
     ISABELLE_QUERY_CLIENT_SERVER    server name (default: isabelle_query)
     ISABELLE_QUERY_CLIENT_COLD      set to 1 to force the cold path
     ISABELLE_QUERY_CLIENT_TIMEOUT   default for --client-timeout
     ISABELLE_QUERY_CLIENT_CACHE     where the resolved settings are cached
-    ISABELLE_QUERY_NO_CLIENT        read by the SHIM, not by this script; set
-                                    by `cold` below so a fallback that
-                                    re-enters `isabelle query` lands in the
-                                    JVM instead of looping back here
+    ISABELLE_QUERY_NO_CLIENT        read by the SHIM, not by this script: it
+                                    means "do not run the client at all", so
+                                    nothing here ever observes it
 
 The variables above configure THIS PROCESS and are never sent.  The variables
 the tool itself reads are a different set (`FORWARDED_ENV` below) and ARE sent,
@@ -91,12 +117,22 @@ GREETING_TIMEOUT = 10.0
 # being wrong here is a spurious fall back to the cold path, not an error.
 START_TIMEOUT = 60.0
 
+# The status this script exits with to say: I have written NOTHING, and this
+# invocation wants the cold path.  `lib/Tools/query` reads it and runs the JVM
+# itself -- which is why nothing here ever re-enters `isabelle query`.  Chosen
+# outside the CLI's exit contract (0 ran, 1 unresolved subject, 2 usage, 141
+# closed stdout), outside sysexits.h (64-78), and below the shell's signal
+# range (129+), so a real answer can never be mistaken for it.
+EXIT_RUN_COLD = 97
+
 # These write straight to the process's own stdout inside the JVM (they are
 # corpus dumps, sized for a pipe, not for a socket), and `-` reads the
 # client's stdin, which the server has no access to.  Both are cold-only, as is
 # any invocation carrying a token that names something in the current directory
-# (see `ambiguous`).  The same list, for the same reasons, is
-# `Query_Delegate.bypass` in `query_base/src/delegate.scala`.
+# (see `ambiguous`).  SINCE P8 THIS IS THE ONLY HOME OF THAT LIST: the Scala
+# side used to carry a second copy (`Query_Delegate.bypass`), and a verb of any
+# of these shapes belongs here and nowhere else.  README's "warm server"
+# section mirrors it in prose.
 COLD_ONLY_COMMANDS = {"dump-entries", "dump-imports", "dump-theories"}
 
 # Every environment variable the ENGINE reads, mirroring `CLI.request_env` on
@@ -192,25 +228,27 @@ def write_cache(entries):
 
 
 def find_isabelle(cached):
-    """The `isabelle` wrapper: the cold path, and how a server gets started."""
+    """The `isabelle` wrapper: how `$ISABELLE_HOME_USER` is resolved and how a
+    server gets started.  `None` when there is none to be found, which is not
+    an error here -- the caller returns EXIT_RUN_COLD and the shim, which has
+    its own settings environment, runs the query."""
     exe = os.environ.get("ISABELLE_TOOL") or cached.get("isabelle", "")
     if exe and os.access(exe, os.X_OK):
         return exe
     from shutil import which
 
-    exe = which("isabelle")
-    if exe:
-        return exe
-    sys.stderr.write("query: no `isabelle` on PATH, and no $ISABELLE_TOOL\n")
-    sys.exit(2)
+    return which("isabelle")
 
 
 def home_user(isabelle, cached):
     """`$ISABELLE_HOME_USER`, which is where the server registry lives.
 
-    Resolving it means one `isabelle getenv` — a full JVM boot, the very cost
-    this client exists to avoid — so the answer is cached and keyed on
-    everything that could change it."""
+    Resolving it means one `isabelle getenv`, which is pure bash and starts no
+    JVM — but it does source the whole settings environment, ~185 ms, which is
+    six times this script's own budget.  So the answer is cached, keyed on
+    everything that could change it.  (Through P7 this comment claimed `getenv`
+    was "a full JVM boot"; it never was.  The cache is worth having anyway, for
+    the real reason.)"""
     home = cached.get("home_user", "")
     if home and os.path.isdir(home):
         return home
@@ -421,21 +459,24 @@ class Connection:
 # --------------------------------------------------------------------------
 
 
-def cold(isabelle, args):
-    """The cold path, and the last word on every failure.  `execv` rather than
-    a subprocess so the tool inherits this process entirely: its exit status is
-    the status, and a SIGPIPE kills the right process.
+def cold(verbose, why):
+    """Decline, and say why if asked.  The last word on every failure.
 
-    Since P7d, `isabelle query` resolves to the component's `lib/Tools/query`
-    shim, whose fast path is THIS SCRIPT — so the exec below re-enters the very
-    tool name that got us here.  $ISABELLE_QUERY_NO_CLIENT is the mark that
-    stops that at one hop: the shim reads it and takes the JVM path instead.
-    Set here rather than in the shim because only this side knows a fallback is
-    happening."""
+    Until P8 this ran the cold path itself, by `execv`-ing `isabelle query` —
+    which, since the shim took over that tool name, re-entered the very script
+    it was leaving.  That hop needed an environment mark to stop it looping,
+    and landed in a JVM that then re-tried the registry this client had just
+    failed on.  Now the decision is simply reported upward: the shim called us
+    and the shim is what falls back.
+
+    THE INVARIANT THAT MAKES IT SAFE is the one this client already had —
+    nothing reaches stdout until a complete OK reply is in hand — so a decline
+    at any point, for any reason, can neither duplicate nor truncate output.
+    Every `return EXIT_RUN_COLD` below is downstream of that guarantee."""
+    note(verbose, why)
     sys.stdout.flush()
     sys.stderr.flush()
-    os.environ["ISABELLE_QUERY_NO_CLIENT"] = "1"
-    os.execv(isabelle, [isabelle, "query"] + args)
+    return EXIT_RUN_COLD
 
 
 def connect(isabelle, cached, name, restart, timeout, verbose):
@@ -547,9 +588,9 @@ def ambiguous(args):
 
 
 def positionals(args, n=2):
-    """The first N positional tokens, by the same rule `Query_Delegate.positionals`
-    uses: `-R`/`--root` consume a following argument, anything else starting
-    with `-` is an option, and a bare `--` ends option processing."""
+    """The first N positional tokens, by the same rule the CLI's own top-level
+    loop uses: `-R`/`--root` consume a following argument, anything else
+    starting with `-` is an option, and a bare `--` ends option processing."""
     out = []
     only_pos = False
     i = 0
@@ -651,7 +692,6 @@ def status(isabelle, opts):
 
 def main(argv):
     cached = read_cache()
-    isabelle = find_isabelle(cached)
     opts = {
         "cached": cached,
         "name": os.environ.get("ISABELLE_QUERY_CLIENT_SERVER", DEFAULT_SERVER),
@@ -693,6 +733,19 @@ def main(argv):
             sys.stderr.write("query: unknown client option: %s\n" % opt)
             return 2
 
+    # Resolved AFTER the options, so a decline can be reported at the verbosity
+    # the caller asked for.  No `isabelle` means no registry and no way to
+    # start a server: decline, and let the shim -- which reached this script
+    # through a settings environment of its own -- run the query.  For
+    # `--client-status` / `--client-stop` there is nothing to decline TO, so
+    # those say what is wrong instead.
+    isabelle = find_isabelle(cached)
+    if isabelle is None:
+        if action == "run":
+            return cold(opts["verbose"], "no `isabelle` on PATH, and no $ISABELLE_TOOL")
+        sys.stderr.write("query: no `isabelle` on PATH, and no $ISABELLE_TOOL\n")
+        return 2
+
     if action == "stop":
         return stop_server(isabelle, opts["name"])
     if action == "status":
@@ -702,17 +755,18 @@ def main(argv):
             sys.stderr.write("query: %s\n" % exn)
             return 2
 
-    # `shape census` mirrors `Query_Delegate.bypass` for the same reason: a
-    # 256 MB reply through a synchronous single-message protocol is SLOWER
-    # warm than cold, and a census gets no benefit from a warm index anyway.
+    # `shape census` is on the bypass list for two structural reasons: a 256 MB
+    # reply through a synchronous single-message protocol is SLOWER warm than
+    # cold, and a census gets no benefit from a warm index anyway, because it
+    # iterates sessions itself rather than going through `load_index`.
     pos = positionals(argv)
     first = pos[0] if pos else None
     census = pos[:2] == ["shape", "census"]
     live = ambiguous(argv)
     if force_cold or first in COLD_ONLY_COMMANDS or census or "-" in argv or live:
-        note(opts["verbose"],
-             "cold path" if not live else "cold path: relative to this directory: %r" % live)
-        cold(isabelle, argv)
+        return cold(opts["verbose"],
+                    "cold path" if not live
+                    else "cold path: relative to this directory: %r" % live)
 
     start = time.monotonic()
     try:
@@ -720,8 +774,7 @@ def main(argv):
         note(opts["verbose"], "warm, %.1f ms" % ((time.monotonic() - start) * 1000))
         return rc
     except Fallback as exn:
-        note(opts["verbose"], "falling back: %s" % exn)
-        cold(isabelle, argv)
+        return cold(opts["verbose"], "falling back: %s" % exn)
     except socket.timeout:
         # Falling back would repeat work that has already run longer than the
         # caller allowed; say so instead of doubling the wait.  (Checked before
@@ -734,15 +787,13 @@ def main(argv):
     except OSError as exn:
         # A socket that dies mid-request -- the server killed, the connection
         # reset.  Nothing has been written to stdout yet (that happens only
-        # after a complete OK reply), so re-running cold cannot duplicate
-        # output, and a traceback here would be a worse answer than a slow one.
-        note(opts["verbose"], "falling back: %s" % exn)
-        cold(isabelle, argv)
+        # after a complete OK reply), so running cold cannot duplicate output,
+        # and a traceback here would be a worse answer than a slow one.
+        return cold(opts["verbose"], "falling back: %s" % exn)
     except (ValueError, KeyError, TypeError) as exn:
         # A reply this client cannot make sense of is a protocol mismatch, and
         # a protocol mismatch is exactly what the cold path is for.
-        note(opts["verbose"], "falling back: malformed reply: %s" % exn)
-        cold(isabelle, argv)
+        return cold(opts["verbose"], "falling back: malformed reply: %s" % exn)
     except KeyboardInterrupt:
         return 130
 

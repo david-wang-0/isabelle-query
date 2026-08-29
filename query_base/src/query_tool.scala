@@ -110,21 +110,20 @@ object Query_Tool {
 
   /* --- tool --- */
 
-  /* The process entry point, and the ONE place the warm server is chosen.
+  /* The process entry point, and it runs the query.
 
-     `Query_Delegate.delegate` either answers (the bytes are already written,
-     and the status is what the server's `CLI.run_result` returned) or declines
-     — because the caller opted out, because the invocation is on the bypass
-     list, or because anything at all went wrong on the way — in which case the
-     rest of this function runs exactly as it always did.  Nothing below knows
-     whether a server exists. */
-  def main_tool(args0: List[String]): Unit = {
-    val (args, no_server) = Query_Delegate.strip_flag(args0)
-    Query_Delegate.delegate(args, no_server) match {
-      case Some(rc) => if (rc != 0) sys.exit(rc)
-      case None => local_tool(args)
-    }
-  }
+     Until P8 it first asked the warm server whether it would rather answer —
+     a second copy of the thin client's routing policy, in Scala, reached only
+     after the client had already declined or been skipped.  That made a client
+     fallback ask twice: the client would try the registry, fail, re-exec the
+     tool, and the tool would try the registry and fail again, having been told
+     nothing about the first attempt.  The policy now lives in exactly one
+     place — `query_client.py`, chosen by `lib/Tools/query` — and a JVM that
+     gets here is a JVM that has been told to do the work.
+
+     So: strip the flag the shim routed on and run.  There is no branch. */
+  def main_tool(args0: List[String]): Unit =
+    local_tool(CLI.strip_no_server(args0))
 
   private def local_tool(args: List[String]): Unit =
     args match {
@@ -158,7 +157,11 @@ class Query_Tools extends Isabelle_Scala_Tools(Query_Tool.isabelle_tool)
    route back into the JVM (`isabelle java isabelle.Isabelle_Tool query …`)
    re-enters the shim as a CHILD process and loops, stacking one live JVM per
    ~1.3 s until the machine dies.  Measured, twice, the hard way.  This main
-   is `find_internal`'s wrapper verbatim, minus the name lookup that loops. */
+   is `find_internal`'s wrapper verbatim, minus the name lookup that loops.
+
+   It is also, since P8, a terminal entry: it runs the query and returns.  It
+   does not look for a server, so no route out of this process leads back to
+   the shim, and the tripwire the shim still carries should never fire. */
 object Query_Main {
   def main(args: Array[String]): Unit =
     Command_Line.tool { Query_Tool.isabelle_tool.body(args.toList) }

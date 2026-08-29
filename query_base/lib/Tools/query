@@ -2,41 +2,111 @@
 #
 # DESCRIPTION: query an Isabelle/Isar project (syntax-aware, no build)
 #
-# The front door.  `bin/isabelle` dispatches to an external tool of this name
-# BEFORE it starts a JVM for the Scala one, which is the property this shim
-# exists for: on the fast path `isabelle query` is the non-JVM thin client
-# (`lib/scripts/query_client.py`), and the ~850 ms JVM floor is paid only
-# where a JVM is genuinely needed.
+# THE ROUTER, and since P8 the only one.  `bin/isabelle` dispatches to an
+# external tool of this name BEFORE it starts a JVM for the Scala one, which is
+# the property this shim exists for: on the fast path `isabelle query` is the
+# non-JVM thin client (`lib/scripts/query_client.py`), and a JVM is started
+# only where a JVM is genuinely needed.
 #
-# Routing, and nothing else — this file decides WHO answers, never WHAT:
+# What that JVM costs is worth stating correctly, because the tool's own
+# documentation got it wrong for three phases.  It is NOT "JVM start-up": a
+# bare JVM boots in ~30 ms.  A cold `isabelle query` is ~870 ms because of
+# `scala_build` (~405 ms, a whole second JVM, only to check whether this
+# component is stale), the `bin/isabelle` settings shell (~180 ms, paid again
+# by `isabelle java`), and Isabelle/Scala class loading over a 53-jar class
+# path (~250 ms).  The warm path is not fast because it avoids a JVM; it is
+# fast because the corpus is already PARSED and resident, which on `src/HOL` is
+# 2755 ms of work reduced to a 12 ms restat.  dev/BENCH.md has the breakdown.
 #
-#   $ISABELLE_QUERY_NO_CLIENT=1      the JVM front end, always.  Also set by
-#                                    the client's own cold fallback, which
-#                                    re-enters this tool name: without the
-#                                    mark, a fallback would be an exec loop.
-#   $ISABELLE_QUERY_NO_SERVER=1      nothing warm at all; the JVM tool reads
-#                                    the same variable and runs locally.
-#   `--no-server` before a bare --   the flag spelling of the same wish; the
-#                                    JVM tool strips and honours it.
+# ROUTING, AND NOTHING ELSE -- this file decides WHO answers, never WHAT:
+#
+#   $ISABELLE_QUERY_NO_CLIENT=1      the JVM front end, always
+#   $ISABELLE_QUERY_NO_SERVER=1      nothing warm at all
+#   `--no-server` before a bare --   the flag spelling of the same wish;
+#                                    `CLI.strip_no_server` removes the token
+#                                    once the routing has honoured it
 #   no arguments, -h/--help,         usage and version are pure text; no
 #     -V/--version                   reason to start a server to print them
-#                                    (mirrors `Query_Delegate.bypass`).
 #   no python3, no client script     the client cannot run; the JVM path is
-#                                    the slower right answer.
+#                                    the slower right answer
 #
-# Everything else goes to the client, whose own routing — the bypass list,
-# and the fall-back-cold-on-any-failure rule — is documented at its head.
+# ONE DIRECTION.  Until P8 the client's own cold fallback re-entered this tool
+# name -- `query -> client -> query` -- and the JVM side then re-implemented
+# the client's whole routing policy in Scala (`delegate.scala`, 594 lines), so
+# a fallback asked the registry twice and could even spawn a server the client
+# had just failed to reach.  Now the client never re-enters anything: when it
+# will not serve a request it exits $EXIT_RUN_COLD having written NOTHING, and
+# this script runs the cold path itself.  Routing flows one way, from here.
+#
+# The client's own bypass list -- the invocations it declines on sight -- is
+# documented at the head of `query_client.py`, which is the single home of that
+# policy now.
 
 CLIENT="$ISABELLE_QUERY_BASE_HOME/lib/scripts/query_client.py"
 
-warm=true
+# The client's "I wrote nothing; run this cold" status.  Outside the CLI's exit
+# contract (0 ran, 1 unresolved subject, 2 usage, 141 closed stdout), outside
+# sysexits.h (64-78), and below the shell's signal range (129+), so it cannot
+# be confused with an answer.  `query_client.py` spells it EXIT_RUN_COLD.
+EXIT_RUN_COLD=97
+
+
+## the argument split
+
+# The `--client-*` options configure THIS INVOCATION's transport and are no
+# part of the tool's grammar; they are recognised only before the first tool
+# argument, and every one carries the prefix precisely so this split is
+# possible without parsing the tool's own options.  Keeping the two lists
+# apart is what lets the cold fallback below run the tool's argv without the
+# client's, which a re-exec of "$@" could not do.
+
+client_opts=()
+tool_args=()
+have_client_opt=false
+# An ACTION is a client option with nothing for the cold path to do instead:
+# `--client-status` reports on the server, `--client-stop` shuts it down,
+# `--client-restart` replaces it.  If the client is not going to run, those
+# cannot be honoured and must be refused rather than dropped.  The rest --
+# `--client-cold`, `--client-verbose`, `--client-limit`, `--client-timeout` --
+# only ever tune a run that is happening anyway, and are moot in silence.
+have_client_action=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --client-limit | --client-timeout)
+      client_opts+=("$1"); have_client_opt=true; shift
+      if [ "$#" -gt 0 ]; then client_opts+=("$1"); shift; fi
+      ;;
+    --client-status | --client-stop | --client-restart)
+      client_opts+=("$1"); have_client_opt=true; have_client_action=true; shift
+      ;;
+    --client-cold | --client-verbose)
+      client_opts+=("$1"); have_client_opt=true; shift
+      ;;
+    *) break ;;
+  esac
+done
+tool_args=("$@")
+
+
+## who answers
+
+# Whether the client COULD run, kept apart from whether it SHOULD: a client
+# option asked for a transport that does not exist here is an error worth
+# saying out loud, while a client option made moot by `--no-server` is not.
+client_available=true
+[ -f "$CLIENT" ] || client_available=false
+command -v python3 >/dev/null 2>&1 || client_available=false
+
+warm=$client_available
 [ "${ISABELLE_QUERY_NO_CLIENT:-}" = "1" ] && warm=false
 [ "${ISABELLE_QUERY_NO_SERVER:-}" = "1" ] && warm=false
-[ "$#" -eq 0 ] && warm=false
-[ -f "$CLIENT" ] || warm=false
-command -v python3 >/dev/null 2>&1 || warm=false
+# A bare `isabelle query` prints its usage, from the JVM.  `--client-status`
+# and `--client-stop` carry no tool argument and must still reach the client,
+# so emptiness alone is not the test.
+[ "${#tool_args[@]}" -eq 0 ] && [ "$have_client_action" = false ] && warm=false
 if [ "$warm" = true ]; then
-  for arg in "$@"; do
+  for arg in "${tool_args[@]}"; do
     case "$arg" in
       --) break ;;
       --no-server | -h | --help | -V | --version) warm=false; break ;;
@@ -44,20 +114,61 @@ if [ "$warm" = true ]; then
   done
 fi
 
-if [ "$warm" = true ]; then
-  exec python3 "$CLIENT" "$@"
+# An action the client will not be there to perform is an error, not a silent
+# drop.  Two ways to get here and both are worth distinguishing: the client
+# cannot run at all (no python3, no script), or routing has decided against it
+# (`--no-server`, $ISABELLE_QUERY_NO_SERVER, $ISABELLE_QUERY_NO_CLIENT).  In
+# the second case the request contradicts itself, and saying so beats printing
+# the usage text at somebody who asked a precise question.
+if [ "$have_client_action" = true ] && [ "$warm" = false ]; then
+  echo "isabelle query: ${client_opts[0]} needs the thin client, which cannot run here" >&2
+  if [ "$client_available" = false ]; then
+    if [ -f "$CLIENT" ]; then
+      echo "isabelle query: no python3 on PATH" >&2
+    else
+      echo "isabelle query: no client script at $CLIENT" >&2
+    fi
+  else
+    echo "isabelle query: the warm path is switched off for this invocation" >&2
+  fi
+  exit 2
 fi
 
-# The JVM path.  NEVER by tool name: both dispatchers — `bin/isabelle` and
-# `isabelle.Isabelle_Tool` — resolve external tools FIRST, so a name-based
-# route (`isabelle java isabelle.Isabelle_Tool query …`) finds THIS FILE
+# A non-action client option with no client to read it is moot, not fatal: the
+# invocation still has a query to answer, and answering it cold is what the
+# caller would have got anyway.  Nothing to do -- the split already kept those
+# tokens out of `tool_args`.
+
+
+## the warm path
+
+# NOT `exec`: this script has to outlive the client in order to be the thing
+# that falls back.  The client writes the answer to the file descriptors it
+# inherits here, so the extra shell costs a process and changes no byte.
+if [ "$warm" = true ]; then
+  python3 "$CLIENT" "${client_opts[@]}" "${tool_args[@]}"
+  rc=$?
+  if [ "$rc" -ne "$EXIT_RUN_COLD" ]; then
+    exit "$rc"
+  fi
+  # $EXIT_RUN_COLD: the client declined and wrote nothing.  Fall through.
+fi
+
+
+## the cold path
+
+# NEVER by tool name: both dispatchers -- `bin/isabelle` and
+# `isabelle.Isabelle_Tool` -- resolve external tools FIRST, so a name-based
+# route (`isabelle java isabelle.Isabelle_Tool query ...`) finds THIS FILE
 # again, runs it as a child, and loops: one live JVM stacked per ~1.3 s until
 # the machine is unusable.  `Query_Main` is the component's dispatcher-free
 # entry, and the only correct spelling of "the Scala tool, in a JVM, now".
 #
-# The tripwire is belt to that brace: if this file is ever re-entered on the
-# JVM path anyway, refuse loudly rather than spawn.  A wrong answer that says
-# so beats 445 JVMs.
+# The tripwire is belt to that brace.  Since P8 no re-entrant route exists --
+# the client no longer execs this tool name and the JVM side no longer routes
+# anywhere -- so it should be unreachable; it is kept because it was earned
+# twice, the hard way, and because it is five lines against 445 JVMs.  A wrong
+# answer that says so beats a machine that has to be power-cycled.
 if [ "${ISABELLE_QUERY_SHIM_REENTRY:-}" = "1" ]; then
   echo "isabelle query shim: re-entered on the JVM path; refusing to recurse" >&2
   exit 2
@@ -66,4 +177,4 @@ export ISABELLE_QUERY_SHIM_REENTRY=1
 
 "$ISABELLE_HOME/lib/Tools/scala_build" || exit $?
 eval "declare -a JAVA_ARGS=($ISABELLE_TOOL_JAVA_OPTIONS)"
-exec isabelle java "${JAVA_ARGS[@]}" isabelle.query.Query_Main "$@"
+exec isabelle java "${JAVA_ARGS[@]}" isabelle.query.Query_Main "${tool_args[@]}"

@@ -45,6 +45,10 @@ mkdir -p "$OUT" || exit 2
 
 CLIENT="$REPO/query_base/lib/scripts/query_client.py"
 JAR="$REPO/query_base/lib/classes/isabelle_query.jar"
+# The router itself.  §13 and §16 run it as a script rather than as
+# `isabelle query`, because `bin/isabelle` recomputes the component's
+# variables and an override from outside would never reach it.
+SHIM_TOOL="$REPO/query_base/lib/Tools/query"
 
 # A probe-private server name and a probe-private settings cache: nothing here
 # may reach the developer's own server or their real cache file.
@@ -53,23 +57,31 @@ SERVER="p7probe-$$"
 # has to be a separate process: the whole question is what a server inherits at
 # start-up, which cannot be asked of one that is already running.
 ENV_SERVER="p7probe-env-$$"
-# P7b: the auto-delegating CLI's own servers.  Separate names because §15 asks
-# what a COLD `isabelle query` does when it finds, or fails to find, a server
-# -- a question the thin client's server would keep answering for it.
-DELEG_SERVER="p7bprobe-$$"
-DELEG_ENV_SERVER="p7bprobe-env-$$"
-DELEG_DEAD_SERVER="p7bprobe-dead-$$"
+# §15's own servers.  Separate names because §15 drives the FRONT DOOR --
+# shim, client, decline, cold -- and would otherwise be answered by the server
+# §0-§14 keep warm for their own comparisons.  DEAD_SERVER is never a server at
+# all: it is a registry row pointing at a listener that says nothing (§15e).
+SHIM_SERVER="p8probe-$$"
+DEAD_SERVER="p8probe-dead-$$"
+# §13 names a server it expects NEVER to exist -- the whole check is that the
+# client cannot start one.  It is in the cleanup list anyway: the name was
+# absent from it until P8, and the one run where §13's stub failed to take
+# effect left a resident JVM holding an index behind, which is exactly what
+# §17 says a clean run does not do.  A probe must clean up after the failure
+# it is testing for, not only after the success.
+ABSENT_SERVER="p7probe-absent-$$"
 export ISABELLE_QUERY_CLIENT_SERVER="$SERVER"
 export ISABELLE_QUERY_CLIENT_CACHE="$OUT/client-cache.json"
 
 # Sections 0-14 are about the SERVER and the THIN CLIENT, and every `isabelle
 # query` in them is the cold reference the served answer is compared against.
-# Since P7b a bare `isabelle query` would delegate -- to this probe's own
-# server -- and every one of those comparisons would quietly become warm
-# against warm.  §15 turns it back on, deliberately and per invocation.
-# (Since P7d the variable ALSO steers the shim: the cold references below take
-# shim -> JVM -> local, which is the same engine in the same process kind.
-# §16 is where the shim's own routing is the subject.)
+# Without this the shim would route those references to the client -- to this
+# probe's own server -- and every comparison would quietly become warm against
+# warm.  With it, a plain `isabelle query` is shim -> JVM -> local: the same
+# engine, in the same kind of process, having consulted nothing.
+#
+# §15 and §16 are where the front door's own routing is the subject, so they
+# turn it back off, deliberately and per invocation (`env -u`).
 export ISABELLE_QUERY_NO_SERVER=1
 
 fail=0
@@ -78,8 +90,8 @@ note() { checks=$((checks + 1)); echo "  ok    $1${2:+  [$2]}"; }
 bad()  { checks=$((checks + 1)); fail=$((fail + 1)); echo "  FAIL  $1  [$2]"; }
 
 cleanup() {
-  for s in "$SERVER" "$ENV_SERVER" "$DELEG_SERVER" "$DELEG_ENV_SERVER" \
-           "$DELEG_DEAD_SERVER"; do
+  for s in "$SERVER" "$ENV_SERVER" "$SHIM_SERVER" "$DEAD_SERVER" \
+           "$ABSENT_SERVER"; do
     isabelle server -x -n "$s" >/dev/null 2>&1
     # Belt to that brace: a server killed with -9 leaves no socket for `-x` to
     # talk to, so match on the command line as well.
@@ -287,7 +299,14 @@ fi
 echo
 echo "11. cold routing -- what must never go over the socket"
 
-python3 "$CLIENT" --client-verbose --client-cold -R "$AFP" summary \
+# Each check asks two things at once, and since P8 they are two different
+# processes' jobs: the CLIENT must decline (`cold path` on its stderr) and the
+# SHIM must then produce the cold answer.  So these run through the front door
+# rather than against the script, which on its own would exit 97 and write
+# nothing -- that half of the contract is §15a's subject.
+front() { env -u ISABELLE_QUERY_NO_SERVER isabelle query "$@"; }
+
+front --client-verbose --client-cold -R "$AFP" summary \
   >"$OUT/forced-cold.txt" 2>"$OUT/forced-cold.err"
 if cmp -s "$OUT/cold-summary.txt" "$OUT/forced-cold.txt" &&
    grep -q "cold path" "$OUT/forced-cold.err"; then
@@ -297,7 +316,7 @@ else
     "$(tr '\n' ' ' <"$OUT/forced-cold.err")"
 fi
 
-python3 "$CLIENT" --client-verbose dump-theories "$AFP" \
+front --client-verbose dump-theories "$AFP" \
   >"$OUT/dump.txt" 2>"$OUT/dump.err"
 isabelle query dump-theories "$AFP" >"$OUT/dump-cold.txt" 2>/dev/null
 if cmp -s "$OUT/dump.txt" "$OUT/dump-cold.txt" && [ -s "$OUT/dump.txt" ] &&
@@ -309,10 +328,9 @@ else
     "$(tr '\n' ' ' <"$OUT/dump.err")"
 fi
 
-# P7d made the client the default front end, so it must refuse the same
-# workload the delegate refuses: a census reply is corpus-sized, and slower
-# through the socket than cold (dev/BENCH.md).
-python3 "$CLIENT" --client-verbose -R "$AFP" shape census \
+# A census reply is corpus-sized and slower through the socket than cold
+# (dev/BENCH.md), so the front door must run it cold without being asked.
+front --client-verbose -R "$AFP" shape census \
   >"$OUT/census-client.jsonl" 2>"$OUT/census-client.err"
 isabelle query -R "$AFP" shape census >"$OUT/census-cold.jsonl" 2>/dev/null
 if grep -q "cold path" "$OUT/census-client.err" && [ -s "$OUT/census-client.jsonl" ] &&
@@ -324,14 +342,17 @@ else
     "$(tr '\n' ' ' <"$OUT/census-client.err" | cut -c1-70)"
 fi
 
+# `-` reads stdin, and the decline has to keep it readable: the client exits
+# without consuming it, so the JVM the shim runs next still finds the theory on
+# fd 0.  A decline that had read one byte would break this check.
 printf 'theory P7 imports Main begin\nlemma p7_stdin: "True" by simp\nend\n' \
   >"$OUT/stdin.thy"
-python3 "$CLIENT" --client-verbose grep p7_stdin - <"$OUT/stdin.thy" \
+front --client-verbose grep p7_stdin - <"$OUT/stdin.thy" \
   >"$OUT/stdin.txt" 2>"$OUT/stdin.err"
 if grep -q "cold path" "$OUT/stdin.err" && grep -q "p7_stdin" "$OUT/stdin.txt"; then
-  note "a '-' argument routes cold (the server cannot read our stdin)"
+  note "a '-' argument routes cold, with stdin intact for the cold run"
 else
-  bad "a '-' argument routes cold (the server cannot read our stdin)" \
+  bad "a '-' argument routes cold, with stdin intact for the cold run" \
     "$(tr '\n' ' ' <"$OUT/stdin.err")"
 fi
 
@@ -396,15 +417,21 @@ SHIM="$OUT/isabelle-noserver"
   echo "exec isabelle \"\$@\""
 } >"$SHIM"
 chmod +x "$SHIM"
-ISABELLE_TOOL="$SHIM" ISABELLE_QUERY_CLIENT_SERVER="p7probe-absent-$$" \
-  python3 "$CLIENT" --client-verbose -R "$AFP" summary \
+# NOT through `isabelle query`: `bin/isabelle` exports its own $ISABELLE_TOOL
+# when it dispatches, so a stub passed from outside never reaches the client.
+# `isabelle env` puts the command INSIDE the settings environment, where the
+# override survives, and the shim is then run as the script it is.
+isabelle env -u ISABELLE_QUERY_NO_SERVER ISABELLE_TOOL="$SHIM" \
+  ISABELLE_QUERY_CLIENT_SERVER="$ABSENT_SERVER" \
+  ISABELLE_QUERY_CLIENT_CACHE="$OUT/absent-cache.json" \
+  bash "$SHIM_TOOL" --client-verbose -R "$AFP" summary \
   >"$OUT/nofallback.txt" 2>"$OUT/nofallback.err"
 if cmp -s "$OUT/cold-summary.txt" "$OUT/nofallback.txt" &&
    grep -q "falling back" "$OUT/nofallback.err"; then
-  note "a client that cannot start a server falls back to the cold tool" \
+  note "a client that cannot start a server declines, and the shim answers" \
     "$(grep 'falling back' "$OUT/nofallback.err" | cut -c1-56)"
 else
-  bad "a client that cannot start a server falls back to the cold tool" \
+  bad "a client that cannot start a server declines, and the shim answers" \
     "$(tr '\n' ' ' <"$OUT/nofallback.err" | cut -c1-90)"
 fi
 
@@ -426,75 +453,88 @@ fi
 
 # --------------------------------------------------------------------------
 echo
-echo "15. the cold CLI delegates by itself (P7b)"
+echo "15. the decline protocol: the client asks, the shim answers (P8)"
 
-# Everything above asked what the SERVER and the THIN CLIENT do.  This asks
-# what a plain `isabelle query` does now that it looks for that server itself:
-# it must find one, start one when there is none, notice a rebuilt component,
-# forward the request's environment, keep its hands off the invocations that
-# cannot be served, and — above all — hand back the same bytes and the same
-# exit status the cold tool would have.
+# Through P7 this section asked what the JVM front end did when it went looking
+# for a server ITSELF -- `delegate.scala`, a second copy of the thin client's
+# routing policy, in Scala.  P8 deleted that copy.  The client is now the only
+# thing that talks to a server, and when it will not serve a request it says so
+# with an exit status and writes NOTHING, leaving `lib/Tools/query` to run the
+# cold path.  Routing flows one way and lives in one file.
 #
-# `$ISABELLE_QUERY_NO_SERVER=1` is exported for the whole script, so the cold
-# side of every comparison below is genuinely cold and delegation happens only
-# where these two helpers turn it back on.
+# The properties below are the ones §15 always checked -- byte and exit
+# identity, SIGPIPE, an opt-out that starts nothing, every failure ending in
+# the right answer -- asked of the route that replaced it.  What is gone is
+# what only the deleted layer could have got wrong: a second implementation of
+# spawning, staleness detection, environment forwarding and the bypass list.
+# §9 to §14 check all four against the one implementation that is left, so
+# nothing here is coverage lost.
+#
+# 15c is new, and it is coverage GAINED: SIGPIPE used to be checked only on the
+# delegated path, which means the warm client -- now the only writer on the
+# fast path that is not the engine itself -- was never asked.
 
-# Since P7d the tool name resolves to the THIN CLIENT first
-# (query_base/lib/Tools/query).  §15 is about the JVM delegate, so these
-# helpers pin the JVM front end with $ISABELLE_QUERY_NO_CLIENT=1 -- without it
-# every check below would quietly become a test of the client instead.  The
-# shim itself is §16's subject.
-deleg() {
-  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-    ISABELLE_QUERY_CLIENT_SERVER="$DELEG_SERVER" isabelle query "$@"
-}
-delegv() {
-  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-    ISABELLE_QUERY_CLIENT_SERVER="$DELEG_SERVER" \
-    ISABELLE_QUERY_SERVER_VERBOSE=1 isabelle query "$@"
-}
 port_of() {  # the registry's port for a server name, or nothing
   isabelle server -l 2>/dev/null | sed -n "s/^server \"$1\" = [^:]*:\([0-9]*\) .*/\1/p"
 }
+shim() {     # the front door with the warm path ON, on this section's server
+  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
+    isabelle query "$@"
+}
 
-# --- 15a. spawn when absent ------------------------------------------------
+# --- 15a. a decline is a status, and stdout stays empty ---------------------
 
-isabelle server -x -n "$DELEG_SERVER" >/dev/null 2>&1
-delegv -R "$AFP" summary >"$OUT/d-spawn.txt" 2>"$OUT/d-spawn.err"
-d_port=$(port_of "$DELEG_SERVER")
-if grep -q "no server; starting one" "$OUT/d-spawn.err" && [ -n "$d_port" ]; then
-  note "a cold CLI with no server starts one, under the shared name" \
-    "$DELEG_SERVER on $d_port"
+# THE CONTRACT THE WHOLE SECTION RESTS ON, and it is asked of the client
+# DIRECTLY -- through the shim the status is consumed and could not be seen.
+# Any status but 97 would be read as an answer; any byte on stdout would be
+# duplicated by the cold run that follows.
+#
+# 97 is written here as a literal on purpose.  It is a wire constant, shared
+# between `query_client.py` (EXIT_RUN_COLD) and `lib/Tools/query`
+# ($EXIT_RUN_COLD), and a probe that read it from either could not catch the
+# two drifting apart.
+env -u ISABELLE_QUERY_NO_SERVER python3 "$CLIENT" --client-cold \
+  -R "$AFP" summary >"$OUT/p8-decline.txt" 2>"$OUT/p8-decline.err"
+decline_rc=$?
+if [ "$decline_rc" = "97" ] && [ ! -s "$OUT/p8-decline.txt" ]; then
+  note "a declining client exits 97 with empty stdout" "--client-cold"
 else
-  bad "a cold CLI with no server starts one, under the shared name" \
-    "$(tr '\n' ' ' <"$OUT/d-spawn.err" | cut -c1-70)"
-fi
-if cmp -s "$OUT/cold-summary.txt" "$OUT/d-spawn.txt"; then
-  note "and that first, spawning invocation already answers correctly"
-else
-  bad "and that first, spawning invocation already answers correctly" "differs"
-fi
-
-# --- 15b. detect an existing one -------------------------------------------
-
-delegv -R "$AFP" summary >"$OUT/d-reuse.txt" 2>"$OUT/d-reuse.err"
-if grep -q "^query-delegate: delegated" "$OUT/d-reuse.err" &&
-   ! grep -q "starting" "$OUT/d-reuse.err" &&
-   [ "$(port_of "$DELEG_SERVER")" = "$d_port" ]; then
-  note "the next invocation finds THAT server and starts nothing" \
-    "$(grep 'registry\|connect\|query_run' "$OUT/d-reuse.err" | tr '\n' ' ')"
-else
-  bad "the next invocation finds THAT server and starts nothing" \
-    "$(tr '\n' ' ' <"$OUT/d-reuse.err" | cut -c1-70)"
+  bad "a declining client exits 97 with empty stdout" \
+    "rc=$decline_rc, $(wc -c <"$OUT/p8-decline.txt") byte(s) on stdout"
 fi
 
-# --- 15c. byte and exit identity, over a spread of verbs -------------------
+# The same, for a decline the caller did not ask for: a bypassed verb.
+env -u ISABELLE_QUERY_NO_SERVER python3 "$CLIENT" \
+  dump-theories "$AFP" >"$OUT/p8-decline2.txt" 2>"$OUT/p8-decline2.err"
+decline2_rc=$?
+if [ "$decline2_rc" = "97" ] && [ ! -s "$OUT/p8-decline2.txt" ]; then
+  note "and a bypassed verb declines the same way" "dump-theories"
+else
+  bad "and a bypassed verb declines the same way" \
+    "rc=$decline2_rc, $(wc -c <"$OUT/p8-decline2.txt") byte(s) on stdout"
+fi
 
-# The claim this whole mode is judged on.  A spread of invocations chosen to cross
-# every family (structure, usage, shape, the two site verbs) and to include the
-# three exit statuses: 0, an unresolved subject (1) and a usage error (2).
-# stdout, stderr and the status are all compared, byte for byte.
-deleg_cases=(
+# ... and that the check above can say no.  A verb the client DOES serve must
+# not exit 97, or "97" would be measuring nothing.
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
+  python3 "$CLIENT" -R "$AFP" summary >"$OUT/p8-served.txt" 2>/dev/null
+served_rc=$?
+if [ "$served_rc" != "97" ] && [ -s "$OUT/p8-served.txt" ]; then
+  note "and a served verb does not (else 97 would mean nothing)" "rc=$served_rc"
+else
+  bad "and a served verb does not (else 97 would mean nothing)" \
+    "rc=$served_rc, $(wc -c <"$OUT/p8-served.txt") byte(s)"
+fi
+
+# --- 15b. byte and exit identity, over a spread of verbs -------------------
+
+# The claim this whole mode is judged on, asked of the decline route: the shim
+# runs the client, the client declines, the shim runs the JVM.  A spread of
+# invocations chosen to cross every family (structure, usage, shape, the two
+# site verbs) and to include three exit statuses: 0, an unresolved subject (1)
+# and a usage error (2).  stdout, stderr and the status are compared, byte for
+# byte, against the same invocation run cold.
+p8_cases=(
   "summary"
   "theory --names"
   "defs Abstract_Completeness"
@@ -520,325 +560,167 @@ deleg_cases=(
   "show no_such_entry_xyz"
   "no-such-command"
 )
-d_ok=0
-d_bad=""
-d_nonempty=0
-for spec in "${deleg_cases[@]}"; do
-  read -r -a d_argv <<<"$spec"
-  d_id=$(printf '%s' "$spec" | tr -c 'A-Za-z0-9._-' '_')
-  isabelle query -R "$AFP" "${d_argv[@]}" \
-    >"$OUT/d-cold-$d_id.out" 2>"$OUT/d-cold-$d_id.err"
+p8_ok=0
+p8_bad=""
+p8_nonempty=0
+for spec in "${p8_cases[@]}"; do
+  read -r -a p8_argv <<<"$spec"
+  p8_id=$(printf '%s' "$spec" | tr -c 'A-Za-z0-9._-' '_')
+  isabelle query -R "$AFP" "${p8_argv[@]}" \
+    >"$OUT/p8-cold-$p8_id.out" 2>"$OUT/p8-cold-$p8_id.err"
   c_rc=$?
-  deleg -R "$AFP" "${d_argv[@]}" \
-    >"$OUT/d-warm-$d_id.out" 2>"$OUT/d-warm-$d_id.err"
-  w_rc=$?
-  [ -s "$OUT/d-cold-$d_id.out" ] && d_nonempty=$((d_nonempty + 1))
-  if cmp -s "$OUT/d-cold-$d_id.out" "$OUT/d-warm-$d_id.out" &&
-     cmp -s "$OUT/d-cold-$d_id.err" "$OUT/d-warm-$d_id.err" &&
-     [ "$c_rc" = "$w_rc" ]; then
-    d_ok=$((d_ok + 1))
+  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
+    isabelle query --client-cold -R "$AFP" "${p8_argv[@]}" \
+    >"$OUT/p8-decl-$p8_id.out" 2>"$OUT/p8-decl-$p8_id.err"
+  d_rc=$?
+  [ -s "$OUT/p8-cold-$p8_id.out" ] && p8_nonempty=$((p8_nonempty + 1))
+  if cmp -s "$OUT/p8-cold-$p8_id.out" "$OUT/p8-decl-$p8_id.out" &&
+     cmp -s "$OUT/p8-cold-$p8_id.err" "$OUT/p8-decl-$p8_id.err" &&
+     [ "$c_rc" = "$d_rc" ]; then
+    p8_ok=$((p8_ok + 1))
   else
-    d_bad="$d_bad $spec($c_rc/$w_rc)"
+    p8_bad="$p8_bad $spec($c_rc/$d_rc)"
   fi
 done
-if [ "$d_ok" = "${#deleg_cases[@]}" ]; then
-  note "${#deleg_cases[@]} invocations: identical stdout, stderr and exit" \
-    "$d_nonempty with non-empty stdout"
+if [ "$p8_ok" = "${#p8_cases[@]}" ]; then
+  note "${#p8_cases[@]} declined invocations: identical stdout, stderr and exit" \
+    "$p8_nonempty with non-empty stdout"
 else
-  bad "${#deleg_cases[@]} invocations: identical stdout, stderr and exit" \
-    "$((${#deleg_cases[@]} - d_ok)) differ:$d_bad"
+  bad "${#p8_cases[@]} declined invocations: identical stdout, stderr and exit" \
+    "$((${#p8_cases[@]} - p8_ok)) differ:$p8_bad"
 fi
 
 # Failability, right here rather than in a separate demo: the comparison above
 # is only worth anything if it can say no, and if it was not comparing empty
 # files.  Perturb one byte of one captured answer and re-run the same `cmp`.
-cp "$OUT/d-warm-summary.out" "$OUT/d-perturbed.out"
-printf 'x' >>"$OUT/d-perturbed.out"
-if [ "$d_nonempty" -ge 15 ] &&
-   ! cmp -s "$OUT/d-cold-summary.out" "$OUT/d-perturbed.out"; then
+cp "$OUT/p8-decl-summary.out" "$OUT/p8-perturbed.out"
+printf 'x' >>"$OUT/p8-perturbed.out"
+if [ "$p8_nonempty" -ge 15 ] &&
+   ! cmp -s "$OUT/p8-cold-summary.out" "$OUT/p8-perturbed.out"; then
   note "and the comparison can say no (one byte added is caught)" \
-    "$d_nonempty of ${#deleg_cases[@]} answers non-empty"
+    "$p8_nonempty of ${#p8_cases[@]} answers non-empty"
 else
   bad "and the comparison can say no (one byte added is caught)" \
-    "$d_nonempty non-empty"
+    "$p8_nonempty non-empty"
 fi
 
-# --- 15d. SIGPIPE survives the delegated path ------------------------------
+# --- 15c. SIGPIPE, on the WARM path and on the declined one ----------------
 
-# A delegated answer arrives whole and is then written out, so the closed pipe
-# is met by OUR write, not by the engine's.  141 is what a shell reports for a
-# process killed by SIGPIPE and what the cold tool gives, and the two must
-# agree.  `.*` rather than `.` as the pattern, because `.` names a directory
-# and would take the invocation off the warm path entirely -- which is 15j.
+# NEW IN P8, and the gap it fills is the one the deleted layer was hiding.  A
+# warm answer arrives whole and is then written out by the CLIENT, so a closed
+# pipe is met by python's write, not by the engine's -- a path nothing used to
+# exercise, because §15d only ever asked the delegate.  141 is what a shell
+# reports for a process killed by SIGPIPE and what the cold tool gives, and all
+# of them must agree.  `.*` rather than `.` as the pattern, because `.` names a
+# directory and would take the invocation off the warm path entirely (§11).
 
 # (i) a reader that is already gone when the first byte is written
-deleg -R "$AFP" find '.*' -a 2>/dev/null | head -n 0 >/dev/null
+shim -R "$AFP" find '.*' -a 2>/dev/null | head -n 0 >/dev/null
+w_pipe0=${PIPESTATUS[0]}
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
+  isabelle query --client-cold -R "$AFP" find '.*' -a 2>/dev/null | head -n 0 >/dev/null
 d_pipe0=${PIPESTATUS[0]}
 isabelle query -R "$AFP" find '.*' -a 2>/dev/null | head -n 0 >/dev/null
 c_pipe0=${PIPESTATUS[0]}
-if [ "$d_pipe0" = "141" ] && [ "$c_pipe0" = "141" ]; then
-  note "a downstream that has already gone is 141, delegated as cold" \
-    "$c_pipe0 / $d_pipe0"
+if [ "$w_pipe0" = "141" ] && [ "$d_pipe0" = "141" ] && [ "$c_pipe0" = "141" ]; then
+  note "a downstream that has already gone is 141: warm, declined and cold" \
+    "$c_pipe0 / $w_pipe0 / $d_pipe0"
 else
-  bad "a downstream that has already gone is 141, delegated as cold" \
-    "cold $c_pipe0, delegated $d_pipe0"
+  bad "a downstream that has already gone is 141: warm, declined and cold" \
+    "cold $c_pipe0, warm $w_pipe0, declined $d_pipe0"
 fi
 
 # (ii) a reader that leaves after three lines of a two-megabyte answer -- far
 # past the pipe's own capacity, so the writer is still writing when it goes.
-deleg -R "$ZF" find '.*' -a 2>/dev/null | head -3 >"$OUT/d-pipe.txt"
-d_pipe_rc=${PIPESTATUS[0]}
-isabelle query -R "$ZF" find '.*' -a 2>/dev/null | head -3 >"$OUT/d-pipe-cold.txt"
+shim -R "$ZF" find '.*' -a 2>/dev/null | head -3 >"$OUT/p8-pipe-warm.txt"
+w_pipe_rc=${PIPESTATUS[0]}
+isabelle query -R "$ZF" find '.*' -a 2>/dev/null | head -3 >"$OUT/p8-pipe-cold.txt"
 c_pipe_rc=${PIPESTATUS[0]}
-if [ "$d_pipe_rc" = "$c_pipe_rc" ] && [ "$d_pipe_rc" = "141" ] &&
-   cmp -s "$OUT/d-pipe.txt" "$OUT/d-pipe-cold.txt"; then
-  note "output piped into \`head -3\` exits 141, as cold" "$c_pipe_rc / $d_pipe_rc"
+if [ "$w_pipe_rc" = "$c_pipe_rc" ] && [ "$w_pipe_rc" = "141" ] &&
+   cmp -s "$OUT/p8-pipe-warm.txt" "$OUT/p8-pipe-cold.txt"; then
+  note "output piped into \`head -3\` exits 141, warm as cold" \
+    "$c_pipe_rc / $w_pipe_rc"
 else
-  bad "output piped into \`head -3\` exits 141, as cold" \
-    "cold $c_pipe_rc, delegated $d_pipe_rc"
+  bad "output piped into \`head -3\` exits 141, warm as cold" \
+    "cold $c_pipe_rc, warm $w_pipe_rc"
 fi
 
-# --- 15e. staleness: a rebuilt component under a running server ------------
-
-touch "$JAR"
-delegv -R "$AFP" summary >"$OUT/d-stale.txt" 2>"$OUT/d-stale.err"
-d_port2=$(port_of "$DELEG_SERVER")
-if grep -q "component rebuilt under the server; restarting" "$OUT/d-stale.err"; then
-  note "a changed jar is detected and the server shut down and replaced"
-else
-  bad "a changed jar is detected and the server shut down and replaced" \
-    "$(tr '\n' ' ' <"$OUT/d-stale.err" | cut -c1-70)"
-fi
-if [ -n "$d_port2" ] && [ "$d_port2" != "$d_port" ]; then
-  note "and the registry row is the NEW server's, not the dead one's" \
-    "$d_port -> $d_port2"
-else
-  bad "and the registry row is the NEW server's, not the dead one's" \
-    "$d_port -> ${d_port2:-none}"
-fi
-if cmp -s "$OUT/cold-summary.txt" "$OUT/d-stale.txt"; then
-  note "and the answer across the restart is still the cold one"
-else
-  bad "and the answer across the restart is still the cold one" "differs"
-fi
-
-# --- 15f. the request's environment, through the DELEGATING CLI ------------
-
-# The P6c defect, asked of the third front end.  A server started BY a pinned
-# delegating CLI inherits the pin in its process environment; every later
-# request must still get its own answer.  The cold reference files are §9b's.
-
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-  ISABELLE_QUERY_CLIENT_SERVER="$DELEG_ENV_SERVER" \
-  ISABELLE_QUERY_NAMESPACE=committed \
-  isabelle query -R "$ZF" callers induct \
-  >"$OUT/d-env-start.txt" 2>"$OUT/d-env-start.err"
-if [ -n "$(port_of "$DELEG_ENV_SERVER")" ] &&
-   cmp -s "$OUT/zf-pinned.txt" "$OUT/d-env-start.txt"; then
-  note "a second server, started by a PINNED delegating CLI, is up" \
-    "$DELEG_ENV_SERVER"
-else
-  bad "a second server, started by a PINNED delegating CLI, is up" \
-    "$(head -1 "$OUT/d-env-start.txt")"
-fi
-
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-  ISABELLE_QUERY_CLIENT_SERVER="$DELEG_ENV_SERVER" \
-  isabelle query -R "$ZF" callers induct \
-  >"$OUT/d-env-plain.txt" 2>"$OUT/d-env-plain.err"
-if cmp -s "$OUT/zf-plain.txt" "$OUT/d-env-plain.txt" &&
-   grep -q "minimal Pure table" "$OUT/d-env-plain.err"; then
-  note "an UNPINNED delegating CLI gets the unpinned answer, and the note" \
-    "$(head -1 "$OUT/d-env-plain.txt")"
-else
-  bad "an UNPINNED delegating CLI gets the unpinned answer, and the note" \
-    "$(head -1 "$OUT/d-env-plain.txt")"
-fi
-
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-  ISABELLE_QUERY_CLIENT_SERVER="$DELEG_ENV_SERVER" \
-  ISABELLE_QUERY_NAMESPACE=committed \
-  isabelle query -R "$ZF" callers induct \
-  >"$OUT/d-env-pinned.txt" 2>"$OUT/d-env-pinned.err"
-if cmp -s "$OUT/zf-pinned.txt" "$OUT/d-env-pinned.txt"; then
-  note "and a PINNED one still gets the pinned answer (forwarded, not ignored)" \
-    "$(head -1 "$OUT/d-env-pinned.txt")"
-else
-  bad "and a PINNED one still gets the pinned answer (forwarded, not ignored)" \
-    "$(head -1 "$OUT/d-env-pinned.txt")"
-fi
-
-# The root variables travel the same way: no -R, and a cwd that is not the
-# project.  This is what proves the REQUEST carries them.
-( cd "$OUT" && env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-    ISABELLE_QUERY_CLIENT_SERVER="$DELEG_ENV_SERVER" ISABELLE_QUERY_ROOT="$ZF" \
-    isabelle query callers induct ) >"$OUT/d-env-root.txt" 2>"$OUT/d-env-root.err"
-if cmp -s "$OUT/zf-plain.txt" "$OUT/d-env-root.txt"; then
-  note "\$ISABELLE_QUERY_ROOT is the request's, from an unrelated cwd"
-else
-  bad "\$ISABELLE_QUERY_ROOT is the request's, from an unrelated cwd" \
-    "$(head -1 "$OUT/d-env-root.txt")"
-fi
-
-isabelle server -x -n "$DELEG_ENV_SERVER" >/dev/null 2>&1
-
-# --- 15g. the bypass list actually bypasses --------------------------------
-
-delegv -R "$AFP" shape census >"$OUT/d-census.jsonl" 2>"$OUT/d-census.err"
-isabelle query -R "$AFP" shape census >"$OUT/d-census-cold.jsonl" 2>/dev/null
-if grep -q "local: shape census" "$OUT/d-census.err" &&
-   [ -s "$OUT/d-census.jsonl" ] &&
-   cmp -s "$OUT/d-census.jsonl" "$OUT/d-census-cold.jsonl"; then
-  note "a census runs here, not over the socket (a 256 MB reply is slower warm)" \
-    "$(wc -l <"$OUT/d-census.jsonl") records"
-else
-  bad "a census runs here, not over the socket (a 256 MB reply is slower warm)" \
-    "$(tr '\n' ' ' <"$OUT/d-census.err" | cut -c1-70)"
-fi
-
-delegv grep p7_stdin - <"$OUT/stdin.thy" >"$OUT/d-stdin.txt" 2>"$OUT/d-stdin.err"
-if grep -q "local: reads stdin" "$OUT/d-stdin.err" &&
-   grep -q "p7_stdin" "$OUT/d-stdin.txt"; then
-  note "a '-' argument runs here (the server cannot read our stdin)"
-else
-  bad "a '-' argument runs here (the server cannot read our stdin)" \
-    "$(tr '\n' ' ' <"$OUT/d-stdin.err" | cut -c1-70)"
-fi
-
-delegv dump-theories "$AFP" >"$OUT/d-dump.txt" 2>"$OUT/d-dump.err"
-if grep -q "local: development dump" "$OUT/d-dump.err" &&
-   cmp -s "$OUT/d-dump.txt" "$OUT/dump-cold.txt"; then
-  note "a development dump runs here (it writes past any capture)" \
-    "$(wc -l <"$OUT/d-dump.txt") theories"
-else
-  bad "a development dump runs here (it writes past any capture)" \
-    "$(tr '\n' ' ' <"$OUT/d-dump.err" | cut -c1-70)"
-fi
-
-delegv -h >"$OUT/d-help.txt" 2>"$OUT/d-help.err"
-if grep -q "local: help or version" "$OUT/d-help.err" &&
-   grep -q -- "--no-server" "$OUT/d-help.txt"; then
-  note "-h runs here, and documents the flag that turns this off"
-else
-  bad "-h runs here, and documents the flag that turns this off" \
-    "$(tr '\n' ' ' <"$OUT/d-help.err" | cut -c1-70)"
-fi
-
-# --- 15j. a token that names something HERE is not a token to guess about --
-
-# THE DEFECT THIS CHECK EXISTS FOR, found by §15 and present in the P7 thin
-# client too.  Both front ends used to rewrite every argument that named an
-# existing file into an absolute path, "exactly the set the tool would have
-# resolved as paths".  It is not that set: `find .` searches for the REGEX `.`,
-# and the rewrite turned it into a search for the caller's own directory --
-# answering `No entries matching '<the caller's own cwd>'`, which reads
-# exactly like a correct empty result.  Whether a positional is a path or a
-# pattern is a fact about the command, so neither front end decides it: such
-# an invocation runs cold.
-
-delegv -R "$AFP" find . -a >"$OUT/d-dot.txt" 2>"$OUT/d-dot.err"
-isabelle query -R "$AFP" find . -a >"$OUT/d-dot-cold.txt" 2>/dev/null
-if grep -q "local: relative to this directory" "$OUT/d-dot.err" &&
-   cmp -s "$OUT/d-dot.txt" "$OUT/d-dot-cold.txt" && [ -s "$OUT/d-dot.txt" ]; then
-  note "\`find .\` runs here and searches for the PATTERN, not for the cwd" \
-    "$(head -1 "$OUT/d-dot.txt")"
-else
-  bad "\`find .\` runs here and searches for the PATTERN, not for the cwd" \
-    "$(head -1 "$OUT/d-dot.txt")"
-fi
-
-python3 "$CLIENT" --client-verbose -R "$AFP" find . -a \
-  >"$OUT/c-dot.txt" 2>"$OUT/c-dot.err"
-if grep -q "relative to this directory" "$OUT/c-dot.err" &&
-   cmp -s "$OUT/c-dot.txt" "$OUT/d-dot-cold.txt"; then
-  note "and the thin client does the same, for the same reason"
-else
-  bad "and the thin client does the same, for the same reason" \
-    "$(tr '\n' ' ' <"$OUT/c-dot.err" | cut -c1-70)"
-fi
-
-# The other half, and it is what keeps the rule from swallowing the warm path
-# whole: a token that names NOTHING is not ambiguous, and neither is an
-# ABSOLUTE one -- it means the same thing in any working directory, so it needs
-# no rewriting and gets none.
-delegv -R "$AFP" find fair_fenum -a >"$OUT/d-name.txt" 2>"$OUT/d-name.err"
-isabelle query -R "$AFP" find fair_fenum -a >"$OUT/d-name-cold.txt" 2>/dev/null
-if grep -q "^query-delegate: delegated" "$OUT/d-name.err" &&
-   cmp -s "$OUT/d-name.txt" "$OUT/d-name-cold.txt" && [ -s "$OUT/d-name.txt" ]; then
-  note "a name that is not a file is still delegated"
-else
-  bad "a name that is not a file is still delegated" \
-    "$(tr '\n' ' ' <"$OUT/d-name.err" | cut -c1-70)"
-fi
-
-AFP_THY=$(find "$AFP" -name '*.thy' -print -quit 2>/dev/null)
-delegv -R "$AFP" grep lemma "$AFP_THY" >"$OUT/d-abs.txt" 2>"$OUT/d-abs.err"
-isabelle query -R "$AFP" grep lemma "$AFP_THY" >"$OUT/d-abs-cold.txt" 2>/dev/null
-if grep -q "^query-delegate: delegated" "$OUT/d-abs.err" &&
-   cmp -s "$OUT/d-abs.txt" "$OUT/d-abs-cold.txt" && [ -s "$OUT/d-abs.txt" ]; then
-  note "and an ABSOLUTE path argument is delegated, unrewritten" \
-    "$(wc -l <"$OUT/d-abs.txt") hits"
-else
-  bad "and an ABSOLUTE path argument is delegated, unrewritten" \
-    "$(tr '\n' ' ' <"$OUT/d-abs.err" | cut -c1-70)"
-fi
-
-# --- 15h. the opt-out, and that it starts nothing --------------------------
+# --- 15d. the opt-out, and that it starts nothing --------------------------
 
 # A name nothing has ever run under: if the opt-out leaked, the registry would
-# gain a row.  That is the check, not the verbose line.  Deliberately NOT
-# pinned with $ISABELLE_QUERY_NO_CLIENT: since P7d the flag's first reader is
-# the SHIM, and reaching the delegate's note below proves the shim routed a
-# `--no-server` invocation past the client and into the JVM.
-OPTOUT_SERVER="p7bprobe-optout-$$"
+# gain a row.  That is the check.  Since P8 there is no delegate note to grep
+# for, so the evidence is the absence of the row plus the right answer -- which
+# is the stronger reading anyway: the old check could pass on a note printed by
+# a layer that then went and started a server regardless.
+OPTOUT_SERVER="p8probe-optout-$$"
 env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$OPTOUT_SERVER" \
-  ISABELLE_QUERY_SERVER_VERBOSE=1 \
   isabelle query --no-server -R "$AFP" summary \
-  >"$OUT/d-flag.txt" 2>"$OUT/d-flag.err"
-if grep -q "query-delegate: --no-server" "$OUT/d-flag.err" &&
-   [ -z "$(port_of "$OPTOUT_SERVER")" ] &&
-   cmp -s "$OUT/cold-summary.txt" "$OUT/d-flag.txt"; then
+  >"$OUT/p8-flag.txt" 2>"$OUT/p8-flag.err"
+if [ -z "$(port_of "$OPTOUT_SERVER")" ] &&
+   ! grep -q "^query-client:" "$OUT/p8-flag.err" &&
+   cmp -s "$OUT/cold-summary.txt" "$OUT/p8-flag.txt"; then
   note "--no-server answers here and starts no server" "$OPTOUT_SERVER absent"
 else
   bad "--no-server answers here and starts no server" \
-    "$(tr '\n' ' ' <"$OUT/d-flag.err" | cut -c1-70)"
+    "$(tr '\n' ' ' <"$OUT/p8-flag.err" | cut -c1-70)"
 fi
 
 ISABELLE_QUERY_NO_SERVER=1 ISABELLE_QUERY_CLIENT_SERVER="$OPTOUT_SERVER" \
-  ISABELLE_QUERY_SERVER_VERBOSE=1 isabelle query -R "$AFP" summary \
-  >"$OUT/d-envoff.txt" 2>"$OUT/d-envoff.err"
-if grep -q 'ISABELLE_QUERY_NO_SERVER=1' "$OUT/d-envoff.err" &&
-   [ -z "$(port_of "$OPTOUT_SERVER")" ] &&
-   cmp -s "$OUT/cold-summary.txt" "$OUT/d-envoff.txt"; then
+  isabelle query -R "$AFP" summary \
+  >"$OUT/p8-envoff.txt" 2>"$OUT/p8-envoff.err"
+if [ -z "$(port_of "$OPTOUT_SERVER")" ] &&
+   ! grep -q "^query-client:" "$OUT/p8-envoff.err" &&
+   cmp -s "$OUT/cold-summary.txt" "$OUT/p8-envoff.txt"; then
   note "and \$ISABELLE_QUERY_NO_SERVER=1 does the same for a shell"
 else
   bad "and \$ISABELLE_QUERY_NO_SERVER=1 does the same for a shell" \
-    "$(tr '\n' ' ' <"$OUT/d-envoff.err" | cut -c1-70)"
+    "$(tr '\n' ' ' <"$OUT/p8-envoff.err" | cut -c1-70)"
 fi
 
-# --- 15i. every failure ends in the right answer ---------------------------
+# The other opt-out, which routes past the client but NOT past the engine: it
+# must answer, and it must answer cold, because nothing downstream of the shim
+# looks for a server any more.  This is the check that would have caught the
+# deleted layer coming back.
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
+  ISABELLE_QUERY_CLIENT_SERVER="$OPTOUT_SERVER" \
+  isabelle query -R "$AFP" summary \
+  >"$OUT/p8-noclient.txt" 2>"$OUT/p8-noclient.err"
+if [ -z "$(port_of "$OPTOUT_SERVER")" ] &&
+   ! grep -q "^query-client:" "$OUT/p8-noclient.err" &&
+   cmp -s "$OUT/cold-summary.txt" "$OUT/p8-noclient.txt"; then
+  note "\$ISABELLE_QUERY_NO_CLIENT=1 answers cold, and starts no server" \
+    "no delegate left to find one"
+else
+  bad "\$ISABELLE_QUERY_NO_CLIENT=1 answers cold, and starts no server" \
+    "$(tr '\n' ' ' <"$OUT/p8-noclient.err" | cut -c1-70)"
+fi
+
+# --- 15e. every failure ends in the right answer ---------------------------
 
 # A server killed outright leaves a registry row pointing at nothing.  The next
 # invocation must notice, replace it, and answer -- never hang on the dead
 # port, never report an empty result.
-pkill -9 -f "server -n $DELEG_SERVER" >/dev/null 2>&1
+pkill -9 -f "server -n $SHIM_SERVER" >/dev/null 2>&1
 sleep 0.3
-d_start=$(date +%s%N)
-delegv -R "$AFP" summary >"$OUT/d-killed.txt" 2>"$OUT/d-killed.err"
-d_elapsed=$(( ($(date +%s%N) - d_start) / 1000000 ))
-if cmp -s "$OUT/cold-summary.txt" "$OUT/d-killed.txt"; then
+p8_start=$(date +%s%N)
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
+  isabelle query --client-verbose -R "$AFP" summary \
+  >"$OUT/p8-killed.txt" 2>"$OUT/p8-killed.err"
+p8_elapsed=$(( ($(date +%s%N) - p8_start) / 1000000 ))
+if cmp -s "$OUT/cold-summary.txt" "$OUT/p8-killed.txt"; then
   note "after the server is killed the answer is still right" \
-    "${d_elapsed} ms, $(grep -c 'starting' "$OUT/d-killed.err") restart(s)"
+    "${p8_elapsed} ms, $(grep -c 'starting' "$OUT/p8-killed.err") restart(s)"
 else
   bad "after the server is killed the answer is still right" "differs"
 fi
 
-# And the true fallback: a registry row that names something which ACCEPTS a
+# And the true decline: a registry row that names something which ACCEPTS a
 # connection and then says nothing.  That is a protocol failure rather than a
-# dead port, so the CLI cannot rescue it by starting a server -- it has to run
-# the query itself.  A python listener plus one row in the scratch registry is
-# the whole apparatus; both are removed below.
-python3 - "$OUT" "$DELEG_DEAD_SERVER" \
+# dead port, so the client cannot rescue it by starting a server -- it has to
+# hand the invocation back, and the SHIM has to notice and run it.  A python
+# listener plus one row in the scratch registry is the whole apparatus; both
+# are removed below.
+python3 - "$OUT" "$DEAD_SERVER" \
   "$(isabelle getenv -b ISABELLE_HOME_USER)/servers.db" <<'PYEOF' &
 import os, socket, sqlite3, sys, time
 out, name, db = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -863,34 +745,43 @@ while time.time() < deadline:
         if os.path.exists(os.path.join(out, "deadserver.stop")):
             break
         continue
-    client.close()          # accept, then say nothing at all
+    # Read the password the client sends, so our reply is not racing an RST,
+    # then answer something that is not "OK".  A greeting that fails is a
+    # protocol failure: unlike a dead port, starting a server would not fix it,
+    # so the client must decline rather than retry.
+    try:
+        client.settimeout(5.0)
+        client.recv(65536)
+        client.sendall(b"NOPE not a server\n")
+    except OSError:
+        pass
+    client.close()
 sock.close()
 PYEOF
 dead_pid=$!
 rm -f "$OUT/deadserver.ready" "$OUT/deadserver.stop"
 for _ in $(seq 1 100); do [ -f "$OUT/deadserver.ready" ] && break; sleep 0.1; done
 if [ -f "$OUT/deadserver.ready" ]; then
-  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-    ISABELLE_QUERY_CLIENT_SERVER="$DELEG_DEAD_SERVER" \
-    ISABELLE_QUERY_SERVER_VERBOSE=1 isabelle query -R "$AFP" summary \
-    >"$OUT/d-mute.txt" 2>"$OUT/d-mute.err"
-  if cmp -s "$OUT/cold-summary.txt" "$OUT/d-mute.txt" &&
-     grep -q "falling back" "$OUT/d-mute.err"; then
-    note "a server that accepts and says nothing falls back, and answers" \
-      "$(grep 'falling back' "$OUT/d-mute.err" | cut -c1-56)"
+  env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$DEAD_SERVER" \
+    timeout -k 10 180 isabelle query --client-verbose -R "$AFP" summary \
+    >"$OUT/p8-mute.txt" 2>"$OUT/p8-mute.err"
+  if cmp -s "$OUT/cold-summary.txt" "$OUT/p8-mute.txt" &&
+     grep -q "falling back" "$OUT/p8-mute.err"; then
+    note "a server that accepts and says nothing declines, and the shim answers" \
+      "$(grep 'falling back' "$OUT/p8-mute.err" | cut -c1-52)"
   else
-    bad "a server that accepts and says nothing falls back, and answers" \
-      "$(tr '\n' ' ' <"$OUT/d-mute.err" | cut -c1-90)"
+    bad "a server that accepts and says nothing declines, and the shim answers" \
+      "$(tr '\n' ' ' <"$OUT/p8-mute.err" | cut -c1-90)"
   fi
 else
-  bad "a server that accepts and says nothing falls back, and answers" \
+  bad "a server that accepts and says nothing declines, and the shim answers" \
     "the stand-in listener never came up"
 fi
 touch "$OUT/deadserver.stop"
 kill "$dead_pid" >/dev/null 2>&1
 wait "$dead_pid" 2>/dev/null
 
-isabelle server -x -n "$DELEG_SERVER" >/dev/null 2>&1
+isabelle server -x -n "$SHIM_SERVER" >/dev/null 2>&1
 
 # --------------------------------------------------------------------------
 echo
@@ -920,11 +811,10 @@ else
 fi
 
 # --- 16b. --no-server through the front door lands in the JVM, locally
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_SERVER_VERBOSE=1 \
-  timeout -k 10 120 isabelle query --no-server -R "$AFP" summary \
+env -u ISABELLE_QUERY_NO_SERVER timeout -k 10 120 \
+  isabelle query --no-server -R "$AFP" summary \
   >"$OUT/shim-flag.txt" 2>"$OUT/shim-flag.err"
-if grep -q "query-delegate: --no-server" "$OUT/shim-flag.err" &&
-   ! grep -q "^query-client:" "$OUT/shim-flag.err" &&
+if ! grep -q "^query-client:" "$OUT/shim-flag.err" &&
    cmp -s "$OUT/cold-summary.txt" "$OUT/shim-flag.txt"; then
   note "--no-server routes past the client and answers locally"
 else
@@ -932,37 +822,43 @@ else
     "$(tr '\n' ' ' <"$OUT/shim-flag.err" | cut -c1-90)"
 fi
 
-# --- 16c. $ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, delegating
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 \
-  ISABELLE_QUERY_SERVER_VERBOSE=1 timeout -k 10 120 \
+# --- 16c. $ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, and it is terminal
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT=1 timeout -k 10 120 \
   isabelle query -R "$AFP" summary >"$OUT/shim-jvm.txt" 2>"$OUT/shim-jvm.err"
-if grep -q "query-delegate: delegated" "$OUT/shim-jvm.err" &&
-   ! grep -q "^query-client:" "$OUT/shim-jvm.err" &&
+if ! grep -q "^query-client:" "$OUT/shim-jvm.err" &&
    cmp -s "$OUT/cold-summary.txt" "$OUT/shim-jvm.txt"; then
-  note "\$ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, still delegating"
+  note "\$ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, answering locally"
 else
-  bad "\$ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, still delegating" \
+  bad "\$ISABELLE_QUERY_NO_CLIENT=1 is the JVM front end, answering locally" \
     "$(tr '\n' ' ' <"$OUT/shim-jvm.err" | cut -c1-90)"
 fi
 
-# --- 16d. the loop that must not happen: a client bypass re-enters the tool
-# name (cold() execs `isabelle query`), and must land in the JVM at the second
-# hop.  Both routing notes in one stderr is the proof of exactly two hops; the
-# timeout above all is the proof it terminated.
-env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_SERVER_VERBOSE=1 \
-  timeout -k 10 120 isabelle query --client-verbose dump-theories "$AFP" \
+# --- 16d. the hop that must NOT happen: a decline never re-enters the tool
+# name.  Before P8 the client exec'd `isabelle query` here and the run took two
+# hops through this file, held to two by an environment mark.  Now the shim
+# never re-enters itself, so the mark must be ABSENT from the child that
+# answers -- which is what the JVM tail reports when asked.  Both the answer
+# and the timeout matter: the timeout is what turns a reintroduced loop into a
+# failing check instead of a dead machine.
+env -u ISABELLE_QUERY_NO_SERVER timeout -k 10 120 \
+  isabelle query --client-verbose dump-theories "$AFP" \
   >"$OUT/shim-dump.txt" 2>"$OUT/shim-dump.err"
-if grep -q "^query-client: cold path" "$OUT/shim-dump.err" &&
-   grep -q "query-delegate: local: development dump" "$OUT/shim-dump.err" &&
+shim_dump_rc=$?
+if [ "$shim_dump_rc" = "0" ] &&
+   grep -q "^query-client: cold path" "$OUT/shim-dump.err" &&
+   ! grep -q "refusing to recurse" "$OUT/shim-dump.err" &&
    cmp -s "$OUT/dump-cold.txt" "$OUT/shim-dump.txt"; then
-  note "a client fallback re-enters the tool name and stops at the JVM" \
-    "two hops, $(wc -l <"$OUT/shim-dump.txt") theories"
+  note "a decline is answered in one hop, without re-entering the tool name" \
+    "$(wc -l <"$OUT/shim-dump.txt") theories"
 else
-  bad "a client fallback re-enters the tool name and stops at the JVM" \
-    "$(tr '\n' ' ' <"$OUT/shim-dump.err" | cut -c1-90)"
+  bad "a decline is answered in one hop, without re-entering the tool name" \
+    "rc=$shim_dump_rc $(tr '\n' ' ' <"$OUT/shim-dump.err" | cut -c1-80)"
 fi
 
 # --- 16e. the tripwire: a re-entered JVM path refuses instead of spawning
+# Kept although P8 leaves no route that can reach it: it was earned twice, the
+# hard way, and it is five lines against 445 live JVMs.  Checking it still
+# fires is what keeps it from rotting into a comment.
 env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_SHIM_REENTRY=1 \
   timeout -k 10 120 isabelle query --no-server -R "$AFP" summary \
   >"$OUT/shim-trip.txt" 2>"$OUT/shim-trip.err"
@@ -973,6 +869,71 @@ if [ "$trip_rc" = "2" ] && [ ! -s "$OUT/shim-trip.txt" ] &&
 else
   bad "a re-entered JVM path refuses loudly (exit 2, empty stdout)" \
     "exit $trip_rc, $(tr '\n' ' ' <"$OUT/shim-trip.err" | cut -c1-70)"
+fi
+
+# --- 16f. a client option with no client to run it is an error, not a silent
+# drop.  The shim strips `--client-*` off the argv before the JVM tail, which
+# is what lets a decline run the tool's arguments without the client's; the
+# failure mode that buys is a client option quietly vanishing when python3 is
+# missing.  A PATH with no python3 is the whole apparatus.
+# Again not through `isabelle query`: the settings shell recomputes
+# $ISABELLE_QUERY_BASE_HOME from the component, so an override only
+# survives INSIDE that environment.  An empty base home is a missing client
+# script, which is the same `client_available=false` branch a missing python3
+# reaches, without breaking the PATH every other tool here needs.
+mkdir -p "$OUT/noclient"
+isabelle env ISABELLE_QUERY_BASE_HOME="$OUT/noclient" \
+  ISABELLE_QUERY_CLIENT_CACHE="$OUT/noclient-cache.json" \
+  timeout -k 10 120 bash "$SHIM_TOOL" --client-status \
+  >"$OUT/shim-noclient.txt" 2>"$OUT/shim-noclient.err"
+noclient_rc=$?
+if [ "$noclient_rc" = "2" ] && [ ! -s "$OUT/shim-noclient.txt" ] &&
+   grep -q "needs the thin client" "$OUT/shim-noclient.err"; then
+  note "a client option with no client to run it is refused, not dropped" "exit 2"
+else
+  bad "a client option with no client to run it is refused, not dropped" \
+    "exit $noclient_rc, $(tr '\n' ' ' <"$OUT/shim-noclient.err" | cut -c1-70)"
+fi
+
+# ... and that the SAME base home without a client option still answers, so the
+# check above is testing the option and not merely a broken component.
+isabelle env ISABELLE_QUERY_BASE_HOME="$OUT/noclient" \
+  ISABELLE_QUERY_CLIENT_CACHE="$OUT/noclient-cache.json" \
+  timeout -k 10 120 bash "$SHIM_TOOL" -R "$AFP" summary \
+  >"$OUT/shim-noclient2.txt" 2>"$OUT/shim-noclient2.err"
+if cmp -s "$OUT/cold-summary.txt" "$OUT/shim-noclient2.txt"; then
+  note "and with no client at all the query still answers, cold"
+else
+  bad "and with no client at all the query still answers, cold" \
+    "$(tr '\n' ' ' <"$OUT/shim-noclient2.err" | cut -c1-70)"
+fi
+
+# --- 16g. an ACTION the routing has switched off is refused too
+# The client is perfectly runnable here; it is the request that contradicts
+# itself.  Found by this probe: the first spelling of the split let this fall
+# through to the JVM with an empty argv, which printed the usage text and
+# exited 0 -- an answer to a question nobody asked.
+ISABELLE_QUERY_NO_SERVER=1 timeout -k 10 120 \
+  isabelle query --client-status >"$OUT/shim-offact.txt" 2>"$OUT/shim-offact.err"
+offact_rc=$?
+if [ "$offact_rc" = "2" ] && [ ! -s "$OUT/shim-offact.txt" ] &&
+   grep -q "switched off for this invocation" "$OUT/shim-offact.err"; then
+  note "a client action with the warm path switched off is refused" "exit 2"
+else
+  bad "a client action with the warm path switched off is refused" \
+    "exit $offact_rc, $(tr '\n' ' ' <"$OUT/shim-offact.err" | cut -c1-70)"
+fi
+
+# ... and a NON-action client option in the same position is moot, not fatal:
+# the query still has to be answered.
+ISABELLE_QUERY_NO_SERVER=1 timeout -k 10 120 \
+  isabelle query --client-verbose -R "$AFP" summary \
+  >"$OUT/shim-offopt.txt" 2>"$OUT/shim-offopt.err"
+if cmp -s "$OUT/cold-summary.txt" "$OUT/shim-offopt.txt"; then
+  note "and a non-action client option there is moot, not fatal"
+else
+  bad "and a non-action client option there is moot, not fatal" \
+    "$(tr '\n' ' ' <"$OUT/shim-offopt.err" | cut -c1-70)"
 fi
 
 # --------------------------------------------------------------------------
@@ -993,20 +954,20 @@ else
   note "and it is out of the registry"
 fi
 
-# P7b started three more, under three more names.  A probe that leaves a
-# resident JVM holding a corpus-sized index behind it is not a clean run.
-left_deleg=0
-for s in "$DELEG_SERVER" "$DELEG_ENV_SERVER" "$DELEG_DEAD_SERVER"; do
+# §15 started more, under names of its own.  A probe that leaves a resident
+# JVM holding a corpus-sized index behind it is not a clean run.
+left_shim=0
+for s in "$SHIM_SERVER" "$DEAD_SERVER" "$ABSENT_SERVER"; do
   isabelle server -x -n "$s" >/dev/null 2>&1
-  left_deleg=$((left_deleg + $(pgrep -f "server -n $s" 2>/dev/null | wc -l)))
+  left_shim=$((left_shim + $(pgrep -f "server -n $s" 2>/dev/null | wc -l)))
 done
 sleep 0.3
-if [ "$left_deleg" = "0" ] &&
-   ! isabelle server -l 2>/dev/null | grep -q "p7bprobe-"; then
-  note "and the three delegation servers are stopped and unregistered"
+if [ "$left_shim" = "0" ] &&
+   ! isabelle server -l 2>/dev/null | grep -q "p8probe-"; then
+  note "and §15's servers are stopped and unregistered"
 else
-  bad "and the three delegation servers are stopped and unregistered" \
-    "$left_deleg process(es) left"
+  bad "and §15's servers are stopped and unregistered" \
+    "$left_shim process(es) left"
 fi
 
 echo
