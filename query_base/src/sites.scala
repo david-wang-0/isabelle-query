@@ -474,7 +474,11 @@ object Sites {
      (the build's own order, so the listing is stable between runs). */
   def find_instantiations(sections: List[Theory_Section], name: String): List[Site] = {
     val out = new mutable.ListBuffer[Site]
-    for (sec <- sections) {
+    /* An `interpretation L` in a theory that does not import L's is a
+       DIFFERENT locale of the same name -- one the AFP has plenty of.  Same
+       necessary condition the citation router applies (`Reach`). */
+    val reachable = Reach.site_filter(sections, name)
+    for (sec <- sections if reachable(sec.theory)) {
       val live = sec.live_source
       val outer = sec.outer_source
       val raw = sec.source
@@ -932,8 +936,13 @@ object Sites {
         case _ => false
       })
 
+    /* Same visibility rule as `instances` and the citation router: a `[code]`
+       equation for a constant this theory cannot see is an equation for
+       another constant of that name. */
+    val reachable = Reach.site_filter(sections, name)
+
     val out = new mutable.ListBuffer[Site]
-    for (sec <- sections) {
+    for (sec <- sections if reachable(sec.theory)) {
       val live = sec.live_source
       val outer = sec.outer_source
       val raw = sec.source

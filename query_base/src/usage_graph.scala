@@ -412,13 +412,27 @@ object Usage_Graph {
           below.  Dropping it outright stopped `by simp` minting edges to a
           `definition simp` — and erased every genuine citation of any entry
           whose name collides with the bound table. */
+    /* Import visibility, when it is on: the closure is shared corpus-wide
+       (`Reach.closure` memoises it), and `declared_at` is built in THIS pass
+       rather than a second one — the loop that mints the name universe already
+       knows which theory each name came from. */
+    val reach = if (Reach.enabled) Reach.closure(sections) else null
+    val declared_at = mutable.HashMap.empty[String, List[Int]]
+
     val name_set = mutable.LinkedHashSet.empty[String]
     val shadowed = mutable.LinkedHashSet.empty[String]
-    for (sec <- sections; e <- sec.entries) {
-      if (citable_tags(e.tag) && e.name != "?" &&
-        e.name.codePointCount(0, e.name.length) > drop_upto && !is_all_digits(e.name)) {
-        name_set += e.name
-        if (Namespace.non_citation(e.name)) shadowed += e.name
+    for (sec <- sections) {
+      val tid = if (reach != null) reach.id(sec.theory) else -1
+      for (e <- sec.entries) {
+        if (citable_tags(e.tag) && e.name != "?" &&
+          e.name.codePointCount(0, e.name.length) > drop_upto && !is_all_digits(e.name)) {
+          name_set += e.name
+          if (Namespace.non_citation(e.name)) shadowed += e.name
+          if (reach != null) {
+            val seen = declared_at.getOrElse(e.name, Nil)
+            if (!seen.contains(tid)) declared_at(e.name) = tid :: seen
+          }
+        }
       }
     }
     val names: Set[String] = name_set.toSet
@@ -456,6 +470,9 @@ object Usage_Graph {
       val d_map = def_sites.getOrElse(sec.theory, Map.empty[String, List[(Int, Int)]])
       val idx = line_index.getOrElse(sec.theory, Array.empty[(Int, Int, Entry)])
       val text_mask = Entries.line_mask(lines.length, t_ranges)
+      /* What THIS theory can see: its import closure and itself.  Bound once
+         per section — the row is a bit test per candidate name. */
+      val visible: Int => Boolean = if (reach != null) reach.visible_from(sec.theory) else null
       var line_no = 1
       val cand = mutable.LinkedHashSet.empty[String]
       while (line_no <= lines.length) {
@@ -471,6 +488,12 @@ object Usage_Graph {
           }
           if (stripped.contains("""\<""")) add_matches(SYM_RE, stripped, 0, names, cand)
           if (stripped.contains("\"")) add_matches(QUOTED_RE, stripped, 1, names, cand)
+          /* Import visibility, BEFORE the positional re-read below: a name this
+             theory cannot see is not a citation of it whatever position it sits
+             in, and dropping it here often empties `cand` and saves the
+             re-read entirely. */
+          if (visible != null && cand.nonEmpty)
+            cand.filterInPlace(n => declared_at.getOrElse(n, Nil).exists(visible))
           if (cand.nonEmpty) {
             /* A candidate whose name is also a method or attribute has to earn
                its edge positionally.  Guarded, so an ordinary line pays one set

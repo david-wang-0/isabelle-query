@@ -13,6 +13,7 @@ sources = \
   src/output.scala \
   src/render.scala \
   src/usage_graph.scala \
+  src/reach.scala \
   src/commands.scala \
   src/usage.scala \
   src/sites.scala \

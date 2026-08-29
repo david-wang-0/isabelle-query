@@ -96,23 +96,16 @@ object Usage {
   /* ------------------------------------------------------------------ */
 
   /* A raw `imports`-clause token mapped to the bare in-project theory it
-     denotes, or `None` if it is external.  Same-session imports are written
-     bare and match directly; cross-session imports are session-qualified and
-     resolve by their tail after the last `.`.  A genuinely external import
+     denotes, or `None` if it is external.  A genuinely external import
      (`HOL-Library.FuncSet`) names no in-project theory by either spelling, so
      it stays `None` and the caller keeps the RAW token for the
-     `[out-of-project]` line. */
-  def resolve_import(imp: String, by_theory: Map[String, Theory_Section]): Option[String] = {
-    if (by_theory.contains(imp)) Some(imp)
-    else {
-      val i = imp.lastIndexOf('.')
-      if (i < 0) None
-      else {
-        val tail = imp.substring(i + 1)
-        if (by_theory.contains(tail)) Some(tail) else None
-      }
-    }
-  }
+     `[out-of-project]` line.
+
+     The rule itself lives in `Reach`, which needs it before this file exists;
+     this is the section-map spelling of the same membership test, kept because
+     `deps` wants the section it resolved to. */
+  def resolve_import(imp: String, by_theory: Map[String, Theory_Section]): Option[String] =
+    Reach.resolve_import(imp, by_theory.contains)
 
   /* `{theory: depth}` over the in-project imports graph from `start`; depth 0
      is a DIRECT import, and `start` itself is excluded.  Every import that does
@@ -338,7 +331,11 @@ object Usage {
      doing its job and not a reference to the entry that shares its name.
 
      `external` additionally skips every line in the theory that defines the
-     name, for the "is anything OUTSIDE Foo using Foo's primitives?" audit. */
+     name, for the "is anything OUTSIDE Foo using Foo's primitives?" audit.
+
+     And a theory that cannot SEE any declaration of the name is skipped
+     outright (`Reach`): over a corpus that declares one word many times, a
+     match in a tree that imports none of them is a different `rev`. */
   def find_callers(sections: List[Theory_Section], name: String,
     external: Boolean = false
   ): List[(String, Int, String)] = {
@@ -351,9 +348,10 @@ object Usage {
     val text_ranges = Usage_Graph.noise_ranges(sections)
     /* Read late: the namespace table is bound by the CLI after start-up. */
     val shadowed = Namespace.non_citation(name)
+    val reachable = Reach.site_filter(sections, name)
 
     val results = new mutable.ListBuffer[(String, Int, String)]
-    for (sec <- sections if !(external && def_theories(sec.theory))) {
+    for (sec <- sections if !(external && def_theories(sec.theory)) && reachable(sec.theory)) {
       /* Decide on the redacted view, report the raw one: a mention inside a
          comment / `\<^cancel>` / inline ML body is not a use even when live
          proof text shares its line, but the hit we print is the user's line. */
