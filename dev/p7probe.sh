@@ -938,7 +938,131 @@ fi
 
 # --------------------------------------------------------------------------
 echo
-echo "17. nothing is left running"
+echo "17. the cold path's caches (P8)"
+
+# The cold path gained two caches: a timestamp check that skips `scala_build`
+# when nothing under the component is newer than its jar, and an AppCDS archive
+# that memory-maps the Isabelle/Scala classes instead of re-reading 53 jars.
+# Both are caches of derived things, so the ONLY property that matters here is
+# that neither can change an answer.
+#
+# The archive is regenerated whenever the jar is newer than it -- §12 has
+# already touched the jar by this point, so reaching here with a usable archive
+# also demonstrates the regeneration.
+
+CDS="$(isabelle getenv -b ISABELLE_HOME_USER)/isabelle-query/query-cds.jsa"
+
+# The reference: the same query with the cache switched off entirely.
+env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CDS=1 \
+  isabelle query --no-server -R "$AFP" summary \
+  >"$OUT/cds-off.txt" 2>"$OUT/cds-off.err"
+cds_off_rc=$?
+
+# ... and with it on, which also builds it if §12's touch invalidated it.
+env -u ISABELLE_QUERY_NO_SERVER isabelle query --no-server -R "$AFP" summary \
+  >"$OUT/cds-on.txt" 2>"$OUT/cds-on.err"
+cds_on_rc=$?
+
+if [ -s "$CDS" ]; then
+  note "an AppCDS archive is generated on the cold path" \
+    "$(( $(wc -c <"$CDS") / 1048576 )) MB"
+else
+  bad "an AppCDS archive is generated on the cold path" "no archive at $CDS"
+fi
+
+if [ "$cds_off_rc" = "$cds_on_rc" ] &&
+   cmp -s "$OUT/cds-off.txt" "$OUT/cds-on.txt" &&
+   cmp -s "$OUT/cds-off.err" "$OUT/cds-on.err" &&
+   [ -s "$OUT/cds-on.txt" ]; then
+  note "and the answer is byte-identical with it and without it" \
+    "$(wc -c <"$OUT/cds-on.txt") bytes, exit $cds_on_rc"
+else
+  bad "and the answer is byte-identical with it and without it" \
+    "exit $cds_off_rc vs $cds_on_rc"
+fi
+
+# --- 17a. THE REGRESSION TEST: a damaged archive must not reach stdout ------
+#
+# The JVM writes unified logging to STDOUT, so an unreadable archive prints
+#   [0.000s][warning][cds] Unable to read generic CDS file map header ...
+# ahead of the first line of the answer.  `-Xlog:disable` in the shim is what
+# stops it, and this is the check that keeps that flag from being tidied away.
+# Three shapes of damage, because they fail at different points in the JVM's
+# validation: a byte flipped inside, a truncated file, and an empty one.
+# The JVM writes the archive READ-ONLY, so it cannot be damaged in place --
+# an earlier spelling tried, `truncated` and `empty` silently did nothing, and
+# two checks passed while testing a perfectly valid archive.  Hence: build the
+# damaged file somewhere writable, move it into place, and ASSERT THE DAMAGE
+# TOOK before drawing any conclusion from the run.
+cds_damage() {  # label, command writing a damaged archive to $OUT/dmg.jsa
+  cp "$CDS" "$CDS.bak" 2>/dev/null || return 1
+  rm -f "$OUT/dmg.jsa"
+  eval "$2"
+  chmod u+w "$OUT/dmg.jsa" 2>/dev/null
+  if cmp -s "$CDS.bak" "$OUT/dmg.jsa"; then
+    bad "a $1 archive changes neither stdout nor stderr" \
+      "the damage did not take -- this check would prove nothing"
+    rm -f "$CDS.bak"
+    return 0
+  fi
+  rm -f "$CDS"
+  cp "$OUT/dmg.jsa" "$CDS"
+  env -u ISABELLE_QUERY_NO_SERVER isabelle query --no-server -R "$AFP" summary \
+    >"$OUT/cds-dmg.txt" 2>"$OUT/cds-dmg.err"
+  local rc=$?
+  local verdict=""
+  cmp -s "$OUT/cds-off.txt" "$OUT/cds-dmg.txt" || verdict="stdout differs"
+  cmp -s "$OUT/cds-off.err" "$OUT/cds-dmg.err" || verdict="$verdict stderr differs"
+  [ "$rc" = "$cds_off_rc" ] || verdict="$verdict exit $rc"
+  if [ -z "$verdict" ]; then
+    note "a $1 archive changes neither stdout nor stderr" "exit $rc"
+  else
+    bad "a $1 archive changes neither stdout nor stderr" \
+      "$verdict; first line: $(head -c 90 "$OUT/cds-dmg.txt")"
+  fi
+  rm -f "$CDS"
+  mv -f "$CDS.bak" "$CDS"
+}
+
+if [ -s "$CDS" ]; then
+  cds_damage "corrupted" \
+    'cp "$CDS.bak" "$OUT/dmg.jsa"; chmod u+w "$OUT/dmg.jsa"
+     printf GARBAGEGARBAGE | dd of="$OUT/dmg.jsa" bs=1 seek=200 conv=notrunc 2>/dev/null'
+  cds_damage "truncated" 'head -c 5000 "$CDS.bak" >"$OUT/dmg.jsa"'
+  cds_damage "empty"     ': >"$OUT/dmg.jsa"'
+else
+  bad "a damaged archive changes neither stdout nor stderr" "no archive to damage"
+fi
+
+# --- 17b. failability: the suppression is load-bearing ----------------------
+#
+# The three checks above are only worth anything if the corruption they look
+# for is real.  Run the SAME damaged archive through the same JVM entry WITHOUT
+# `-Xlog:disable`, and the warning must appear -- on stdout, ahead of the
+# answer.  If this stops reproducing, the flag can go; until then it may not.
+if [ -s "$CDS" ]; then
+  : >"$OUT/cds-probe.jsa"
+  # Read through `isabelle getenv`, not from this shell: the probe runs outside
+  # the settings environment, and under `set -u` an unset
+  # $ISABELLE_TOOL_JAVA_OPTIONS aborts the script -- which it did, taking §18
+  # with it.
+  eval "declare -a PROBE_JAVA_ARGS=($(isabelle getenv -b ISABELLE_TOOL_JAVA_OPTIONS 2>/dev/null))"
+  isabelle java "${PROBE_JAVA_ARGS[@]}" \
+    -Xshare:auto -XX:SharedArchiveFile="$OUT/cds-probe.jsa" \
+    isabelle.query.Query_Main --no-server -R "$AFP" summary \
+    >"$OUT/cds-nolog.txt" 2>"$OUT/cds-nolog.err"
+  if grep -q 'warning..cds' "$OUT/cds-nolog.txt"; then
+    note "and without -Xlog:disable the warning DOES land on stdout" \
+      "$(head -c 52 "$OUT/cds-nolog.txt")"
+  else
+    bad "and without -Xlog:disable the warning DOES land on stdout" \
+      "no warning seen -- the three checks above may be proving nothing"
+  fi
+fi
+
+# --------------------------------------------------------------------------
+echo
+echo "18. nothing is left running"
 
 python3 "$CLIENT" --client-stop >"$OUT/stop.txt" 2>&1
 sleep 0.3

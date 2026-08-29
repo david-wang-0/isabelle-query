@@ -30,6 +30,13 @@
 #   no python3, no client script     the client cannot run; the JVM path is
 #                                    the slower right answer
 #
+# Two switches steer the COLD path rather than the routing, and are documented
+# beside the code that reads them:
+#
+#   $ISABELLE_QUERY_ALWAYS_BUILD=1   run `scala_build` unconditionally, as this
+#                                    shim did before P8
+#   $ISABELLE_QUERY_NO_CDS=1         do not use or generate the AppCDS archive
+#
 # ONE DIRECTION.  Until P8 the client's own cold fallback re-entered this tool
 # name -- `query -> client -> query` -- and the JVM side then re-implemented
 # the client's whole routing policy in Scala (`delegate.scala`, 594 lines), so
@@ -175,6 +182,92 @@ if [ "${ISABELLE_QUERY_SHIM_REENTRY:-}" = "1" ]; then
 fi
 export ISABELLE_QUERY_SHIM_REENTRY=1
 
-"$ISABELLE_HOME/lib/Tools/scala_build" || exit $?
+## staleness, cheaply
+
+# `scala_build` is a whole SECOND JVM -- ~405 ms, nearly half of what a cold
+# query costs -- asked one question: does this component need recompiling?  The
+# answer is almost always no, and a timestamp comparison gives it in
+# milliseconds.  So the build runs only when the comparison cannot rule it out.
+#
+# The comparison is deliberately conservative: any source, any build.props, or
+# a NEWER isabelle.jar (an Isabelle upgrade under an unchanged component) all
+# force it.  $ISABELLE_QUERY_ALWAYS_BUILD=1 restores the unconditional build.
+#
+# Note this no longer builds OTHER registered components on the way past.  That
+# was never `isabelle query`'s job; `isabelle scala_build` and jEdit start-up
+# both still do it.
+needs_build=true
+if [ "${ISABELLE_QUERY_ALWAYS_BUILD:-}" != "1" ] && [ -f "$ISABELLE_QUERY_JAR" ] &&
+   [ -z "$(find "$ISABELLE_QUERY_BASE_HOME/src" "$ISABELLE_QUERY_BASE_HOME/etc" \
+                "$ISABELLE_SCALA_JAR" -newer "$ISABELLE_QUERY_JAR" -print -quit \
+           2>/dev/null)" ]; then
+  needs_build=false
+fi
+if [ "$needs_build" = true ]; then
+  "$ISABELLE_HOME/lib/Tools/scala_build" || exit $?
+fi
+
 eval "declare -a JAVA_ARGS=($ISABELLE_TOOL_JAVA_OPTIONS)"
-exec isabelle java "${JAVA_ARGS[@]}" isabelle.query.Query_Main "${tool_args[@]}"
+
+
+## class loading, cached
+
+# About 250 ms of what is left is Isabelle/Scala classes being read, parsed and
+# verified out of a 53-jar class path, identically, every single time.  An
+# AppCDS archive memory-maps them already parsed: measured 576 -> 375 ms on a
+# two-theory `summary`, using the stock JDK Isabelle already ships.  No new
+# toolchain, and nothing about the answer changes.
+#
+# THE ARCHIVE IS NEVER TRUSTED.  It is a cache of a derived thing, it can be
+# stale, truncated or written by another JDK, and none of that may cost a right
+# answer:
+#
+#   * `-Xshare:auto` makes an unusable archive a no-op rather than fatal;
+#   * it is regenerated whenever $ISABELLE_QUERY_JAR is newer than it;
+#   * `-Xlog:disable` IS NOT OPTIONAL.  The JVM writes unified logging to
+#     STDOUT, so an unreadable archive prints
+#         [0.000s][warning][cds] Unable to read generic CDS file map header ...
+#     INTO THE ANSWER, ahead of the first line.  Measured, on a truncated and on
+#     an empty archive.  That is precisely the corruption the byte-identity
+#     contract exists to catch, and it is why this flag goes in even though
+#     nothing here asks the JVM to log.  It sits BEFORE $ISABELLE_TOOL_JAVA_-
+#     OPTIONS so a developer who deliberately turns logging on still wins.
+#
+# $ISABELLE_QUERY_NO_CDS=1 opts out entirely.
+
+cds_args=()
+if [ "${ISABELLE_QUERY_NO_CDS:-}" != "1" ] && [ -n "${ISABELLE_HOME_USER:-}" ]; then
+  CDS_DIR="$ISABELLE_HOME_USER/isabelle-query"
+  CDS="$CDS_DIR/query-cds.jsa"
+
+  # Generation costs one extra JVM, so it must happen once per rebuild and not
+  # once per failure: a dump that cannot be written leaves a `.skip` stamp, and
+  # the next attempt waits for the jar to change.  The dump is taken from
+  # `-V`, which needs no corpus and still captures most of the class graph
+  # (measured: 430 ms against 360 ms for a corpus-derived archive, from a
+  # 570 ms baseline).  Written to a private name and moved into place, because
+  # two `isabelle query` processes may race here and half an archive is worse
+  # than none.
+  if [ ! -f "$CDS" ] && [ -f "$CDS.skip" ] &&
+     [ "$ISABELLE_QUERY_JAR" -nt "$CDS.skip" ]; then
+    rm -f "$CDS.skip"
+  fi
+  if [ ! -f "$CDS.skip" ] &&
+     { [ ! -f "$CDS" ] || [ "$ISABELLE_QUERY_JAR" -nt "$CDS" ]; }; then
+    if mkdir -p "$CDS_DIR" 2>/dev/null &&
+       isabelle java -Xlog:disable "${JAVA_ARGS[@]}" \
+         -XX:ArchiveClassesAtExit="$CDS.$$.tmp" \
+         isabelle.query.Query_Main -V >/dev/null 2>&1 &&
+       [ -s "$CDS.$$.tmp" ]; then
+      mv -f "$CDS.$$.tmp" "$CDS" 2>/dev/null || rm -f "$CDS.$$.tmp"
+    else
+      rm -f "$CDS.$$.tmp"
+      : >"$CDS.skip" 2>/dev/null
+    fi
+  fi
+
+  [ -f "$CDS" ] && cds_args=(-Xshare:auto -XX:SharedArchiveFile="$CDS")
+fi
+
+exec isabelle java -Xlog:disable "${JAVA_ARGS[@]}" "${cds_args[@]}" \
+  isabelle.query.Query_Main "${tool_args[@]}"
