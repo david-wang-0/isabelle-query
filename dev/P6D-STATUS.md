@@ -287,6 +287,11 @@ find-instantiations set "opens **collapsed**". It does not any more — see item
    kinds that have no directories, which is what lets one `open_result` serve
    all four.
 
-6. **The path-qualified `theories` hole above is still open**, and it is worth
-   a fixture wherever it gets fixed: it is the only spelling found so far that
-   makes a theory's *name* disagree with Isabelle's.
+6. **The path-qualified `theories` hole above is half closed.** The PRUNING
+   is fixed — `Reach.build` aliases every prefixed theory name by its leaf, so
+   an import that resolves by leaf reaches it, and `dev/p7cprobe.sh` §8b is the
+   fixture this note asked for. The NAME is not: the reference spells such a
+   theory `Nested/Nested_Fix` too, and three difftest corpora contain one, so
+   correcting it is a parity decision with its own evidence — `todo.md`'s
+   `[theory-name-leaf]`. It remains the only spelling found so far that makes a
+   theory's name disagree with Isabelle's.

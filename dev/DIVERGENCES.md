@@ -553,6 +553,22 @@ hole prunes: `callers rev` over the distribution was 608 against 668 before
 `Reach.import_target` learned the leaf rule.  `dev/p7cprobe.sh` §8 is the
 standing canary for it.
 
+The leaf rule has to hold on BOTH sides, and the other side is the same
+divergence seen from the theory end.  A ROOT may address a theory in a
+subdirectory by path — `"Locale_Test/Locale_Test"` (FOL),
+`"LK/Propositional"` (Sequents), `"ex/Typechecking"` (CTT),
+`"Simple/Reach"` (`HOL-UNITY`) — and both implementations then carry it under
+that spelling.  Isabelle does not: `Thy_Header.import_name` takes the last
+segment.  The reference's naming is reproduced here all the same, so only the
+closure is corrected — import resolution runs against the theory ids PLUS one
+alias per prefixed name, its own leaf.  Without it a sibling that imports
+`"../Simple/Reach"`, or simply `Reach`, resolves to a leaf no known name
+matches, and every attribution across that edge is pruned in silence: over
+`src/HOL` that was one entry (`UNITY/WFair`'s `is`, reported dead and not
+dead).  `dev/p7cprobe.sh` §8b is the fixture; `todo.md`'s
+`[theory-name-leaf]` is the handle for the naming half, which is held back by
+parity with the reference and nothing else.
+
 **The compatibility mode, and why the gate uses it.**
 `$ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution exactly.  A
 differential matrix can only measure a difference, never an improvement, so

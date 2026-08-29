@@ -262,6 +262,22 @@ column padding, and an edge count that was counting `nodes` as well.
    corpus with one import root the answer must not move. If a new corpus shape
    turns up, add it there before trusting the number.
 
+   One did. A theory the ROOT declares by PATH (`theories
+   "Nested/Nested_Fix"`) is carried under that spelling, so an import that
+   resolves by LEAF — `imports "../Nested/Nested_Fix"`, or a bare sibling —
+   missed it, and `codeqs quad` answered 2 where the source had 3. §8's canary
+   did not catch it, and the reason is worth keeping: it asks ONE name on one
+   corpus, and `src/HOL` really does hold the shape (`HOL-UNITY` declares
+   `"Simple/Reach"`, `"Comp/Alloc"` and a dozen more by path) — it is just not
+   `rev` that the hole was eating there. It was eating exactly one entry:
+   `UNITY/WFair`'s `is`, which `unused` reported dead and no longer does
+   (22,388 → 22,387 over `src/HOL`, and no other change on any gate corpus).
+   `dev/p7cprobe.sh` §8b is the fixture that asks the question directly, and
+   `Reach.build`'s alias table is the fix. The finding came from P6d
+   (`dev/P6D-STATUS.md`), which met it while writing a nested panel fixture.
+   Its cosmetic half — the NAME is still wrong — is `todo.md`'s
+   `[theory-name-leaf]`, and it is held back by parity, not by difficulty.
+
 3. **The filter is per THEORY, not per line.** Anything that wants "is this
    citation below its declaration" is `[reach-position]` in `todo.md`, and it is
    not a one-line inequality — `lemmas`, `sublocale` and `context` re-entry all

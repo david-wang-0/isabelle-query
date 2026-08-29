@@ -172,8 +172,8 @@ in `CONTRIBUTING.md`.
 
 ## Open work from the Scala rewrite
 
-These four are recorded in `dev/P7-STATUS.md` and `dev/P7C-STATUS.md` with
-their evidence; the entries here are the handles.
+These are recorded in `dev/P7-STATUS.md` and `dev/P7C-STATUS.md` with their
+evidence; the entries here are the handles.
 
 - [ ] `[namespace-by-value]` Thread the method/attribute table through as a
       **value** instead of binding `isabelle.query.Namespace`'s process-global
@@ -212,6 +212,24 @@ their evidence; the entries here are the handles.
       declaration's, so a naive check would prune real citations.  Entry
       condition is a fixture per case, and the whole-corpus delta measured
       before and after — the same shape of evidence D13 itself carries.
+
+- [ ] `[theory-name-leaf]` A ROOT may address a theory in a subdirectory by
+      PATH — `theories "Nested/Nested_Fix"`, there being no per-theory `in`
+      clause in the grammar — and both this engine and the reference then call
+      the theory `Nested/Nested_Fix`.  Isabelle does not: `Thy_Header`'s
+      `import_name` takes the last path segment, and `Sessions`' own
+      `global_theories` check spells it `Path.explode(thy).file_name`.  So the
+      name in a `summary` row, in a locus and in `theory`'s "Known theories"
+      list is one Isabelle would not recognise — and `theory
+      "Nested/Nested_Fix"` then fails to find a theory it has just listed, on
+      BOTH implementations.  The reachability filter's half of this is closed
+      (`Reach.build`'s alias table, `dev/p7cprobe.sh` §8b); the NAME is not.
+      What stops it being a one-word change in `Discovery.session_theories` is
+      parity: the reference spells them the same way, and three difftest
+      corpora contain one — `Locale_Test/Locale_Test` (FOL),
+      `LK/Propositional` and three more (Sequents), `ex/Typechecking` and
+      three more (CTT).  Entry condition is therefore a D-series entry, its
+      own pins, and `dev/entrydiff.sh` re-run over the five P1 corpora.
 
 - [ ] `[client-console-name]` The warm client has no console name — it is
       invoked as `python3 query_base/lib/scripts/query_client.py`.  Giving it
