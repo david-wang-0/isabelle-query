@@ -258,6 +258,28 @@ environment — no bash, no `scala_build` — costs 345 ms before any work, and
 155 ms with an AppCDS archive. So the "~0.9 s of JVM" below is really ~0.03 s of
 JVM inside ~0.9 s of process setup, most of it bash and a redundant build check.
 
+### The cold path since P8
+
+Two of those rows are now cached, so every "cold ms" figure in this document
+predates them and is pessimistic by about 30%. Measured through the front door,
+median of 5, `summary` on a two-theory AFP entry, 2026-08-29:
+
+| | CDS on | CDS off |
+|---|---:|---:|
+| `scala_build` skipped | **722** | 828 |
+| `scala_build` forced | 906 | 1032 |
+
+`$ISABELLE_QUERY_ALWAYS_BUILD=1` and `$ISABELLE_QUERY_NO_CDS=1` are the two
+switches, and are how the right-hand column and bottom row were taken.
+
+The two savings are **not additive** — 190 + 126 rather than 382 + 250 — because
+a `scala_build` that has just run leaves the page cache warm for the JVM that
+follows. A naive sum would have promised 600 ms and delivered 310. Worth
+remembering before quoting either number on its own.
+
+The tables below have NOT been re-measured against the new cold path; they are
+kept as taken, and the ratios they are used for (warm against cold) only widen.
+
 ```
 date:      2026-08-29 02:50 UTC     (same machine, load 0.31)
 runs:      median of 5

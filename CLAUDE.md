@@ -127,6 +127,14 @@ and `ISABELLE_HOME_USER` derives from it. Registering into the real home is a
 release step, from a green tree only (`dev/P5-STATUS.md` §"Registering it for
 real").
 
+Since P8 a cold `isabelle query` runs `scala_build` **only when something under
+`query_base` is newer than its jar**, and it no longer builds the other
+registered components on the way past — so `jedit_query` needs the explicit
+`scala_build` above (it always did) and `$ISABELLE_QUERY_ALWAYS_BUILD=1`
+restores the unconditional build if you suspect the timestamp check. The cold
+path also keeps an AppCDS archive under `$ISABELLE_HOME_USER/isabelle-query/`,
+regenerated whenever the jar changes; `$ISABELLE_QUERY_NO_CDS=1` opts out.
+
 Plugin changes also need the dynamic shim jar, which `scala_build` does not
 build:
 

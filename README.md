@@ -222,6 +222,15 @@ question re-stats the files (12 ms across `src/HOL`'s 1468) instead of reading
 them again. Nothing about how the code is compiled changes that, which is why
 the answer here is a warm index and not a faster start.
 
+Two of the four are now cached, which is why the cold column is cheaper than it
+used to be. `scala_build` runs only when something under the component is
+newer than its jar (`$ISABELLE_QUERY_ALWAYS_BUILD=1` forces it), and the class
+loading is served from an AppCDS archive kept in `$ISABELLE_HOME_USER`
+(`$ISABELLE_QUERY_NO_CDS=1` opts out). Measured on a two-theory `summary`,
+**1032 → 722 ms**. Both are caches of derived things and neither can change an
+answer: `dev/p7probe.sh` §17 checks that a corrupted, a truncated and an empty
+archive each leave stdout, stderr and the exit status byte-identical.
+
 The warm mode extends the stock `isabelle server` with four commands
 (`query_version`, `query_open`, `query_run`, `query_close`) contributed as a
 `Server.Commands` service — so it inherits the server's lifecycle, discovery

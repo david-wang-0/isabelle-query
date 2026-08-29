@@ -118,7 +118,8 @@ the real reason.
 
 ## Coverage
 
-`dev/p7probe.sh`: **81 checks, 0 failing** (baseline before this phase: 91). The
+`dev/p7probe.sh`: **87 checks, 0 failing** (baseline before this phase: 91; 81
+after the routing collapse, 87 with the cold-path caches pinned). The
 ten that went were the delegate's own — a second implementation of spawning,
 staleness detection, environment forwarding, the bypass list and relative-token
 handling — every one of which §9–§12 already checks against the implementation
@@ -131,6 +132,8 @@ that remains. Three checks are new and cover ground nothing did before:
   engine — was never tested for it.
 - **§16f/§16g** a client option with no client to run it, and a client action
   with the warm path switched off.
+- **§17** the cold path's two caches, and above all that a damaged AppCDS
+  archive cannot reach stdout.
 
 ## Two things the probe taught about the environment
 
@@ -144,15 +147,78 @@ Both cost a debugging cycle and are worth writing down:
    `lib/Tools/query` as a script under `isabelle env` rather than as
    `isabelle query`.
 
+## The cold path, made cheaper
+
+Having measured where the cold floor actually is, two caches follow directly —
+both of derived things, neither permitted to change an answer. Measured through
+the front door, median of 5, `summary` on a two-theory AFP entry:
+
+| | CDS on | CDS off |
+|---|---:|---:|
+| `scala_build` skipped | **722 ms** | 828 ms |
+| `scala_build` forced | 906 ms | 1032 ms |
+
+**1032 → 722 ms, a 30% cut, with no new toolchain** — the archive is a stock
+JDK 21 feature and Isabelle already ships JDK 21.
+
+**The staleness check.** `scala_build` costs 382 ms on its own here, to answer
+"does this component need recompiling?". A timestamp comparison answers it in
+milliseconds; the build runs only when that comparison cannot rule it out (any
+source, any `build.props`, or a newer `isabelle.jar`).
+`$ISABELLE_QUERY_ALWAYS_BUILD=1` restores the unconditional build.
+
+Skipping it is worth ~190 ms rather than the full 382, because a `scala_build`
+that has just run leaves the page cache warm for the JVM that follows. Worth
+recording: the two costs are not additive, and a naive sum would have promised
+600 ms and delivered 310.
+
+**The AppCDS archive.** Generated from `-V`, which needs no corpus and still
+captures most of the class graph — 430 ms against 360 ms for a corpus-derived
+one, from a 570 ms baseline in the direct-JVM harness. Written to a private
+name and moved into place (two invocations may race), regenerated when the jar
+is newer, and a dump that cannot be written leaves a `.skip` stamp so the extra
+JVM is paid once per rebuild rather than once per failure.
+`$ISABELLE_QUERY_NO_CDS=1` opts out.
+
+### `-Xlog:disable`, and why it is load-bearing
+
+**The JVM writes unified logging to STDOUT.** So an archive it cannot read
+prints
+
+```
+[0.000s][warning][cds] Unable to read generic CDS file map header from shared archive
+```
+
+**into the answer**, ahead of the first line — silently corrupting every
+consumer of a tool whose entire contract is byte-identical stdout. This was
+found by damaging an archive on purpose, not by reading the flag reference, and
+it is the single most dangerous thing in this phase. `-Xlog:disable` goes in
+before `$ISABELLE_TOOL_JAVA_OPTIONS`, so a developer who deliberately enables
+logging still wins, and `-Xshare:auto` makes an unusable archive a no-op rather
+than fatal.
+
+§17 pins it: the archive is generated, the answer is byte-identical with and
+without it, and a corrupted, a truncated and an empty archive each change
+neither stdout nor stderr nor the exit status — plus a failability check that
+runs the same damaged archive WITHOUT `-Xlog:disable` and requires the warning
+to appear.
+
+That failability check earned its place on the first run. The damage helper
+originally wrote in place; AppCDS archives are **read-only**, so `truncated`
+and `empty` silently did nothing and two checks passed while testing a
+perfectly valid archive. The helper now asserts the damage took before drawing
+any conclusion from the run — the same rule as §15b's perturbed byte, and the
+same reason.
+
 ## What it left for the next phase
 
-- **The cold path still pays ~405 ms for `scala_build`** on every invocation,
-  to answer a question — "is this component stale?" — that a timestamp
-  comparison answers in milliseconds.
-- **AppCDS is measured but not shipped.** A 15 MB archive off the bundled JDK 21
-  takes the direct-JVM `summary` from 576 ms to 375 ms with no new toolchain.
-  It needs an invalidation rule keyed on the jar, and `-Xshare:auto` so a stale
-  archive degrades rather than fails.
+- **The `bin/isabelle` settings shell (~180 ms) is untouched**, and is now the
+  largest single item on the cold path after the parse. It is sourced once by
+  `bin/isabelle` and again by `isabelle java`; whether a component may cache it
+  is a question for the distribution, not for this tool.
+- **The archive is per-user, not per-install.** A shared multi-user install
+  regenerates it once per `$ISABELLE_HOME_USER`. That is the safe default (the
+  component directory may be read-only) but it is not the cheapest one.
 - **`Query_Delegate.absolutize` went with the file.** Nothing used it but the
   delegate; if a future caller needs argv path-rewriting, it is in the history
   at `git log --grep='\[p7-server\]'`.
