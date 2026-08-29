@@ -315,6 +315,9 @@ Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
 The original (Python) isabelle-query is by András Salamon, with Claude Opus
 4.6, 4.7, 4.8, and 5 — see [upstream](https://github.com/ott2/isabelle-query),
 kept in-tree under `src/isabelle_query/` as the frozen reference
-implementation. The Scala rewrite, the jEdit plugin, the warm server, and the
-demo project are by David Wang, with Claude Fable 5 and Claude Opus 5.
+implementation. Everything else is by David Wang, with Claude Fable 5 and
+Claude Opus 5: the Scala rewrite, and the features the original tool does not
+have — `instances` and `codeqs`, the jEdit plugin and its IDE features
+(find usages/definition, quick-open, peek, search-by-name, navigation
+exposure), the warm server and thin client, and the demo project.
 [MIT](LICENSE).
