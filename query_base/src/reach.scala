@@ -29,7 +29,10 @@ Two deliberate approximations, both on the permissive side, because the filter
 must never remove an attribution that could be real:
 
   * an import spelled as a PATH resolves by its leaf name (`import_target`),
-    which `deps` deliberately does not do;
+    which `deps` deliberately does not do — and so, symmetrically, does a
+    THEORY whose ROOT declares it by path (`theories "Nested/Nested_Fix"`),
+    which is carried under that spelling and would otherwise be unreachable
+    from any import that resolves by leaf;
   * the graph is keyed by theory NAME, and where a corpus declares the same
     theory name twice (the AFP has many a `Misc`) the adjacency is the UNION of
     every section of that name.  `Usage.import_depths`, which `deps` / `refs`
@@ -115,6 +118,12 @@ object Reach {
      prunes.  `callers rev` over the distribution lost 60 genuine MicroJava
      hits to exactly this before the leaf rule was added.
 
+     The rule is symmetric in a way its `known` argument has to supply: the
+     leaf is taken off the IMPORT here, and `build` feeds this predicate the
+     leaf of every known THEORY as well, because a theory name can carry a
+     directory prefix too (see the alias table there).  It has to be both
+     sides, or the two spellings of one theory never meet.
+
      Strictly one-directional, like everything else in this file: it can only
      make more theories visible, never fewer. */
   def import_target(imp0: String, known: String => Boolean): Option[String] = {
@@ -175,6 +184,45 @@ object Reach {
     val id_map = ids.toMap
     val n = ids.size
 
+    /* The OTHER half of the leaf rule, and the half `import_target` cannot
+       reach on its own.  A ROOT may declare a theory by PATH —
+
+           theories "Nested/Nested_Fix"
+
+       — and both this engine and the reference then carry it under that
+       spelling, `Nested/Nested_Fix`, which is not what Isabelle calls the
+       theory (`Thy_Header.import_name` takes the last segment, and so does
+       `Sessions`' own `global_theories` check).  A site-bearing theory that
+       imports it across a directory writes `imports "../Nested/Nested_Fix"`,
+       whose leaf is `Nested_Fix` — and a leaf tested against a set of
+       PREFIXED names misses.  That is a hole, and a hole prunes silently:
+       `codeqs quad` answered 2 where the source has 3.
+
+       So import resolution runs against the theory ids PLUS one alias per
+       prefixed name, its own leaf.  A leaf that several theories answer to
+       keeps ALL of them, because this map may only widen the closure; the
+       `Closure` itself is built from `id_map` alone, so no alias is ever
+       visible to a lookup by theory name.  On a corpus whose ROOTs declare no
+       path-qualified theory — four of the seven difftest corpora — the table
+       is the id map and this costs nothing.
+
+       The theory NAME is deliberately left alone: correcting it is a
+       `Discovery` change that would move `Locale_Test/Locale_Test` (FOL),
+       `LK/Propositional` (Sequents) and `ex/Typechecking` (CTT) off byte
+       parity with the reference, which spells them the same way.  See
+       `todo.md`, `[theory-name-leaf]`. */
+    val resolve: Map[String, List[Int]] = {
+      val m = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Int]]
+      def add(key: String, i: Int): Unit =
+        m.getOrElseUpdate(key, new mutable.ListBuffer[Int]) += i
+      for ((name, i) <- ids) add(name, i)
+      for ((name, i) <- ids) {
+        val slash = name.lastIndexOf('/')
+        if (slash >= 0) add(name.substring(slash + 1), i)
+      }
+      m.view.mapValues(_.toList.distinct).toMap
+    }
+
     /* One file read and one header parse per section, and over the whole AFP
        there are ten thousand of them — the only part of this that touches the
        disk, so it is the only part worth parallelising. */
@@ -183,8 +231,7 @@ object Reach {
     val kids = Array.fill(n)(mutable.LinkedHashSet.empty[Int])
     for ((sec, imps) <- sections.zip(headers)) {
       val src = id_map(sec.theory)
-      for (imp <- imps; name <- import_target(imp, id_map.contains)) {
-        val dst = id_map(name)
+      for (imp <- imps; name <- import_target(imp, resolve.contains); dst <- resolve(name)) {
         if (dst != src) kids(src) += dst
       }
     }
