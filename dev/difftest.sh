@@ -104,9 +104,30 @@ if [ "${QUERY_DIFFTEST_DELEGATE:-0}" = "1" ]; then
 else
   SCALA_SERVER_FLAG=(--no-server)
 fi
+# IMPORT REACHABILITY is pinned OFF on the REWRITE side only, and unlike the
+# namespace pin this one is deliberately ASYMMETRIC, because the oracle has no
+# such notion to pin.
+#
+# Since P7c a citation site in theory T is attributed to a declaration in
+# theory D only when T can SEE D -- D is T's own theory or in its transitive
+# `imports` closure (dev/DIVERGENCES.md D13).  It is a deliberate improvement,
+# not a parity defect: it can only DROP an attribution the citing theory could
+# not have made, and on a whole-corpus root it drops thousands of them
+# (`callers mono` over the AFP: 1,361 hits without it, 566 with).
+#
+# A differential matrix cannot measure an improvement, only a difference, so
+# the gate runs the rewrite in the compatibility mode where the two engines
+# answer the same question.  `off` restores the name-only attribution the
+# reference implements, and with it the standard totals are unchanged -- which
+# is the statement this pin exists to make: NOTHING ELSE moved.
+#
+# The improvement itself is verified where it can be: by the unit-level fixture
+# cases in dev/p7cprobe.sh, and by the whole-AFP with/without measurement
+# recorded in dev/P7C-STATUS.md.  Drop the pin here and the usage family
+# diverges on every corpus that declares a name twice in disjoint import trees.
 run_scala() {
-  ISABELLE_QUERY_NAMESPACE=committed USER_HOME="$repo/.dev" \
-    isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
+  ISABELLE_QUERY_NAMESPACE=committed ISABELLE_QUERY_REACHABILITY=off \
+    USER_HOME="$repo/.dev" isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
 }
 
 # `### Missing Isabelle component` lines are this scratch home's own noise, not
