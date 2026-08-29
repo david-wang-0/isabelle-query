@@ -155,7 +155,16 @@ a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
 | `dev/difftest.sh` | 2,086 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence | any change to a command, a flag, or a renderer |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
-| `dev/p7probe.sh` | the warm server and the thin client | any change to `server.scala`, `cli.scala`, or the client |
+| `dev/p7probe.sh` | the warm server, the thin client, and the auto-delegating CLI (§15) | any change to `server.scala`, `delegate.scala`, `cli.scala`, or the client |
+
+`isabelle query` delegates to the warm server by default, so every harness that
+compares the ENGINE with something else pins `--no-server` (or exports
+`$ISABELLE_QUERY_NO_SERVER=1`): a run that quietly used a resident index would
+be testing the transport too, would depend on whether a server happened to be
+up, and would leave a corpus-sized JVM behind it. `QUERY_DIFFTEST_DELEGATE=1`
+turns it back on for the whole matrix, which is a different and equally
+necessary question — does the delegated path give the user what the oracle
+gives — and is recorded in `dev/P7B-STATUS.md`.
 
 Four habits around them, each of which has caught something here:
 

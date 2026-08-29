@@ -6,8 +6,15 @@ what it printed and what the numbers mean.
 |  | what it is |
 |---|---|
 | **oracle** | the Python implementation (`query` 0.7.0 on `PATH`), cold |
-| **cold** | `isabelle query` 0.8.0-scala, a fresh JVM per invocation |
+| **cold** | `isabelle query --no-server` 0.8.0-scala, a fresh JVM per invocation |
 | **warm** | `query_base/lib/scripts/query_client.py` against a resident server |
+| **delegated** | `isabelle query` with no flags, which finds that same server itself |
+
+The cold column says `--no-server` because since P7b that is what makes it
+cold. Without the flag `isabelle query` delegates, and the column would be
+measuring the delegated path under the cold label — the same shape of mistake
+`dev/P6C-STATUS.md` §5 records for the tiny tier's subject. The flag restores
+exactly the previous behaviour, so the figures below are unchanged.
 
 Every figure is a **median** of 5 runs (3 for the whole-AFP tier), wall clock,
 measured around the whole invocation exactly as a user pays for it — process
@@ -180,7 +187,61 @@ also the server's: `query_close` exists because nothing else bounds it, and the
 size cap (`ISABELLE_QUERY_SERVER_LIMIT`, default 4000 theories) exists so a
 stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
 
-## Reading the three columns
+## The auto-delegating CLI (P7b)
+
+`isabelle query` with no flags. A fresh JVM, which then finds the warm server
+and asks it instead of parsing the corpus itself. **The floor is JVM start**, so
+this can never approach the thin client; what it removes is everything above
+that floor.
+
+```
+date:      2026-08-29 02:50 UTC     (same machine, load 0.31)
+runs:      median of 5
+```
+
+| invocation | cold ms | warm ms | delegated ms |
+|---|---:|---:|---:|
+| `show fair_fenum` — 2 theories | 1090 | 37 | **973** |
+| `summary` on `src/HOL` — 1451 theories | 4194 | 68 | **1036** |
+| `instances comm_monoid` on `src/HOL` | 4586 | 338 | **1332** |
+
+**Read it as JVM start plus the answer, and nothing else.** About 0.9 s of that
+column is the JVM in every row; the tiny row is therefore all floor and saves
+almost nothing (1090 → 973), while the two `src/HOL` rows save 3.2 s and 3.3 s
+— 4.0x and 3.4x — because the parse they no longer do was the whole cost. Each
+row's delegated answer is compared with its cold one; a disagreement is printed
+in the table rather than hidden.
+
+**Where the rest of a delegated invocation goes**, from
+`$ISABELLE_QUERY_SERVER_VERBOSE=1`, on the tiny row:
+
+```
+query-delegate: registry   60 ms      open servers.db (JDBC + native library)
+query-delegate: connect     6 ms      TCP, password, greeting
+query-delegate: query_run  37 ms      the request, the answer, and the JSON
+query-delegate: delegated, 105 ms
+```
+
+The registry read is the single largest item and it is **SQLite**: opening
+`$ISABELLE_HOME_USER/servers.db` loads the JDBC driver and its native library
+into a JVM that has just started. The `query_run` figure is class loading, not
+work — the same request measures ~1 ms inside the long-lived thin client.
+Neither is removable without keeping a copy of the server's password somewhere
+the Isabelle registry did not put it, and together they are why this mode is a
+convenience rather than a competitor to the client.
+
+**When each of the three warm routes wins**
+
+- **thin client** — interactive use, where 37 ms against 1090 ms is the
+  difference between a tool you keep typing at and one you stop reaching for.
+- **delegated CLI** — a script, a Makefile, an editor hook, or any environment
+  where adding a Python entry point is not worth it: nothing to install,
+  nothing to configure, and on a big corpus most of the win.
+- **cold** — one-off runs, a whole-corpus census, anything reading stdin, and
+  any situation where a resident JVM holding an index is not wanted.
+  `--no-server` is how you say so.
+
+## Reading the columns
 
 - **A small cold query loses, and no amount of engineering fixes it.** ~1 s of
   JVM start per invocation is a fixed toll the oracle does not pay. Anything
@@ -196,6 +257,10 @@ stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
 - **It loses on exactly one workload, and predictably**: a whole-corpus
   `shape census`, which bypasses the index by design and returns 256 MB
   through a protocol that buffers a whole reply. Run that one cold.
+- **The delegated CLI is JVM start plus the answer.** It cannot beat the
+  client — it starts a JVM to avoid a parse — but on `src/HOL` it turns 4.2 s
+  into 1.0 s with nothing installed and nothing configured, and on a two-theory
+  entry it saves essentially nothing, because there the JVM *is* the cost.
 - **The round trip is not the cost.** A `query_run` against a warm index
   measures ~1.0 ms end to end inside the client. It was 43 ms until the
   framing's length header and payload went out in one write with `TCP_NODELAY`
@@ -210,6 +275,7 @@ dev/bench.sh tiny                  # tier (a) alone, for re-measuring one row
 dev/bench.sh small                 # tiers (a)-(c), about two minutes
 dev/bench.sh full                  # adds the whole-AFP tier
 dev/bench.sh memory                # peak RSS at both heaps
+dev/bench.sh delegate              # the auto-delegating CLI, three rows
 ```
 
 `RUNS=n` overrides the sample count. The script refuses without both corpora

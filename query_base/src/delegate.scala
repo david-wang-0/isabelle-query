@@ -13,7 +13,7 @@ It is a PORT OF THE CLIENT'S POLICY, not a second policy: the same server name,
 the same registry lookup, the same jar-stamp staleness rule, the same three
 forwarded variables, the same "never a wrong answer, then never a hang, then
 fast" ordering.  Where the two deliberately differ, the reason is that the user
-did not ASK for a server here (see `Refusals` below).
+did not ASK for a server here — see the last of the five below.
 
 Five things are load-bearing.
 
@@ -418,7 +418,7 @@ object Query_Delegate {
      `.`, `grep pat .` searches the directory `.`, and the two tokens are
      spelled identically.  A transport that rewrote every token naming an
      existing file would turn the first into a search for the caller's absolute
-     working directory — the answer was `No entries matching '/home/...'`, and
+     working directory — the answer was `No entries matching '<the caller's own cwd>'`, and
      it looked like a correct empty result.  A transport that rewrote none of
      them would send the second to the server's own `/`.
 

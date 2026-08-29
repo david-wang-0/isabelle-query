@@ -16,7 +16,7 @@ Three front ends over one engine:
 |---|---|
 | **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
 | **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
-| **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — see [dev/BENCH.md](dev/BENCH.md) |
+| **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — and `isabelle query` finds that server by itself, so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
 
 Written in Isabelle/Scala against the distribution's own parsing stack:
 `Token.explode` is the real Isar outer-syntax lexer, `Thy_Header` the real
@@ -203,6 +203,42 @@ It re-checks every source file's mtime and size on every request (12 ms over
 and **falls back to running `isabelle query` cold on any failure** — a slower
 right answer is always available.
 
+### `isabelle query` uses that server too
+
+The command line is not left out. A plain `isabelle query` looks for the same
+server, starts one if there is none, and runs the query there — so a warm index
+is not something you have to know about to get. It still pays its own JVM
+start, which the thin client does not, so it is the slowest of the three warm
+routes; what it removes is everything *above* that floor, which on a large
+corpus is most of the wall clock.
+
+```sh
+isabelle query summary                # delegated if a server is up, else it starts one
+isabelle query --no-server summary    # run it right here, in this process
+ISABELLE_QUERY_NO_SERVER=1 …          # the same switch for a shell; the flag wins
+ISABELLE_QUERY_SERVER_VERBOSE=1 …     # say which path was taken, on stderr
+```
+
+The answer is byte-for-byte the cold answer, exit status included (a delegated
+`… | head -3` still exits 141). **Any** failure — no server, a dead registry
+row, a refused connection, a socket that dies mid-request — runs the query
+locally instead, silently: nothing is printed until the whole reply is in hand,
+so a fallback can neither duplicate nor truncate output.
+
+Some invocations never delegate, and the list is deliberate:
+
+| bypassed | why |
+|---|---|
+| anything with `-` among its arguments | it reads *this* process's stdin, which the server cannot see |
+| `dump-entries` / `dump-imports` / `dump-theories` | development dumps, written straight past any capture and sized for a pipe |
+| `shape census` | a 256 MB reply through a synchronous single-message protocol is *slower* warm than cold, and a census gets no benefit from a warm index anyway |
+| `-h`, `--help`, `-V`, `--version` | text, no project — no reason to need a server up |
+| a **relative** argument naming a file or directory here | `find .` searches for the regex `.` and `grep pat .` searches the directory `.` — only the command's grammar tells them apart, and a transport is not a parser. Absolute paths mean the same thing anywhere, so they are served |
+
+The server itself is shared: `$ISABELLE_QUERY_CLIENT_SERVER` names it (default
+`isabelle_query`) for the thin client and for the delegating command line
+alike, so pointing one at a scratch server points both.
+
 The variables the tool reads — `$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
 `$ISABELLE_QUERY_NAMESPACE` — travel **in the request** and are bound for that
 request only. A resident server never reads its own environment for them, so a
@@ -220,9 +256,15 @@ Measured, median of 5 (full table and method in [dev/BENCH.md](dev/BENCH.md)):
 | `summary` on `src/HOL` (1451 theories) | 4865 ms | 4197 ms | **64 ms** |
 | `summary --by-session` over the whole AFP | 37.5 s | 19.5 s | **0.27 s** |
 
+The delegating command line sits between cold and the client, because it starts
+a JVM to avoid a parse: `summary` on `src/HOL` is 4194 ms cold, **1036 ms**
+delegated and 68 ms through the client; on a two-theory entry it saves almost
+nothing (1090 → 973 ms), since there the JVM *is* the cost.
+
 One workload goes the other way: a whole-corpus `shape census` streams 256 MB
 and bypasses the index by design, so it is slower through the socket (170 s)
-than cold (154 s). Run that one with `isabelle query`.
+than cold (154 s). Run that one with `isabelle query`, which does not delegate
+it in any case.
 
 ## What it reads
 

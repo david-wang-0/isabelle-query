@@ -63,7 +63,10 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   toolbar/keyboard exposure for Isabelle's existing navigate-back/forward
   stacks.
 - **A warm server** — four commands added to the stock `isabelle server`, plus
-  a stdlib-only Python client. See `dev/BENCH.md`. The variables the tool reads
+  a stdlib-only Python client, and `isabelle query` itself finds that server
+  and uses it (`--no-server`, or `$ISABELLE_QUERY_NO_SERVER=1`, keeps the query
+  in this process; stdin runs, the development dumps, `shape census` and
+  `-h`/`--version` never delegate). See `dev/BENCH.md`. The variables the tool reads
   (`$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
   `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
   alone, so setting one in your shell means what it means cold — the server
