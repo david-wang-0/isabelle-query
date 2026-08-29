@@ -1,5 +1,5 @@
 (*  Title:      Demo_Extras/Demo_Code.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     Every spelling of a code-equation site that `query codeqs` reports, plus
     the one it is documented to miss, plus one declaration the Python oracle

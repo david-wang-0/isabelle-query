@@ -1,5 +1,5 @@
 (*  Title:      Demo_Core/Demo_Legacy.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     An import that nothing cites.  Demo_Proofs imports this theory and never
     mentions a name from it, which is the one disagreement `deps` and `refs`

@@ -1,5 +1,5 @@
 (*  Title:      Demo_Core/Demo_Ops.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     Function-shaped declarations, the names one command binds beyond its own,
     and the decoys: a commented-out declaration and a cancelled one, neither

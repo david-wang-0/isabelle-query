@@ -1,5 +1,5 @@
 (*  Title:      Demo_Core/Demo_Sketch.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     AN ORPHAN.  This file sits in the session directory and no ROOT-declared
     theory imports it, so `isabelle build` never compiles it and `query` never

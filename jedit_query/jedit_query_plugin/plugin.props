@@ -4,7 +4,7 @@
 
 #identification
 plugin.isabelle.jedit_query_plugin.Plugin.name=Isabelle Project Query
-plugin.isabelle.jedit_query_plugin.Plugin.author=Andr\u00E1s Salamon, with Claude
+plugin.isabelle.jedit_query_plugin.Plugin.author=David Wang, with Claude
 plugin.isabelle.jedit_query_plugin.Plugin.version=0.8.0
 plugin.isabelle.jedit_query_plugin.Plugin.description=Syntax-aware queries over the Isabelle project sources: find usages of a fact, without a build and without waiting for the prover.
 

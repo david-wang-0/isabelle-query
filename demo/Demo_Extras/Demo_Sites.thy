@@ -1,5 +1,5 @@
 (*  Title:      Demo_Extras/Demo_Sites.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     One site per link of the naming chain `query instances` uses, in order:
     a written qualifier, an arity's type constructor, the L of `sublocale

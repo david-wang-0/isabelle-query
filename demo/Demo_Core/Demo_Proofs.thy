@@ -1,5 +1,5 @@
 (*  Title:      Demo_Core/Demo_Proofs.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     The proofs: an apply-style script, a citation chain four links deep, a
     nested structured proof with one deliberately wide step, and one open

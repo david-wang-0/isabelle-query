@@ -1,5 +1,5 @@
 (*  Title:      Demo_Core/Demo_Types.thy
-    Author:     Andras Salamon, with Claude Opus 5
+    Author:     David Wang, with Claude Opus 5
 
     One declaration of every kind the entry scanner recognises, plus the
     awkward spellings: a quoted name, a name carrying a markup symbol, and an
