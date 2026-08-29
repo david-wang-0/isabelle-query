@@ -41,7 +41,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${USER_HOME:=$REPO/.dev}"
 export USER_HOME
 
-# §0-§5 and §7-§8 compare the ENGINE against a hand-computed expectation, so
+# §0-§5 and §7-§8b compare the ENGINE against a hand-computed expectation, so
 # `isabelle query` must be the engine in THIS process and not whatever a
 # resident server happens to hold -- and must not leave one behind.  Same pin,
 # and the same reason, as p5/p6/p6b.  §6 turns it back on, per invocation.
@@ -438,6 +438,183 @@ if [ -n "$hol_on" ] && [ "$hol_on" = "$hol_off" ]; then
   note "callers rev over the corpus is unchanged by the filter" "$hol_on"
 else
   bad "callers rev over the corpus is unchanged by the filter" "on $hol_on, off $hol_off"
+fi
+
+# --------------------------------------------------------------------------
+echo
+echo "8b. a theory the ROOT declares by PATH"
+# --------------------------------------------------------------------------
+
+# The same hole from the other end, and the one §8 did not catch.  Not because
+# `src/HOL` lacks the shape -- `HOL-UNITY` declares `"Simple/Reach"`,
+# `"Comp/Alloc"` and a dozen more by path -- but because §8 asks about ONE
+# name, and there the hole was eating a different one (`UNITY/WFair`'s `is`,
+# which `unused` called dead and no longer does).  A canary on a single name
+# is worth what it costs; this is the question asked directly.
+#
+# A ROOT may address a theory in a subdirectory by PATH -- there is no
+# per-theory `in` clause in the grammar:
+#
+#     theories "Nested/Nested_Fix"
+#
+# and both this engine and the reference then carry the theory under THAT
+# spelling.  It is not what Isabelle calls it: `Thy_Header.import_name` takes
+# the last path segment, and `Sessions`' own `global_theories` check spells it
+# `Path.explode(thy).file_name`.  A theory in a sibling directory reaches it
+# with `imports "../Nested/Nested_Fix"`, whose leaf is `Nested_Fix` -- and a
+# leaf tested against a set of PREFIXED names misses.  Before the alias table
+# in `Reach.build`, `codeqs quad` here answered 2 where the source has 3, with
+# nothing on stderr.  (The wrong NAME is left alone on purpose; correcting it
+# would move FOL, Sequents and CTT off byte parity with the reference, which
+# spells them the same way.  See todo.md `[theory-name-leaf]`.)
+#
+# Its OWN root, so every count in §0-§7 stays where it was.  Two constants,
+# both hand-computed off the four theories below:
+#
+#   quad  THE case.  Declared in `Nested/Nested_Fix`, which the ROOT spells
+#         with its directory, and cited from `Deep/Down_Fix`, which reaches it
+#         across directories with `../`.  Three sites; the one that vanished
+#         is `Deep/Down_Fix:5`.
+#   cube  the two NEAR-MISSES, which must go on working.  `Extra/Helper_Fix`
+#         is NOT declared in the ROOT -- it arrives through the import closure
+#         and so registers under its bare leaf -- and it is reached two ways:
+#         `../Extra/Helper_Fix` from `Deep/Down_Fix` (a `../` import of a
+#         bare-named theory) and `Extra/Helper_Fix` from `Plain_Fix` (a
+#         prefixed spelling with no `../`).  Three sites, before and after.
+#
+# The code equations restate their definition on purpose: this fixture is
+# about WHERE a site is, not what it says, and an equation that needs a real
+# proof would put a proof method between the reader and the expectation.
+
+NEST="$OUT/nested"
+mkdir -p "$NEST/Nested" "$NEST/Deep" "$NEST/Extra" || exit 2
+
+cat >"$NEST/ROOT" <<'ROOT'
+session P7C_Nest = HOL +
+  options [document = false]
+  theories
+    "Nested/Nested_Fix"
+    "Deep/Down_Fix"
+    Plain_Fix
+ROOT
+
+cat >"$NEST/Nested/Nested_Fix.thy" <<'THY'
+theory Nested_Fix
+  imports Main
+begin
+
+definition quad :: "nat \<Rightarrow> nat" where
+  "quad n = 4 * n"
+
+end
+THY
+
+cat >"$NEST/Extra/Helper_Fix.thy" <<'THY'
+theory Helper_Fix
+  imports Main
+begin
+
+definition cube :: "nat \<Rightarrow> nat" where
+  "cube n = n * n * n"
+
+end
+THY
+
+cat >"$NEST/Deep/Down_Fix.thy" <<'THY'
+theory Down_Fix
+  imports "../Nested/Nested_Fix" "../Extra/Helper_Fix"
+begin
+
+lemma quad_alt [code]: "quad n = 2 * (2 * n)"
+  by (simp add: quad_def)
+
+lemma cube_alt [code]: "cube n = n * n * n"
+  by (simp add: cube_def)
+
+end
+THY
+
+cat >"$NEST/Plain_Fix.thy" <<'THY'
+theory Plain_Fix
+  imports "Nested/Nested_Fix" "Extra/Helper_Fix"
+begin
+
+lemma quad_plain [code]: "quad n = 4 * n"
+  by (simp add: quad_def)
+
+lemma cube_plain [code]: "cube n = n * n * n"
+  by (simp add: cube_def)
+
+end
+THY
+
+: >"$OUT/nest-err.txt"
+
+# expect_nest NAME WANT_ON WANT_OFF ARGS...
+expect_nest() {
+  local name=$1 want_on=$2 want_off=$3; shift 3
+  local got_on got_off
+  got_on=$(isabelle query -R "$NEST" "$@" 2>>"$OUT/nest-err.txt")
+  got_off=$(ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$NEST" "$@" 2>>"$OUT/nest-err.txt")
+  if [ "$got_on" = "$want_on" ] && [ "$got_off" = "$want_off" ]; then
+    note "$name" "on $got_on / off $got_off"
+  else
+    bad "$name" "on [$got_on] wanted [$want_on]; off [$got_off] wanted [$want_off]"
+  fi
+}
+
+# The fixture, before anything is asked of it: 3 declared theories, Helper_Fix
+# by import, 6 entries.  If this moves, every count below measures something
+# else.
+nest_sum=$(isabelle query -R "$NEST" summary 2>>"$OUT/nest-err.txt")
+nest_head=$(printf '%s\n' "$nest_sum" | grep -m1 'entries across')
+if [ "$nest_head" = "6 entries across 4 theories  (parsed live from .thy files)" ]; then
+  note "3 declared theories, Helper_Fix by import, 6 entries" "$nest_head"
+else
+  bad "3 declared theories, Helper_Fix by import, 6 entries" "$nest_head"
+fi
+
+# The engine spells the path-declared theory the way the ROOT does, and the
+# reference spells it the same way (verified: the two `summary` tables are
+# byte-identical on this fixture).  Pinned so that correcting the NAME has to
+# be a deliberate act with its own parity evidence, not a side effect.
+if printf '%s\n' "$nest_sum" | grep -q '^| Nested/Nested_Fix |'; then
+  note "the path-declared theory keeps the ROOT's spelling (a known wart)" "Nested/Nested_Fix"
+else
+  bad "the path-declared theory keeps the ROOT's spelling (a known wart)" "not in summary"
+fi
+
+# THE hole.  Deep/Down_Fix:5 is the row that used to vanish.
+expect_nest "codeqs quad -- all three sites, filter or no filter" 3 3 codeqs quad -c
+expect_nest "callers quad -- both citations survive" 2 2 callers quad -c
+
+nest_want='Nested/Nested_Fix:5
+Deep/Down_Fix:5
+Plain_Fix:5'
+for mode in on off; do
+  if [ "$mode" = off ]; then
+    loci=$(ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
+  else
+    loci=$(isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
+  fi
+  if [ "$loci" = "$nest_want" ]; then
+    note "the relative-path site is reported, filter $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
+  else
+    bad "the relative-path site is reported, filter $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
+  fi
+done
+
+# The two near-misses, which resolved before this fix and must still.
+expect_nest "codeqs cube -- a bare-named theory reached by \`../\` and by prefix" 3 3 codeqs cube -c
+expect_nest "callers cube -- same, through the citation router" 2 2 callers cube -c
+
+# Nothing is said on stderr either way: the whole point of the finding is that
+# a hole in the closure prunes SILENTLY, so a probe that only counted rows
+# would not have noticed had the fix traded one silence for another.
+if [ ! -s "$OUT/nest-err.txt" ]; then
+  note "and nothing on stderr in either mode" "empty"
+else
+  bad "and nothing on stderr in either mode" "$(head -2 "$OUT/nest-err.txt" | tr '\n' ' ')"
 fi
 
 # --------------------------------------------------------------------------
