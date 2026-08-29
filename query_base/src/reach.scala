@@ -279,16 +279,11 @@ object Reach {
      datatype constructor, a `shows` conjunct.  A bound name is a real
      declaration of that spelling, and `codeqs Cons` is precisely the verb that
      asks about one. */
-  def declaring_ids(sections: List[Theory_Section], name: String, c: Closure): List[Int] = {
-    val out = new mutable.ListBuffer[Int]
-    for (sec <- sections) {
-      val declares =
-        sec.entries.exists(e => e.name == name || e.bindings.exists(_._1 == name))
-      if (declares) {
-        val i = c.id(sec.theory)
-        if (i >= 0 && !out.contains(i)) out += i
-      }
-    }
+  def declaring_theories(sections: List[Theory_Section], name: String): List[String] = {
+    val out = new mutable.ListBuffer[String]
+    for (sec <- sections)
+      if (sec.entries.exists(e => e.name == name || e.bindings.exists(_._1 == name)) &&
+        !out.contains(sec.theory)) out += sec.theory
     out.toList
   }
 
@@ -296,17 +291,27 @@ object Reach {
      report a hit in.  Everything, when the filter is off — and equally when the
      project declares the name NOWHERE: `callers` answers for any token, and a
      token this project does not declare is a mention of something external,
-     which no import closure has an opinion about. */
+     which no import closure has an opinion about.
+
+     The undeclared case is tested FIRST, before the closure is asked for, and
+     that ordering is the difference between a cheap verb and an expensive one:
+     building the closure reads every theory header in the corpus, and
+     `callers <some token>` — the plugin's commonest call, on whatever word is
+     under the caret — is exactly the case that needs none of it. */
   def site_filter(sections: List[Theory_Section], name: String): String => Boolean =
     if (!enabled) (_ => true)
     else {
-      val c = closure(sections)
-      val declared = declaring_ids(sections, name, c)
-      if (declared.isEmpty) (_ => true)
-      else
-        (theory: String) => {
-          val visible = c.visible_from(theory)
-          declared.exists(visible)
-        }
+      val theories = declaring_theories(sections, name)
+      if (theories.isEmpty) (_ => true)
+      else {
+        val c = closure(sections)
+        val declared = theories.map(c.id).filter(_ >= 0)
+        if (declared.isEmpty) (_ => true)
+        else
+          (theory: String) => {
+            val visible = c.visible_from(theory)
+            declared.exists(visible)
+          }
+      }
     }
 }
