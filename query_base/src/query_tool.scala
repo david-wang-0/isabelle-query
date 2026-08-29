@@ -150,3 +150,16 @@ object Query_Tool {
 }
 
 class Query_Tools extends Isabelle_Scala_Tools(Query_Tool.isabelle_tool)
+
+/* The JVM entry the `lib/Tools/query` shim execs, and the ONLY safe one.
+
+   The shim shadows the tool name, and BOTH dispatchers — `bin/isabelle` and
+   `Isabelle_Tool.main` — resolve external tools FIRST, so any name-based
+   route back into the JVM (`isabelle java isabelle.Isabelle_Tool query …`)
+   re-enters the shim as a CHILD process and loops, stacking one live JVM per
+   ~1.3 s until the machine dies.  Measured, twice, the hard way.  This main
+   is `find_internal`'s wrapper verbatim, minus the name lookup that loops. */
+object Query_Main {
+  def main(args: Array[String]): Unit =
+    Command_Line.tool { Query_Tool.isabelle_tool.body(args.toList) }
+}

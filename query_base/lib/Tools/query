@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# DESCRIPTION: query an Isabelle/Isar project (syntax-aware, no build)
+#
+# The front door.  `bin/isabelle` dispatches to an external tool of this name
+# BEFORE it starts a JVM for the Scala one, which is the property this shim
+# exists for: on the fast path `isabelle query` is the non-JVM thin client
+# (`lib/scripts/query_client.py`), and the ~850 ms JVM floor is paid only
+# where a JVM is genuinely needed.
+#
+# Routing, and nothing else — this file decides WHO answers, never WHAT:
+#
+#   $ISABELLE_QUERY_NO_CLIENT=1      the JVM front end, always.  Also set by
+#                                    the client's own cold fallback, which
+#                                    re-enters this tool name: without the
+#                                    mark, a fallback would be an exec loop.
+#   $ISABELLE_QUERY_NO_SERVER=1      nothing warm at all; the JVM tool reads
+#                                    the same variable and runs locally.
+#   `--no-server` before a bare --   the flag spelling of the same wish; the
+#                                    JVM tool strips and honours it.
+#   no arguments, -h/--help,         usage and version are pure text; no
+#     -V/--version                   reason to start a server to print them
+#                                    (mirrors `Query_Delegate.bypass`).
+#   no python3, no client script     the client cannot run; the JVM path is
+#                                    the slower right answer.
+#
+# Everything else goes to the client, whose own routing — the bypass list,
+# and the fall-back-cold-on-any-failure rule — is documented at its head.
+
+CLIENT="$ISABELLE_QUERY_BASE_HOME/lib/scripts/query_client.py"
+
+warm=true
+[ "${ISABELLE_QUERY_NO_CLIENT:-}" = "1" ] && warm=false
+[ "${ISABELLE_QUERY_NO_SERVER:-}" = "1" ] && warm=false
+[ "$#" -eq 0 ] && warm=false
+[ -f "$CLIENT" ] || warm=false
+command -v python3 >/dev/null 2>&1 || warm=false
+if [ "$warm" = true ]; then
+  for arg in "$@"; do
+    case "$arg" in
+      --) break ;;
+      --no-server | -h | --help | -V | --version) warm=false; break ;;
+    esac
+  done
+fi
+
+if [ "$warm" = true ]; then
+  exec python3 "$CLIENT" "$@"
+fi
+
+# The JVM path.  NEVER by tool name: both dispatchers — `bin/isabelle` and
+# `isabelle.Isabelle_Tool` — resolve external tools FIRST, so a name-based
+# route (`isabelle java isabelle.Isabelle_Tool query …`) finds THIS FILE
+# again, runs it as a child, and loops: one live JVM stacked per ~1.3 s until
+# the machine is unusable.  `Query_Main` is the component's dispatcher-free
+# entry, and the only correct spelling of "the Scala tool, in a JVM, now".
+#
+# The tripwire is belt to that brace: if this file is ever re-entered on the
+# JVM path anyway, refuse loudly rather than spawn.  A wrong answer that says
+# so beats 445 JVMs.
+if [ "${ISABELLE_QUERY_SHIM_REENTRY:-}" = "1" ]; then
+  echo "isabelle query shim: re-entered on the JVM path; refusing to recurse" >&2
+  exit 2
+fi
+export ISABELLE_QUERY_SHIM_REENTRY=1
+
+"$ISABELLE_HOME/lib/Tools/scala_build" || exit $?
+eval "declare -a JAVA_ARGS=($ISABELLE_TOOL_JAVA_OPTIONS)"
+exec isabelle java "${JAVA_ARGS[@]}" isabelle.query.Query_Main "$@"

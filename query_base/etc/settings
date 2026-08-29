@@ -2,3 +2,8 @@
 
 ISABELLE_QUERY_BASE_HOME="$COMPONENT"
 ISABELLE_QUERY_JAR="$ISABELLE_QUERY_BASE_HOME/lib/classes/isabelle_query.jar"
+
+# `lib/Tools/query` shadows the Scala tool of the same name: external tools
+# dispatch in `bin/isabelle` before any JVM starts, which is what puts the
+# non-JVM thin client on `isabelle query`'s fast path.
+ISABELLE_TOOLS="$ISABELLE_TOOLS:$ISABELLE_QUERY_BASE_HOME/lib/Tools"

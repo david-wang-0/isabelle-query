@@ -34,11 +34,21 @@ carry the `--client-` prefix so they cannot collide with the tool's own:
     --client-timeout S     seconds to wait for the answer (default 600)
     --client-verbose       report timings and the path taken, on stderr
 
+Since P7d this script needs no path to reach: the component's
+`lib/Tools/query` shim makes it what a plain `isabelle query` runs, routing to
+the JVM front end only where a JVM is needed (`--no-server`, help/version,
+$ISABELLE_QUERY_NO_CLIENT=1, or no python3).  The shim decides WHO answers;
+this script's own routing below decides no more than it did before.
+
 Environment:
     ISABELLE_QUERY_CLIENT_SERVER    server name (default: isabelle_query)
     ISABELLE_QUERY_CLIENT_COLD      set to 1 to force the cold path
     ISABELLE_QUERY_CLIENT_TIMEOUT   default for --client-timeout
     ISABELLE_QUERY_CLIENT_CACHE     where the resolved settings are cached
+    ISABELLE_QUERY_NO_CLIENT        read by the SHIM, not by this script; set
+                                    by `cold` below so a fallback that
+                                    re-enters `isabelle query` lands in the
+                                    JVM instead of looping back here
 
 The variables above configure THIS PROCESS and are never sent.  The variables
 the tool itself reads are a different set (`FORWARDED_ENV` below) and ARE sent,
@@ -414,9 +424,17 @@ class Connection:
 def cold(isabelle, args):
     """The cold path, and the last word on every failure.  `execv` rather than
     a subprocess so the tool inherits this process entirely: its exit status is
-    the status, and a SIGPIPE kills the right process."""
+    the status, and a SIGPIPE kills the right process.
+
+    Since P7d, `isabelle query` resolves to the component's `lib/Tools/query`
+    shim, whose fast path is THIS SCRIPT — so the exec below re-enters the very
+    tool name that got us here.  $ISABELLE_QUERY_NO_CLIENT is the mark that
+    stops that at one hop: the shim reads it and takes the JVM path instead.
+    Set here rather than in the shim because only this side knows a fallback is
+    happening."""
     sys.stdout.flush()
     sys.stderr.flush()
+    os.environ["ISABELLE_QUERY_NO_CLIENT"] = "1"
     os.execv(isabelle, [isabelle, "query"] + args)
 
 
@@ -526,6 +544,29 @@ def ambiguous(args):
             return tok
         i += 1
     return None
+
+
+def positionals(args, n=2):
+    """The first N positional tokens, by the same rule `Query_Delegate.positionals`
+    uses: `-R`/`--root` consume a following argument, anything else starting
+    with `-` is an option, and a bare `--` ends option processing."""
+    out = []
+    only_pos = False
+    i = 0
+    while i < len(args) and len(out) < n:
+        tok = args[i]
+        if only_pos:
+            out.append(tok)
+        elif tok == "--":
+            only_pos = True
+        elif tok in ("-R", "--root"):
+            i += 1
+        elif len(tok) > 1 and tok.startswith("-"):
+            pass
+        else:
+            out.append(tok)
+        i += 1
+    return out
 
 
 def request(args, limit, verbose):
@@ -661,9 +702,14 @@ def main(argv):
             sys.stderr.write("query: %s\n" % exn)
             return 2
 
-    first = next((a for a in argv if not a.startswith("-")), None)
+    # `shape census` mirrors `Query_Delegate.bypass` for the same reason: a
+    # 256 MB reply through a synchronous single-message protocol is SLOWER
+    # warm than cold, and a census gets no benefit from a warm index anyway.
+    pos = positionals(argv)
+    first = pos[0] if pos else None
+    census = pos[:2] == ["shape", "census"]
     live = ambiguous(argv)
-    if force_cold or first in COLD_ONLY_COMMANDS or "-" in argv or live:
+    if force_cold or first in COLD_ONLY_COMMANDS or census or "-" in argv or live:
         note(opts["verbose"],
              "cold path" if not live else "cold path: relative to this directory: %r" % live)
         cold(isabelle, argv)
