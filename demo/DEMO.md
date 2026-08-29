@@ -2,7 +2,7 @@
 
 `demo/` is a corpus written to be **queried**. Nothing in it is deep; every
 declaration exists so that some verb has a named thing to point at, and this
-file names the verb beside it. Six theories, two sessions, 666 lines.
+file names the verb beside it. Six theories, two sessions, 683 lines.
 
 Every command below was run against this tree and every excerpt is trimmed from
 its real output. Commands are shown **from the repository root**.
@@ -50,13 +50,13 @@ isabelle query -R demo summary --by-session
 ```
 
 ```
-61 entries · 666 source lines across 6 theories in 2 sessions  (parsed live from .thy files)
+62 entries · 683 source lines across 6 theories in 2 sessions  (parsed live from .thy files)
 
 | Session | Thy | Src | D | L | T |
 |---------|----:|----:|--:|--:|--:|
-| Demo_Core | 4 | 411 | 8 | 23 | 2 |
+| Demo_Core | 4 | 428 | 8 | 24 | 2 |
 | Demo_Extras | 2 | 255 | 9 | 7 | 0 |
-| **TOTAL** | 6 | 666 | 17 | 30 | 2 |
+| **TOTAL** | 6 | 683 | 17 | 31 | 2 |
 ```
 
 `-v` expands each session to its theories; `-c` prints the grand totals alone.
@@ -74,7 +74,7 @@ isabelle query -R demo deps -r Demo_Proofs
 
 ```
 Import-transitive dependencies of Demo_Proofs:
-  Demo_Legacy  (34 src lines, 2 entries)  [direct]
+  Demo_Legacy  (51 src lines, 3 entries)  [direct]
   Demo_Ops  (128 src lines, 13 entries)  [direct]
   Demo_Types  (103 src lines, 14 entries)  [depth 1]
   Main  [out-of-project]
@@ -354,16 +354,16 @@ isabelle query -R demo unused --by-theory
 ```
 
 ```
-24
-24 unused entries across 5 theories (120 source lines):
+25
+25 unused entries across 5 theories (135 source lines):
 
    10  Demo_Proofs    72 lines  reachable_four, total_snoc_twice, demo_export, account_settlement, ... (+6)
     6  Demo_Ops       18 lines  f\<^sub>1_le_double, f\<^sub>1_mono_rule, f\<^sub>1_le_suc, assoc_right, ... (+2)
-    1  Demo_Legacy     2 lines  legacy_scale_mono
+    2  Demo_Legacy    17 lines  legacy_scale_mono, legacy_twice
 ```
 
 `dead_helper` is in the `Demo_Ops` group and is the one entry here that is dead
-**on purpose** — declared, proved, cited by nothing. The other 23 are a fair
+**on purpose** — declared, proved, cited by nothing. The other 24 are a fair
 picture of a real answer: most are top-level results a corpus this size exports
 rather than consumes. That is what `--keep` is for, and why `-h` calls this a
 source-text citation graph rather than ground truth:
@@ -400,11 +400,11 @@ isabelle query -R demo methods
 ```
 
 ```
-10 proof methods used across 57 by/apply/proof introducers (top 10):
+10 proof methods used across 58 by/apply/proof introducers (top 10):
 
-  simp                  25   43.9%
-  rule                  12   21.1%
-  unfold_locales         9   15.8%
+  simp                  26   44.8%
+  rule                  12   20.7%
+  unfold_locales         9   15.5%
 ```
 
 `simp` is counted as a **method** and never as a citation of anything; `mono` is
@@ -429,7 +429,47 @@ isabelle query -R demo sorry
 Exactly one, and it is the reason `Demo_Core/ROOT` carries
 `options [quick_and_dirty]` — a batch build otherwise refuses to cheat.
 
-## 2.6 The graphs
+## 2.6 A name a theory cannot see
+
+`Demo_Extras` declares a function `twice`, and the arrow only goes one way:
+`Demo_Extras` imports `Demo_Core`, never the reverse. `Demo_Legacy`'s last
+lemma binds a variable called `twice`, which is exactly the coincidence a
+name-level scan cannot tell from a citation:
+
+```sh
+isabelle query -R demo callers twice
+ISABELLE_QUERY_REACHABILITY=off isabelle query -R demo callers twice
+```
+
+```
+3 caller(s) of twice:
+
+  Demo_Code:34  twice_add (LEMMA) 34..36  lemma twice_add [code]: "twice n = n + n"
+  Demo_Code:38  thrice (DEF) 37..38  where "thrice n = twice n + n"
+  Demo_Code:62  —  declare twice.simps [code del]
+```
+```
+4 caller(s) of twice:
+
+  Demo_Legacy:48  legacy_twice (LEMMA) 36..49  lemma legacy_twice: "\<forall>twice. twice \<longrightarrow> twice"
+  Demo_Code:34    twice_add (LEMMA) 34..36  lemma twice_add [code]: "twice n = n + n"
+  Demo_Code:38    thrice (DEF) 37..38  where "thrice n = twice n + n"
+  Demo_Code:62    —  declare twice.simps [code del]
+```
+
+A citation is attributed to a declaration only where the citing theory can
+**see** it — its own, or one in its transitive `imports` closure. It is a
+*necessary* condition, so it only ever removes an impossible answer: inside one
+import tree nothing moves at all, and over the whole AFP `callers mono` reports
+566 rather than 1,361. The same filter is what `callees`, `refs`, the dead-code
+verb, `graph citation`, `instances` and `codeqs` read — and it is why
+`legacy_twice` is listed as dead in §2.3: without it, `Demo_Code` looked like
+its caller.
+
+`ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution, which is what
+`dev/difftest.sh` compares against the Python oracle.
+
+## 2.7 The graphs
 
 ```sh
 isabelle query -R demo graph imports
@@ -632,7 +672,7 @@ isabelle query -R demo shape summary
 ```
 
 ```
-31 proofs across 6 theories  (source-level shape metrics, parsed live)
+32 proofs across 6 theories  (source-level shape metrics, parsed live)
 
 | Theory | Proofs | Goals | depth:max | Bare% | w2:max | w1:max | fanin:max | live:max | dag:max | lines:max |
 |--------|-------:|------:|----------:|------:|-------:|-------:|----------:|---------:|--------:|----------:|
@@ -704,7 +744,7 @@ python3 "$Q" --client-stop
 server        isabelle_query
 protocol      1 (client 1)
 version       0.8.0-scala
-index         <checkout>/demo  6 theories, 61 entries, 147 ms build / 4 ms recheck, 1 uses
+index         <checkout>/demo  6 theories, 62 entries, 147 ms build / 4 ms recheck, 1 uses
 ```
 
 Timing, on this corpus — the floor is the JVM, and the warm path removes it:
@@ -720,7 +760,7 @@ done
 |---|---:|---:|
 | `callers total_append -r` on `demo` | 1100 ms | **40 ms** |
 
-**27x**, and the demo is 666 lines — almost all of the cold cost is process
+**27x**, and the demo is 683 lines — almost all of the cold cost is process
 start, which is exactly what the server removes. Output is byte-identical, the
 exit status is the same, and any failure falls back to running cold.
 

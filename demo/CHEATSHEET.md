@@ -3,7 +3,7 @@
 `alias Q='isabelle query -R demo'` from the repo root; jEdit panel = Plugins → Isabelle Project Query. Output shown: [DEMO.md](DEMO.md).
 
 ## Sessions and discovery
-- `demo/ROOTS` — `Q summary --by-session` → 2 sessions, 6 theories, 666 lines
+- `demo/ROOTS` — `Q summary --by-session` → 2 sessions, 6 theories, 683 lines
 - `demo/.isabelle-query` — one project across both sessions; jEdit needs it
 - `Demo_Core/ROOT:15` `quick_and_dirty` — the `sorry` needs it, batch build else refuses
 - `Demo_Core/ROOT:17` declares one theory — `Q deps -r Demo_Proofs` → 3 more, via imports
@@ -35,6 +35,8 @@
 ## Demo_Legacy.thy — the uncited import
 - `Demo_Legacy:15` paragraph, `:26` subparagraph — `Q outline Demo_Legacy` → exit 1, oracle parity
 - `Demo_Legacy:28` legacy_scale — `Q deps Demo_Proofs` lists it, `Q refs Demo_Proofs` never reaches it
+- `Demo_Legacy:48` legacy_twice — `Q callers twice` → 3 rows; `ISABELLE_QUERY_REACHABILITY=off` → 4.
+  The arrow runs `Demo_Extras` → `Demo_Core`, so this `twice` is a bound variable and cannot cite `Demo_Code`'s
 
 ## Demo_Proofs.thy — proofs, chain, wide step, open goal
 - `Demo_Proofs:26` `apply (rule hop)` — `Q shape summary` → apply scripts counted beside the Isar

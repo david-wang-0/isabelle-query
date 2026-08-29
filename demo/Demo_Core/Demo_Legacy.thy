@@ -31,4 +31,21 @@ definition legacy_scale :: "nat \<Rightarrow> nat"
 lemma legacy_scale_mono: "m \<le> n \<Longrightarrow> legacy_scale m \<le> legacy_scale n"
   by (simp add: legacy_scale_def)
 
+section \<open>A name this theory cannot see\<close>
+
+text \<open>
+  \<open>twice\<close> is a function declared in \<^verbatim>\<open>Demo_Extras\<close>, and the arrow only goes one
+  way: \<^verbatim>\<open>Demo_Extras\<close> imports \<^verbatim>\<open>Demo_Core\<close>, never the reverse. So the \<open>twice\<close>
+  below is a bound variable of this lemma and nothing else -- a coincidence of
+  spelling, which is the only kind of thing a name-level scan can mistake for a
+  citation.
+
+  \<^verbatim>\<open>query callers twice\<close> does not report this line. \<^verbatim>\<open>ISABELLE_QUERY_REACHABILITY=off\<close>
+  does, and that is the whole of the difference: attribution is filtered by what
+  the citing theory can see.
+\<close>
+
+lemma legacy_twice: "\<forall>twice. twice \<longrightarrow> twice"
+  by simp
+
 end
