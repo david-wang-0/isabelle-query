@@ -24,7 +24,10 @@ mkdir -p "$outdir"
 
 # The Scala side runs against the repo's own scratch Isabelle home, never the
 # user's: a work-in-progress component must not be visible to a real session.
-run_scala() { USER_HOME="$repo/.dev" isabelle query "$@" 2>/dev/null; }
+# `--no-server` is not decoration: the dump verbs route cold anyway (they write
+# straight past any socket), so saying it here only makes the harness state
+# what it already relies on -- and keeps a future dump-shaped verb honest.
+run_scala() { USER_HOME="$repo/.dev" isabelle query --no-server "$@" 2>/dev/null; }
 run_oracle() { "$oracle" "$@"; }
 
 corpora=("$@")

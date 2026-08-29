@@ -34,6 +34,13 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${USER_HOME:=$REPO/.dev}"
 export USER_HOME
 
+# These probes compare the ENGINE with something else (the plugin, a fixture,
+# the oracle), so `isabelle query` here must be the engine in THIS process and
+# not whatever a resident server happens to hold.  It also keeps the probe from
+# leaving a warm server -- and a corpus-sized index -- behind it.  P7b's own
+# delegation checks live in dev/p7probe.sh and turn this back off.
+export ISABELLE_QUERY_NO_SERVER=1
+
 CORPUS="${1:-${QUERY_TEST_AFP:-}/Category3}"
 DISTRO_HOL="${QUERY_TEST_DISTRO:-}/HOL"
 

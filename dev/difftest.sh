@@ -13,6 +13,12 @@
 #   $QUERY_CORPORA      optional: whitespace-separated list, overriding the
 #                       default selection below
 #
+#   $QUERY_DIFFTEST_DELEGATE=1  run the Scala side through the WARM SERVER
+#                       (P7b's auto-delegating CLI) instead of `--no-server`.
+#                       Same matrix, taken over the socket: it is the
+#                       end-to-end proof that the delegated path answers what
+#                       the oracle answers.  See `run_scala` below.
+#
 # SUBJECTS (theory names, entry names, loci) are derived per corpus from the
 # ORACLE's own output, so the same matrix ports to any corpus without a name
 # being written down here.
@@ -69,7 +75,39 @@ done
 # both sides UNPINNED, which is a machine-dependent measurement (D11) and so
 # belongs in the phase status notes rather than in the gate.
 run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
-run_scala() { ISABELLE_QUERY_NAMESPACE=committed USER_HOME="$repo/.dev" isabelle query "$@"; }
+
+# WHICH JVM ANSWERS, and why it is a switch rather than a default.
+#
+# Since P7b a bare `isabelle query` delegates to the warm server when there is
+# one.  The matrix is about the ENGINE agreeing with the oracle, so by default
+# it says `--no-server`: a run that quietly used a resident index would be
+# testing the transport as well, would leave a corpus-sized server behind it,
+# and -- worst -- would make the result depend on whether a server happened to
+# be up.
+#
+# QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
+# equally necessary question: does the DELEGATED path give the end user the
+# same answers the oracle gives?  It is the same 2,086-case matrix, taken
+# through the socket.  The server is probe-private and stopped on the way out,
+# for the reason dev/p7probe.sh gives at greater length.
+if [ "${QUERY_DIFFTEST_DELEGATE:-0}" = "1" ]; then
+  export ISABELLE_QUERY_CLIENT_SERVER="difftest-$$"
+  unset ISABELLE_QUERY_NO_SERVER
+  delegate_cleanup() {
+    USER_HOME="$repo/.dev" isabelle server -x -n "$ISABELLE_QUERY_CLIENT_SERVER" \
+      >/dev/null 2>&1
+    pkill -f "server -n $ISABELLE_QUERY_CLIENT_SERVER" >/dev/null 2>&1
+  }
+  trap delegate_cleanup EXIT INT TERM
+  SCALA_SERVER_FLAG=()
+  echo "difftest: DELEGATING to server $ISABELLE_QUERY_CLIENT_SERVER" >&2
+else
+  SCALA_SERVER_FLAG=(--no-server)
+fi
+run_scala() {
+  ISABELLE_QUERY_NAMESPACE=committed USER_HOME="$repo/.dev" \
+    isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
+}
 
 # `### Missing Isabelle component` lines are this scratch home's own noise, not
 # the tool's diagnostics.

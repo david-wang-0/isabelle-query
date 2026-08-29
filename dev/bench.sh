@@ -3,9 +3,16 @@
 # dev/bench.sh -- the three ways to ask this tool a question, timed against
 # each other.
 #
-#   oracle   the Python implementation (`query` on PATH), cold
-#   cold     `isabelle query`, a fresh JVM per invocation
-#   warm     query_client.py against a resident server
+#   oracle     the Python implementation (`query` on PATH), cold
+#   cold       `isabelle query --no-server`, a fresh JVM per invocation
+#   warm       query_client.py against a resident server
+#   delegated  `isabelle query`, which finds that server itself (tier
+#              `delegate`: a fresh JVM that then asks the warm one)
+#
+# The cold column says `--no-server` for a reason: since P7b that is what makes
+# it cold.  Without the flag `isabelle query` delegates, and the column would
+# be measuring the delegated path under the cold label -- the exact mistake
+# dev/P6C-STATUS.md §5 records for the tiny tier's subject.
 #
 # Every number is a MEDIAN of $RUNS runs (default 5, minimum 3), wall clock,
 # measured around the whole invocation exactly as a user pays for it -- process
@@ -18,6 +25,7 @@
 #
 #   tiny     tier (a) alone                         -- seconds; for re-measuring
 #            one row without disturbing the rest of the table
+#   delegate three rows through the auto-delegating CLI  -- about a minute
 #   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
 #   full     adds the whole-AFP tier (d)            -- about twenty
 #   memory   peak RSS, at the stock heap and at -Xmx512m
@@ -157,7 +165,7 @@ echo "cores:     $(nproc 2>/dev/null)"
 echo "memory:    $(awk '/MemTotal/ {printf "%.0f GB", $2/1048576}' /proc/meminfo 2>/dev/null)"
 echo "isabelle:  $(isabelle getenv -b ISABELLE_IDENTIFIER)"
 echo "oracle:    $(query --version)"
-echo "rewrite:   $(isabelle query -V)"
+echo "rewrite:   $(isabelle query --no-server -V)"
 echo "load:      $(uptime | sed 's/.*average[s]*: *//')"
 echo "runs:      median of $RUNS"
 echo
@@ -167,8 +175,9 @@ echo
 # --------------------------------------------------------------------------
 
 case "$TIER" in
-  tiny|small|full|memory|all) ;;
-  *) echo "bench: unknown tier '$TIER' (tiny|small|full|memory|all)" >&2; exit 2 ;;
+  tiny|small|full|memory|delegate|all) ;;
+  *) echo "bench: unknown tier '$TIER' (tiny|small|full|memory|delegate|all)" >&2
+     exit 2 ;;
 esac
 
 if [ "$TIER" != "memory" ]; then
@@ -182,7 +191,7 @@ bench3() {  # label, root, then argv
   local label="$1" root="$2"; shift 2
   local o c w
   o=$(time_ms "$label-oracle" query -R "$root" "$@")
-  c=$(time_ms "$label-cold" isabelle query -R "$root" "$@")
+  c=$(time_ms "$label-cold" isabelle query --no-server -R "$root" "$@")
   w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
   row "$label" "$o" "$c" "$w"
   local a b
@@ -194,7 +203,7 @@ bench3() {  # label, root, then argv
 bench2() {  # rewrite-only verbs: no oracle column exists to compare with
   local label="$1" root="$2"; shift 2
   local c w
-  c=$(time_ms "$label-cold" isabelle query -R "$root" "$@")
+  c=$(time_ms "$label-cold" isabelle query --no-server -R "$root" "$@")
   w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
   row "$label" "n/a" "$c" "$w"
   [ "$(same "$label-cold" "$label-warm")" = "=" ] ||
@@ -281,6 +290,39 @@ if [ "$TIER" = "full" ] || [ "$TIER" = "all" ]; then
   echo
 fi
 
+if [ "$TIER" = "delegate" ] || [ "$TIER" = "all" ]; then
+  echo "## the auto-delegating CLI (P7b)"
+  echo
+  echo "\`isabelle query\` with no flags: a fresh JVM that finds the warm server"
+  echo "and asks it, instead of parsing the corpus itself.  The floor is JVM"
+  echo "start, so this can never approach the thin client; what it removes is"
+  echo "everything ABOVE that floor.  Three rows, one per scale."
+  echo
+  printf '| %-42s | %10s | %10s | %10s |\n' "invocation" "cold ms" "warm ms" "deleg. ms"
+  printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
+    "-----------:" "-----------:" "-----------:"
+
+  # The delegating CLI reaches the SAME server this script already started,
+  # because $ISABELLE_QUERY_CLIENT_SERVER names it for both front ends.
+  bench_delegate() {  # label, root, then argv
+    local label="$1" root="$2"; shift 2
+    local c w d
+    c=$(time_ms "$label-dcold" isabelle query --no-server -R "$root" "$@")
+    w=$(time_ms "$label-dwarm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
+    d=$(time_ms "$label-deleg" isabelle query -R "$root" "$@")
+    row "$label" "$c" "$w" "$d"
+    # The whole claim of this mode is byte identity with the cold tool.  A row
+    # whose columns disagree is not a timing, it is a bug report.
+    [ "$(same "$label-dcold" "$label-deleg")" = "=" ] ||
+      row "  ^ DELEGATED ANSWER DIFFERS FROM COLD" "" "" ""
+  }
+
+  bench_delegate "show fair_fenum (2 theories)" "$TINY" show fair_fenum
+  bench_delegate "summary src-HOL" "$HOL" summary
+  bench_delegate "instances comm_monoid src-HOL" "$HOL" instances comm_monoid
+  echo
+fi
+
 if [ "$TIER" = "memory" ] || [ "$TIER" = "all" ]; then
   echo "## memory -- peak RSS"
   echo
@@ -297,9 +339,9 @@ if [ "$TIER" = "memory" ] || [ "$TIER" = "all" ]; then
     local label="$1" root="$2"; shift 2
     local a b
     restore_heap
-    a=$(peak_kb "$label-mem-stock" isabelle query -R "$root" "$@")
+    a=$(peak_kb "$label-mem-stock" isabelle query --no-server -R "$root" "$@")
     pin_heap "-Xmx512m"
-    b=$(peak_kb "$label-mem-512" isabelle query -R "$root" "$@")
+    b=$(peak_kb "$label-mem-512" isabelle query --no-server -R "$root" "$@")
     restore_heap
     local sl; sl=$(safe_name "$label")
     if ! cmp -s "$OUT/$sl-mem-stock.out" "$OUT/$sl-mem-512.out"; then
