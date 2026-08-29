@@ -481,7 +481,10 @@ $ isabelle query -R $QUERY_TEST_AFP callers mono -c
 566
 ```
 
-795 of those 1,361 hits are impossible.  The shape of every one of them:
+795 of those 1,361 hits are impossible.  (Both figures are under the
+committed-namespace pin the harness runs with; under the unpinned default the
+pair is 2,437 → 1,311 — a different baseline, the same pruning, the same
+sites.)  The shape of every one of them:
 
 ```
 $ isabelle query -R $QUERY_TEST_AFP callers mono -U 0 | grep Mono_Bool_Tran:45
