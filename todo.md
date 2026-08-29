@@ -172,8 +172,8 @@ in `CONTRIBUTING.md`.
 
 ## Open work from the Scala rewrite
 
-These three are recorded in `dev/P7-STATUS.md` with their evidence; the entries
-here are the handles.
+These four are recorded in `dev/P7-STATUS.md` and `dev/P7C-STATUS.md` with
+their evidence; the entries here are the handles.
 
 - [ ] `[namespace-by-value]` Thread the method/attribute table through as a
       **value** instead of binding `isabelle.query.Namespace`'s process-global
@@ -198,6 +198,20 @@ here are the handles.
       so it changes what a NAME is, what `grep` matches and what the call graph
       sees: it needs the P1 entry-set gate re-run over both corpora, not just
       the difftest.  Evidence in `dev/DIVERGENCES.md` §D12.
+
+- [ ] `[reach-position]` D13 filters citation attribution by import
+      VISIBILITY, which is a property of the theory pair.  Within one theory
+      it says nothing: a citation written above the declaration it names is
+      still attributed to it, and `dev/p7cprobe.sh` §2 pins that as the
+      shipped behaviour rather than an accident.  The refinement is a linear
+      check — a same-theory site may name a declaration only at or above it —
+      and the entry index already carries the line numbers it needs.  What
+      makes it more than an inequality is what legitimately breaks it:
+      `lemmas` re-exports, a locale's `sublocale`-induced bindings and a
+      `context ... begin` re-entry all bind a name at a line other than its
+      declaration's, so a naive check would prune real citations.  Entry
+      condition is a fixture per case, and the whole-corpus delta measured
+      before and after — the same shape of evidence D13 itself carries.
 
 - [ ] `[client-console-name]` The warm client has no console name — it is
       invoked as `python3 query_base/lib/scripts/query_client.py`.  Giving it
