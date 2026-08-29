@@ -182,8 +182,10 @@ does not.
   `CLI.Session` / `shape`'s primitives; don't write a second parser.
 - **Commits.** Small, single-concern, frequent — commit often, don't push
   unless asked. Write bodies to a `.commit-msg` scratch file in the working
-  tree (not `/tmp`, which is gated); `rm` it after. Trailer, verbatim:
-  `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+  tree (not `/tmp`, which is gated); `rm` it after. Trailer: name the model
+  that actually did the work, e.g.
+  `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
+  (or `Claude Opus 5` when an Opus agent authored the change).
 - **No absolute personal paths** (`/home/…`, `~/…`, `file://…`) in any
   committed file. Grep the diff before every commit.
 
