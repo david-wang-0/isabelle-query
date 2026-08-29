@@ -20,10 +20,21 @@ the sort. The rows already say *which* — the tag column has done that since
 P6b — but "registered here, unregistered there" is a statement about **where**,
 and a flat list of theory names is the one shape that cannot make it.
 
-`src/HOL` is the corpus that shows it: `codeqs rev` reports `List` (the
-`primrec` and `rev_conv_fold [code]`), `Time_Functions`, and two more in
-`Imperative_HOL/ex/`. Three directories, and the flat list gives no hint that
-the last two are one experiment sitting under one session.
+`src/HOL` is the corpus that shows it. `codeqs rev` reports five sites in four
+theories, which the tree reads as:
+
+```
+Library (1 site in 1 theory)
+  Time_Functions (1 site)
+Imperative_HOL/ex (2 sites in 2 theories)
+  Imperative_Reverse (1 site)
+  Linked_Lists (1 site)
+List (2 sites)
+```
+
+Three directories, and the flat list gave no hint that two of the five are one
+experiment sitting under one session while two more are `List.rev` itself.
+(That is the real tree, computed headlessly from the index — not a sketch.)
 
 ## The tree, as shipped
 
@@ -212,7 +223,12 @@ find-instantiations set "opens **collapsed**". It does not any more — see item
     of that project. `Imperative_HOL/ex` is the collapse rule doing its job: it
     must be **one** node with one arrow, not two nested ones — even though
     `Imperative_HOL/` holds nine other theories on disk, because none of them
-    is in this result.
+    is in this result. Then **Find instantiations** on `comm_monoid` there,
+    which is the wider case: `Analysis`, `Number_Theory` and `Algebra` as
+    directory nodes (five sites over four theories under the last), and
+    `Bit_Operations`, `Groups` and `Boolean_Algebras` loose beside them.
+    Both trees were computed headlessly from the real index before this list
+    was written; if what the panel shows differs, the panel is what is wrong.
 57. **Counts add up down the tree.** On that same result, the directory node's
     count must equal the sum of its files' counts, and the result root's must
     equal the sum of the top-level ones. Delete a leaf with DELETE: every count
