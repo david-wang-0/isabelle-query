@@ -15,6 +15,10 @@ Pure Python. One runtime dependency,
 theory-header parser, split out so that reading an Isabelle project's structure
 does not require installing a CLI. `pip` fetches it for you.
 
+News 2026-08-29: David Wang has [ported isabelle-query to Scala](https://github.com/david-wang-0/isabelle-query)
+which of course unlocks a bunch of new features since that improves integration
+with Isabelle.
+
 ## Commands
 
 ```sh
