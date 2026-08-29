@@ -301,7 +301,7 @@ Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
 
 | file | what |
 |---|---|
-| [demo/DEMO.md](demo/DEMO.md) | a guided tour — a 666-line corpus written to be queried, every verb with a named thing to point at |
+| [demo/DEMO.md](demo/DEMO.md) | a guided tour — a 666-line corpus written to be queried, every verb with a named thing to point at ([CHEATSHEET.md](demo/CHEATSHEET.md) is the one-line-per-feature form) |
 | [SCANNING.md](SCANNING.md) | how a project is read — declarations, citations, sessions |
 | [METRICS.md](METRICS.md) | `shape` command reference and metric definitions |
 | [MIGRATING.md](MIGRATING.md) | coming from the Python `query` |

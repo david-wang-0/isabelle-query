@@ -7,6 +7,9 @@ file names the verb beside it. Six theories, two sessions, 666 lines.
 Every command below was run against this tree and every excerpt is trimmed from
 its real output. Commands are shown **from the repository root**.
 
+Sitting in jEdit and want one line per feature instead? See
+**[CHEATSHEET.md](CHEATSHEET.md)**.
+
 > If you have not installed the component yet, `isabelle components -u .` from
 > the repository root. During development the tool is run against the repo's own
 > scratch Isabelle home instead, so a work-in-progress component stays invisible
