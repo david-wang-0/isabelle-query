@@ -17,6 +17,15 @@ usages set opens with its per-theory nodes COLLAPSED, because it can be
 hundreds of lines; a definition set opens EXPANDED, because it is the one line
 the user asked for.  Both carry exactly the same navigation.
 
+A site set (P6d) has one more level: the DIRECTORY the theory lives in, which
+is where the same tree grows a `HyperSearchFolderNode` when jEdit's own "Tree
+View" is on.  Directory nodes always open, down to the file level — a
+collapsed directory shows a name and a number, which is less than the flat list
+it replaced — and the file level then follows the kind's `expand_groups` as it
+always did.  A directory is not a navigation target (it has no line), so a
+double-click on one toggles it, which is the JTree's own behaviour and
+HyperSearch's.
+
 The tree is re-implemented rather than reused, because `HyperSearchResults` is
 a concrete singleton wired 1:1 to `SearchAndReplace` / `HyperSearchRequest` /
 `SearchMatcher` — its stop, multi and redo controls all name those classes, and
@@ -182,6 +191,24 @@ object Query_Dockable {
     paths.toList
   }
 
+  /* Just the DIRECTORY nodes below a result set — empty for every kind that
+     has none, which is what lets one `open_result` serve all of them.
+     `expandPath` opens the ancestors of what it is given, so the order this
+     returns them in does not matter. */
+  private def folder_paths(node: DefaultMutableTreeNode): List[TreePath] = {
+    val paths = new mutable.ListBuffer[TreePath]
+    HyperSearchResults.traverseNodes(node, new HyperSearchTreeNodeCallback {
+      def processNode(n: DefaultMutableTreeNode): Boolean = {
+        n.getUserObject match {
+          case _: Query_Search.Folder => paths += tree_path(n)
+          case _ =>
+        }
+        true
+      }
+    })
+    paths.toList
+  }
+
 
   /* --- captions --- */
 
@@ -209,6 +236,25 @@ object Query_Dockable {
 
   private def count_caption(kind: Query_Search.Result_Kind, c: Counter): String =
     count_caption(kind, c.hits, c.groups)
+
+  /* A FILE node's own count.  A usages or definition set keeps the bare number
+     it has always shown; a site set spells the noun, because in that tree a
+     bare `(2)` sits one row under a directory's `(2 sites in 1 theory)` and
+     reads as a different quantity. */
+  def group_caption(kind: Query_Search.Result_Kind, caption: String, hits: Int): String =
+    caption + " (" + (kind match {
+      case Query_Search.Result_Kind.Instantiations | Query_Search.Result_Kind.Code_Equations =>
+        plural(hits, "site", "sites")
+      case _ => hits.toString
+    }) + ")"
+
+  /* A DIRECTORY node's: everything below it, at any depth, in the kind's own
+     words -- the same `count_caption` the result root uses, so the two levels
+     cannot drift into two vocabularies.  In this tree one file is one theory,
+     which is why the second half reads "theories". */
+  def folder_caption(kind: Query_Search.Result_Kind, name: String, hits: Int,
+    files: Int
+  ): String = name + " (" + count_caption(kind, hits, files) + ")"
 
   /* What an EMPTY set of this kind has none of. */
   def empty_noun(kind: Query_Search.Result_Kind): String =
@@ -339,6 +385,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
                  else Symbol.decode(Query_Dockable.hit_name(hit, sorts_on)) + "  ") +
                 (if (hit.tag.isEmpty) "" else hit.tag + "  ") +
                 Symbol.decode(hit.text).trim
+            case folder: Query_Search.Folder => folder.name
             case group: Query_Search.Group => group.caption
             case result: Query_Search.Result => result.label
             case null => ""
@@ -368,9 +415,15 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
               setFont(bold_font)
               setText(result.label + " -- " +
                 Query_Dockable.count_caption(result.kind, Query_Dockable.count(node)))
+            case folder: Query_Search.Folder =>
+              setFont(bold_font)
+              val c = Query_Dockable.count(node)
+              setText(
+                Query_Dockable.folder_caption(result_kind(node), folder.name, c.hits, c.groups))
             case group: Query_Search.Group =>
               setFont(bold_font)
-              setText(group.caption + " (" + Query_Dockable.count(node).hits.toString + ")")
+              setText(Query_Dockable.group_caption(result_kind(node), group.caption,
+                Query_Dockable.count(node).hits))
             case hit: Query_Search.Hit =>
               setFont(plain_font)
               setText(Query_Dockable.hit_html(result_name(node), hit, sorts_on))
@@ -381,24 +434,32 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     }
   }
 
-  /* The searched name lives on the enclosing result set, which is where a leaf
-     has to look for it — the same walk-up `HyperSearchResults`' highlighting
-     tree does, and the reason a node removal cannot desynchronise it. */
-  private def result_name(node: DefaultMutableTreeNode): String = {
+  /* The searched name and the KIND both live on the enclosing result set,
+     which is where a row has to look for them — the same walk-up
+     `HyperSearchResults`' highlighting tree does, and the reason a node removal
+     cannot desynchronise it.  Written once and over an arbitrary depth,
+     because with a directory level the walk is no longer one or two steps. */
+  private def enclosing_result(node: DefaultMutableTreeNode): Option[Query_Search.Result] = {
     var n = node.getParent
     while (n != null) {
       n match {
         case d: DefaultMutableTreeNode =>
           d.getUserObject match {
-            case r: Query_Search.Result => return r.name
+            case r: Query_Search.Result => return Some(r)
             case _ =>
           }
         case _ =>
       }
       n = n.getParent
     }
-    ""
+    None
   }
+
+  private def result_name(node: DefaultMutableTreeNode): String =
+    enclosing_result(node).map(_.name).getOrElse("")
+
+  private def result_kind(node: DefaultMutableTreeNode): Query_Search.Result_Kind =
+    enclosing_result(node).map(_.kind).getOrElse(Query_Search.Result_Kind.Usages)
 
   tree.setRootVisible(false)
   tree.setShowsRootHandles(true)
@@ -432,6 +493,11 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
       case hit: Query_Search.Hit => hit.path.map((_, hit.line))
       case group: Query_Search.Group => group.path.map((_, 1))
       case result: Query_Search.Result => result.definition.flatMap(d => d.path.map((_, d.line)))
+      /* A DIRECTORY has nothing to open: no file, and therefore no line.  So
+         every gesture is a no-op on one and the JTree's own double-click
+         toggle is what is left, which is what a HyperSearch folder node does
+         too.  The popup menu still offers Expand / Collapse / Remove. */
+      case _: Query_Search.Folder => None
       case _ => None
     }
 
@@ -482,6 +548,28 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     /* Deepest first, so collapsing a parent does not hide a child that still
        has to be collapsed for the next expansion to look right. */
     for (path <- Query_Dockable.subtree(node).reverse) tree.collapsePath(path)
+  }
+
+  /* How a result set of this kind opens, at every level it has.
+
+     The result node itself always opens, so its contents are visible.  Every
+     DIRECTORY under it opens too — a directory node that shows only its own
+     name is strictly less than the flat list it replaced, so there is no kind
+     for which a closed one is the right default.  The FILE level is the kind's
+     own choice, and the one this seam has always carried.
+
+     Written as one function over both, rather than a branch per kind: for a
+     kind with no directories `folder_paths` is empty and this is exactly the
+     `tree.expandPath(path)` it replaces. */
+  private def open_result(node: DefaultMutableTreeNode,
+    kind: Query_Search.Result_Kind
+  ): Unit = {
+    GUI_Thread.require {}
+    if (kind.expand_groups) expand_node(node)
+    else {
+      tree.expandPath(Query_Dockable.tree_path(node))
+      for (path <- Query_Dockable.folder_paths(node)) tree.expandPath(path)
+    }
   }
 
   def expand_all(): Unit = {
@@ -940,6 +1028,29 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     }
   }
 
+  /* A theory and its lines — the two levels that have always been there. */
+  private def group_node(group: Query_Search.Group): DefaultMutableTreeNode = {
+    val node = new DefaultMutableTreeNode(group)
+    for (hit <- group.hits) node.add(new DefaultMutableTreeNode(hit))
+    node
+  }
+
+  /* A `Folder`'s CONTENTS under `parent`, so the unnamed root of
+     `Query_Search.tree` hangs its children straight off the result node
+     instead of becoming a node of its own.  Directories first, then the files
+     of the same level: a directory is a heading, and a heading below the rows
+     it heads reads as an afterthought. */
+  private def add_folder(parent: DefaultMutableTreeNode,
+    folder: Query_Search.Folder
+  ): Unit = {
+    for (sub <- folder.folders) {
+      val node = new DefaultMutableTreeNode(sub)
+      add_folder(node, sub)
+      parent.add(node)
+    }
+    for (group <- folder.groups) parent.add(group_node(group))
+  }
+
   private def handle(index: Query_Index, result: Query_Search.Result): Unit = {
     GUI_Thread.require {}
 
@@ -951,11 +1062,11 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         " -- " + status(index))
     else {
       val set_node = new DefaultMutableTreeNode(result)
-      for (group <- result.groups) {
-        val group_node = new DefaultMutableTreeNode(group)
-        for (hit <- group.hits) group_node.add(new DefaultMutableTreeNode(hit))
-        set_node.add(group_node)
-      }
+      /* Building the tree is pure arithmetic over a result set the worker has
+         already computed — no engine call, no file read — which is what makes
+         it EDT work rather than another background hop. */
+      if (result.kind.folders) add_folder(set_node, Query_Search.tree(index.root, result.groups))
+      else for (group <- result.groups) set_node.add(group_node(group))
 
       /* Inserting rather than reloading keeps the expansion state of the
          result sets already on the tree; a reload would collapse all of them
@@ -970,10 +1081,8 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         tree_model.reload(tree_root)
       }
 
-      /* The result set itself always opens, so its theories are visible; the
-         theories open only for a kind that says so. */
       val path = Query_Dockable.tree_path(set_node)
-      if (result.kind.expand_groups) expand_node(set_node) else tree.expandPath(path)
+      open_result(set_node, result.kind)
       tree.setSelectionPath(path)
       tree.scrollPathToVisible(path)
 

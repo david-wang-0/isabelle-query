@@ -1,6 +1,7 @@
 /*  Title:      jedit_query/src/query_search.scala
 
-What the dockable displays: a result set, grouped by theory.
+What the dockable displays: a result set, grouped by theory — and, for the site
+verbs, by the DIRECTORY each theory lives in.
 
 ONE node model for every kind of answer.  A "where is this declared" result and
 a "who cites this" result are the same three levels — result set, theory, line
@@ -9,6 +10,14 @@ in what a leaf's preview says.  That is deliberate: the navigation affordances
 (open in the active pane, open in a new pane, the popup, the keys) are written
 once against `Hit`, so every future view inherits them instead of growing its
 own.
+
+P6d adds ONE optional level above the theory, and only where it answers a
+question: a site listing reports registrations and RETRACTIONS together
+(`[code]` here, `[code del]` there), and "which part of the project does that"
+is a question about the directory layout.  A `Folder` is therefore built from
+the site's own theory PATH — path arithmetic against the project root, no
+filesystem walk — and only for a kind that asks for it (`Result_Kind.folders`).
+Usages and definition keep exactly the tree they had.
 
 The engine entry points are the CLI-free pair.  `Usage.find_callers` is O(one
 name x source) and answers a session in well under a second;
@@ -32,20 +41,37 @@ import scala.collection.mutable
 
 
 object Query_Search {
-  /* How the panel opens a result set of this kind.  A declaration is one line
-     and the user asked to see it, so it opens expanded; a usage list can be
-     hundreds of lines across dozens of theories, so its per-theory nodes open
-     collapsed and the tree's own arrows reveal them. */
-  sealed abstract class Result_Kind(val expand_groups: Boolean)
+  /* What SHAPE a result set of this kind has, and how the panel opens it.
+
+     `expand_groups` is the file level: a declaration is one line and the user
+     asked to see it, so it opens expanded; a usage list can be hundreds of
+     lines across dozens of theories, so its per-theory nodes open collapsed
+     and the tree's own arrows reveal them.
+
+     `folders` is the level ABOVE the file: whether the theories are hung under
+     the directories they live in.  It is set for the two site kinds and for
+     nothing else, because it is their question — a site list mixes
+     registrations with retractions, and where in the tree each one is written
+     is the thing a flat per-theory list cannot say.  Directory nodes
+     themselves always open (see `query_dockable.scala`): a collapsed one shows
+     a name and a number, which is strictly less than the flat list it
+     replaced. */
+  sealed abstract class Result_Kind(val expand_groups: Boolean,
+    val folders: Boolean = false)
 
   object Result_Kind {
     case object Usages extends Result_Kind(false)
     case object Definition extends Result_Kind(true)
-    /* Site lists are usages-shaped: a locale with forty interpretations
-       spread over a dozen theories, so the theory nodes open collapsed and
-       the tree's own arrows reveal them. */
-    case object Instantiations extends Result_Kind(false)
-    case object Code_Equations extends Result_Kind(false)
+    /* P6b opened these COLLAPSED, on the usages argument: `category` has 37
+       sites.  P6d reverses that, and the hierarchy is why.  A site row is
+       already the answer — the locus, the name, and the `[code]` / `[code del]`
+       role that says whether this site gives or takes away — so a tree that
+       hides every one of them behind a directory node has replaced a list of
+       answers with a list of directory names.  A site listing is bounded by
+       DECLARATIONS, tens of them, where a usage list is bounded by citations;
+       and the Collapse button is one click for the rare listing that is not. */
+    case object Instantiations extends Result_Kind(true, folders = true)
+    case object Code_Equations extends Result_Kind(true, folders = true)
   }
 
   /* One line of source.  `text` is the RAW line, as the engine returns it:
@@ -79,6 +105,95 @@ object Query_Search {
     def count: Int = hits.length
     def caption: String = if (label.nonEmpty) label else theory
   }
+
+
+  /* --- the directory level (P6d) --- */
+
+  /* One directory of a site result: the sub-directories under it and the
+     theories in it.  `name` is one or more path segments — see `collapse`.
+
+     A `Folder` holds no path of its own and is therefore not a navigation
+     target.  That is deliberate: a directory has no line to jump to, and every
+     gesture in the panel is defined against a `Hit`.  What it does carry is its
+     own arithmetic, so a caption can say how much is under it without walking
+     the Swing tree twice. */
+  final case class Folder(name: String, folders: List[Folder], groups: List[Group]) {
+    /* The leaves below, at any depth: a directory node's count is everything
+       it contains, not what happens to sit directly in it. */
+    def sites: Int = groups.foldLeft(0)(_ + _.count) + folders.foldLeft(0)(_ + _.sites)
+    def files: Int = groups.length + folders.foldLeft(0)(_ + _.files)
+    def is_empty: Boolean = folders.isEmpty && groups.isEmpty
+  }
+
+  /* Displayed with `/` on every platform, because that is how Isabelle writes
+     a theory path and how the rest of this tool's output spells one. */
+  val SEPARATOR: String = "/"
+
+  /* Where a theory's file sits, relative to the project root, as path
+     segments.  No filesystem is touched: `path` came off the snapshot the
+     engine built, and everything below is arithmetic on it, which is what
+     makes the whole tree safe to build on the EDT.
+
+     Three answers, and each is a real case:
+
+       * `Nil` — the theory is directly in the root, or the index knows no path
+         for it (a section built without one).  It hangs at the top level, so a
+         project whose theories are all in its root looks EXACTLY as it did
+         before this level existed;
+       * the relative segments, for the ordinary case;
+       * the absolute directory as ONE segment, for a theory the ROOT reaches
+         outside the root directory — `..` chains would be read as structure,
+         and there is none to read. */
+  def directory_of(root: JPath, path: Option[JPath]): List[String] = {
+    val dir = path.flatMap(p => Option(p.toAbsolutePath.normalize.getParent))
+    dir match {
+      case None => Nil
+      case Some(d) =>
+        val r = root.toAbsolutePath.normalize
+        if (d == r) Nil
+        else if (d.startsWith(r)) {
+          val rel = r.relativize(d)
+          (0 until rel.getNameCount).iterator.map(rel.getName(_).toString).toList
+        }
+        else List(d.toString)
+    }
+  }
+
+  /* `a/b/c` with nothing else under `a` is ONE node reading `a/b/c`.
+
+     Without this a shallow project gains a column of arrows that each reveal a
+     single arrow, and a deep one buries every answer.  The rule is the file
+     browser's own: a directory that holds exactly one directory and no files
+     of its own is not a level, it is a prefix.  Children are already collapsed
+     when this runs, so one merge suffices; the recursion is what makes that
+     true rather than assumed. */
+  private def collapse(folder: Folder): Folder =
+    folder.folders match {
+      case List(only) if folder.groups.isEmpty =>
+        collapse(Folder(folder.name + SEPARATOR + only.name, only.folders, only.groups))
+      case _ => folder
+    }
+
+  private def build(name: String, items: List[(List[String], Group)]): Folder = {
+    val here = items.collect { case (Nil, group) => group }
+    val below = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[(List[String], Group)]]
+    for ((segments, group) <- items; segment <- segments.headOption)
+      below.getOrElseUpdate(segment, new mutable.ListBuffer) += ((segments.tail, group))
+    Folder(name,
+      (for ((segment, rest) <- below) yield collapse(build(segment, rest.toList))).toList,
+      here)
+  }
+
+  /* The whole directory hierarchy of a result set, as an UNNAMED root whose
+     children the panel hangs under the result node.  The root is never
+     collapsed into its only child: it is not a node, it is the result set.
+
+     Order is the engine's throughout — section load order, which is the
+     build's own — with a directory taking the position of the first theory
+     that put it there.  The panel renders directories before the loose files
+     of the same level, which is the one place the two lists are re-ordered. */
+  def tree(root: JPath, groups: List[Group]): Folder =
+    build("", groups.map(group => (directory_of(root, group.path), group)))
 
   /* `label` is what the result-set root says; `name` is what a preview
      highlights.
