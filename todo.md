@@ -231,6 +231,23 @@ evidence; the entries here are the handles.
       three more (CTT).  Entry condition is therefore a D-series entry, its
       own pins, and `dev/entrydiff.sh` re-run over the five P1 corpora.
 
+- [ ] `[settings-shell]` The `bin/isabelle` settings shell is ~180 ms and, since
+      `[p8-coldpath]` cached the other two, it is now the largest single item
+      on the cold path after the parse. It is sourced once by `bin/isabelle` to
+      dispatch the tool and again by `isabelle java` to start the JVM, so a
+      cold `isabelle query` pays it twice for one invocation. The thin client
+      already caches its own slice of it (`$ISABELLE_QUERY_CLIENT_CACHE` holds
+      `$ISABELLE_HOME_USER`, keyed on everything that could change it), which
+      is evidence the caching is *possible* and no evidence at all that it is
+      safe in general — a settings environment is a hundred variables, some
+      derived from the others, and a component that cached the wrong one would
+      be wrong in a way no probe here would notice. Entry condition is deciding
+      whether this is the component's business at all: the second sourcing is
+      `isabelle java`'s, i.e. the distribution's, and the honest answer may be
+      that only `Query_Main`-without-`isabelle-java` avoids it — which trades
+      the settings shell for hard-coding a classpath, and that is worse.
+      Measurements in `dev/P8-STATUS.md`.
+
 - [ ] `[client-console-name]` Half closed by `[p7d-shim]`: the warm client is
       now what a plain `isabelle query` runs (`query_base/lib/Tools/query`),
       so it has a console name — the component's own.  What REMAINS open is
