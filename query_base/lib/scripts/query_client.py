@@ -66,6 +66,10 @@ import sys
 import time
 
 PROTOCOL = 1
+# ONE warm server, shared with the auto-delegating CLI: this must equal
+# `Query_Server.default_server_name` in `query_base/src/server.scala`, and
+# $ISABELLE_QUERY_CLIENT_SERVER overrides it for BOTH front ends.  Two names
+# would mean two resident JVMs holding two copies of the same index.
 DEFAULT_SERVER = "isabelle_query"
 DEFAULT_TIMEOUT = 600.0
 

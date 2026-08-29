@@ -110,7 +110,23 @@ object Query_Tool {
 
   /* --- tool --- */
 
-  def main_tool(args: List[String]): Unit =
+  /* The process entry point, and the ONE place the warm server is chosen.
+
+     `Query_Delegate.delegate` either answers (the bytes are already written,
+     and the status is what the server's `CLI.run_result` returned) or declines
+     — because the caller opted out, because the invocation is on the bypass
+     list, or because anything at all went wrong on the way — in which case the
+     rest of this function runs exactly as it always did.  Nothing below knows
+     whether a server exists. */
+  def main_tool(args0: List[String]): Unit = {
+    val (args, no_server) = Query_Delegate.strip_flag(args0)
+    Query_Delegate.delegate(args, no_server) match {
+      case Some(rc) => if (rc != 0) sys.exit(rc)
+      case None => local_tool(args)
+    }
+  }
+
+  private def local_tool(args: List[String]): Unit =
     args match {
       case "dump-entries" :: rest =>
         val dirs = rest.filterNot(_.startsWith("-"))

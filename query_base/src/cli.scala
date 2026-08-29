@@ -346,6 +346,17 @@ object CLI {
   private val top_version_opt =
     flag("-V", "--version")("version", "show the version and exit")
 
+  /* DISPLAY ONLY, and deliberately not in the grammar: `--no-server` is read
+     and removed before any argument is parsed (`Query_Delegate.strip_flag`),
+     because it selects which JVM runs the query rather than anything about the
+     query.  Listing it here is what keeps `isabelle query -h` honest; putting
+     it in `resolve_long` would let an abbreviation reach the parser, be
+     accepted as a no-op, and delegate anyway — the one outcome the flag exists
+     to prevent. */
+  private val no_server_opt =
+    flag("--no-server")("no_server",
+      "run in this process; do not use (or start) the warm `isabelle query` server")
+
   private def cmd_opts(cmd: Cmd): List[Opt] = cmd.opts ::: List(root_opt, version_opt, help_opt)
 
 
@@ -507,7 +518,7 @@ object CLI {
     out.println("Query an Isabelle/Isar project: syntax-aware, no build required.")
     out.println("")
     out.println("options:")
-    for (o <- List(help_opt, root_opt, top_version_opt)) out.println(opt_line(o))
+    for (o <- List(help_opt, root_opt, top_version_opt, no_server_opt)) out.println(opt_line(o))
     out.println("")
     out.println("commands:")
     for (c <- commands) {

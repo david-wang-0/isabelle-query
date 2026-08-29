@@ -87,6 +87,16 @@ object Query_Server {
      thin client refuses a server that does not match. */
   val protocol: Int = 1
 
+  /* ONE warm server, reached by every front end.  The name is a client-side
+     fact — `isabelle server -n NAME` is how a process is found again — so it
+     lives here, beside the protocol it names, and both the auto-delegating CLI
+     (`delegate.scala`) and the thin client (`lib/scripts/query_client.py`,
+     `DEFAULT_SERVER`) read it rather than each choosing one.  Two names would
+     mean two resident JVMs holding two copies of the same index, and a
+     developer who redirected one front end at a scratch server would be served
+     by the other from the real registry. */
+  val default_server_name: String = "isabelle_query"
+
 
   /* ------------------------------------------------------------------ */
   /* component identity                                                 */
