@@ -231,12 +231,32 @@ also the server's: `query_close` exists because nothing else bounds it, and the
 size cap (`ISABELLE_QUERY_SERVER_LIMIT`, default 4000 theories) exists so a
 stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
 
-## The auto-delegating CLI (P7b)
+## The auto-delegating CLI (P7b) — a route P8 removed
 
-`isabelle query` with no flags. A fresh JVM, which then finds the warm server
-and asks it instead of parsing the corpus itself. **The floor is JVM start**, so
-this can never approach the thin client; what it removes is everything above
-that floor.
+Kept as a record, not as a description of the tool: `delegate.scala` was deleted
+in P8 (see README "One router"), so there is no delegated column any more. What
+the numbers still show is where the cost of a cold invocation actually sits, and
+they are the reason the interpretation below had to be rewritten.
+
+`isabelle query` with no flags, as it behaved in P7b: a fresh JVM, which then
+found the warm server and asked it instead of parsing the corpus itself. This
+section used to say "**the floor is JVM start**". That was wrong, and it was
+wrong in a way that mattered — it argued for avoiding a JVM when the thing worth
+avoiding was a parse. Measured on the same machine, 2026-08-29:
+
+| what a cold `isabelle query` pays | ms |
+|---|---:|
+| `scala_build` — a second JVM, only to check whether the component is stale | ~405 |
+| the `bin/isabelle` settings shell, sourced again by `isabelle java` | ~180 |
+| **the JVM itself** | **~30** |
+| Isabelle/Scala class loading, 53 jars | ~250 |
+| the parse — 421 ms for a 28-theory entry, 2755 ms for `src/HOL` | varies |
+
+Bare `java -version` on the bundled JDK 21 is 30 ms; `isabelle getenv` alone is
+185 ms and starts no JVM at all. Running `Query_Main` directly with a cached
+environment — no bash, no `scala_build` — costs 345 ms before any work, and
+155 ms with an AppCDS archive. So the "~0.9 s of JVM" below is really ~0.03 s of
+JVM inside ~0.9 s of process setup, most of it bash and a redundant build check.
 
 ```
 date:      2026-08-29 02:50 UTC     (same machine, load 0.31)
@@ -249,12 +269,16 @@ runs:      median of 5
 | `summary` on `src/HOL` — 1451 theories | 4194 | 68 | **1036** |
 | `instances comm_monoid` on `src/HOL` | 4586 | 338 | **1332** |
 
-**Read it as JVM start plus the answer, and nothing else.** About 0.9 s of that
-column is the JVM in every row; the tiny row is therefore all floor and saves
-almost nothing (1090 → 973), while the two `src/HOL` rows save 3.2 s and 3.3 s
-— 4.0x and 3.4x — because the parse they no longer do was the whole cost. Each
-row's delegated answer is compared with its cold one; a disagreement is printed
-in the table rather than hidden.
+**Read it as process setup plus the answer, and nothing else.** About 0.9 s of
+that column is setup in every row — of which the JVM proper is ~30 ms — so the
+tiny row is all floor and saves almost nothing (1090 → 973), while the two
+`src/HOL` rows save 3.2 s and 3.3 s — 4.0x and 3.4x — because the parse they no
+longer do was the whole cost. That asymmetry is the whole argument for a warm
+INDEX rather than a warm process, and it is why P8 could delete this column
+without giving anything up: the client already covered the case where the win is
+large, and where the win is small there was nothing to keep. Each row's
+delegated answer was compared with its cold one; a disagreement is printed in
+the table rather than hidden.
 
 **Where the rest of a delegated invocation goes**, from
 `$ISABELLE_QUERY_SERVER_VERBOSE=1`, on the tiny row:
@@ -278,18 +302,19 @@ convenience rather than a competitor to the client.
 
 - **thin client** — interactive use, where 37 ms against 1090 ms is the
   difference between a tool you keep typing at and one you stop reaching for.
-- **delegated CLI** — a script, a Makefile, an editor hook, or any environment
-  where adding a Python entry point is not worth it: nothing to install,
-  nothing to configure, and on a big corpus most of the win.
-- **cold** — one-off runs, a whole-corpus census, anything reading stdin, and
-  any situation where a resident JVM holding an index is not wanted.
-  `--no-server` is how you say so.
+- **cold** — one-off runs, a whole-corpus census, anything reading stdin, a
+  machine with no `python3`, and any situation where a resident JVM holding an
+  index is not wanted. `--no-server` is how you say so. (P7b–P7d had a fourth
+  mode between these two, a JVM that delegated; P8 removed it.)
 
 ## Reading the columns
 
 - **A small cold query loses, and no amount of engineering fixes it.** ~1 s of
-  JVM start per invocation is a fixed toll the oracle does not pay. Anything
-  under a second of real work is faster in Python, cold.
+  process setup per invocation is a fixed toll the oracle does not pay. Note
+  *process setup*, not "JVM start": ~405 ms of it is `scala_build`, ~180 ms the
+  settings shell, ~250 ms class loading, and ~30 ms the JVM. Anything under a
+  second of real work is faster in Python, cold. An AppCDS archive removes about
+  200 ms of the class loading and changes none of the conclusions below.
 - **The cold tool wins where there is work to do.** `src/HOL summary`:
   4197 ms against the oracle's 4865, and it finds 434 more declarations while
   doing it.
@@ -301,10 +326,12 @@ convenience rather than a competitor to the client.
 - **It loses on exactly one workload, and predictably**: a whole-corpus
   `shape census`, which bypasses the index by design and returns 256 MB
   through a protocol that buffers a whole reply. Run that one cold.
-- **The delegated CLI is JVM start plus the answer.** It cannot beat the
-  client — it starts a JVM to avoid a parse — but on `src/HOL` it turns 4.2 s
-  into 1.0 s with nothing installed and nothing configured, and on a two-theory
-  entry it saves essentially nothing, because there the JVM *is* the cost.
+- **What the warm client actually saves is the parse, not the process.** On
+  `src/HOL` the index costs 2755 ms to build and 12 ms to re-check; that ratio,
+  not the ~0.9 s of setup, is what makes the 76x. The P7b delegated column is
+  the control that proves it: a warm process with a cold parse recovered only
+  1090 → 973 ms on a two-theory entry, because there was no parse worth
+  skipping. P8 deleted that column.
 - **The round trip is not the cost.** A `query_run` against a warm index
   measures ~1.0 ms end to end inside the client. It was 43 ms until the
   framing's length header and payload went out in one write with `TCP_NODELAY`

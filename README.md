@@ -16,7 +16,7 @@ Three front ends over one engine:
 |---|---|
 | **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
 | **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
-| **warm server + thin client** | the same command line against a resident JVM, at about 1/2 to 1/76 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
+| **warm server + thin client** | the same command line against a **resident parsed index**, at about 1/2 to 1/76 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
 
 Written in Isabelle/Scala against the distribution's own parsing stack:
 `Token.explode` is the real Isar outer-syntax lexer, `Thy_Header` the real
@@ -204,13 +204,29 @@ usages" for a name that is used.
 
 ## The warm server
 
-The tool's floor is the JVM: `isabelle query -V` takes ~850 ms to print a
-string it already knows. The warm mode removes that by extending the stock
-`isabelle server` with four commands (`query_version`, `query_open`,
-`query_run`, `query_close`) contributed as a `Server.Commands` service — so it
-inherits the server's lifecycle, discovery registry, and security model
-(loopback bind, per-user password, restricted-permission registry). Nothing
-new listens on anything.
+A cold `isabelle query` costs about 870 ms before it prints anything. It is
+worth saying where that goes, because this document said "the floor is the JVM"
+for three phases and that was wrong:
+
+| | ms |
+|---|---:|
+| `scala_build` — a second JVM, whose only job is to check whether this component is stale | ~405 |
+| the `bin/isabelle` settings shell, sourced again by `isabelle java` | ~180 |
+| the JVM itself | **~30** |
+| Isabelle/Scala class loading, 53 jars | ~250 |
+| **then the parse** — 421 ms for a 28-theory entry, 2755 ms for `src/HOL`, ~19 s for the AFP | — |
+
+A resident process removes the first four. That is the smaller half. The larger
+half is the last row: the server holds the **parsed** corpus, so a repeat
+question re-stats the files (12 ms across `src/HOL`'s 1468) instead of reading
+them again. Nothing about how the code is compiled changes that, which is why
+the answer here is a warm index and not a faster start.
+
+The warm mode extends the stock `isabelle server` with four commands
+(`query_version`, `query_open`, `query_run`, `query_close`) contributed as a
+`Server.Commands` service — so it inherits the server's lifecycle, discovery
+registry, and security model (loopback bind, per-user password,
+restricted-permission registry). Nothing new listens on anything.
 
 The client is a small stdlib-only Python script that speaks the server's
 documented line protocol; no JVM is on the fast path. **And it is what a plain
@@ -227,35 +243,42 @@ isabelle query --no-server <args>    # no client, no server: one JVM, right here
 
 It re-checks every source file's mtime and size on every request (12 ms over
 `src/HOL`'s 1468 files), detects a rebuilt component and restarts the server,
-and **falls back to the JVM tool on any failure** — a slower right answer is
-always available. `python3` is a soft dependency: where it is missing, the
-same spelling runs the JVM front end below and everything still works, one
-second slower.
+and **declines on any failure** — a slower right answer is always available.
+`python3` is a soft dependency: where it is missing, the same spelling runs the
+JVM front end and everything still works, one second slower.
 
-### The JVM front end delegates too
+### One router
 
-Invocations that need a JVM anyway — `--no-server`, help and version, a
-missing `python3`, `$ISABELLE_QUERY_NO_CLIENT=1`, or any client failure —
-land in the Scala tool, and it is not left out either: it looks for the same
-server, starts one if there is none, and runs the query there. It still pays
-its own JVM start, which the thin client does not; what it removes is
-everything *above* that floor, which on a large corpus is most of the wall
-clock.
+`lib/Tools/query` decides who answers; nothing downstream of it decides again.
+When the client will not serve a request — a bypassed verb, an unreachable
+server, a protocol it does not recognise — it exits **97** having written
+nothing, and the shim runs the JVM itself.
+
+That is a P8 simplification, and the shape it replaced is worth recording. The
+client used to run the cold path by re-exec'ing `isabelle query`, which since
+P7d meant re-entering itself through the shim; an environment mark held the hop
+to one. The JVM it landed in then carried a second copy of the client's whole
+routing policy (`delegate.scala`, 594 lines: the same bypass list, the same
+registry lookup, the same staleness rule) and used it to re-try the registry
+the client had just failed on — occasionally starting a server the client had
+failed to reach. Deleting that layer removed the duplicate policy, the second
+lookup, and the loop hazard together.
 
 ```sh
-ISABELLE_QUERY_NO_CLIENT=1 …          # skip the thin client (still delegates)
+ISABELLE_QUERY_NO_CLIENT=1 …          # skip the thin client; answer in this JVM
 isabelle query --no-server summary    # run it right here, in this process
 ISABELLE_QUERY_NO_SERVER=1 …          # the same switch for a shell; also skips the client
-ISABELLE_QUERY_SERVER_VERBOSE=1 …     # say which path was taken, on stderr
 ```
 
-The answer is byte-for-byte the cold answer, exit status included (a delegated
+The answer is byte-for-byte the cold answer, exit status included (a declined
 `… | head -3` still exits 141). **Any** failure — no server, a dead registry
 row, a refused connection, a socket that dies mid-request — runs the query
-locally instead, silently: nothing is printed until the whole reply is in hand,
-so a fallback can neither duplicate nor truncate output.
+cold instead, silently: nothing is printed until the whole reply is in hand,
+so a decline can neither duplicate nor truncate output.
 
-Some invocations never delegate, and the list is deliberate:
+Some invocations are never served, and the list is deliberate. It lives in
+`COLD_ONLY_COMMANDS` and `main` in `query_client.py` — one place, since P8 —
+and this table mirrors it in prose:
 
 | bypassed | why |
 |---|---|
@@ -266,8 +289,9 @@ Some invocations never delegate, and the list is deliberate:
 | a **relative** argument naming a file or directory here | `find .` searches for the regex `.` and `grep pat .` searches the directory `.` — only the command's grammar tells them apart, and a transport is not a parser. Absolute paths mean the same thing anywhere, so they are served |
 
 The server itself is shared: `$ISABELLE_QUERY_CLIENT_SERVER` names it (default
-`isabelle_query`) for the thin client and for the delegating command line
-alike, so pointing one at a scratch server points both.
+`isabelle_query`), and the jEdit plugin's own index obeys the same size cap, so
+pointing the client at a scratch server does not leave a second resident JVM
+holding a second copy of the same corpus.
 
 The variables the tool reads — `$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
 `$ISABELLE_QUERY_NAMESPACE`, `$ISABELLE_QUERY_REACHABILITY` — travel **in the
@@ -287,15 +311,21 @@ Measured, median of 5 (full table and method in [dev/BENCH.md](dev/BENCH.md)):
 | `summary` on `src/HOL` (1451 theories) | 4865 ms | 4197 ms | **64 ms** |
 | `summary --by-session` over the whole AFP | 37.5 s | 19.5 s | **0.27 s** |
 
-The delegating command line sits between cold and the client, because it starts
-a JVM to avoid a parse: `summary` on `src/HOL` is 4194 ms cold, **1036 ms**
-delegated and 68 ms through the client; on a two-theory entry it saves almost
-nothing (1090 → 973 ms), since there the JVM *is* the cost.
+Read the third column against the fifth row of the cost table above, not
+against the JVM: what separates 4197 ms from 64 ms on `src/HOL` is 1451
+theories that do not have to be read again. The two-theory row is where the
+process-setup half shows on its own, and it is worth ~1050 ms — real, but the
+smaller number of the two, and the one that shrinks as the corpus grows.
+
+P7b through P7d shipped a middle column, a JVM that started in order to skip
+the parse (`summary` on `src/HOL`: 4194 ms cold, **1036 ms** delegated, 68 ms
+through the client). P8 deleted it — see "One router" above — so that route is
+gone. Where `python3` is missing, `isabelle query` is the cold column.
 
 One workload goes the other way: a whole-corpus `shape census` streams 256 MB
 and bypasses the index by design, so it is slower through the socket (170 s)
-than cold (154 s). Run that one with `isabelle query`, which does not delegate
-it in any case.
+than cold (154 s). It is on the bypass list, so typing `isabelle query` runs it
+cold without being asked.
 
 ## What it reads
 

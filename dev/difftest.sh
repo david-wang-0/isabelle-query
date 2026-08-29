@@ -13,8 +13,9 @@
 #   $QUERY_CORPORA      optional: whitespace-separated list, overriding the
 #                       default selection below
 #
-#   $QUERY_DIFFTEST_DELEGATE=1  run the Scala side through the WARM SERVER
-#                       (P7b's auto-delegating CLI) instead of `--no-server`.
+#   $QUERY_DIFFTEST_WARM=1  run the Scala side through the WARM SERVER
+#                       (shim -> thin client -> server) instead of `--no-server`.
+#                       $QUERY_DIFFTEST_DELEGATE=1 is the old name for it.
 #                       Same matrix, taken over the socket: it is the
 #                       end-to-end proof that the delegated path answers what
 #                       the oracle answers.  See `run_scala` below.
@@ -93,10 +94,18 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
 #
 # Since P7d a bare `isabelle query` resolves to the THIN CLIENT, so the warm
 # run above exercises shim -> client -> server, which is the path a user's
-# fingers actually take.  Add ISABELLE_QUERY_NO_CLIENT=1 to take the same
-# matrix through the JVM delegate instead; the default `--no-server` run is
-# routed past the client by the shim itself, so the cold column needs nothing.
-if [ "${QUERY_DIFFTEST_DELEGATE:-0}" = "1" ]; then
+# fingers actually take.  The default `--no-server` run is routed past the
+# client by the shim itself, so the cold column needs nothing.
+#
+# P7b-P7d also had a JVM that delegated, reachable here with
+# ISABELLE_QUERY_NO_CLIENT=1; P8 deleted it, and that spelling now takes the
+# matrix through the plain cold engine -- which is what the default already
+# does, so there is no third column any more.
+#
+# $QUERY_DIFFTEST_WARM is the name; $QUERY_DIFFTEST_DELEGATE is what it was
+# called while there was something to delegate to, and is still honoured
+# because it is in people's shell history.
+if [ "${QUERY_DIFFTEST_WARM:-${QUERY_DIFFTEST_DELEGATE:-0}}" = "1" ]; then
   export ISABELLE_QUERY_CLIENT_SERVER="difftest-$$"
   unset ISABELLE_QUERY_NO_SERVER
   delegate_cleanup() {
@@ -106,7 +115,7 @@ if [ "${QUERY_DIFFTEST_DELEGATE:-0}" = "1" ]; then
   }
   trap delegate_cleanup EXIT INT TERM
   SCALA_SERVER_FLAG=()
-  echo "difftest: DELEGATING to server $ISABELLE_QUERY_CLIENT_SERVER" >&2
+  echo "difftest: WARM, through server $ISABELLE_QUERY_CLIENT_SERVER" >&2
 else
   SCALA_SERVER_FLAG=(--no-server)
 fi

@@ -166,16 +166,26 @@ a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
 | `dev/difftest.sh` | 2,086 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence | any change to a command, a flag, or a renderer |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
-| `dev/p7probe.sh` | the warm server, the thin client, and the auto-delegating CLI (§15) | any change to `server.scala`, `delegate.scala`, `cli.scala`, or the client |
+| `dev/p7probe.sh` | the warm server, the thin client, and the decline protocol that joins them to the cold path (§15, §16) | any change to `server.scala`, `cli.scala`, `lib/Tools/query`, or the client |
 
-`isabelle query` delegates to the warm server by default, so every harness that
+`isabelle query` uses the warm server by default, so every harness that
 compares the ENGINE with something else pins `--no-server` (or exports
 `$ISABELLE_QUERY_NO_SERVER=1`): a run that quietly used a resident index would
 be testing the transport too, would depend on whether a server happened to be
-up, and would leave a corpus-sized JVM behind it. `QUERY_DIFFTEST_DELEGATE=1`
-turns it back on for the whole matrix, which is a different and equally
-necessary question — does the delegated path give the user what the oracle
-gives — and is recorded in `dev/P7B-STATUS.md`.
+up, and would leave a corpus-sized JVM behind it. `QUERY_DIFFTEST_WARM=1`
+(formerly `QUERY_DIFFTEST_DELEGATE=1`, still honoured) turns it back on for the
+whole matrix, which is a different and equally necessary question — does the
+warm path give the user what the oracle gives — and is recorded in
+`dev/P7B-STATUS.md`.
+
+**There is one routing policy and it lives in `query_client.py`.** The bypass
+list (what never goes over the socket), the registry lookup, the staleness rule
+and the fallback ordering are all there; `lib/Tools/query` decides only whether
+the client runs at all, and the client says "not this one" by exiting 97 with
+an empty stdout. P7b–P7d carried a second copy of that policy in Scala
+(`delegate.scala`), which is why a client fallback used to consult the registry
+twice; P8 deleted it. A new verb that must not be served belongs in
+`COLD_ONLY_COMMANDS` and nowhere else.
 
 Four habits around them, each of which has caught something here:
 

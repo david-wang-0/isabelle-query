@@ -2,11 +2,21 @@
 
 The warm index, and the four commands that expose it over `isabelle server`.
 
-The tool's whole cost is the JVM: `isabelle query -V` takes ~850 ms to say a
-version number it already knows, and a small query is dominated by start-up
-rather than by work.  A resident JVM removes that toll, and the distribution
-already ships one whose lifecycle, discovery registry and security model have
-been reviewed — `isabelle server`.  Its command table is folded together from
+A cold `isabelle query` costs about 870 ms before it does anything, and this
+comment used to attribute all of it to "the JVM".  It is worth having the real
+split written down, because the wrong one argues for the wrong design:
+`scala_build` ~405 ms (a second JVM, only to check whether this component is
+stale), the `bin/isabelle` settings shell ~180 ms (paid again by `isabelle
+java`), Isabelle/Scala class loading ~250 ms — and the JVM itself ~30 ms.
+
+A resident process removes those, and that is the SMALLER half of what this
+file buys.  The larger half is the parse: 421 ms for a 28-theory AFP entry,
+2755 ms for `src/HOL`, ~19 s for the whole AFP, against a 12 ms restat to prove
+the sources have not moved.  A warm INDEX is the point; a warm JVM is how it is
+held.  (dev/BENCH.md carries the measurements.)
+
+The distribution already ships a resident process whose lifecycle, discovery
+registry and security model have been reviewed — `isabelle server`.  Its command table is folded together from
 every registered `Server.Commands` service on the classpath
 (`Pure/Tools/server.scala`), and a component's jars are on that classpath the
 moment the component is installed.  So the warm mode is one service class and

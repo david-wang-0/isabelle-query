@@ -17,8 +17,10 @@ proof replay, no prover process.** Three front ends over one engine:
 - **the Isabelle/jEdit plugin** — find usages / definition / instantiations /
   code equations, quick-open, peek, and navigation exposure.
 - **a warm server + thin client** — four commands folded into the stock
-  `isabelle server`, and a non-JVM Python client, for when the JVM start-up is
-  the whole cost.
+  `isabelle server`, and a non-JVM Python client, for when re-parsing the
+  corpus is the whole cost. (Not "when the JVM start-up is the cost": a JVM
+  boots in ~30 ms. The ~870 ms cold floor is `scala_build`, the settings shell
+  and class loading, and the thing above it is the parse — `dev/BENCH.md`.)
 
 It answers four kinds of question:
 
@@ -82,6 +84,16 @@ One component tree, chained through `etc/components`:
   descriptors, exit); `CLI.run` is that plus those two. The server uses the
   former, which is why there is exactly one dispatch path.
 - `server` — the warm index and the four `Server.Commands` entries.
+
+**Routing lives in exactly one place, and it is not Scala.**
+`query_base/lib/Tools/query` decides who answers; `query_client.py` holds the
+policy (the bypass list, the registry lookup, the staleness rule, the fallback
+ordering). When the client will not serve a request it exits **97** having
+written nothing and the shim runs the JVM. Nothing downstream of the shim looks
+for a server — `Query_Main` is terminal. P7b–P7d had a second copy of that
+policy in `delegate.scala`, which made a client fallback consult the registry
+twice; P8 deleted it (`dev/P8-STATUS.md`). A verb that must never be served
+belongs in `COLD_ONLY_COMMANDS` and nowhere else.
 
 **Discovery loads what `isabelle build` compiles:** each session's ROOT-declared
 theories *plus the transitive closure of their in-entry `imports`*. Imports of
@@ -157,7 +169,7 @@ hand-compute a fixture value first, then make the code match.
 | `CONTRIBUTING.md` | **normative**: the CLI contract, the verification habits, where design decisions are recorded |
 | `query_base/src/shape.scala` + the Python `shape.py` | **authoritative** metric definitions |
 | `dev/DIVERGENCES.md` | every deliberate difference from the oracle, with its evidence |
-| `dev/P1..P7-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P1..P8-STATUS.md` | what each phase established, and what it left for the next |
 | `dev/BENCH.md` | the three-column benchmark and how it was taken |
 | `todo.md` | **open work only** — not a changelog |
 | `.claude/memory/` | granular working rules (written for the Python project) |

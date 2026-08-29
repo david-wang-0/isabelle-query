@@ -6,13 +6,20 @@
 #   oracle     the Python implementation (`query` on PATH), cold
 #   cold       `isabelle query --no-server`, a fresh JVM per invocation
 #   warm       query_client.py against a resident server
-#   delegated  `isabelle query`, which finds that server itself (tier
-#              `delegate`: a fresh JVM that then asks the warm one)
+#   declined   `isabelle query --client-cold`: the client declines (exit 97,
+#              nothing written) and the shim runs the query cold (tier
+#              `decline`; `delegate` is the old name for this tier, and the
+#              mode it used to measure was deleted in P8)
 #
 # The cold column says `--no-server` for a reason: since P7b that is what makes
-# it cold.  Without the flag `isabelle query` delegates, and the column would
-# be measuring the delegated path under the cold label -- the exact mistake
+# it cold.  Without the flag `isabelle query` is the thin client, and the column
+# would be measuring the WARM path under the cold label -- the exact mistake
 # dev/P6C-STATUS.md §5 records for the tiny tier's subject.
+#
+# And "process start" below is process start, not JVM start.  A JVM boots in
+# ~30 ms; the ~870 ms a cold invocation pays is `scala_build` (~405 ms), the
+# settings shell (~180 ms) and class loading (~250 ms).  dev/P8-STATUS.md has
+# the breakdown and the measurements behind it.
 #
 # Every number is a MEDIAN of $RUNS runs (default 5, minimum 3), wall clock,
 # measured around the whole invocation exactly as a user pays for it -- process
@@ -25,7 +32,7 @@
 #
 #   tiny     tier (a) alone                         -- seconds; for re-measuring
 #            one row without disturbing the rest of the table
-#   delegate three rows through the auto-delegating CLI  -- about a minute
+#   decline  three rows through the decline route          -- about a minute
 #   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
 #   full     adds the whole-AFP tier (d)            -- about twenty
 #   heavy    tier (e): one big session (src/HOL/Analysis) and the two
@@ -177,8 +184,8 @@ echo
 # --------------------------------------------------------------------------
 
 case "$TIER" in
-  tiny|small|full|heavy|memory|delegate|all) ;;
-  *) echo "bench: unknown tier '$TIER' (tiny|small|full|heavy|memory|delegate|all)" >&2
+  tiny|small|full|heavy|memory|decline|delegate|all) ;;
+  *) echo "bench: unknown tier '$TIER' (tiny|small|full|heavy|memory|decline|all)" >&2
      exit 2 ;;
 esac
 
@@ -326,36 +333,39 @@ if [ "$TIER" = "heavy" ] || [ "$TIER" = "all" ]; then
   echo
 fi
 
-if [ "$TIER" = "delegate" ] || [ "$TIER" = "all" ]; then
-  echo "## the auto-delegating CLI (P7b)"
+if [ "$TIER" = "decline" ] || [ "$TIER" = "delegate" ] || [ "$TIER" = "all" ]; then
+  echo "## the decline route (P8)"
   echo
-  echo "\`isabelle query\` with no flags: a fresh JVM that finds the warm server"
-  echo "and asks it, instead of parsing the corpus itself.  The floor is JVM"
-  echo "start, so this can never approach the thin client; what it removes is"
-  echo "everything ABOVE that floor.  Three rows, one per scale."
+  echo "P7b-P7d measured a fourth mode here: a fresh JVM that found the warm"
+  echo "server and asked it.  P8 deleted it, so what this tier measures now is"
+  echo "the route that replaced it -- the client DECLINING (exit 97, nothing"
+  echo "written) and the shim running the query cold.  The number to watch is"
+  echo "the third column against the first: a decline must cost what cold"
+  echo "costs, because it IS cold plus one python process, and it must answer"
+  echo "the same bytes.  \`delegate\` is still accepted as a tier name."
   echo
-  printf '| %-42s | %10s | %10s | %10s |\n' "invocation" "cold ms" "warm ms" "deleg. ms"
+  printf '| %-42s | %10s | %10s | %10s |\n' "invocation" "cold ms" "warm ms" "declined ms"
   printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \
     "-----------:" "-----------:" "-----------:"
 
-  # The delegating CLI reaches the SAME server this script already started,
+  # The warm column reaches the SAME server this script already started,
   # because $ISABELLE_QUERY_CLIENT_SERVER names it for both front ends.
-  bench_delegate() {  # label, root, then argv
+  bench_decline() {  # label, root, then argv
     local label="$1" root="$2"; shift 2
     local c w d
     c=$(time_ms "$label-dcold" isabelle query --no-server -R "$root" "$@")
     w=$(time_ms "$label-dwarm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
-    d=$(time_ms "$label-deleg" isabelle query -R "$root" "$@")
+    d=$(time_ms "$label-decl" isabelle query --client-cold -R "$root" "$@")
     row "$label" "$c" "$w" "$d"
-    # The whole claim of this mode is byte identity with the cold tool.  A row
+    # The whole claim of this route is byte identity with the cold tool.  A row
     # whose columns disagree is not a timing, it is a bug report.
-    [ "$(same "$label-dcold" "$label-deleg")" = "=" ] ||
-      row "  ^ DELEGATED ANSWER DIFFERS FROM COLD" "" "" ""
+    [ "$(same "$label-dcold" "$label-decl")" = "=" ] ||
+      row "  ^ DECLINED ANSWER DIFFERS FROM COLD" "" "" ""
   }
 
-  bench_delegate "show fair_fenum (2 theories)" "$TINY" show fair_fenum
-  bench_delegate "summary src-HOL" "$HOL" summary
-  bench_delegate "instances comm_monoid src-HOL" "$HOL" instances comm_monoid
+  bench_decline "show fair_fenum (2 theories)" "$TINY" show fair_fenum
+  bench_decline "summary src-HOL" "$HOL" summary
+  bench_decline "instances comm_monoid src-HOL" "$HOL" instances comm_monoid
   echo
 fi
 
