@@ -170,11 +170,13 @@ _TITLE_OPEN = r'\\<open>|‹|"'
 # no space is required before the opener, because Isar is whitespace-insensitive
 # and both are written.
 SECTION_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*({_TITLE_OPEN})(.*)")
-# The split form: the command word alone on its line, its title on the next —
-# the same shape `_TEXT_BARE_RE` handles for document blocks.  Only ever used
-# with that one-line lookahead, so a bare word cannot reach forward to an
-# unrelated title.
-_HEADING_BARE_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*$")
+# The heading command alone — the title is matched separately, because a
+# document marker may sit between the two
+# (`subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`) and
+# its body may itself hold a cartouche, which no regex can balance.  The
+# negative lookahead is what `SECTION_RE` got implicitly from requiring an
+# opener next: without it `sections` would lead with `section`.
+_HEADING_LEAD_RE = re.compile(rf"^\s*({_HEADING_WORDS})(?![A-Za-z_0-9'])")
 _TITLE_OPEN_RE = re.compile(rf"^\s*({_TITLE_OPEN})(.*)")
 # What closes each opener.  Quotes are their own close, which is why the quoted
 # form needs a counting scan rather than the balancing one.
@@ -840,6 +842,36 @@ def _balanced_cartouche_end(s: str) -> int:
     return _balanced_end(s, "\\<open>", "\\<close>")
 
 
+def _skip_formal_comments(s: str) -> str:
+    r"""``s.lstrip()`` with every leading formal comment removed, along with the
+    cartouche each of them owns.
+
+    Isabelle's lexer skips all four of `FORMAL_COMMENTS` wherever a token may
+    appear, so this is what stands between a command keyword and the thing that
+    actually follows it — a declaration's name, or a heading's title.  Written
+    once for both: they are the same grammatical position.
+
+    Balanced, not "to the first ``\<close>``": a marker body may itself hold a
+    cartouche, as `First_Order_Terms/Term:37`'s
+    ``\<^marker>\<open>contributor \<open>Martin Desharnais\<close>\<close>`` does.
+    A comment that runs past the end of this line stops the scan, leaving it in
+    place — the caller sees an unparseable rest rather than a wrong answer.
+    """
+    s = s.lstrip()
+    while s:
+        marker = next((m for m in FORMAL_COMMENTS if s.startswith(m)), None)
+        if marker is None:
+            break
+        rest = s[len(marker):].lstrip()
+        if rest.startswith("\\<open>"):
+            k = _balanced_cartouche_end(rest)
+            if k < 0:
+                break                   # comment runs past this line
+            rest = rest[k:].lstrip()
+        s = rest
+    return s
+
+
 def _strip_decl_prefix(s: str, typevars: bool) -> str:
     r"""Drop the syntactic noise that can sit between a keyword and the name.
 
@@ -866,17 +898,9 @@ def _strip_decl_prefix(s: str, typevars: bool) -> str:
                 break
             s = s[j:].lstrip()
             continue
-        marker = next((m for m in FORMAL_COMMENTS if s.startswith(m)), None)
-        if marker:
-            s = s[len(marker):].lstrip()
-            if s.startswith("\\<open>"):
-                # Balanced, not "to the first `\<close>`": a marker body may
-                # itself hold a cartouche, as `\<^marker>\<open>contributor
-                # \<open>Martin Desharnais\<close>\<close>` does.
-                k = _balanced_cartouche_end(s)
-                if k < 0:
-                    break               # comment runs past this line
-                s = s[k:].lstrip()
+        skipped = _skip_formal_comments(s)
+        if skipped != s:
+            s = skipped
             continue
         if typevars and s[0] == "'":
             m = re.match(r"'[\w']+\s+", s)
@@ -1185,14 +1209,25 @@ def _heading_at(lines: list[str], i: int,
     """
     if prose is not None and prose[i + 1]:
         return None
-    m = SECTION_RE.match(lines[i])
-    if m:
-        return m.group(1), m.group(2), m.group(3), 0
-    bare = _HEADING_BARE_RE.match(lines[i])
-    if bare and i + 1 < len(lines):
+    m = _HEADING_LEAD_RE.match(lines[i])
+    if m is None:
+        return None
+    # A document marker may sit between the command and its title —
+    # `subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`,
+    # 246 of them in HOL/Analysis.  Skipped here rather than read off the outer
+    # view, because a heading's TITLE is a cartouche: the view that blanks the
+    # marker blanks the title with it, so this one has to read the raw line.
+    rest = _skip_formal_comments(lines[i][m.end():])
+    here = _TITLE_OPEN_RE.match(rest)
+    if here:
+        return m.group(1), here.group(1), here.group(2), 0
+    # The split form: the command alone on its line, its title on the next —
+    # the same shape `_TEXT_BARE_RE` handles for document blocks.  Only ever a
+    # one-line lookahead, so a bare word cannot reach an unrelated title.
+    if not rest and i + 1 < len(lines):
         nxt = _TITLE_OPEN_RE.match(lines[i + 1])
         if nxt:
-            return bare.group(1), nxt.group(1), nxt.group(2), 1
+            return m.group(1), nxt.group(1), nxt.group(2), 1
     return None
 
 

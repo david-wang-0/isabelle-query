@@ -174,11 +174,60 @@ class MarkerBodyIsNotLiveSource(unittest.TestCase):
 
 
 class MarkedHeading(unittest.TestCase):
-    r"""`subsection\<^marker>\<open>...\<close> \<open>Title\<close>` is a heading."""
+    r"""`subsection\<^marker>\<open>...\<close> \<open>Title\<close>` is a heading.
+
+    The second recognition site, and it needs its own fix: `_heading_at` reads
+    the RAW line, because a heading's title *is* a cartouche — the outer view
+    that blanks the marker blanks the title with it.
+    """
 
     def test_the_heading_is_in_the_outline(self):
         found = parsing.extract_sections(MARKED.splitlines())
         self.assertIn(("subsection", "Supremum Norm", 5), found)
+
+
+class TheHeadingFormsStillWork(unittest.TestCase):
+    """Guard: passes before and after.  The recogniser was restructured from
+    one regex into keyword + marker-skip + title, so every form it already
+    accepted has to keep working — and every non-heading keep failing."""
+
+    def sections(self, text):
+        return parsing.extract_sections(text.splitlines())
+
+    def test_the_plain_form(self):
+        self.assertEqual(self.sections("section \\<open>Plain\\<close>"),
+                         [("section", "Plain", 1)])
+
+    def test_the_quoted_title_form(self):
+        # 3,980 AFP headings, e.g. `section "Preliminary lemmas"`.
+        self.assertEqual(self.sections('subsection "Quoted"'),
+                         [("subsection", "Quoted", 1)])
+
+    def test_the_unicode_cartouche_form(self):
+        self.assertEqual(self.sections("chapter ‹Uni›"),
+                         [("chapter", "Uni", 1)])
+
+    def test_no_space_before_the_opener(self):
+        self.assertEqual(self.sections("paragraph\\<open>Tight\\<close>"),
+                         [("paragraph", "Tight", 1)])
+
+    def test_an_indented_heading(self):
+        self.assertEqual(self.sections("   subsubsection \\<open>In\\<close>"),
+                         [("subsubsection", "In", 1)])
+
+    def test_the_split_form(self):
+        # The command alone on its line, its title on the next.
+        self.assertEqual(self.sections("section\n  \\<open>Split\\<close>"),
+                         [("section", "Split", 1)])
+
+    def test_a_longer_word_does_not_lead_with_a_heading(self):
+        # `sections \<open>...\<close>` is not a `section`.  `SECTION_RE` got
+        # this implicitly by demanding an opener straight after the word; the
+        # split recogniser has to say it.
+        self.assertEqual(self.sections("sections \\<open>No\\<close>"), [])
+
+    def test_a_bare_word_with_no_title_is_not_a_heading(self):
+        self.assertEqual(self.sections("section\nlemma foo: \"True\""), [])
 
 
 class TheAlreadyRedactedMarkersStillWork(unittest.TestCase):
