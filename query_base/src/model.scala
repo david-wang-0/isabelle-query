@@ -123,7 +123,7 @@ class Theory_Section(
   val theory: String,
   val path: JPath,
   val entries: List[Entry],
-  val lines: Array[String],
+  lines0: Array[String],
   val regions: Regions.Result,
   val outline: List[(String, String, Int)] = Nil,
   val text_blocks: List[(Int, Int)] = Nil,
@@ -142,7 +142,50 @@ class Theory_Section(
      the routing sets rather than a constructor argument every caller passes. */
   var line_window: Option[(Int, Option[Int])] = None
 
-  def thy_lines: Int = lines.length
+  /* THE SOURCE, AS ONE STRING PLUS OFFSETS, not one String per line.
+     `lines0` is read here and never retained.
+
+     A resident index holds this for every theory in the project, and one
+     `String` per line is the second-largest thing it holds: on `src/HOL`'s
+     838k lines that was ~20 MB of `String` objects and ~13 MB of `byte[]`
+     headers, for 34 MB of actual text.  One String and one `Int` array is the
+     same text plus 3.4 MB.
+
+     What that trades is a materialisation each time `lines` is read.  It is
+     the right trade because the array is TRANSIENT — allocated, walked once by
+     a scanner, and collected — where the per-line Strings were RETAINED for the
+     life of the index.  The discipline it needs is the one `live_source` below
+     already documents and every caller already follows: bind the result to a
+     local, never call it in a loop. */
+  val text: String = lines0.mkString("\n")
+
+  /* `starts(i)` is where line `i` begins; `starts(i + 1) - 1` is where it ends,
+     the `- 1` being the separator `mkString` put there.  Length n + 1 so the
+     last line needs no special case. */
+  val starts: Array[Int] = {
+    val n = lines0.length
+    val a = new Array[Int](n + 1)
+    var i = 0
+    var at = 0
+    while (i < n) { a(i) = at; at += lines0(i).length + 1; i += 1 }
+    a(n) = at
+    a
+  }
+
+  def thy_lines: Int = starts.length - 1
+
+  /* One line, without building the rest.  For a scanner that wants every line,
+     `lines` below is cheaper than calling this in a loop — it walks the offsets
+     once instead of bounds-checking each. */
+  def line(i: Int): String = text.substring(starts(i), starts(i + 1) - 1 max starts(i))
+
+  def lines: Array[String] = {
+    val n = thy_lines
+    val out = new Array[String](n)
+    var i = 0
+    while (i < n) { out(i) = text.substring(starts(i), (starts(i + 1) - 1) max starts(i)); i += 1 }
+    out
+  }
 
   def source: Array[String] = lines
 
