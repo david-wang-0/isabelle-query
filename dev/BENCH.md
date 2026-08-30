@@ -304,9 +304,27 @@ forcing a GC (`jcmd GC.run`, then `GC.heap_info`):
 | `src/HOL` | 1,451 | 78,279 | 154 MB |
 | the whole AFP | 10,262 | 411,181 | 1,156 MB |
 
-Roughly **2–3 KB per entry**, scaling with entries rather than with theories or
-source bytes. One index per server, so the figures are attributable rather than
-cumulative; an empty server is 100 MB of heap and 165 MB of RSS.
+One index per server, so the figures are attributable rather than cumulative; an
+empty server is 100 MB of heap and 165 MB of RSS.
+
+**What it scales with is source LINES**, not entries and not theories:
+
+| corpus | lines | heap | bytes/line | bytes/entry |
+|---|---:|---:|---:|---:|
+| `src/HOL/Analysis` | 177,861 | 30 MB | 177 | 2,694 |
+| `src/HOL` | 838,047 | 154 MB | 193 | 2,063 |
+| the whole AFP | 6,081,370 | 1,156 MB | 199 | 2,948 |
+
+Bytes-per-line is flat to within 12% across corpora spanning 34x; bytes-per-entry
+varies by 43% over the same three. So ~190 B/line is the number that predicts,
+and it is worth stating as a ratio: **the index is about four times the size of
+the source it indexes** (1,156 MB over 281 MB of `.thy`; 154 MB over 34 MB).
+
+Where it goes, at ~46 bytes of actual text per line: one `String` per line costs
+~88 B once the object header, the `byte[]` and the array slot are counted; the
+two `Array[List[(Int,Int)]]` region arrays cost 16 B of slots per line before
+any spans, and each span is a cons cell plus a boxed tuple; and `Entry.text`
+holds a SECOND copy of the declaration text that `lines` already has.
 
 **RSS and retained heap are far apart, and both are true.** With the whole AFP
 loaded: heap 2144 MB before a GC, **1176 MB after**, and RSS **4532 MB** which
