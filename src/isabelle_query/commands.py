@@ -32,7 +32,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
 )
-from isabelle_query.parsing import ISA_MARKUP, _isa_word_pattern
+from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern
 from isabelle_query.graph import (
     _bfs_depths,
     _build_call_graph,
@@ -318,7 +318,11 @@ def cmd_theory(sections: list[TheorySection], name: str,
     print("```")
 
 
-_PAT_MARKUP_RE = re.compile(ISA_MARKUP)
+# `ISA_SYMBOL`, not `ISA_MARKUP`: this asks the LEXICAL question — is this an
+# Isabelle symbol token? — and must answer yes for the structural symbols the
+# name grammar refuses.  A user pasting `\<open>` into a pattern means the
+# literal characters just as much as one pasting `\<^sub>`.
+_PAT_MARKUP_RE = re.compile(ISA_SYMBOL)
 
 
 def _user_pattern(pattern: str) -> str:

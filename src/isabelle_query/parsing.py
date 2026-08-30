@@ -206,28 +206,62 @@ LATEX_LINE_RE = re.compile(
 # spelling verbatim so `show`/`callers` can find the entry by the name the
 # source actually uses.
 QUOTED_NAME_RE = re.compile(r'^"([^"]+)"')
+# Isabelle's FORMAL COMMENTS: a marginal note, deleted text, raw LaTeX and a
+# document-build marker.  Each owns the cartouche that follows it, and none of
+# the four is live Isar — Isabelle's lexer skips them wherever a token may
+# appear, which is why one can sit glued to a command keyword
+# (`definition\<^marker>\<open>tag important\<close> istopology`) or in a name
+# slot.  Listed once and used twice: the tokenizer redacts exactly these
+# (`_REDACTING_MARKERS`), and none of them is a name character.
+_MARGINAL = "\\<comment>"
+_CANCEL = "\\<^cancel>"
+_LATEX = "\\<^latex>"
+_MARKER = "\\<^marker>"
+FORMAL_COMMENTS = (_MARGINAL, _CANCEL, _LATEX, _MARKER)
+# The symbols that are STRUCTURE rather than name characters: the two cartouche
+# delimiters and the four formal comments.  Each can sit where a name is
+# expected — a cartouche statement, an annotation, a document marker — and must
+# not be captured as one.
+RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>") + FORMAL_COMMENTS
+
 # A bare name may interleave ASCII identifier characters with Isabelle
 # symbol tokens written `\<...>` (e.g. \<psi>, \<alpha>ah, \<tau>rtrancl3p)
 # and subscript controls (\<^sub>1).  Treating `\<...>` runs as name
 # characters captures the many AFP entries whose names are Greek letters or
 # decorated identifiers, which a plain `\w[\w']*` pattern misses.
 #
-# ONE Isabelle markup token, and one character of an Isabelle identifier (a
-# markup token counts as a single character).  Every name and token regex in
-# the package is built from these two rather than respelling them: the atom
-# was written out eight times across `parsing`, `graph`, `shape` and
-# `commands`, which is eight places to update when the lexical fact changes
-# and eight chances for one of them to drift.  Where a regex below still
-# differs, the difference is deliberate and commented — a target name admits
-# `.`, an entry name does not.
-ISA_MARKUP = r"\\<\^?\w+>"
-ISA_WORD_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
-SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_WORD_CHAR}*)")
-# Isabelle structural control symbols are not fact names: cartouche
-# delimiters (\<open>/\<close>) and the comment marker (\<comment>) can sit
-# where a name is expected (a cartouche statement, or a `\<comment> \<open>
-# ...\<close>` annotation), and must not be captured as the name.
-RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>", "\\<comment>", "\\<^cancel>")
+# TWO questions, so two atoms.  `ISA_SYMBOL` is LEXICAL — is this an Isabelle
+# symbol token? — and `ISA_MARKUP` is GRAMMATICAL: may this token occur inside a
+# NAME?  They differ by exactly `RESERVED_NAME_PREFIXES`.  Conflating them let a
+# name run straight through a structural symbol, so
+# `coprod_final_sink\<^marker>\<open>tag` was indexed as one name.
+#
+# Which one a scanner wants follows from what it is doing, and the split is not
+# cosmetic in either direction:
+#
+#   * a RUN scanner (`graph`'s citation tokens, `shape`'s token counter) asks
+#     only where a token ends, over source the tokenizer has already redacted.
+#     It wants the lexical atom.  Narrowing it there does not help and actively
+#     harms: `\<open>foo` would stop being one run and start yielding `open` as
+#     a candidate fact name, and `\<comment>` would count as ten tokens rather
+#     than one;
+#   * a NAME scanner (below, plus the datatype and target grammars) reads RAW
+#     source, where a marker really can abut the name, and must stop at it.
+#
+# Everything is built from these rather than respelling them: the atom was
+# written out eight times across `parsing`, `graph`, `shape` and `commands`,
+# which is eight places to update when the lexical fact changes and eight
+# chances for one of them to drift.  Where a regex below still differs, the
+# difference is deliberate and commented — a target name admits `.`, an entry
+# name does not.
+ISA_SYMBOL = r"\\<\^?\w+>"
+_NOT_STRUCTURAL = "(?!" + "|".join(
+    re.escape(s[len("\\<"):]) for s in RESERVED_NAME_PREFIXES) + ")"
+ISA_MARKUP = rf"\\<{_NOT_STRUCTURAL}\^?\w+>"
+# One character of a symbol RUN (lexical) / of a NAME (grammatical).
+ISA_WORD_CHAR = rf"(?:{ISA_SYMBOL}|[\w'])"
+ISA_NAME_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
+SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_NAME_CHAR}*)")
 # Outer-syntax keywords that are not fact names.  When the name slot holds one
 # of these *bare* — `lemma assumes ...`, `lemma fixes ...`, `... (eqvt) by ...`,
 # `lemma shows NAME: ...` — the construct is anonymous (or its true name
@@ -375,7 +409,7 @@ _AND_NAME_RE = re.compile(
 # Built from the same symbol-aware name fragment the rest of the parser uses,
 # because a constructor is routinely spelled with markup: `View\<^sub>m` reads
 # as `View` under a plain `[A-Za-z][\w']*`, which would index the wrong name.
-_ISA_NAME = rf"(?:{ISA_MARKUP}|[A-Za-z]){ISA_WORD_CHAR}*"
+_ISA_NAME = rf"(?:{ISA_MARKUP}|[A-Za-z]){ISA_NAME_CHAR}*"
 # `disc: Ctor` at the head of an alternative; the `disc:` part is optional.
 _ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
 # `(sel: type)` anywhere in the alternative's argument list.  The `(?!:)` is
@@ -809,14 +843,21 @@ def _balanced_cartouche_end(s: str) -> int:
 def _strip_decl_prefix(s: str, typevars: bool) -> str:
     r"""Drop the syntactic noise that can sit between a keyword and the name.
 
-    A fact or type name never starts with '(', a type variable, or a margin
+    A fact or type name never starts with '(', a type variable, or a formal
     comment, so this only removes:
       * command modifiers / locale specs — ``(in foo)``, ``(nonexhaustive)``,
         ``(overloaded)``, ``(discs_sels)``, ``(sequential)``, ...
-      * a leading margin comment ``\<comment> \<open>...\<close>`` that annotates
-        the declaration before its name;
+      * a leading formal comment — ``\<comment> \<open>...\<close>`` annotating
+        the declaration before its name, or the document marker
+        ``\<^marker>\<open>tag important\<close>`` that `HOL/Analysis` writes on
+        hundreds of them.  All four spellings, since Isabelle's lexer skips all
+        four in the same place;
       * for type declarations (``typevars=True``), leading type arguments,
         either bare (``'a``) or grouped (``('a, 'b)``).
+
+    The marker is stripped here as well as blanked by the tokenizer because
+    this reads the RAW line: recognition uses the outer view (where the marker
+    is already gone), but a name can live inside a term, so extraction cannot.
     """
     while s:
         if s[0] == "(":
@@ -825,9 +866,13 @@ def _strip_decl_prefix(s: str, typevars: bool) -> str:
                 break
             s = s[j:].lstrip()
             continue
-        if s.startswith("\\<comment>"):
-            s = s[len("\\<comment>"):].lstrip()
+        marker = next((m for m in FORMAL_COMMENTS if s.startswith(m)), None)
+        if marker:
+            s = s[len(marker):].lstrip()
             if s.startswith("\\<open>"):
+                # Balanced, not "to the first `\<close>`": a marker body may
+                # itself hold a cartouche, as `\<^marker>\<open>contributor
+                # \<open>Martin Desharnais\<close>\<close>` does.
                 k = _balanced_cartouche_end(s)
                 if k < 0:
                     break               # comment runs past this line
@@ -1356,12 +1401,13 @@ def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
 # is not a fact citation, and a command word inside one is not a command.
 _CART_OPEN = ("\\<open>", "‹")
 _CART_CLOSE = ("\\<close>", "›")
-_CANCEL = "\\<^cancel>"
-_MARGINAL = "\\<comment>"
-# Markers that OWN the cartouche following them, so its body is prose or
-# deleted text rather than live Isar — as opposed to a bare cartouche, whose
-# owner is the command in front of it and which is usually a term.
-_REDACTING_MARKERS = (_CANCEL, _MARGINAL)
+# Markers that OWN the cartouche following them, so its body is prose, deleted
+# text, raw LaTeX or a document tag rather than live Isar — as opposed to a
+# bare cartouche, whose owner is the command in front of it and which is
+# usually a term.  Isabelle's four formal comments exactly; see
+# `FORMAL_COMMENTS`, where they are named, and which the name grammar reads
+# from the same tuple so the two views cannot disagree about what a marker is.
+_REDACTING_MARKERS = FORMAL_COMMENTS
 # Commands whose body is an ML cartouche.  ML source has its own namespace, so
 # an identifier there never cites an Isabelle fact.
 _ML_BODY_COMMANDS = frozenset({
@@ -1387,7 +1433,8 @@ _NOISE_STATES = frozenset({"comment", "verbatim", "cartouche"})
 # it.  The scan jumps region to region rather than stepping character by
 # character: it runs over every theory on every invocation, so the constant
 # factor is the difference between a free check and a visible one.
-_MARKER_OPEN_RE = r'\\<(?:\^cancel|comment)>\s*(?:\\<open>|‹)'
+_MARKER_ALT = "|".join(re.escape(s) for s in _REDACTING_MARKERS)
+_MARKER_OPEN_RE = rf'(?:{_MARKER_ALT})\s*(?:\\<open>|‹)'
 # Every token that can change the state, in ONE alternation, so a line costs a
 # single pass of the regex engine and Python-level work only per token found.
 # Order matters: `\\` and `\"` precede `"` so an escaped quote inside a string
@@ -1407,8 +1454,10 @@ _SCAN_RE = re.compile(
     r'\(\*|\*\)|\{\*|\*\}|\\\\(?!<)|\\"|"|'
     + _MARKER_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
 # Nothing to redact unless one of these appears somewhere in the theory.  Most
-# of the cost is skipped outright on a file with no comment and no ML.
-_ANY_REGION_RE = re.compile(r'\(\*|\{\*|\\<\^cancel>|\\<comment>')
+# of the cost is skipped outright on a file with no comment and no ML.  Built
+# from `_REDACTING_MARKERS`, not respelled: a marker this gate does not know
+# about takes the early return and is never tokenised at all, which is silent.
+_ANY_REGION_RE = re.compile(r'\(\*|\{\*|' + _MARKER_ALT)
 
 
 def _leads_with_ml(line: str) -> bool:

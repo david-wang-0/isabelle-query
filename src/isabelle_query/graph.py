@@ -36,7 +36,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
 )
-from isabelle_query.parsing import ISA_MARKUP, ISA_WORD_CHAR, _line_mask
+from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
 
 
 def _build_line_index(sections: list[TheorySection]
@@ -728,8 +728,12 @@ _CARTOUCHE_STRIP_RE = re.compile(r"\\<open>.*?\\<close>")
 _PROP_TEXT_RE = re.compile(r'"([^"]*)"|\\<open>(.*?)\\<close>')
 # Token stream for the fact walk: names (with internal dots for qualified
 # spellings), the `..` proof, and the structural chars that delimit method args.
+# `ISA_SYMBOL`, not the narrower name atom: this is a RUN scanner over source
+# the tokenizer has already redacted, so its job is to find where a token ends.
+# Narrowing it would split a stray `\<open>foo` and offer `open` as a candidate
+# fact — inventing an edge, which is the one thing this walk must not do.
 _FACT_TOK_RE = re.compile(
-    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_MARKUP}|[\w'.])*|[():,|\[\]]|:")
+    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_SYMBOL}|[\w'.])*|[():,|\[\]]|:")
 # Structural tokens that never name a fact.
 _STRUCTURAL = frozenset({"(", ")", "[", "]", "|", ",", ":", ".."})
 
