@@ -1453,17 +1453,25 @@ def _compute_unused_recursive(graph: CallGraph,
     """
     keep = keep or set()
     unused: dict[str, int] = {n: 0 for n in _compute_unused(graph, keep)}
-    changed = True
     depth = 1
-    while changed:
-        changed = False
-        for name in graph.all_names - set(unused) - keep:
-            callers = graph.callers.get(name, set())
-            if callers and callers <= set(unused):
-                unused[name] = depth
-                changed = True
+    while True:
+        # LEVEL-SYNCHRONISED: every test in this pass is against the frontier
+        # as it stood BEFORE the pass.  Re-reading a set the loop body is
+        # growing gave a name whose only caller was marked earlier in the same
+        # pass its caller's depth instead of one more — so how far a chain
+        # collapsed depended on the order names came out of `all_names`, i.e.
+        # on the process's string hash seed.  Snapshotting also makes the
+        # result independent of visit order, which is what lets two runs of a
+        # build-hygiene check be diffed at all.
+        frontier = set(unused)
+        newly = [name for name in graph.all_names - frontier - keep
+                 if (callers := graph.callers.get(name, set()))
+                 and callers <= frontier]
+        if not newly:
+            return unused
+        for name in newly:
+            unused[name] = depth
         depth += 1
-    return unused
 
 
 def _compute_forest(graph: CallGraph,
