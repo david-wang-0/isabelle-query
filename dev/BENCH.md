@@ -131,6 +131,30 @@ recheck:       12 ms (best of 5), 0 theories reparsed
 one theory (`dev/p7probe.sh` §4 measures 23 ms on a 2-theory project, dominated
 by the sweep rather than the parse).
 
+**What that 12 ms actually does**, since the number only means something with
+the mechanism beside it. There is no file watcher and no inotify: the server
+polls, on every request, *before* it answers. The sweep is a directory walk over
+every `.thy` and every `ROOT`/`ROOTS` the project could load, plus one `stat`
+each recording `(mtime, size)`. No file is read and nothing is parsed.
+
+If that fingerprint is unchanged the parsed sections stand. If anything moved,
+discovery and the header pass run again — but each theory is keyed on its own
+`(mtime, size)` *plus the hash of the project-wide custom-keyword union*, and
+every file whose key still matches comes back out of the cache. Hence one
+edited theory in 1451 reparsing one theory. The union in the key is what makes
+a `ROOT` or `keywords` change invalidate everything, which is correct rather
+than pessimistic: a new keyword can change how any theory lexes.
+
+Size travels with mtime because a coarse filesystem clock can hide an edit
+landing in the same millisecond as the previous one. Two limits follow, and
+neither is a bug so much as the cost of not reading the files:
+
+- a `stat` is not a hash, so an edit preserving both mtime and size is
+  invisible;
+- the server has no editor, so **unsaved buffer changes are invisible to it**.
+  The jEdit plugin keeps its own index and refreshes dirty buffers from live
+  text, which is why it does not share this limitation.
+
 ## (d) the whole AFP — 10,336 `.thy` files
 
 RUNS=3, re-measured 2026-08-30 via `dev/bench.sh afp`. The warm column needs an
@@ -334,6 +358,14 @@ Two of those rows are now cached. Measured through the front door, median of 5,
 
 `$ISABELLE_QUERY_ALWAYS_BUILD=1` and `$ISABELLE_QUERY_NO_CDS=1` are the two
 switches, and are how the right-hand column and bottom row were taken.
+
+Both are caches of derived things and **neither may change an answer**.
+`dev/p7probe.sh` §17 is what holds that: it checks the archive is generated,
+that the answer is byte-identical with it and without it, and that a corrupted,
+a truncated and an empty archive each leave stdout, stderr and the exit status
+untouched — plus a failability check that runs the same damaged archive without
+`-Xlog:disable` and requires the JVM's CDS warning to appear on stdout, which is
+the corruption the flag exists to prevent.
 
 The two savings are **not additive** — 190 + 126 rather than 382 + 250 — because
 a `scala_build` that has just run leaves the page cache warm for the JVM that

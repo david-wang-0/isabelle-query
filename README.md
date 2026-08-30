@@ -204,195 +204,81 @@ usages" for a name that is used.
 
 ## The warm server
 
-A cold `isabelle query` costs about 870 ms before it prints anything. It is
-worth saying where that goes, because this document said "the floor is the JVM"
-for three phases and that was wrong:
-
-| | ms |
-|---|---:|
-| `scala_build` — a second JVM, whose only job is to check whether this component is stale | ~405 |
-| the `bin/isabelle` settings shell, sourced again by `isabelle java` | ~180 |
-| the JVM itself | **~30** |
-| Isabelle/Scala class loading, 53 jars | ~250 |
-| **then the parse** — 421 ms for a 28-theory entry, 2755 ms for `src/HOL`, ~19 s for the AFP | — |
-
-A resident process removes the first four. That is the smaller half. The larger
-half is the last row: the server holds the **parsed** corpus, so a repeat
-question re-stats the files (12 ms across `src/HOL`'s 1468) instead of reading
-them again. Nothing about how the code is compiled changes that, which is why
-the answer here is a warm index and not a faster start.
-
-Two of the four are now cached, which is why the cold column is cheaper than it
-used to be. `scala_build` runs only when something under the component is
-newer than its jar (`$ISABELLE_QUERY_ALWAYS_BUILD=1` forces it), and the class
-loading is served from an AppCDS archive kept in `$ISABELLE_HOME_USER`
-(`$ISABELLE_QUERY_NO_CDS=1` opts out). Measured on a two-theory `summary`,
-**1032 → 722 ms**. Both are caches of derived things and neither can change an
-answer: `dev/p7probe.sh` §17 checks that a corrupted, a truncated and an empty
-archive each leave stdout, stderr and the exit status byte-identical.
-
-The warm mode extends the stock `isabelle server` with four commands
-(`query_version`, `query_open`, `query_run`, `query_close`) contributed as a
-`Server.Commands` service — so it inherits the server's lifecycle, discovery
-registry, and security model (loopback bind, per-user password,
-restricted-permission registry). Nothing new listens on anything.
-
-The client is a small stdlib-only Python script that speaks the server's
-documented line protocol; no JVM is on the fast path. **And it is what a plain
-`isabelle query` runs**: the component ships an external tool under the tool's
-own name, which `isabelle` dispatches to before any JVM starts. A warm answer
-in ~35 ms is the default spelling, not something to opt into.
+A plain `isabelle query` **is** a thin Python client over a resident index: the
+component ships an external tool under the tool's own name, which `isabelle`
+dispatches to before any JVM starts. The server is the stock `isabelle server`
+extended with four commands (`query_version`, `query_open`, `query_run`,
+`query_close`) contributed as a `Server.Commands` service, so it inherits that
+server's lifecycle, discovery registry and security model (loopback bind,
+per-user password). Nothing new listens on anything, and no JVM is on the fast
+path.
 
 ```sh
-isabelle query summary                # the thin client; starts a server on first use
+isabelle query summary               # the thin client; starts a server on first use
 isabelle query --client-status       # what is resident, and what it cost
 isabelle query --client-stop         # shut it down
 isabelle query --no-server <args>    # no client, no server: one JVM, right here
 ```
 
-It re-checks every source file's mtime and size on every request (12 ms over
-`src/HOL`'s 1468 files), detects a rebuilt component and restarts the server,
-and **declines on any failure** — a slower right answer is always available.
-`python3` is a soft dependency: where it is missing, the same spelling runs the
-JVM front end and everything still works, one second slower.
+What the warm mode saves is the **parse**, not the process start: 19 of the
+whole AFP's 20 cold seconds are reading theories, and no amount of faster
+starting touches that. Measured 2026-08-30, median of 5 — method, the full
+table and the cost breakdown are in [dev/BENCH.md](dev/BENCH.md):
 
-### How it notices you edited something
-
-There is no file watcher and no inotify. The server **polls, on every request**,
-before it answers: a directory walk over every `.thy` and every `ROOT`/`ROOTS`
-under the project, and one `stat` per file recording `(mtime, size)`. No file is
-read. That walk is the 12 ms above, and it is deliberately the
-expensive-but-honest reading — a warm answer one edit out of date is worse than
-a cold one.
-
-If the fingerprint is unchanged the parsed sections stand as they are. If
-anything moved, discovery and the header pass run again, but each theory is
-keyed on its own `(mtime, size)` plus the hash of the project-wide custom
-keyword union, so only files whose key actually changed are reparsed: **one
-edited theory in a 1451-theory project reparses one theory.** A change to a
-`ROOT` or to a `keywords` declaration changes the union hash and so invalidates
-everything, which is the correct answer rather than a pessimisation.
-
-Two honest limits. Size is checked alongside mtime because a coarse filesystem
-clock can hide an edit landing in the same millisecond — but this is a stat, not
-a hash, so an edit that preserves both would be invisible. And the server has no
-editor: **unsaved buffer changes are not visible to it.** The jEdit plugin keeps
-its own index and reads dirty buffers directly, which is why it does not have
-this limitation.
-
-### What a resident index costs
-
-Retained heap, measured after a forced GC, one index per server (so the numbers
-are attributable rather than cumulative):
-
-| corpus | theories | entries | retained heap |
-|---|---:|---:|---:|
-| `Category3` | 28 | 1,636 | under 1 MB |
-| `src/HOL/Analysis` | 106 | 11,676 | 30 MB |
-| `src/HOL` | 1,451 | 78,279 | 154 MB |
-| the whole AFP | 10,262 | 411,181 | 1,156 MB |
-
-So the parsed corpus itself costs roughly **2–3 KB per entry**, and it scales
-with entries rather than with theories or bytes of source.
-
-**Resident heap is not what `top` shows you.** With the whole AFP loaded the
-process is ~4.5 GB of RSS against those 1.16 GB of live objects, because the
-collector keeps what it has committed and does not hand it back. Both numbers
-are real and they answer different questions — how much data the index *is*,
-and how much memory the machine has to *find*. Budget with the second.
-
-That gap is what `$ISABELLE_QUERY_SERVER_LIMIT` (default 4000 theories) exists
-for: it refuses rather than truncates, so a stray `-R` at an AFP checkout cannot
-quietly turn the server into a multi-gigabyte process. `query_close`
-(`--client-stop` shuts the whole server down) is the other end — an index is
-held until something releases it.
-
-### One router
-
-`lib/Tools/query` decides who answers; nothing downstream of it decides again.
-When the client will not serve a request — a bypassed verb, an unreachable
-server, a protocol it does not recognise — it exits **97** having written
-nothing, and the shim runs the JVM itself.
-
-That is a P8 simplification, and the shape it replaced is worth recording. The
-client used to run the cold path by re-exec'ing `isabelle query`, which since
-P7d meant re-entering itself through the shim; an environment mark held the hop
-to one. The JVM it landed in then carried a second copy of the client's whole
-routing policy (`delegate.scala`, 594 lines: the same bypass list, the same
-registry lookup, the same staleness rule) and used it to re-try the registry
-the client had just failed on — occasionally starting a server the client had
-failed to reach. Deleting that layer removed the duplicate policy, the second
-lookup, and the loop hazard together.
-
-```sh
-ISABELLE_QUERY_NO_CLIENT=1 …          # skip the thin client; answer in this JVM
-isabelle query --no-server summary    # run it right here, in this process
-ISABELLE_QUERY_NO_SERVER=1 …          # the same switch for a shell; also skips the client
-```
-
-The answer is byte-for-byte the cold answer, exit status included (a declined
-`… | head -3` still exits 141). **Any** failure — no server, a dead registry
-row, a refused connection, a socket that dies mid-request — runs the query
-cold instead, silently: nothing is printed until the whole reply is in hand,
-so a decline can neither duplicate nor truncate output.
-
-Some invocations are never served, and the list is deliberate. It lives in
-`COLD_ONLY_COMMANDS` and `main` in `query_client.py` — one place, since P8 —
-and this table mirrors it in prose:
-
-| bypassed | why |
-|---|---|
-| anything with `-` among its arguments | it reads *this* process's stdin, which the server cannot see |
-| `dump-entries` / `dump-imports` / `dump-theories` | development dumps, written straight past any capture and sized for a pipe |
-| `shape census` | a 256 MB reply through a synchronous single-message protocol is *slower* warm than cold, and a census gets no benefit from a warm index anyway |
-| `-h`, `--help`, `-V`, `--version` | text, no project — no reason to need a server up |
-| a **relative** argument naming a file or directory here | `find .` searches for the regex `.` and `grep pat .` searches the directory `.` — only the command's grammar tells them apart, and a transport is not a parser. Absolute paths mean the same thing anywhere, so they are served |
-
-The server itself is shared: `$ISABELLE_QUERY_CLIENT_SERVER` names it (default
-`isabelle_query`), and the jEdit plugin's own index obeys the same size cap, so
-pointing the client at a scratch server does not leave a second resident JVM
-holding a second copy of the same corpus.
-
-The variables the tool reads — `$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
-`$ISABELLE_QUERY_NAMESPACE`, `$ISABELLE_QUERY_REACHABILITY` — travel **in the
-request** and are bound for that
-request only. A resident server never reads its own environment for them, so a
-variable set in your shell means the same thing warm as cold, whoever happened
-to start the server. (`$ISABELLE_QUERY_SERVER_LIMIT` is the exception by
-design: it is the *server's* memory bound, not a caller's, and the per-request
-equivalent is `--client-limit`.)
-
-Measured 2026-08-30, median of 5 (full table and method in
-[dev/BENCH.md](dev/BENCH.md)):
-
-| | Python `query` | JVM tool, cold | thin client (a plain `isabelle query`) |
+| | Python `query` | JVM tool, cold | thin client |
 |---|---:|---:|---:|
 | `show` on a 2-theory AFP entry | 75 ms | 697 ms | **32 ms** |
 | `callers` on a 28-theory entry | 284 ms | 1086 ms | **112 ms** |
 | `summary` on `src/HOL` (1451 theories) | 4863 ms | 3890 ms | **64 ms** |
 | `summary --by-session` over the whole AFP | 37.4 s | 19.0 s | **0.28 s** |
 
-Read the third column against the fifth row of the cost table above, not
-against the JVM: what separates 3890 ms from 64 ms on `src/HOL` is 1451
-theories that do not have to be read again. The two-theory row is where the
-process-setup half shows on its own, and it is worth ~665 ms — real, but the
-smaller number of the two, and the one that shrinks as the corpus grows. That
-is also the row the cold-path caches move most: it was 1091 ms before them, and
-`src/HOL` barely shifted (4197 → 3890), because there the cost is the parse and
-no cache touches it.
+The index costs about **2–3 KB per entry** of retained heap — 154 MB for
+`src/HOL`'s 78,279 entries, 1.2 GB for the AFP's 411,181. Process RSS runs much
+higher (~4.5 GB with the AFP loaded) because the collector keeps what it has
+committed, so size a host by that rather than by the index.
+`$ISABELLE_QUERY_SERVER_LIMIT` (default 4000 theories) **refuses rather than
+truncates**, so a stray `-R` at a whole checkout cannot quietly turn the server
+into a multi-gigabyte process.
 
-P7b through P7d shipped a middle column, a JVM that started in order to skip
-the parse (`summary` on `src/HOL`, measured then: 4194 ms cold, **1036 ms**
-delegated, 68 ms through the client). P8 deleted it — see "One router" above —
-so that route is gone. Where `python3` is missing, `isabelle query` is the cold
-column.
+One workload goes the other way and is bypassed for it: a whole-corpus
+`shape census` returns 256 MB, which is slower through the socket than
+cold. Typing `isabelle query` runs it cold without being asked.
 
-One workload goes the other way: a whole-corpus `shape census` returns 256 MB
-and bypasses the index by design, so serving it would be slower than running it
-cold (170 s against 154 s, measured before the bypass existed). It is on the
-bypass list, so typing `isabelle query` runs it cold without being asked — the
-whole invocation costs 156.6 s against 156.1 s run cold directly, the
-difference being the client starting up and declining.
+**Staleness.** The server polls before every answer — a walk over every `.thy`,
+`ROOT` and `ROOTS`, one `stat` each, no file read — which is 12 ms across
+`src/HOL`'s 1468 files. One edited theory in 1451 reparses one theory. Two
+limits worth knowing: a `stat` is not a hash, and the server has no editor, so
+**unsaved buffer changes are invisible to it**. The jEdit plugin reads dirty
+buffers itself and does not share that limitation.
+
+**One router.** `lib/Tools/query` decides who answers and nothing downstream
+decides again. When the client will not serve a request it exits **97** having
+written nothing, and the shim runs the JVM instead; the answer is byte-for-byte
+the cold answer, exit status included (a declined `… | head -3` still exits
+141). Nothing is printed until the whole reply is in hand, so a decline can
+neither duplicate nor truncate output.
+
+Never served, and the list is deliberate: anything reading stdin (`-`), the
+`dump-*` development verbs, `shape census`, `-h`/`--help`/`-V`/`--version`,
+and a **relative** argument naming a file or directory here — `find .` searches
+for the regex `.` while `grep pat .` searches the directory `.`, only the
+command's grammar tells them apart, and a transport is not a parser. Absolute
+paths mean the same thing anywhere, so they are served. The list lives in
+`query_client.py` and nowhere else.
+
+```sh
+ISABELLE_QUERY_NO_CLIENT=1 …         # skip the thin client; answer in this JVM
+ISABELLE_QUERY_NO_SERVER=1 …         # skip both; the same wish as --no-server
+ISABELLE_QUERY_NO_CDS=1 …            # do not use the cold path's AppCDS archive
+ISABELLE_QUERY_ALWAYS_BUILD=1 …      # run scala_build always, not only when stale
+```
+
+`$ISABELLE_QUERY_CLIENT_SERVER` names the server (default `isabelle_query`).
+The variables the *tool* reads — `$ISABELLE_QUERY_ROOT`,
+`$ISABELLE_LAYOUT_ROOT`, `$ISABELLE_QUERY_NAMESPACE`,
+`$ISABELLE_QUERY_REACHABILITY` — travel in the request and are bound for that
+request only, so one set in your shell means the same thing warm as cold,
+whoever happened to start the server.
 
 ## What it reads
 
