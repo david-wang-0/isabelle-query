@@ -940,9 +940,9 @@ def _kw_tokenize(block: str) -> list[tuple[str, str]]:
 
 def _kind_of(tok: str) -> str:
     """The leading identifier of a kind token (`thy_goal` from `thy_goal`,
-    or from a glued `::thy_goal`'s tail)."""
-    m = re.match(r"[A-Za-z_]+", tok)
-    return m.group(0) if m else ""
+    from a glued `::thy_goal`'s tail, or from a quoted `"thy_goal"`)."""
+    m = re.match(r'"?([A-Za-z_]+)', tok)
+    return m.group(1) if m else ""
 
 
 def _parse_keyword_block(block: str, table: dict[str, str]) -> None:
@@ -973,7 +973,13 @@ def _parse_keyword_block(block: str, table: dict[str, str]) -> None:
                     kind = _kind_of(val[2:])
                 continue
             if seen_colon:
-                if not kind and flag == "op":   # the kind, just after `::`
+                # The kind is the first token after `::`, quoted or not —
+                # Isabelle's grammar reads it as a *name*, and Optics writes
+                # `:: "thy_defn"`.  Quoting only distinguishes a command name
+                # from a `% tag` value BEFORE the colon; past it the slot
+                # decides.  `not kind` is what still keeps a quoted tag value
+                # out: by the time `% "proof"` arrives the kind is bound.
+                if not kind:                   # the kind, just after `::`
                     kind = _kind_of(val)
                 continue                        # ignore load command / % tags
             if flag == "name":
