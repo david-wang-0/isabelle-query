@@ -1387,8 +1387,18 @@ _MARKER_OPEN_RE = r'\\<(?:\^cancel|comment)>\s*(?:\\<open>|‹)'
 # Order matters: `\\` and `\"` precede `"` so an escaped quote inside a string
 # is consumed rather than read as the closing delimiter, and the marker forms
 # (which swallow their cartouche) precede the bare `\<open>`.
+#
+# `\\` carries `(?!<)` because ordered choice would otherwise let the escape
+# eat half a markup symbol.  Isabelle reads source in two passes — a SYMBOL
+# layer where `\<close>` is one atom, then a token layer where `\\` is a string
+# escape — so in `\<open>\\<close>` (the residuation operator: a cartouche whose
+# body is one backslash) the close is a symbol and not two escaped characters.
+# Scanning both layers at once let the escape consume the body backslash plus
+# the `\` of `\<close>`, leaving the scanner in cartouche state to the end of
+# the file.  The lookahead declines the escape exactly when the second
+# backslash begins a markup token, which is symbol-precedence expressed here.
 _SCAN_RE = re.compile(
-    r'\(\*|\*\)|\{\*|\*\}|\\\\|\\"|"|'
+    r'\(\*|\*\)|\{\*|\*\}|\\\\(?!<)|\\"|"|'
     + _MARKER_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
 # Nothing to redact unless one of these appears somewhere in the theory.  Most
 # of the cost is skipped outright on a file with no comment and no ML.
