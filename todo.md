@@ -231,6 +231,69 @@ evidence; the entries here are the handles.
       three more (CTT).  Entry condition is therefore a D-series entry, its
       own pins, and `dev/entrydiff.sh` re-run over the five P1 corpora.
 
+- [ ] `[index-footprint]` The resident index is **~190 bytes per source line**,
+      about four times the source it indexes (`src/HOL`: 34 MB of `.thy` →
+      154 MB of heap; the AFP: 281 MB → 1,156 MB, in a 4.5 GB process).
+      Bytes-per-line is flat to within 12% across corpora spanning 34x, so
+      lines — not entries, not theories — is what it scales with.
+
+      Attributed by heap histogram (`jcmd GC.class_histogram`, diffed against
+      the empty server, `src/HOL` loaded; the 155 MB it accounts for matches
+      the 154 MB measured independently, so nothing significant is missing):
+
+      | MB | B/line | instances | class |
+      |---:|---:|---:|---|
+      | 53.1 | 66.4 | 666,842 | `[B` (String backing arrays) |
+      | 27.9 | 34.9 | 914,904 | `java.lang.String` |
+      | 17.3 | 21.6 | 452,272 | `scala.Tuple2$mcII$sp` (region spans) |
+      | 17.2 | 21.5 | 562,342 | `::` (cons cells holding those spans) |
+      | 12.8 | 16.0 | 2,902 | `Array[List[…]]` — `nonisar` + `inner`, one pair per section |
+      | 7.8 | 9.7 | 78,279 | `isabelle.query.Entry` |
+      | 6.5 | 8.1 | 1,452 | `Array[String]` — the `lines` arrays |
+      | 6.4 | 8.0 | 1,451 | `Array[Set[Int]]` — `notes`, one per section |
+
+      Three targets fall out, and the ordering is not what it looked like
+      before the histogram:
+
+      **(a) The per-line region structures are 53.7 MB — 35%, the largest
+      single item.** `Regions.Result` carries FOUR arrays indexed by line
+      (`nonisar`, `inner`, `open_at`, `notes`), and the two span arrays are
+      `Array[List[(Int, Int)]]`: a cons cell (32 B) plus a tuple (32 B) per
+      span, over an 8-byte array slot per line that exists whether or not the
+      line has any spans. A CSR-style encoding — `starts: Array[Int]`,
+      `ends: Array[Int]`, and one `offset: Array[Int]` of length `nlines+1` —
+      is about 7 MB for the same 452k spans. Contained: `regions.scala`
+      produces it and `Model.blank_all` is nearly the only consumer.
+      (The tuples are already specialised `$mcII$sp`, so there is no `Integer`
+      boxing to remove — the cost is headers and cons cells, not boxing.)
+
+      **(b) `Entry.text` is a second copy of text `lines` already holds** —
+      built by `mkString("\n")` in `entries.scala`. The histogram shows
+      914,904 Strings against 838,047 lines, and the excess is one per entry
+      (78,279); `[B` totals 53 MB against 34 MB of actual source. Worth ~20 MB
+      (13%). `Entry` already carries `src_start`/`thy_end`, so this is a span
+      plus a back-reference to the section.
+
+      **(c) One `String` per theory instead of `Array[String]`**, with an
+      `Array[Int]` of line offsets: removes the per-String object and array
+      header, ~30 MB (19%). But `model` is the bottom of the module DAG, so
+      every scanner above changes — the same blast radius as
+      `[namespace-by-value]`, and the reason to do (a) and (b) first.
+
+      Together (a)+(b)+(c) would take ~190 B/line to roughly 80. Note the JVM
+      already runs `-XX:+UseStringDeduplication`, which is why `[B` instances
+      (667k) trail String instances (915k) — some of the duplication above is
+      already being collapsed at runtime, and the remaining wins are structural
+      rather than a matter of interning harder.
+
+      Separately, and orthogonal to all three: the server currently **refuses**
+      over `$ISABELLE_QUERY_SERVER_LIMIT` (4000 theories) rather than bounding
+      itself. An LRU over sections with reparse-on-miss would turn that into a
+      memory budget; `shape census` already holds one session live at a time
+      for exactly this reason, so the pattern exists in-tree. The cost is
+      thrashing on whole-corpus queries, which wants measuring before it is
+      built.
+
 - [ ] `[settings-shell]` The `bin/isabelle` settings shell is ~180 ms and, since
       `[p8-coldpath]` cached the other two, it is now the largest single item
       on the cold path after the parse. It is sourced once by `bin/isabelle` to
