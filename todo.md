@@ -190,6 +190,38 @@ in `CONTRIBUTING.md`.
       D8 in the Scala port's `dev/DIVERGENCES.md`; reproduced by
       `scripts/probe_scala_port_findings.py`.
 
+- [ ] `[axiom-names]` `axiomatization` names, two ways.  Found while building
+      the `[span-ties]` fixture — the synthetic form did not reproduce the
+      crash, and chasing why turned up both of these on real sources.
+
+      **(a) A phantom entry named after the keyword.**  When the command
+      stands alone on its line, with its names on the lines below —
+
+          axiomatization
+            eq :: \<open>['a, 'a] \<Rightarrow> o\<close>  (infixl \<open>=\<close> 50)
+          where refl: \<open>a = a\<close> and ...
+
+      — the name scan takes the keyword itself, and `find '^axiomatization$'`
+      answers with an `AXIOM` entry called `axiomatization` spanning one line.
+      **11 in FOL, 10 in ZF, 0 in AODV.**  They inflate `summary`'s entry
+      count and are citable names that nothing can cite.  Same root as the
+      Scala port's D6 residual: the `goal` route does not take the
+      name-lookahead the `def` and `typedecl` routes already take.  Their note
+      is the warning to heed — adding it renames every
+      `lemma`-alone-on-its-line declaration, so it needs its own corpus diff,
+      which is why this is an item and not a one-liner.
+
+      **(b) An UNTYPED name is not indexed at all.**
+
+          axiomatization glob_one and glob_inv          -- FOL/ex/.../Locale_Test1:719
+            where glob_lone: \<open>prod(glob_one(prod), x) = x\<close>
+
+      indexes `glob_lone` and `glob_linv` (the axioms) but neither `glob_one`
+      nor `glob_inv` (the constants).  With `::` ascriptions on a continuation
+      line the same declaration indexes both, so the split is the type
+      annotation, not the `and`.  Take the two together: they are the same
+      scan, and (a)'s lookahead is most of (b)'s answer.
+
 - [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
       **minimal distinguishing path**.  `query largest` (and any verb that
       prints a bare theory name) currently strips both `.thy` and the
