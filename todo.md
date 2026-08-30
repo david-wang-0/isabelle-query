@@ -7,6 +7,42 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
+- [ ] `[marker-decl]` A document marker glued to its command keyword hides
+      the declaration entirely.  `DECL_RE` requires `(?=\s|$)` after the
+      keyword, so
+
+          definition\<^marker>\<open>tag important\<close> istopology :: "..."
+          typedef\<^marker>\<open>tag important\<close> 'a topology = "..."
+
+      matches nothing at all; the custom-command path fails the same way,
+      reading the lead token as `typedef\<^marker>`, which is in no keyword
+      table.  Where a space *does* precede the marker the name parser reads
+      the MARKER as the name (`\<^marker>\<open>tag`), because Isabelle markup
+      tokens are name characters.  `\<^marker>` is a formal comment to
+      Isabelle's lexer, so the fix is to blank it in the outer view and have
+      the name scan step over every formal-comment marker (`\<comment>`,
+      `\<^cancel>`, `\<^latex>`, `\<^marker>`, both spellings) the way it
+      already steps over `\<comment>`.
+      **Cost: 509 missed declarations in `HOL/Analysis` alone** — `istopology`,
+      `subtopology`, `pullback_topology`, `retract_of`, `aff_dim` … — which
+      tags its declarations for the document build throughout; 751 records
+      there once displaced spans are counted, plus 7 AFP entries (Ceva,
+      Interval_Analysis, MDP-Rewards, Complex_Bounded_Operators,
+      Tabulation_Hashing, First_Order_Terms, Differential_Privacy).
+      It is not only an entry-set loss: `shape`'s classifier is seeded from
+      `sec.entries`, so in an affected theory a name that should be a `const`
+      classifies as a `var` and the `w1_est_*` / `const_est_*` columns move
+      with it.  **Do this before regenerating any shape census.**
+      Blast radius is why it is not in the first batch: it changes name
+      extraction, so it wants a before/after entry-set diff over both corpora,
+      not just a fixture.  Take D6 with it — neither implementation stops a
+      name at a *structural* marker, so `coprod_final_sink\<^marker>\<open>tag`
+      is indexed as the name (7 names across the AFP); truncating there also
+      moves 3 records that currently agree, which is exactly why it belongs
+      with this change and its diff rather than on its own.
+      D2 and D6 in the Scala port's `dev/DIVERGENCES.md`; reproduced by
+      `scripts/probe_scala_port_findings.py`.
+
 - [ ] `[bare-provenance]` Split `n_bare` by *why* a goal step has no
       proposition.  It pools two unrelated things — **bare by construction**
       (`show ?thesis`, `also`, `case`, `interpret`) and **the scanner found
@@ -22,6 +58,39 @@ in `CONTRIBUTING.md`.
       whether to widen the lookahead.  Land it as a new field, not a
       redefinition of `n_bare`, so stored census rows stay comparable.
 
+- [ ] `[citation-reach]` Attribute a citation only to a declaration its
+      theory can SEE.  `callers` / `callees` / `unused` / `graph citation`
+      resolve a cited token by NAME alone: find `mono` on a line, look up
+      every entry called `mono`, report the line as a caller of all of them.
+      Over one session that is right — everything in a session sees
+      everything it declares.  Over a corpus it is not: the AFP has two dozen
+      lemmas spelled `mono`, and a site in `Mono_Bool_Tran` (whose whole
+      in-project closure is two theories, neither declaring one) was reported
+      as a caller of all of them.  The `mono` there is HOL's `Orderings.mono`,
+      arriving through an `imports Main` query deliberately does not follow.
+      **This is the generalisation of what `refs`'s `owner_of` already does**
+      (see `git log --grep='\[theory-refs\]'`) — closure-scoped ownership,
+      applied at the two attribution points so every verb inherits it from
+      one place: the citation router's candidate filter and the single-name
+      section filter.  The rule is a NECESSARY condition on visibility, not a
+      sufficient one, so it can only ever DROP an attribution: a site in T may
+      name a declaration in D iff `D = T` or D is in T's transitive in-project
+      `imports` closure; a name the project declares nowhere is not filtered
+      at all.  `unused` may honestly GROW, which is the point — an entry kept
+      alive only by an unreachable same-name citation is dead.  `shape` and
+      `methods` are out of scope: neither attributes a token to an entry.
+      Ship it behind a compatibility switch, because a corpus-scale delta that
+      cannot be turned off cannot be measured against the old numbers.
+      D13 in the Scala port's `dev/DIVERGENCES.md`, which measures whole-AFP
+      `callers mono` going 1,361 -> 566 — *their* figure on their checkout,
+      not reproduced here, so measure ours before quoting it.  Their
+      `[reach-position]` is the refinement after this one: within a single
+      theory, visibility says nothing, and a citation written above the
+      declaration it names is still attributed to it.  What makes that more
+      than an inequality is `lemmas` re-exports, `sublocale`-induced bindings
+      and `context ... begin` re-entry, all of which bind a name at a line
+      other than its declaration's.
+
 - [ ] `[count-mode-zero]` `-c` / `--count` prints a sentence, not a count,
       when nothing matches: `find zzz -c` says `No entries matching 'zzz'.`
       where a count mode should say `0`.  The sentence is emitted by
@@ -32,6 +101,28 @@ in `CONTRIBUTING.md`.
       one a script most wants to branch on.  Check the other count paths at
       the same time (`refs`, `callers`, `callees`, `methods`) rather than
       fixing one: whether they agree is not currently pinned anywhere.
+
+- [ ] `[closed-stdout]` A closed stdout does not reliably exit 141.
+      `CONTRIBUTING.md` fixes the status at `128 + SIGPIPE`, so a pipeline and
+      a `$?` check read the same as they do for `yes | head`.  The handler
+      catches `BrokenPipeError` around the command body, points fd 1 at
+      `/dev/null` and exits 141 — which only works when the failing write
+      lands INSIDE that body.  Two ways out:
+        - the whole answer fits the interpreter's buffers, the first failing
+          write is the shutdown flush, the `except` never runs, and Python
+          exits **120** with `Exception ignored while flushing sys.stdout`;
+        - the whole answer fits the 64K pipe buffer, so no write ever fails,
+          and the command exits **0** while `head` is still being scheduled.
+      The second is the bad one: a script checking `$?` sees success on a
+      truncated answer.  Measured here — `shape census | head -3` on
+      `Abstract_Completeness` exits 0, five runs out of five; the split is
+      output size, not a race (D8's table puts it at the 64K buffer, 141 on
+      every corpus above it).  Fix by writing through a handle whose failure
+      surfaces where it happens rather than at interpreter shutdown, and pin
+      the status on a corpus under 64K as well as one over — one alone cannot
+      tell the two failure modes apart.
+      D8 in the Scala port's `dev/DIVERGENCES.md`; reproduced by
+      `scripts/probe_scala_port_findings.py`.
 
 - [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
       **minimal distinguishing path**.  `query largest` (and any verb that
@@ -47,7 +138,10 @@ in `CONTRIBUTING.md`.
       `theory:line` **round-trip** convention (see `[locus-roundtrip]`) — a
       bare `Bla:11` locus is unresolvable when two `Bla`s exist, so the
       emitter must qualify the name far enough for the resolver to round it
-      back to one theory.
+      back to one theory.  Half the resolver side is already done: since
+      `[name-roundtrip]` a theory name containing a separator resolves as a
+      name, so a qualified `ae/Bla` will not be mistaken for a path that does
+      not exist.  What is still open is the emitter choosing the prefix.
 
 - [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
       `PIDE/markup` in a built session database.  The #8 entity export gives
@@ -92,6 +186,50 @@ in `CONTRIBUTING.md`.
         is additive (live source *plus* comments); there's no way to see
         *only* the cartouche prose, which is what a PDF-commentary reader
         wants.
+
+- [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
+      by a newline.  Isabelle's `comment_prefix` allows any blanks between the
+      marker and the cartouche it owns, newlines included, so
+
+          shows \<open>\<exists> k. u k = \<emptyset>\<close>
+          \<comment>
+          \<open>
+            This lemma could easily be generalized ...
+          \<close>
+
+      is ONE formal comment.  `_MARKER_OPEN_RE` matches marker-plus-cartouche
+      as a single token within a line, so the scanner sees a bare `\<comment>`
+      and then a separate LIVE cartouche, and charges all the prose to the
+      statement above it (`decl_end_line` 9 where the declaration ends at 5).
+      Costs 1 record in the whole AFP — Substitutions_Lambda_Free:58 — so this
+      is low priority, but it is the only entry on this list whose fix is
+      confined to one regex and its state machine.  D5 in the Scala port's
+      `dev/DIVERGENCES.md`.
+
+- [ ] `[keyword-scope]` The custom-command table is unioned over the whole
+      ROOT, which is right for a session and too coarse for a corpus.  Both
+      implementations mirror Isabelle's session-wide `Keywords.++`, but with
+      the AFP `thys` directory as one root that puts Optics' `alphabet` in
+      scope for Formula_Derivatives, whose `sublocale DA < DAs` /
+      `alphabet init delta ...` continuation line then reads as a
+      declaration.  16 records over 4 entries (Formula_Derivatives,
+      MSO_Regex_Equivalence, UTP, Circus), and only when the whole AFP is
+      passed as ONE root — each of the four is clean read as its own root.
+      Fixing it means scoping the table per session, which changes the parse
+      of every custom-command entry, so it belongs with the session model.
+      Newly visible rather than newly introduced: before `[keyword-kind-quoted]`
+      the quoted-kind bug kept `alphabet` out of the table and hid it.
+      D4 in the Scala port's `dev/DIVERGENCES.md`.
+      Sibling observation, same shape, deliberately not filed separately
+      (D11): the method/attribute table is resolved from whichever declared
+      sessions happen to have a BUILT HEAP, so `callers` can answer
+      differently on two machines reading identical sources — heap union, the
+      committed census union, or the Pure floor, three tables and three
+      answers.  It is documented behaviour rather than a defect (CLAUDE.md
+      says so), and it does not reproduce here — this machine has no AFP heaps,
+      so the default and `ISABELLE_QUERY_NAMESPACE=committed` both answer 1261
+      for `callers mono -c`.  Worth knowing before any measurement is quoted
+      across machines.
 
 - [ ] `[grep-plain]` Optional `--plain`/`--raw` override on `grep`:
       force plain line-grep (no entry/comment parsing) instead of the
