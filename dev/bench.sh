@@ -34,7 +34,9 @@
 #            one row without disturbing the rest of the table
 #   decline  three rows through the decline route          -- about a minute
 #   small    the per-entry tiers (a), (b) and (c)   -- about two minutes
-#   full     adds the whole-AFP tier (d)            -- about twenty
+#   full     adds the whole-AFP tier (d)            -- about an hour
+#   afp      tier (d) ALONE                          -- about fifty minutes,
+#            almost all of it the census row's three 256 MB columns
 #   heavy    tier (e): one big session (src/HOL/Analysis) and the two
 #            largest AFP entries, with hot subjects -- about five minutes
 #   memory   peak RSS, at the stock heap and at -Xmx512m
@@ -184,8 +186,8 @@ echo
 # --------------------------------------------------------------------------
 
 case "$TIER" in
-  tiny|small|full|heavy|memory|decline|delegate|all) ;;
-  *) echo "bench: unknown tier '$TIER' (tiny|small|full|heavy|memory|decline|all)" >&2
+  tiny|small|full|afp|heavy|memory|decline|delegate|all) ;;
+  *) echo "bench: unknown tier '$TIER' (tiny|small|full|afp|heavy|memory|decline|all)" >&2
      exit 2 ;;
 esac
 
@@ -196,12 +198,32 @@ if [ "$TIER" != "memory" ]; then
     { echo "bench: the server is stale; rebuild or restart it" >&2; exit 1; }
 fi
 
+# THE WARM COLUMN, run the way the shim runs it.
+#
+# Since P8 the client does not execute the cold path itself: for an invocation
+# on its bypass list (a census, a dump, anything reading stdin) it exits
+# $EXIT_RUN_COLD having written NOTHING, and `lib/Tools/query` runs the query.
+# A warm column that stopped at the decline would time an empty file -- which
+# is exactly what it did on 2026-08-30, reporting `shape census` warm at 29 ms
+# against a 0-byte output.  This script's own cold/warm comparison caught it,
+# which is the entire reason that comparison is here.
+#
+# So finish the decline, as the shim would.  For every invocation the client
+# actually serves this is one `[ $rc -ne 97 ]` and changes nothing.
+EXIT_RUN_COLD=97
+warm_run() {  # root, then argv; time_ms has already redirected our output
+  python3 "$CLIENT" --client-limit 0 -R "$1" "${@:2}"
+  local rc=$?
+  [ "$rc" -ne "$EXIT_RUN_COLD" ] && return "$rc"
+  isabelle query --no-server -R "$1" "${@:2}"
+}
+
 bench3() {  # label, root, then argv
   local label="$1" root="$2"; shift 2
   local o c w
   o=$(time_ms "$label-oracle" query -R "$root" "$@")
   c=$(time_ms "$label-cold" isabelle query --no-server -R "$root" "$@")
-  w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
+  w=$(time_ms "$label-warm" warm_run "$root" "$@")
   row "$label" "$o" "$c" "$w"
   local a b
   a=$(same "$label-oracle" "$label-cold")
@@ -213,7 +235,7 @@ bench2() {  # rewrite-only verbs: no oracle column exists to compare with
   local label="$1" root="$2"; shift 2
   local c w
   c=$(time_ms "$label-cold" isabelle query --no-server -R "$root" "$@")
-  w=$(time_ms "$label-warm" python3 "$CLIENT" --client-limit 0 -R "$root" "$@")
+  w=$(time_ms "$label-warm" warm_run "$root" "$@")
   row "$label" "n/a" "$c" "$w"
   [ "$(same "$label-cold" "$label-warm")" = "=" ] ||
     row "  ^ ANSWERS DISAGREE cold/warm" "" "" ""
@@ -282,7 +304,7 @@ PY
   echo
 fi
 
-if [ "$TIER" = "full" ] || [ "$TIER" = "all" ]; then
+if [ "$TIER" = "full" ] || [ "$TIER" = "all" ] || [ "$TIER" = "afp" ]; then
   echo "## (d) the whole AFP -- $(find "$AFP" -name '*.thy' | wc -l) theory files"
   echo
   echo "Timed with RUNS=3; the warm column asks for an index over the whole"
