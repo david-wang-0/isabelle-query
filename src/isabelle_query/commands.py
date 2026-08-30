@@ -201,6 +201,16 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         name (exact, then case-insensitive).  This is the convenience
         spelling: the name is looked up among the sections already
         discovered through ``isabelle_layout``'s ROOT-walking routines.
+
+    The two forms are tried in that order rather than chosen between, because
+    a discovered theory NAME may itself contain a separator: a ROOT can
+    address a theory in a subdirectory by path (``theories "LK/Propositional"``
+    — the grammar has no per-theory ``in`` clause), and discovery carries it
+    under that spelling.  Branching on ``"/"`` alone made such a name
+    unresolvable, so ``summary`` printed a row, ``theory``'s "Known theories"
+    listed it, and passing it back gave "not found" — the tool disagreeing
+    with its own output, and a hole in the round-trip the locus grammar rests
+    on.
     """
     if name.endswith(".thy") or "/" in name:
         try:
@@ -211,6 +221,12 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
             for s in sections:
                 if s.path.resolve() == target:
                     return s
+        # Before the stem fallback: the whole argument may be a path-spelled
+        # theory NAME.  Exact-first matters — with a `Propositional` section
+        # also present, the stem would otherwise capture `LK/Propositional`.
+        for s in sections:
+            if s.theory == name:
+                return s
         # Path that doesn't match a known section: fall back to its
         # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
         stem = Path(name).stem
