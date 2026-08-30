@@ -16,7 +16,7 @@ Three front ends over one engine:
 |---|---|
 | **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
 | **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
-| **warm server + thin client** | the same command line against a **resident parsed index**, at about 1/2 to 1/76 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
+| **warm server + thin client** | the same command line against a **resident parsed index**, at about 1/2 to 1/72 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
 
 Written in Isabelle/Scala against the distribution's own parsing stack:
 `Token.explode` is the real Isar outer-syntax lexer, `Thy_Header` the real
@@ -311,30 +311,37 @@ to start the server. (`$ISABELLE_QUERY_SERVER_LIMIT` is the exception by
 design: it is the *server's* memory bound, not a caller's, and the per-request
 equivalent is `--client-limit`.)
 
-Measured, median of 5 (full table and method in [dev/BENCH.md](dev/BENCH.md)):
+Measured 2026-08-30, median of 5 (full table and method in
+[dev/BENCH.md](dev/BENCH.md)):
 
 | | Python `query` | JVM tool, cold | thin client (a plain `isabelle query`) |
 |---|---:|---:|---:|
-| `show` on a 2-theory AFP entry | 73 ms | 1091 ms | **33 ms** |
-| `callers` on a 28-theory entry | 290 ms | 1441 ms | **112 ms** |
-| `summary` on `src/HOL` (1451 theories) | 4865 ms | 4197 ms | **64 ms** |
-| `summary --by-session` over the whole AFP | 37.5 s | 19.5 s | **0.27 s** |
+| `show` on a 2-theory AFP entry | 75 ms | 697 ms | **32 ms** |
+| `callers` on a 28-theory entry | 284 ms | 1086 ms | **112 ms** |
+| `summary` on `src/HOL` (1451 theories) | 4863 ms | 3890 ms | **64 ms** |
+| `summary --by-session` over the whole AFP | 37.4 s | 19.0 s | **0.28 s** |
 
 Read the third column against the fifth row of the cost table above, not
-against the JVM: what separates 4197 ms from 64 ms on `src/HOL` is 1451
+against the JVM: what separates 3890 ms from 64 ms on `src/HOL` is 1451
 theories that do not have to be read again. The two-theory row is where the
-process-setup half shows on its own, and it is worth ~1050 ms — real, but the
-smaller number of the two, and the one that shrinks as the corpus grows.
+process-setup half shows on its own, and it is worth ~665 ms — real, but the
+smaller number of the two, and the one that shrinks as the corpus grows. That
+is also the row the cold-path caches move most: it was 1091 ms before them, and
+`src/HOL` barely shifted (4197 → 3890), because there the cost is the parse and
+no cache touches it.
 
 P7b through P7d shipped a middle column, a JVM that started in order to skip
-the parse (`summary` on `src/HOL`: 4194 ms cold, **1036 ms** delegated, 68 ms
-through the client). P8 deleted it — see "One router" above — so that route is
-gone. Where `python3` is missing, `isabelle query` is the cold column.
+the parse (`summary` on `src/HOL`, measured then: 4194 ms cold, **1036 ms**
+delegated, 68 ms through the client). P8 deleted it — see "One router" above —
+so that route is gone. Where `python3` is missing, `isabelle query` is the cold
+column.
 
-One workload goes the other way: a whole-corpus `shape census` streams 256 MB
-and bypasses the index by design, so it is slower through the socket (170 s)
-than cold (154 s). It is on the bypass list, so typing `isabelle query` runs it
-cold without being asked.
+One workload goes the other way: a whole-corpus `shape census` returns 256 MB
+and bypasses the index by design, so serving it would be slower than running it
+cold (170 s against 154 s, measured before the bypass existed). It is on the
+bypass list, so typing `isabelle query` runs it cold without being asked — the
+whole invocation costs 156.6 s against 156.1 s run cold directly, the
+difference being the client starting up and declining.
 
 ## What it reads
 

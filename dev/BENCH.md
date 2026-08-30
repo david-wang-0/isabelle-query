@@ -42,8 +42,17 @@ memory:    62 GB
 isabelle:  Isabelle2025-2
 oracle:    query 0.7.0
 rewrite:   query 0.8.0-scala
-load:      2.3 (1 min) at the start of the run — no other heavy process
+load:      0.23 (1 min) at the start of the run — no other heavy process
 ```
+
+Tiers (a)–(d) were re-measured on **2026-08-30**, after `[p8-coldpath]` cached
+the two cheapest parts of the cold path; the numbers below are that run.
+Tier (e) and the memory table are from 2026-08-28 and are marked where they
+appear. What moved is the **cold** column, and only where the cold column was
+not already dominated by the parse — the two-theory tier lost a third
+(1091 → 697 ms), `src/HOL` barely moved (4197 → 3890 ms), and the whole-AFP row
+did not move at all. That is the same point the cost table above makes, arrived
+at from the other end.
 
 Corpora: an AFP checkout of the Isabelle2025-2 vintage (10,336 `.thy` files,
 10,262 loaded across 1,043 sessions, 411,181 entries) and the distribution's
@@ -53,44 +62,52 @@ own `src`. Paths come from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO`.
 
 | invocation | oracle ms | cold ms | warm ms |
 |---|---:|---:|---:|
-| `show fair_fenum` [^1] | 73 | 1091 | **33** |
-| `summary` | 72 | 1078 | **38** |
-| `callers mono` | 73 | 1069 | **33** |
+| `show fair_fenum` [^1] | 75 | 697 | **32** |
+| `summary` | 72 | 724 | **31** |
+| `callers mono` | 77 | 716 | **35** |
 
-The cold column is almost pure JVM: ~1.1 s to answer a question about two
-files. That is the crossover P2 recorded and the reason the warm mode exists.
+The cold column here is almost pure process setup: ~0.7 s to answer a question
+about two files, of which the JVM proper is ~30 ms. That is the crossover P2
+recorded and the reason the warm mode exists. It was ~1.1 s until
+`[p8-coldpath]`; what came off is a redundant `scala_build` and the class
+loading, which is all there was to take — the remainder is the settings shell,
+the JVM, and about 40 ms of actually reading two files.
 
 [^1]: **This row replaces a bad one.** It read `show expand`, and
 `Abstract_Completeness` declares nothing called `expand` — so all three columns
 timed the same `No entries matching 'expand'.`, measuring the parse and the
 process start and none of the rendering, and agreeing with each other for the
 wrong reason. The old figures were 73 / 1060 / **31** ms. `fair_fenum` is a
-27-line lemma that exists, and the row was re-measured on its own
-(`dev/bench.sh tiny`, added for exactly this) on the same machine and date,
-median of 5, all three answers byte-identical. The other two rows of this tier
-are the original run's; re-measured beside the replacement they came out
-79 / 1105 / 41 and 76 / 1107 / 35, i.e. within noise, so nothing here is stale.
+27-line lemma that exists. All three rows of this tier now come from the same
+2026-08-30 run, median of 5, all answers byte-identical, so the footnote's
+original worry — one row measured apart from its neighbours — no longer
+applies. (The 2026-08-28 figures it replaced were 73 / 1091 / 33.)
 
 ## (b) medium — `Category3`, 28 theories
 
 | invocation | oracle ms | cold ms | warm ms |
 |---|---:|---:|---:|
-| `callers comp_assoc` (206 callers) | 290 | 1441 | **112** |
-| `callers category_axioms` (25 callers) | 280 | 1416 | **59** |
-| `shape summary` | 916 | 1851 | **364** |
+| `callers comp_assoc` (206 callers) | 284 | 1086 | **112** |
+| `callers category_axioms` (25 callers) | 279 | 1053 | **56** |
+| `shape summary` | 914 | 1507 | **354** |
 
 ## (c) `src/HOL` — 1451 theories, 78,279 entries
 
 | invocation | oracle ms | cold ms | warm ms |
 |---|---:|---:|---:|
-| `instances comm_monoid` | n/a | 4485 | **331** |
-| `codeqs rev` | n/a | 4531 | **315** |
-| `summary` | 4865 | 4197 | **64** |
+| `instances comm_monoid` | n/a | 4429 | **353** |
+| `codeqs rev` | n/a | 4303 | **310** |
+| `summary` | 4863 | 3890 | **64** |
 
 `instances` and `codeqs` have no Python counterpart, hence no oracle column.
-This is the tier the warm mode was built for: the cold tool spends ~4.5 s
+This is the tier the warm mode was built for: the cold tool spends ~4.4 s
 parsing 1451 theories to answer a lookup, and answers the same question warm in
 a third of a second — or 64 ms where the answer is a table it already has.
+
+It is also the tier that shows what the cold-path caches are **not** for. They
+took ~310 ms off a two-theory query and ~60 ms off this one, because here
+almost the whole 4.4 s is the parse. Caching process setup helps exactly where
+there is little else to do.
 
 `summary` here is the one row whose three answers are **not** identical: the
 oracle reports 77,845 entries and both Scala columns 78,279. That is D2
@@ -106,7 +123,7 @@ whole invalidation story, and it is deliberately the expensive-but-honest
 reading rather than a timestamp on the directory.
 
 ```
-first open:  2755 ms, 1451 theories, 78279 entries, 1468 files fingerprinted
+first open:  2799 ms, 1451 theories, 78279 entries, 1468 files fingerprinted
 recheck:       12 ms (best of 5), 0 theories reparsed
 ```
 
@@ -116,50 +133,64 @@ by the sweep rather than the parse).
 
 ## (d) the whole AFP — 10,336 `.thy` files
 
-RUNS=3. The warm column needs an index over the whole checkout, which the
-default 4000-theory cap refuses; `--client-limit 0` is what asks for it, and
-the resulting resident index is a ~5 GB process (see the memory table).
+RUNS=3, re-measured 2026-08-30 via `dev/bench.sh afp`. The warm column needs an
+index over the whole checkout, which the default 4000-theory cap refuses;
+`--client-limit 0` is what asks for it, and the resulting resident index is a
+~5 GB process (see the memory table).
 
 | invocation | oracle ms | cold ms | warm ms | output |
 |---|---:|---:|---:|---:|
-| `summary --by-session` | 37,487 | 19,497 | **269** | 34 KB |
-| `shape census` | 176,573 | 154,160 | 170,447 | 256 MB |
+| `summary --by-session` | 37,425 | 19,044 | **275** | 34 KB |
+| `shape census` | 176,179 | 156,096 | 156,648 | 256 MB |
 
 Two rows, two different lessons.
 
-**`summary --by-session` is the warm mode's best case at scale**: 269 ms
-against the cold tool's 19.5 s and the oracle's 37.5 s, because everything
+**`summary --by-session` is the warm mode's best case at scale**: 275 ms
+against the cold tool's 19.0 s and the oracle's 37.4 s, because everything
 expensive — parsing 10,262 theories — is already done and the answer is 34 KB.
 Once a day's editing has warmed the index, a whole-AFP overview costs about
-what a directory listing costs.
+what a directory listing costs. This is the one row the cold-path caches do not
+touch at all: 19 s of parse does not care about 300 ms of process setup.
 
-**`shape census` is the warm mode's worst case, and it is slower than cold.**
-170 s against 154 s. Two reasons, both structural rather than incidental:
+**`shape census` is the workload the warm mode cannot help**, and the
+table now shows it being declined rather than attempted. Two structural
+reasons, neither incidental:
 
 1. `shape census` does not go through `load_index` at all — it iterates
    sessions itself, one session live at a time, precisely so a corpus run's
    memory is bounded by the largest session rather than by the corpus. So it
-   gets **no benefit** from a warm index, and the warm column is the cold time
-   minus JVM start.
-2. It then pays for the transport. The reply is 256 MB, and `query_run` is
-   **synchronous with a single reply** — the server buffers the whole answer,
-   JSON-encodes it, and the client decodes it before writing a byte. That is
-   the ~16 s, and it is the deliberate design of the protocol showing its
-   limit: one request, one answer, no streaming. A `NOTE`-per-chunk variant
-   would fix this row and cost every other row a task fork and two extra
-   messages.
+   gets **no benefit** from a warm index.
+2. Served, it would then pay for the transport. The reply is 256 MB and
+   `query_run` is **synchronous with a single reply** — the server buffers the
+   whole answer, JSON-encodes it, and the client decodes it before writing a
+   byte. Measured at 170 s against 154 s cold before the bypass existed: the
+   deliberate design of the protocol showing its limit. A `NOTE`-per-chunk
+   variant would fix this row and cost every other row a task fork and two
+   extra messages.
+
+So a census is on the client's bypass list, and **the warm column above is the
+cold path reached through the client**: 156.6 s against 156.1 s: the ~550 ms
+difference is the client starting, declining and the shim running the query.
+You get that by typing nothing — `isabelle query shape census` routes
+itself.
 
 The two Scala columns are byte-identical at 306,525 records; the oracle's
-304,987 differ by the documented D-series. **Use the cold tool for a census** —
-and since P7d you do so by typing nothing: as the default front end the client
-now mirrors the delegate's census bypass, so a census through *any* spelling
-runs cold. A 2026-08-29 re-measure shows the bypass doing its job: the "warm"
-census column lands at 155.6 s against 154.3 s cold, i.e. the column now times
-the cold path reached through the client, not 256 MB through the socket.
+304,987 differ by the documented D-series.
+
+That byte-identity is not decoration here. On the first 2026-08-30 run this row
+reported a warm column of **29 ms against a 0-byte output**: P8 had changed the
+client to DECLINE with exit 97 rather than exec the cold path itself, and
+`bench.sh` was still invoking `query_client.py` directly, so it timed the
+decline and measured nothing. The cold/warm comparison in this script is what
+caught it. `bench.sh` now finishes a decline the way the shim does
+(`warm_run`), which is why the column is a real number again.
 
 ## (e) heavy — one big session, and the two largest AFP entries
 
-Taken 2026-08-29, same machine and method (median of 5, load < 0.5). The tier
+Taken 2026-08-29, same machine and method (median of 5, load < 0.5).
+**Pre-cache:** this tier was not re-measured after `[p8-coldpath]`, so its cold
+column is pessimistic — by a few hundred ms, not proportionally, since every
+row here is parse-dominated. The tier
 exists because (a)–(b) are small and (c)–(d) are extreme; this is the middle
 a working formalization actually lives in. Corpora: `src/HOL/Analysis` (106
 theories, 178k lines, a session-less root — directory discovery on both
@@ -192,6 +223,10 @@ Three things the middle tier shows:
    import-reachability filter and all.
 
 ## Memory — peak RSS
+
+Taken 2026-08-28 and unaffected by `[p8-coldpath]`: an AppCDS archive is
+memory-MAPPED, shared and read-only, and skipping `scala_build` removes a
+process that had already exited. Neither moves this table.
 
 Isabelle's `etc/settings` **overwrites** `$ISABELLE_TOOL_JAVA_OPTIONS` from the
 environment, and this JVM ignores `$_JAVA_OPTIONS`, so the only heap override
@@ -260,9 +295,8 @@ JVM inside ~0.9 s of process setup, most of it bash and a redundant build check.
 
 ### The cold path since P8
 
-Two of those rows are now cached, so every "cold ms" figure in this document
-predates them and is pessimistic by about 30%. Measured through the front door,
-median of 5, `summary` on a two-theory AFP entry, 2026-08-29:
+Two of those rows are now cached. Measured through the front door, median of 5,
+`summary` on a two-theory AFP entry, 2026-08-29:
 
 | | CDS on | CDS off |
 |---|---:|---:|
@@ -277,8 +311,11 @@ a `scala_build` that has just run leaves the page cache warm for the JVM that
 follows. A naive sum would have promised 600 ms and delivered 310. Worth
 remembering before quoting either number on its own.
 
-The tables below have NOT been re-measured against the new cold path; they are
-kept as taken, and the ratios they are used for (warm against cold) only widen.
+Tiers (a)–(d) above WERE re-measured against this cold path on 2026-08-30 and
+carry the new figures. The P7b table immediately below, tier (e) and the memory
+table were not: they predate the caches and their cold columns are pessimistic
+by up to a third. They are kept as taken — a half-re-measured table is worse
+than a dated one — and each says so where it appears.
 
 ```
 date:      2026-08-29 02:50 UTC     (same machine, load 0.31)
@@ -331,26 +368,31 @@ convenience rather than a competitor to the client.
 
 ## Reading the columns
 
-- **A small cold query loses, and no amount of engineering fixes it.** ~1 s of
-  process setup per invocation is a fixed toll the oracle does not pay. Note
-  *process setup*, not "JVM start": ~405 ms of it is `scala_build`, ~180 ms the
-  settings shell, ~250 ms class loading, and ~30 ms the JVM. Anything under a
-  second of real work is faster in Python, cold. An AppCDS archive removes about
-  200 ms of the class loading and changes none of the conclusions below.
+- **A small cold query loses, and no amount of engineering fixes it.** ~0.7 s
+  of process setup per invocation is a fixed toll the oracle does not pay. Note
+  *process setup*, not "JVM start": of the ~1 s it was before `[p8-coldpath]`,
+  ~405 ms was `scala_build`, ~180 ms the settings shell, ~250 ms class loading,
+  and ~30 ms the JVM. The caches took the first and most of the third; what
+  remains is the settings shell, the JVM and the work. Anything under about
+  three quarters of a second of real work is still faster in Python, cold.
 - **The cold tool wins where there is work to do.** `src/HOL summary`:
-  4197 ms against the oracle's 4865, and it finds 434 more declarations while
+  3890 ms against the oracle's 4863, and it finds 434 more declarations while
   doing it.
 - **The warm client wins everywhere a human waits for an answer**: 2.3x on the
-  tiny tier, 2.5–4.7x on the medium one, 76x on a `src/HOL` lookup and 139x on
+  tiny tier, 2.5–5.0x on the medium one, 76x on a `src/HOL` lookup and 136x on
   a whole-AFP `summary --by-session`, both against a resident index. The floor
   is the client process itself — about 15 ms of Python start plus 16 ms of
-  imports, against a sub-millisecond round trip.
+  imports, against a sub-millisecond round trip. Those multiples are against
+  the ORACLE; against the cold tool the same rows span 1/2 (Analysis
+  `shape summary`, tier (e)) to 1/72 (the whole-AFP `summary --by-session`).
 - **It loses on exactly one workload, and predictably**: a whole-corpus
   `shape census`, which bypasses the index by design and returns 256 MB
   through a protocol that buffers a whole reply. Run that one cold.
 - **What the warm client actually saves is the parse, not the process.** On
-  `src/HOL` the index costs 2755 ms to build and 12 ms to re-check; that ratio,
-  not the ~0.9 s of setup, is what makes the 76x. The P7b delegated column is
+  `src/HOL` the index costs 2799 ms to build and 12 ms to re-check; that ratio,
+  not the ~0.7 s of setup, is what makes the 76x. `[p8-coldpath]` is the
+  clearest possible demonstration: it removed a third of the setup and moved
+  this row by 60 ms. The P7b delegated column is
   the control that proves it: a warm process with a cold parse recovered only
   1090 → 973 ms on a two-theory entry, because there was no parse worth
   skipping. P8 deleted that column.
