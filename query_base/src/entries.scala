@@ -879,12 +879,28 @@ object Entries {
   /* `notes` filters out a `\<comment>` that is itself inside a commented-out
      block or an ML body: text alone cannot tell those apart — they are spelled
      identically — but the region scan can. */
-  def extract_comment_lines(lines: Array[String], notes: Array[Set[Int]]): List[(Int, String)] = {
+  /* `notes` carries the columns a genuine `\<comment>` opens at, one flat entry
+     per column (see `Regions.Spans`).  Membership is a scan of that line's run,
+     which is at most a handful of columns — a `Set` per line cost 8 bytes of
+     array slot on every line in the corpus to answer a question asked only
+     where `COMMENT_LINE_RE` already matched. */
+  private def note_at(notes: Regions.Spans, line: Int, col: Int): Boolean = {
+    if (line + 1 >= notes.bound.length) false
+    else {
+      var k = notes.bound(line)
+      val end = notes.bound(line + 1)
+      var found = false
+      while (k < end && !found) { if (notes.lo(k) == col) found = true; k += 1 }
+      found
+    }
+  }
+
+  def extract_comment_lines(lines: Array[String], notes: Regions.Spans): List[(Int, String)] = {
     val out = new mutable.ListBuffer[(Int, String)]
     var i = 0
     while (i < lines.length) {
       Py.search(COMMENT_LINE_RE, lines(i)).foreach { m =>
-        if (notes == null || notes(i).contains(m.start()))
+        if (notes == null || note_at(notes, i, m.start()))
           out += ((i + 1, Py.strip(cartouche_body(m.group(1)))))
       }
       i += 1

@@ -48,12 +48,32 @@ object Model {
     buf.toString
   }
 
-  def blank_all(lines: Array[String], spans: Array[List[(Int, Int)]]): Array[String] = {
+  /* The flat form, walked in place: a line with no spans is returned as it
+     stands, and one with spans is rebuilt without ever materialising a list.
+     `spans` may be shorter than `lines` only in the degenerate empty case. */
+  def blank_all(lines: Array[String], spans: Regions.Spans): Array[String] = {
     val out = new Array[String](lines.length)
+    val n = spans.bound.length - 1
     var i = 0
     while (i < lines.length) {
-      val sp = if (i < spans.length) spans(i) else Nil
-      out(i) = if (sp.isEmpty) lines(i) else blank_spans(lines(i), sp)
+      out(i) =
+        if (i >= n || spans.is_empty(i)) lines(i)
+        else {
+          val line = lines(i)
+          val buf = new StringBuilder
+          var prev = 0
+          spans.each(i) { (lo0, hi0) =>
+            val lo = lo0 max prev
+            val hi = hi0 min line.length
+            if (hi > lo) {
+              buf ++= line.substring(prev, lo)
+              buf ++= " " * (hi - lo)
+              prev = hi
+            }
+          }
+          buf ++= line.substring(prev min line.length)
+          buf.toString
+        }
       i += 1
     }
     out

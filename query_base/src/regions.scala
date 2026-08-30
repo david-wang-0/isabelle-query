@@ -127,15 +127,55 @@ object Regions {
 
   /* result */
 
+  /* PER-LINE COLUMN SPANS, FLAT.  `bound(i) until bound(i+1)` indexes `lo` and
+     `hi`; a line with no spans is two equal bounds and costs nothing beyond its
+     4-byte slot.
+
+     This used to be `Array[List[(Int, Int)]]`, and on a resident index that is
+     the single most expensive thing the engine keeps.  Measured on `src/HOL`
+     (838k lines, 452k spans) by heap histogram: 17.3 MB of `Tuple2$mcII$sp`,
+     17.2 MB of cons cells, and 12.8 MB of per-line array slots that exist
+     whether or not a line has any spans — 47 MB of a 155 MB index, or 35%, for
+     904k integers.  Flat, the same information is `bound` (one int per line)
+     plus `lo`/`hi` (one int per span): about 10 MB.
+
+     The tuples were already specialised (`$mcII$sp`), so there was never any
+     `Integer` boxing to remove; the cost is object headers and cons cells, and
+     only a flat encoding removes those.  See `todo.md [index-footprint]`. */
+  final class Spans(val bound: Array[Int], val lo: Array[Int], val hi: Array[Int]) {
+    def is_empty(i: Int): Boolean = bound(i) == bound(i + 1)
+
+    /* The one iteration primitive.  A callback rather than an `Iterator`
+       because an iterator here would allocate per line, which is the cost this
+       whole representation exists to avoid. */
+    inline def each(i: Int)(f: (Int, Int) => Unit): Unit = {
+      var k = bound(i)
+      val end = bound(i + 1)
+      while (k < end) { f(lo(k), hi(k)); k += 1 }
+    }
+
+    /* For the few places that genuinely want the old shape (diagnostics, and
+       `Model.blank_spans`'s single-line form).  Allocates; not for loops. */
+    def at(i: Int): List[(Int, Int)] = {
+      var out: List[(Int, Int)] = Nil
+      var k = bound(i + 1) - 1
+      while (k >= bound(i)) { out = (lo(k), hi(k)) :: out; k -= 1 }
+      out
+    }
+  }
+
+  val empty_spans: Spans = new Spans(Array(0), Array.empty, Array.empty)
+
   final class Result(
-    val nonisar: Array[List[(Int, Int)]],   // 0-indexed by line, half-open columns
-    val inner: Array[List[(Int, Int)]],
+    val nonisar: Spans,                     // 0-indexed by line, half-open columns
+    val inner: Spans,
     val open_at: Array[Boolean],            // line BEGAN inside a delimited region
-    val notes: Array[Set[Int]]              // columns a genuine \<comment> opens at
+    val notes: Spans                        // columns a genuine \<comment> opens at,
+                                            // encoded as zero-width spans (lo == hi)
   )
 
   val empty_result: Result =
-    new Result(Array.empty, Array.empty, Array.empty, Array.empty)
+    new Result(empty_spans, empty_spans, Array.empty, empty_spans)
 
 
   /* scan */
@@ -242,10 +282,41 @@ object Regions {
       offset += len
     }
 
-    def freeze(buf: Array[mutable.ListBuffer[(Int, Int)]]): Array[List[(Int, Int)]] =
-      buf.map(b => if (b.isEmpty) Nil else b.toList.sortBy(_._1))
+    /* Sorted by start column, as the `ListBuffer` form was: `Model.blank_spans`
+       walks them in order and clamps against the previous end. */
+    def freeze(buf: Array[mutable.ListBuffer[(Int, Int)]]): Spans = {
+      val bound = new Array[Int](n + 1)
+      var total = 0
+      var i = 0
+      while (i < n) { total += buf(i).length; i += 1; bound(i) = total }
+      val lo = new Array[Int](total)
+      val hi = new Array[Int](total)
+      i = 0
+      while (i < n) {
+        var k = bound(i)
+        for ((a, b) <- buf(i).sortBy(_._1)) { lo(k) = a; hi(k) = b; k += 1 }
+        i += 1
+      }
+      new Spans(bound, lo, hi)
+    }
 
-    new Result(freeze(nonisar), freeze(inner), open_at, notes.map(_.toSet))
+    /* `notes` is a set of COLUMNS, not ranges, so it rides the same encoding as
+       zero-width spans — one `lo` entry per column, `hi` unused.  A separate
+       shape for one field would cost more in code than the ints it saves. */
+    def freeze_cols(buf: Array[mutable.TreeSet[Int]]): Spans = {
+      val bound = new Array[Int](n + 1)
+      var total = 0
+      var i = 0
+      while (i < n) { total += buf(i).size; i += 1; bound(i) = total }
+      val lo = new Array[Int](total)
+      i = 0
+      var k = 0
+      while (i < n) { for (c <- buf(i)) { lo(k) = c; k += 1 }; i += 1 }
+      new Spans(bound, lo, lo)
+    }
+
+    if (n == 0) empty_result
+    else new Result(freeze(nonisar), freeze(inner), open_at, freeze_cols(notes))
   }
 
 
@@ -255,16 +326,15 @@ object Regions {
      (`by simp (* see foo *)`) is NOT reported.  These ranges drive
      line-granular consumers, and reporting that line to them would blank its
      live half and drop a real citation. */
-  def nonisar_ranges(lines: Array[String], spans: Array[List[(Int, Int)]]): List[(Int, Int)] = {
+  def nonisar_ranges(lines: Array[String], spans: Regions.Spans): List[(Int, Int)] = {
     val marked = new mutable.ListBuffer[Int]
     var i = 0
     while (i < lines.length) {
-      val sp = spans(i)
-      if (sp.nonEmpty) {
+      if (!spans.is_empty(i)) {
         val line = lines(i)
         val buf = new StringBuilder
         var prev = 0
-        for ((a, b) <- sp) {
+        spans.each(i) { (a, b) =>
           if (a > prev) buf ++= line.substring(prev min line.length, a min line.length)
           prev = prev max b
         }
