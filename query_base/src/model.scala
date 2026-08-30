@@ -87,8 +87,18 @@ object Model {
 case class Entry(
   tag: String,
   name: String,
-  text: String,
+  /* THE HEADER REMAINDER, not the whole declaration.
+     For the ordinary routes this is what follows the keyword on the
+     declaration line, and `text` below rebuilds the rest from the source.
+     Storing the whole thing was the third-largest item in a resident index —
+     ~15 MB of `byte[]` on `src/HOL`, a reformatted second copy of text the
+     section already holds.
+     For the handful of routes whose text is not of that shape (the `AXIOM`
+     family, and the conjunct split) this IS the whole text and `verbatim` says
+     so. */
+  head: String,
   thy_line: Int,
+  verbatim: Boolean = false,
   var decl_end_line: Int = 0,
   var proof_line: Int = 0,
   var thy_end: Int = 0,
@@ -100,6 +110,39 @@ case class Entry(
   var blocks: List[(String, String)] = Nil,
   var in_target: String = ""
 ) {
+  /* Set by `Theory_Section` at construction, so `text` can rebuild itself from
+     the source the section already holds.  A back-reference rather than a
+     parameter because entries are built before the section exists.  The cycle
+     is harmless: an entry and its section become garbage together. */
+  var owner: Theory_Section = null
+
+  /* The declaration as `show` and `defs` print it: the keyword line, then the
+     body re-indented two spaces and stripped.
+
+     REBUILT, NOT STORED.  `Entries.scan_decl_body` appended `"  " + strip` for
+     every line it visited between the declaration and `decl_end_line`, and the
+     ONLY line it skipped without appending is a blank one (the
+     `bar_continues` / `field_continues` continuation).  So the body is exactly
+     the non-blank lines of that range, which the section can supply. */
+  def text: String =
+    if (verbatim || owner == null || thy_line <= 0) head
+    else {
+      val buf = new mutable.ListBuffer[String]
+      /* `s"$tag $head"` UNCONDITIONALLY, including the trailing space an empty
+         head leaves behind.  Suppressing it looks like tidying and is a parity
+         break: the oracle prints `DEF ` for a declaration whose keyword line
+         carries nothing after the keyword, and difftest fails 11 `theory`
+         cases on the missing byte. */
+      buf += s"$tag $head"
+      var ln = thy_line + 1
+      while (ln <= decl_end_line) {
+        val s = Py.strip(owner.line(ln - 1))
+        if (s.nonEmpty) buf += ("  " + s)
+        ln += 1
+      }
+      buf.mkString("\n")
+    }
+
   /* An explicit `(in foo)` wins over lexical nesting: the modifier RETARGETS
      the declaration, which is what Isabelle does. */
   def target: String =
@@ -158,6 +201,11 @@ class Theory_Section(
      already documents and every caller already follows: bind the result to a
      local, never call it in a loop. */
   val text: String = lines0.mkString("\n")
+
+  /* Adopt the entries: `Entry.text` rebuilds itself from this section rather
+     than storing a second copy of the declaration.  Done here because this is
+     the first moment both exist. */
+  for (e <- entries) e.owner = this
 
   /* `starts(i)` is where line `i` begins; `starts(i + 1) - 1` is where it ends,
      the `- 1` being the separator `mkString` put there.  Length n + 1 so the
