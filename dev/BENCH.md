@@ -261,10 +261,39 @@ Three things this settles, and the first corrects the record:
    pinned). Some of that is the JVM's floor and some is that `Theory_Section`
    keeps the source text; none of it is hidden by quoting the ceiling.
 
-A resident server holds its indexes until they are closed, so these numbers are
-also the server's: `query_close` exists because nothing else bounds it, and the
-size cap (`ISABELLE_QUERY_SERVER_LIMIT`, default 4000 theories) exists so a
+A resident server holds its indexes until they are closed, so these numbers
+bound the server's too: `query_close` exists because nothing else bounds it, and
+the size cap (`ISABELLE_QUERY_SERVER_LIMIT`, default 4000 theories) exists so a
 stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
+
+### What the resident index itself costs
+
+The table above is peak RSS of a **cold** invocation, which is the parse and its
+garbage as much as the result. The server's steady state is a different and
+smaller number, measured 2026-08-30 by loading one index into a fresh server and
+forcing a GC (`jcmd GC.run`, then `GC.heap_info`):
+
+| corpus | theories | entries | retained heap |
+|---|---:|---:|---:|
+| `Category3` | 28 | 1,636 | under 1 MB |
+| `src/HOL/Analysis` | 106 | 11,676 | 30 MB |
+| `src/HOL` | 1,451 | 78,279 | 154 MB |
+| the whole AFP | 10,262 | 411,181 | 1,156 MB |
+
+Roughly **2–3 KB per entry**, scaling with entries rather than with theories or
+source bytes. One index per server, so the figures are attributable rather than
+cumulative; an empty server is 100 MB of heap and 165 MB of RSS.
+
+**RSS and retained heap are far apart, and both are true.** With the whole AFP
+loaded: heap 2144 MB before a GC, **1176 MB after**, and RSS **4532 MB** which
+does not move afterwards — ZGC keeps what it has committed. So "a 5 GB process"
+is the right thing to say about the machine's memory, and "1.2 GB of index" is
+the right thing to say about the data. Quote the first when sizing a host and
+the second when reasoning about the tool.
+
+This also settles what the cap is protecting against. It is not that the parsed
+AFP is enormous — 1.2 GB is not — it is that reaching it costs 2.1 GB of live
+heap mid-parse and leaves a 4.5 GB process behind.
 
 ## The auto-delegating CLI (P7b) — a route P8 removed
 

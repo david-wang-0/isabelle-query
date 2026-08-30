@@ -256,6 +256,57 @@ and **declines on any failure** — a slower right answer is always available.
 `python3` is a soft dependency: where it is missing, the same spelling runs the
 JVM front end and everything still works, one second slower.
 
+### How it notices you edited something
+
+There is no file watcher and no inotify. The server **polls, on every request**,
+before it answers: a directory walk over every `.thy` and every `ROOT`/`ROOTS`
+under the project, and one `stat` per file recording `(mtime, size)`. No file is
+read. That walk is the 12 ms above, and it is deliberately the
+expensive-but-honest reading — a warm answer one edit out of date is worse than
+a cold one.
+
+If the fingerprint is unchanged the parsed sections stand as they are. If
+anything moved, discovery and the header pass run again, but each theory is
+keyed on its own `(mtime, size)` plus the hash of the project-wide custom
+keyword union, so only files whose key actually changed are reparsed: **one
+edited theory in a 1451-theory project reparses one theory.** A change to a
+`ROOT` or to a `keywords` declaration changes the union hash and so invalidates
+everything, which is the correct answer rather than a pessimisation.
+
+Two honest limits. Size is checked alongside mtime because a coarse filesystem
+clock can hide an edit landing in the same millisecond — but this is a stat, not
+a hash, so an edit that preserves both would be invisible. And the server has no
+editor: **unsaved buffer changes are not visible to it.** The jEdit plugin keeps
+its own index and reads dirty buffers directly, which is why it does not have
+this limitation.
+
+### What a resident index costs
+
+Retained heap, measured after a forced GC, one index per server (so the numbers
+are attributable rather than cumulative):
+
+| corpus | theories | entries | retained heap |
+|---|---:|---:|---:|
+| `Category3` | 28 | 1,636 | under 1 MB |
+| `src/HOL/Analysis` | 106 | 11,676 | 30 MB |
+| `src/HOL` | 1,451 | 78,279 | 154 MB |
+| the whole AFP | 10,262 | 411,181 | 1,156 MB |
+
+So the parsed corpus itself costs roughly **2–3 KB per entry**, and it scales
+with entries rather than with theories or bytes of source.
+
+**Resident heap is not what `top` shows you.** With the whole AFP loaded the
+process is ~4.5 GB of RSS against those 1.16 GB of live objects, because the
+collector keeps what it has committed and does not hand it back. Both numbers
+are real and they answer different questions — how much data the index *is*,
+and how much memory the machine has to *find*. Budget with the second.
+
+That gap is what `$ISABELLE_QUERY_SERVER_LIMIT` (default 4000 theories) exists
+for: it refuses rather than truncates, so a stray `-R` at an AFP checkout cannot
+quietly turn the server into a multi-gigabyte process. `query_close`
+(`--client-stop` shuts the whole server down) is the other end — an index is
+held until something releases it.
+
 ### One router
 
 `lib/Tools/query` decides who answers; nothing downstream of it decides again.
