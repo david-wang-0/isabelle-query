@@ -49,7 +49,13 @@ def _build_line_index(sections: list[TheorySection]
     for sec in sections:
         spans = [(e.src_start, e.thy_end, e) for e in sec.entries
                  if e.thy_line > 0]
-        spans.sort()
+        # Sort on the two integers ONLY.  A bare `spans.sort()` compares the
+        # third component whenever the first two are equal, and `Entry` has no
+        # ordering — so one `axiomatization` declaring several names on a line
+        # (four such pairs in FOL/ex/Locale_Test/Locale_Test1) raised
+        # `TypeError` and killed every verb that builds this index.  The sort
+        # is stable, so equal spans keep source order.
+        spans.sort(key=lambda s: (s[0], s[1]))
         index[sec.theory] = spans
     return index
 
