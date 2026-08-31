@@ -7,42 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[marker-decl]` A document marker glued to its command keyword hides
-      the declaration entirely.  `DECL_RE` requires `(?=\s|$)` after the
-      keyword, so
-
-          definition\<^marker>\<open>tag important\<close> istopology :: "..."
-          typedef\<^marker>\<open>tag important\<close> 'a topology = "..."
-
-      matches nothing at all; the custom-command path fails the same way,
-      reading the lead token as `typedef\<^marker>`, which is in no keyword
-      table.  Where a space *does* precede the marker the name parser reads
-      the MARKER as the name (`\<^marker>\<open>tag`), because Isabelle markup
-      tokens are name characters.  `\<^marker>` is a formal comment to
-      Isabelle's lexer, so the fix is to blank it in the outer view and have
-      the name scan step over every formal-comment marker (`\<comment>`,
-      `\<^cancel>`, `\<^latex>`, `\<^marker>`, both spellings) the way it
-      already steps over `\<comment>`.
-      **Cost: 509 missed declarations in `HOL/Analysis` alone** — `istopology`,
-      `subtopology`, `pullback_topology`, `retract_of`, `aff_dim` … — which
-      tags its declarations for the document build throughout; 751 records
-      there once displaced spans are counted, plus 7 AFP entries (Ceva,
-      Interval_Analysis, MDP-Rewards, Complex_Bounded_Operators,
-      Tabulation_Hashing, First_Order_Terms, Differential_Privacy).
-      It is not only an entry-set loss: `shape`'s classifier is seeded from
-      `sec.entries`, so in an affected theory a name that should be a `const`
-      classifies as a `var` and the `w1_est_*` / `const_est_*` columns move
-      with it.  **Do this before regenerating any shape census.**
-      Blast radius is why it is not in the first batch: it changes name
-      extraction, so it wants a before/after entry-set diff over both corpora,
-      not just a fixture.  Take D6 with it — neither implementation stops a
-      name at a *structural* marker, so `coprod_final_sink\<^marker>\<open>tag`
-      is indexed as the name (7 names across the AFP); truncating there also
-      moves 3 records that currently agree, which is exactly why it belongs
-      with this change and its diff rather than on its own.
-      D2 and D6 in the Scala port's `dev/DIVERGENCES.md`; reproduced by
-      `scripts/probe_scala_port_findings.py`.
-
 - [ ] `[span-api]` Give the Isar span parsing a supported import surface
       (issue #10).  `parsing.py` is 2,724 lines of entry extents, `text`
       block spans, comment ranges, heading spans, proof extents, balanced
@@ -157,6 +121,29 @@ in `CONTRIBUTING.md`.
       and `context ... begin` re-entry, all of which bind a name at a line
       other than its declaration's.
 
+- [ ] `[proof-extent-view]` `_proof_extent` looks for its boundaries in RAW
+      source, so a commented-out one ends a proof that has not ended.  All four
+      of its tests — `text `, a heading, `DECL_RE`, and the column-0 anchor —
+      run against `sec.source()`, which is the question `extract_entries`
+      already answers with the outer view ("a `lemma` written inside a term or
+      a comment is blanked there, so it cannot match").  This is the last
+      scanner still asking the raw line.
+      **248 of the AFP's 295,775 proofs stop at a boundary inside a redacted
+      region**: 231 at a commented-out declaration
+      (`ABY3_Protocols/Multiplication_Synthesization:56`), 11 at a heading
+      inside a `(* ... *)` block (`Chomsky_Schuetzenberger/Dyck_Language_Syms:64`,
+      and `HOL/Analysis/Retracts:1268`), 6 at a commented-out `text`
+      (`Alpha_Beta_Pruning/Alpha_Beta_Linear:340`).  `body_end_line` is short by
+      however far the block runs, and it feeds `shape`'s `proof_lines` /
+      `proof_tokens` and `show --proof`.
+      Not the one-line fix it looks like, which is why it is filed rather than
+      folded into [marker-decl]'s diff.  The outer view blanks a `text` block's
+      cartouche, so `stripped.startswith("text ")` stops matching there; and
+      switching `DECL_RE.match(cline)` to `_match_decl_at` would drop the
+      column-0 anchor at the same time, widening the boundary to indented
+      declarations — a second change riding along, and the one with the bigger
+      corpus delta.  Do them as two steps with two diffs.
+
 - [ ] `[count-mode-zero]` `-c` / `--count` prints a sentence, not a count,
       when nothing matches: `find zzz -c` says `No entries matching 'zzz'.`
       where a count mode should say `0`.  The sentence is emitted by
@@ -210,6 +197,18 @@ in `CONTRIBUTING.md`.
       is the warning to heed — adding it renames every
       `lemma`-alone-on-its-line declaration, so it needs its own corpus diff,
       which is why this is an item and not a one-liner.
+
+      The same gap now has a second, sharper instance.  Since [marker-decl],
+      `First_Order_Terms/Term:37` —
+
+          lemma \<^marker>\<open>contributor \<open>Martin Desharnais\<close>\<close>
+            inj_on_Fun_fun[simp]: "\<And>A ts. inj_on (\<lambda>f. Fun f ts) A" and
+
+      — parses to `?` rather than to the garbled `\<^marker>\<open>contributor`
+      it used to give.  That is honest and it is still not the name: the marker
+      ends the line, so the name sits on the next one and only the lookahead
+      can reach it.  A one-record fixture for the change, and the case that
+      shows the lookahead belongs on the `goal` route regardless of markers.
 
       **(b) An UNTYPED name is not indexed at all.**
 
@@ -317,6 +316,11 @@ in `CONTRIBUTING.md`.
       of every custom-command entry, so it belongs with the session model.
       Newly visible rather than newly introduced: before `[keyword-kind-quoted]`
       the quoted-kind bug kept `alphabet` out of the table and hid it.
+      A second instance found while measuring [marker-decl]:
+      `Isabelle_C/C_Appendices:831` mints a phantom `DEF` whose name is read
+      out of a `text` block's prose, because Isabelle_C's `C_export_file` is in
+      scope for a theory that never imports it.  Same shape, different session,
+      and it shows the cost is not confined to one continuation-line accident.
       D4 in the Scala port's `dev/DIVERGENCES.md`.
       Sibling observation, same shape, deliberately not filed separately
       (D11): the method/attribute table is resolved from whichever declared

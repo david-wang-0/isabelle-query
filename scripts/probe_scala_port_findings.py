@@ -14,13 +14,14 @@ checkable rather than being asserted done.
 CONFIRMED means the defect is still present.  Fixed as of 0.7.x:
 
     D1  [cartouche-escape]      `\<open>\\<close>` swallowed the rest of the file
+    D2  [marker-decl]           `definition\<^marker>\<open>...\<close> name` was missed
     D3  [keyword-kind-quoted]   a quoted `keywords` kind registered no command
+    D6  [marker-decl]           a name ran straight through a trailing marker
     D7  [span-ties]             a multi-name `axiomatization` crashed the line index
     D10 [cascade-level]         `unused -r` depths depended on the hash seed
 
 Still open, with todo tags:
 
-    D2  [marker-decl]           `definition\<^marker>\<open>...\<close> name` is missed
     D5  [comment-newline]       `\<comment>` whose cartouche is on the next line
     D8  [closed-stdout]         a closed stdout exits 0 or 120, not always 141
 
@@ -120,6 +121,30 @@ def d3_quoted_keyword_kind() -> None:
            f"unquoted kind -> {bare}; quoted kind -> {quoted}")
 
 
+# --------------------------------------------------------------- D6
+def d6_marker_after_the_name() -> None:
+    r"""`definition lipschitzI_on\<^marker>\<open>tag important\<close> :: ...`.
+
+    The other half of [marker-decl], and the half a marker-in-the-keyword
+    fixture cannot see: here the command IS recognised, and the name run
+    continues through the marker.  Both real spellings, from
+    Lipschitz_Interval_Extension:47 and Source_and_Sink_Algebras_Constructions.
+    """
+    thy = (
+        "theory D6\nimports Main\nbegin\n"
+        "definition lipschitzI_on\\<^marker>\\<open>tag important\\<close> :: "
+        "\"bool\"\n"
+        "  where \"lipschitzI_on = True\"\n"
+        "lemma coprod_final_sink\\<^marker>\\<open>tag important\\<close>: "
+        "\"True\" by simp\n"
+        "end\n"
+    )
+    sec = _parse_text("D6", thy)
+    names = [e.name for e in sec.entries]
+    record("D6", any("marker" in n for n in names),
+           f"entries={names} (want lipschitzI_on, coprod_final_sink)")
+
+
 # --------------------------------------------------------------- D5
 def d5_comment_cartouche_next_line() -> None:
     r"""`\<comment>` and its cartouche separated by a newline."""
@@ -212,8 +237,8 @@ def main() -> int:
     print("-" * 78)
     for fn in (d1_cartouche_backslash, d2_marker_glued_to_keyword,
                d3_quoted_keyword_kind, d5_comment_cartouche_next_line,
-               d7_line_index_typeerror, d8_closed_stdout_status,
-               d10_unused_cascade_nondeterminism):
+               d6_marker_after_the_name, d7_line_index_typeerror,
+               d8_closed_stdout_status, d10_unused_cascade_nondeterminism):
         try:
             fn()
         except Exception as exc:  # a crash IS a finding, not a probe failure
