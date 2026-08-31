@@ -7,28 +7,20 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[proof-extent-view]` `_proof_extent` looks for its boundaries in RAW
-      source, so a commented-out one ends a proof that has not ended.  All four
-      of its tests — `text `, a heading, `DECL_RE`, and the column-0 anchor —
-      run against `sec.source()`, which is the question `extract_entries`
-      already answers with the outer view ("a `lemma` written inside a term or
-      a comment is blanked there, so it cannot match").  This is the last
-      scanner still asking the raw line.
-      **248 of the AFP's 295,775 proofs stop at a boundary inside a redacted
-      region**: 231 at a commented-out declaration
-      (`ABY3_Protocols/Multiplication_Synthesization:56`), 11 at a heading
-      inside a `(* ... *)` block (`Chomsky_Schuetzenberger/Dyck_Language_Syms:64`,
-      and `HOL/Analysis/Retracts:1268`), 6 at a commented-out `text`
-      (`Alpha_Beta_Pruning/Alpha_Beta_Linear:340`).  `body_end_line` is short by
-      however far the block runs, and it feeds `shape`'s `proof_lines` /
-      `proof_tokens` and `show --proof`.
-      Not the one-line fix it looks like, which is why it is filed rather than
-      folded into [marker-decl]'s diff.  The outer view blanks a `text` block's
-      cartouche, so `stripped.startswith("text ")` stops matching there; and
-      switching `DECL_RE.match(cline)` to `_match_decl_at` would drop the
-      column-0 anchor at the same time, widening the boundary to indented
-      declarations — a second change riding along, and the one with the bigger
-      corpus delta.  Do them as two steps with two diffs.
+- [ ] `[proof-extent-anchor]` `_proof_extent` still tests `DECL_RE.match(cline)`
+      at COLUMN 0, which is the anchor `_match_decl_at` retired everywhere else
+      (`[deanchor]`: Isar is whitespace-insensitive, `Error_Monad_Add` indents
+      its whole body, and 91 AFP theories reported no entries at all).  So an
+      indented declaration does not end the proof above it, and the two
+      recognisers disagree about what a declaration is.
+      Deliberately left out of `[proof-extent-view]`, which measured 287
+      entries and moved no other field: switching to `_match_decl_at` would
+      ride a second, larger change in on that diff.  Do it with its own
+      before/after, and note it can only SHRINK `body_end_line` — the opposite
+      direction from `[proof-extent-view]` — so the two must not be measured
+      together or they will partly cancel.
+      Same question for the `text` test, which `startswith("text ")` answers on
+      the raw line while `extract_text_blocks` answers it properly.
 
 - [ ] `[count-mode-zero]` `-c` / `--count` prints a sentence, not a count,
       when nothing matches: `find zzz -c` says `No entries matching 'zzz'.`

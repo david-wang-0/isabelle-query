@@ -2615,7 +2615,11 @@ def _parse_one(thy: str, thy_path: Path,
     # next text \<open>...\<close> block or declaration.  For pure
     # declarations (no proof), body ends at decl_end_line.  Computed after
     # compute_spans because _proof_extent needs thy_end as a search bound.
-    sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines))
+    # Carries `nonisar_ranges` because `_proof_extent` reads them: a boundary
+    # written inside a comment is not a boundary, and a section without them
+    # would silently answer as if the theory had no comments at all.
+    sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
+                                   nonisar_ranges=nonisar_ranges)
     sec_for_extent._source_cache = lines
     for e in entries:
         if e.proof_line:
@@ -2792,34 +2796,56 @@ def sections_for_session(session: SessionInfo,
 
 
 def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:
-    """Walk forward from proof_line, return last line that belongs to the proof.
-    Stops at `text \\<open>...` blocks, section headers, next declarations, or
+    r"""Walk forward from proof_line, return last line that belongs to the proof.
+    Stops at `text \<open>...` blocks, section headers, next declarations, or
     end of file.  Returns proof_line itself for one-line proofs.
+
+    A boundary **written inside a comment is not a boundary** — 248 of the
+    AFP's 295,775 proofs stopped at one [proof-extent-view]: 231 at a
+    commented-out declaration (`ABY3_Protocols/Multiplication_Synthesization:56`),
+    11 at a heading inside a `(* ... *)` block, 6 at a commented-out `text`.
+    Authors supersede a lemma and leave the old one in a comment, and the proof
+    above it was truncated at the `(*`.
+
+    The test is `nonisar_ranges`, the WHOLE-LINE noise mask, and not the outer
+    view every other scanner uses.  Two reasons, and both are why this is its
+    own change rather than a line in a bigger one: the outer view blanks a
+    `text` block's own cartouche, so `startswith("text ")` would stop matching
+    there and the boundary would be lost in the other direction; and a
+    *partially* commented line (`lemma foo: "P" (* note *)`) is live Isar and
+    must still end the proof, which whole-line masking gets right and
+    character-level blanking would too but only by accident of what it blanks.
+
+    Only the BOUNDARY tests are masked.  A noise line still advances `last`
+    exactly as before, because that is a separate question — whether a trailing
+    comment block belongs to the proof — and answering it here would be a
+    second change hiding inside this one.
     """
     lines = sec.source()
+    noise = _line_mask(len(lines), sec.nonisar_ranges)
     last = proof_line
     for line_no in range(proof_line + 1, thy_end + 1):
         if line_no > len(lines):
             break
         cline = lines[line_no - 1]
         stripped = cline.strip()
-        # Stop at top-level documentation blocks (text \<open>...\<close>) but
-        # NOT at in-proof Isar annotations (\<comment> \<open>...\<close>), which
-        # are routine inside proof bodies.
-        if stripped.startswith("text ") or stripped.startswith("text\\<open>"):
-            break
-        # `_heading_at`, not a regex of its own: this was a THIRD asker of "is
-        # this a heading", and it disagreed — a marked heading and a split
-        # heading both ended a proof for `outline` and the prose mask but not
-        # here.  7 lines over 2.36M in the AFP, so the size of the disagreement
-        # is not the argument; having three recognisers where the comments
-        # promise one is.  No prose mask is passed, as none was before: a
-        # heading inside a `(* ... *)` block still reads as one here, which is
-        # what `Retracts:1268` is.
-        if _heading_at(lines, line_no - 1) is not None:
-            break
-        if DECL_RE.match(cline):
-            break
+        if not noise[line_no]:
+            # Stop at top-level documentation blocks (text \<open>...\<close>)
+            # but NOT at in-proof Isar annotations (\<comment> \<open>...
+            # \<close>), which are routine inside proof bodies.
+            if (stripped.startswith("text ")
+                    or stripped.startswith("text\\<open>")):
+                break
+            # `_heading_at`, not a regex of its own: this was a THIRD asker of
+            # "is this a heading", and it disagreed — a marked heading and a
+            # split heading both ended a proof for `outline` and the prose mask
+            # but not here.  7 lines over 2.36M in the AFP, so the size of the
+            # disagreement is not the argument; having three recognisers where
+            # the comments promise one is.
+            if _heading_at(lines, line_no - 1) is not None:
+                break
+            if DECL_RE.match(cline):
+                break
         if stripped:
             last = line_no
     return last
