@@ -7,50 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
-      `PIDE/markup` in a built session database.  The #8 entity export gives
-      names and a *name* position (`offset..end_offset` brackets the name, not
-      the declaration), so declaration extents, command segmentation and
-      comment regions — what `parsing.scan_regions` actually computes, and
-      what `enclosing`/`outline`/`largest` and every `shape` metric rest on —
-      have no oracle at all.  `PIDE/markup` is the theory text with Isabelle's
-      markup interleaved: on `DitherTM` it decodes to 87 `command_span`s, each
-      carrying the keyword, Isabelle's own **kind** and an exact extent
-      (`definition 66..68`, `lemma 74..74`, `by 75..75`).  The kind field
-      (`thy_goal_stmt` / `qed` / `prf_script` / `prf_decl`) is Isabelle's own
-      version of the goal / closing / plumbing split `shape` builds by hand —
-      on that theory `query` sees 38 steps where Isabelle marks 41 proof
-      commands, which is a checkable discrepancy nothing currently checks.
-      `scripts/probe_pide_markup.py` already decodes it.
-      **Build it as a fixture generator, not a reference.**  A heap is a
-      snapshot; comparing today's parse against it live would ossify, and the
-      only cure for a stale reference is a rebuild — the one thing this tool
-      must never do.  `isabelle_sources` carries a plain SHA-1 digest and the
-      compressed body of every source consumed, so (a) staleness is *decided*
-      — gate every comparison on the digest and skip a moved theory with a
-      reason, never as a disagreement — and (b) the snapshot contains its own
-      inputs, so a `(source, answer)` pair harvested from it stays
-      self-consistent forever and replays with **no Isabelle installed**.
-      That is what gets these checks into `pytest` instead of a heap-dependent
-      `make` target, and it is why building more heaps is worth it: the cost
-      is paid once and the artifact is permanent.  Two constraints when
-      harvesting: commit minimal extracted snippets, not whole AFP files
-      (licensing and size), and record the Isabelle release in the fixture,
-      since it pins that release's semantics.
-
-- [ ] `[feature-audit]` Standing critical pass over each subcommand:
-      output formats, defaults, and past design choices.  Re-benchmark
-      against AWS AutoCorrode's `iq` tool
-      (`https://github.com/awslabs/AutoCorrode/blob/main/iq/README.md`)
-      to see which of its affordances we still lack.
-      Open design questions (the headline comment-search gap, the
-      `-n`/`--names` overload, and the `grep` owner-column span are now
-      *closed* — see Done):
-      - Optional: a comments-/prose-**only** view.  `grep --with-comments`
-        is additive (live source *plus* comments); there's no way to see
-        *only* the cartouche prose, which is what a PDF-commentary reader
-        wants.
-
 - [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
       by a newline.  Isabelle's `comment_prefix` allows any blanks between the
       marker and the cartouche it owns, newlines included, so
@@ -65,10 +21,10 @@ in `CONTRIBUTING.md`.
       as a single token within a line, so the scanner sees a bare `\<comment>`
       and then a separate LIVE cartouche, and charges all the prose to the
       statement above it (`decl_end_line` 9 where the declaration ends at 5).
-      Costs 1 record in the whole AFP — Substitutions_Lambda_Free:58 — so this
-      is low priority, but it is the only entry on this list whose fix is
-      confined to one regex and its state machine.  D5 in the Scala port's
-      `dev/DIVERGENCES.md`.
+      Costs 1 record in the whole AFP — Substitutions_Lambda_Free:58 — but the
+      fix is confined to one regex and its state machine, and it is half of
+      one question rather than a standalone cheap win: see the next item.
+      D5 in the Scala port's `dev/DIVERGENCES.md`.
 
 - [ ] `[comment-before-name]` A formal comment BETWEEN a declaration keyword
       and its name makes the name be read out of the comment's prose, and the
@@ -89,6 +45,13 @@ in `CONTRIBUTING.md`.
       whose name is not a token of the live view near its own declaration.
       The one AFP hit it finds — `C11-FrontEnd/.../C_Appendices:831` — is the
       phantom already filed under `[keyword-scope]`, a different cause.
+      **The SAME-LINE form is already fixed**: `_strip_decl_prefix` skips a
+      leading `\<comment>` cartouche, so `definition \<comment> \<open>..\<close>
+      bar :: ...` parses.  What is unhandled is the comment on a line of its
+      own between the keyword and the name — i.e. `_lookahead_name`, which
+      reads the first content line below a bare keyword, does not apply the
+      same skip.  Check `tests/test_known_failures.py` first: its
+      comment-prefixed-name entries may already pin part of this.
       Sibling of `[comment-newline]` and NOT the same bug: there the marker
       and its cartouche are on different lines, here they are on one line and
       the name lookahead reads through them anyway.  Both are the same
@@ -98,6 +61,43 @@ in `CONTRIBUTING.md`.
       Found while checking the Scala port's D13 claim that `WFair`'s `is` is
       an entry "reported dead and not dead".  It is not: it is a phantom, and
       the 531 `--reach name` callers of it are the `(is "?thesis")` KEYWORD.
+
+- [ ] `[markup-step-model]` Resolve ONE discrepancy, then stop.  On
+      `DitherTM`, `PIDE/markup` decodes to 87 `command_span`s each carrying
+      the keyword, Isabelle's own **kind** (`thy_goal_stmt` / `qed` /
+      `prf_script` / `prf_decl`) and an exact extent — and `query` sees **38
+      steps where Isabelle marks 41 proof commands**.  Every `shape` metric
+      rests on the step model, and `shape` numbers are research output, so
+      three unexplained steps are worth an afternoon.
+      `scripts/probe_pide_markup.py` already decodes the markup; the work is
+      "explain the three".
+      **Deliberately NOT a fixture corpus.**  This replaces the former
+      `[markup-oracle]`, which specced a committed, digest-gated,
+      release-pinned harvest of `(source, answer)` pairs.  The precedent says
+      that is the wrong half: `[export-oracle]` used Isabelle ground truth as
+      a **one-time discovery instrument**, shipped eight commits under
+      `[declared-names]` (713 unindexed names, 40,741 cited occurrences), and
+      was then RETIRED — `git log --grep='\[declared-names\]'`.  Nothing
+      standing was kept and nothing needs maintaining.  As `probe(#8)` put it:
+      once the oracle says WHAT to look for, the measurement is ordinary
+      source scanning at full corpus scale, on a machine with no Isabelle.
+      So if this finds a defect: fix it, pin it with a **hand-written**
+      fixture (per `CLAUDE.md` — hand-compute the value, then make the code
+      match), cite the markup finding in the commit message, and let the probe
+      go.  No heap dependency enters `pytest`.
+
+- [ ] `[feature-audit]` Standing critical pass over each subcommand:
+      output formats, defaults, and past design choices.  Re-benchmark
+      against AWS AutoCorrode's `iq` tool
+      (`https://github.com/awslabs/AutoCorrode/blob/main/iq/README.md`)
+      to see which of its affordances we still lack.
+      Open design questions (the headline comment-search gap, the
+      `-n`/`--names` overload, and the `grep` owner-column span are now
+      *closed* — see Done):
+      - Optional: a comments-/prose-**only** view.  `grep --with-comments`
+        is additive (live source *plus* comments); there's no way to see
+        *only* the cartouche prose, which is what a PDF-commentary reader
+        wants.
 
 - [ ] `[keyword-scope]` The custom-command table is unioned over the whole
       ROOT, which is right for a session and too coarse for a corpus.  Both
