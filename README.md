@@ -91,10 +91,25 @@ the JSONL record schema.
 
 ## Exit status
 
-`0` the command ran; `1` the request could not be resolved (unknown theory or
-path, no subcommand); `2` bad usage — an argparse error, or **a root that could
-not be read**; `141` a write failed because a downstream reader closed the pipe
-(`query shape census | head` over a corpus), as a shell reports for SIGPIPE.
+`0` the command ran; `1` the request could not be resolved (unknown theory,
+entry name or path, no subcommand); `2` bad usage — an argparse error, or **a
+root that could not be read**; `141` a write failed because a downstream reader
+closed the pipe (`query shape census | head` over a corpus), as a shell reports
+for SIGPIPE.
+
+**A diagnostic goes to stderr and stdout stays clean**, so a count mode is
+always safe to capture. The two empty answers are different and say so:
+
+```
+$ query find zzz -c        # a real search that found nothing
+0
+$ echo $?
+0
+$ query callees zzz -c     # there is no entry `zzz` to have callees
+query: 'zzz' is not in the entry index
+$ echo $?
+1
+```
 
 `141` is not promised for *every* `| head`. When the whole answer fits the pipe
 buffer no write ever fails and the status is `0` — the same as `seq 10 | head`,

@@ -193,7 +193,15 @@ class TerseModes(RefsFixture):
         self.assertIn("makes no references", self._refs("Base"))
 
     def test_an_unknown_theory_is_reported(self):
-        self.assertIn("not found", self._refs("Nope"))
+        # On stderr and exit 1 since [unresolved-subject]: "no references" and
+        # "no such theory" are different answers, and a caller cannot act on
+        # the difference if both arrive on stdout with status 0.
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            with self.assertRaises(SystemExit) as caught:
+                self._refs("Nope")
+        self.assertEqual(caught.exception.code, 1)
+        self.assertIn("no theory 'Nope'", buf.getvalue())
 
 
 class TheoryScopeOnFind(RefsFixture):

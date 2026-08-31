@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from isabelle_query import graph
+from isabelle_query._prog import prog_name as _prog_name
 from isabelle_layout import parse_thy_imports
 from isabelle_query.model import (
     CallGraph,
@@ -59,6 +60,33 @@ from isabelle_query.render import (
     _truncate_preview,
     render_entry,
 )
+
+
+# Exit status for a request that could not be resolved — an unknown theory or
+# entry name.  Distinct from 0 (the command ran and the answer is genuinely
+# empty) and from `cli._EXIT_BAD_ROOT` 2 (the corpus itself could not be read),
+# because those are the distinctions a caller has to make.  Documented in
+# `README.md`'s exit-status table.
+EXIT_UNRESOLVED = 1
+
+
+def _fail_subject(what: str) -> None:
+    """Report an unresolvable SUBJECT on stderr and exit non-zero.
+
+    `_fail_root`'s rule one level down [unresolved-subject].  "No callees of
+    zzz" and "there is no zzz" are different answers, and a caller cannot act
+    on the difference if both arrive on stdout with status 0 — `$(query callees
+    X -c)` captured a sentence where it expected a number, and `$?` said the
+    run succeeded.  Same family as the silent-zero root: an empty success for a
+    question that was never asked.
+
+    Note the two kinds of empty this keeps apart.  `find zzz -c` prints `0`,
+    because searching for something absent is a real search with a real answer;
+    `callees zzz` cannot begin, because there is no entry to have callees.  The
+    verbs disagree because the questions do, not because they are inconsistent.
+    """
+    print(f"{_prog_name()}: {what}", file=sys.stderr)
+    sys.exit(EXIT_UNRESOLVED)
 
 
 def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
@@ -283,7 +311,8 @@ def cmd_theory(sections: list[TheorySection], name: str,
                flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, name)
     if sec is None:
-        print(f"Theory '{name}' not found.  Known theories:")
+        _fail_subject(f"no theory '{name}'.  Known theories:\n  "
+                      + "\n  ".join(sorted(s.theory for s in sections)))
         for s in sorted(sections, key=lambda x: x.theory):
             print(f"  {s.theory}")
         return
@@ -541,7 +570,7 @@ def cmd_defs(sections: list[TheorySection], theory: str,
              flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, theory)
     if sec is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
     matches = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
     if not matches:
@@ -575,7 +604,7 @@ def cmd_deps(sections: list[TheorySection], theory: str,
     semantics of the entry-level pair."""
     target = _resolve_theory(sections, theory)
     if target is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
     by_theory = _sections_by_theory(sections)
@@ -673,7 +702,7 @@ def cmd_refs(sections: list[TheorySection], theory: str,
     """
     target = _resolve_theory(sections, theory)
     if target is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
     graph_ = _build_call_graph(sections, flags.drop_names_upto,
@@ -769,7 +798,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
                 flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, theory)
     if sec is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
     items: list[tuple[int, str, object]] = []
@@ -1239,7 +1268,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
                       f"(entry) level.")
                 name = parent
             else:
-                print(f"'{name}' not found in the entry index.")
+                _fail_subject(f"'{name}' is not in the entry index")
                 return
         reachable = _bfs_depths(lambda n: graph.callers.get(n, set()), {name})
         reachable.pop(name, None)
@@ -1293,7 +1322,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
                   f"reporting {parent}'s callees (shared proof body).")
             name = parent
         else:
-            print(f"'{name}' not found in the entry index.")
+            _fail_subject(f"'{name}' is not in the entry index")
             return
 
     if flags.recursive:
@@ -1379,10 +1408,9 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
     # because a mistyped name would otherwise get "No uses found", an empty
     # success for a question that was never asked.
     if name not in counts and name not in graph._PROOF_METHODS:
-        print(f"'{name}' is not used as a proof method here, and is not in the "
-              f"resolved proof-method namespace.  Try `methods` for the list of "
-              f"methods actually used.")
-        return
+        _fail_subject(f"'{name}' is not used as a proof method here, and is "
+                      f"not in the resolved proof-method namespace.  Try "
+                      f"`methods` for the list of methods actually used.")
     if flags.mode == "count":
         print(len(located))
         return

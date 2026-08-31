@@ -35,9 +35,10 @@ end
 #
 #   "zero"    — the answer really is zero, so a NUMBER is the only right output.
 #   "unknown" — the SUBJECT does not exist, so the question could not be asked.
-#               A `0` there would be the silent zero `CONTRIBUTING.md` forbids;
-#               what is arguably wrong is the exit status, not the sentence.
-#               See `[unresolved-subject]` in `todo.md`.
+#               A `0` there would be the silent zero `CONTRIBUTING.md` forbids.
+#               Since [unresolved-subject] these keep stdout EMPTY, put the
+#               diagnostic on stderr and exit 1, so `$(...)` captures nothing
+#               and `$?` says why.
 #   "control" — a non-empty answer, because a count mode that cannot count is
 #               worse than one that prints a sentence.
 #
@@ -78,16 +79,19 @@ def main() -> int:
     for label, argv, kind in CASES:
         r = subprocess.run([QUERY, "-R", str(root), *argv],
                            capture_output=True, text=True)
-        out = (r.stdout or r.stderr).strip().splitlines()
-        first = out[0] if out else "<empty>"
-        numeric = first.strip().lstrip("-").isdigit()
-        # A "zero"/"control" case must be a number on stdout.  An "unknown"
-        # case must NOT be, and should say so where a script can tell.
-        ok = numeric if kind != "unknown" else not numeric
+        out = r.stdout.strip()
+        err = r.stderr.strip().splitlines()
+        if kind == "unknown":
+            # Nothing on stdout, something on stderr, exit 1.
+            ok = out == "" and bool(err) and r.returncode == 1
+            shown = err[0] if err else "<no diagnostic>"
+        else:
+            ok = out.lstrip("-").isdigit() and r.returncode == 0
+            shown = out or "<empty>"
         if not ok:
             bad += 1
         print(f"{label:14} {kind:8} {r.returncode:>4}  "
-              f"{'' if ok else '<-- WRONG '}{first[:40]}")
+              f"{'' if ok else '<-- WRONG '}{shown[:40]}")
     print("-" * 70)
     print(f"{bad} of {len(CASES)} count modes answer wrongly")
     if tmp is not None:

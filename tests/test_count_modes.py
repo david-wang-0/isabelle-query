@@ -32,7 +32,7 @@ import io
 import os
 import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, os.path.dirname(__file__))
 from support import section_from  # noqa: E402
@@ -140,16 +140,32 @@ class AnUnknownSubjectIsNotZero(unittest.TestCase):
     def setUp(self):
         self.sections = [section_from(THY, "T")]
 
+    def unresolved(self, fn, *args):
+        """Run `fn`, expecting it to exit 1 with a diagnostic on stderr."""
+        err = io.StringIO()
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as caught:
+                fn(*args)
+        self.assertEqual(caught.exception.code, 1)
+        # stdout must stay clean — that is what makes `$(...)` usable.
+        self.assertEqual(out.getvalue(), "")
+        return err.getvalue()
+
     def test_callees_of_a_nonexistent_entry(self):
-        out = run(commands.cmd_callees, self.sections, "zzz",
-                  CmdFlags(mode="count"))
-        self.assertNotEqual(out, "0")
-        self.assertIn("not found", out)
+        err = self.unresolved(commands.cmd_callees, self.sections, "zzz",
+                              CmdFlags(mode="count"))
+        self.assertIn("not in the entry index", err)
 
     def test_refs_of_a_nonexistent_theory(self):
-        out = run(commands.cmd_refs, self.sections, "zzz",
-                  CmdFlags(mode="count"))
-        self.assertNotEqual(out, "0")
+        err = self.unresolved(commands.cmd_refs, self.sections, "zzz",
+                              CmdFlags(mode="count"))
+        self.assertIn("no theory 'zzz'", err)
+
+    def test_methods_for_a_name_that_is_no_method(self):
+        err = self.unresolved(commands.cmd_methods, self.sections, "zzz",
+                              CmdFlags(mode="count"))
+        self.assertIn("proof method", err)
 
     def test_callers_scans_and_so_may_truthfully_be_zero(self):
         # Not an inconsistency: `callers` searches source for a token, so zero

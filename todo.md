@@ -7,33 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[unresolved-subject]` A lookup verb whose SUBJECT does not exist prints
-      its diagnostic on **stdout** and exits **0**.  `callees zzz`, `refs zzz`
-      and `methods zzz` cannot be answered without a `zzz`, and they rightly
-      say so rather than printing `0` — that much is `[count-mode-zero]`'s
-      companion and is now pinned.  What is wrong is where the sentence goes:
-
-          $ query callees zzz -c
-          'zzz' not found in the entry index.
-          $ echo $?
-          0
-
-      so `$(query callees X -c)` captures a sentence and `$?` reports success.
-      Same silent-zero family as the root that read as an empty census, one
-      step removed — the caller cannot tell a broken request from a real one.
-      `README.md` already documents the answer: exit `1` is "the request could
-      not be resolved (unknown theory or path)", and a diagnostic belongs on
-      stderr, exactly as a bad root already does with `2`.
-      Not folded into `[count-mode-zero]`, which only moved a mode dispatch:
-      this changes the **exit-status contract**, so a script that today branches
-      on `$? == 0` would break.  Under 0.x that is a minor bump, and it wants
-      the whole family decided at once rather than one verb at a time —
-      `scripts/probe_count_modes.py` enumerates them.
-      Note `callers` is NOT one of these and its `0` is right: it scans source
-      for a token, so zero mentions is a truthful answer whether or not the
-      name is a declared entry.  `callees` needs the entry to exist before it
-      can have callees.  Different questions, so different empty answers.
-
 - [ ] `[axiom-names]` `axiomatization` names, two ways.  Found while building
       the `[span-ties]` fixture — the synthetic form did not reproduce the
       crash, and chasing why turned up both of these on real sources.

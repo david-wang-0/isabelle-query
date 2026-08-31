@@ -50,6 +50,21 @@ exited 0, and a shell path-expansion bug turned that into a run of plausible
 zero-record censuses. A root that cannot be read reports on stderr and exits
 `2`, a code deliberately distinct from `1`.
 
+The same rule one level down: **an unresolvable SUBJECT goes through
+`commands._fail_subject`** — stderr, stdout untouched, exit `1`. Distinguish
+the two empties before choosing, because they look identical at the call site:
+
+| | example | answer |
+|---|---|---|
+| the search found nothing | `find zzz -c`, `callers zzz -c` | `0` on stdout, exit `0` |
+| the subject does not exist | `callees zzz`, `refs zzz`, `theory zzz` | stderr, exit `1` |
+
+`callers` is in the first row and that is not an inconsistency: it SCANS source
+for a token, so zero mentions is truthful whether or not the name is declared,
+while `callees` needs the entry to exist before it can have callees. Different
+questions, different empties. `scripts/probe_count_modes.py` checks the whole
+family at once — add a verb there when you add one here.
+
 **A user-typed pattern goes through `commands._user_pattern`, never straight to
 `re.compile`.** This is the same rule one level down: a pattern that cannot
 match is a silent zero the caller has no reason to doubt. Two rewrites live
