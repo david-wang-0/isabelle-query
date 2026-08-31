@@ -40,8 +40,10 @@ from isabelle_query.graph import (
     _build_line_index,
     _entry_at_line,
     _entry_by_name,
+    _import_depths,
     _noise_ranges,
     _noise_spans,
+    _resolve_import,
     _scan_methods,
     _sections_by_theory,
     _shadowed_uses_on_line,
@@ -555,67 +557,6 @@ def cmd_defs(sections: list[TheorySection], theory: str,
     for e in matches:
         print(render_entry(sec, e))
         print()
-
-
-def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
-    """Map a raw ``imports``-clause token to the bare in-project theory it
-    denotes, or ``None`` if it is external.
-
-    `parse_thy_imports` returns tokens verbatim, but the section index
-    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
-    are written bare (``Substrate``) and match directly; cross-session
-    imports are session-qualified (``Proj_Base.Substrate``) and resolve by
-    their tail after the last ``.``.  A genuinely external import
-    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
-    so it stays ``None`` and the caller keeps the *raw* token for the
-    ``[out-of-project]`` line.
-
-    Tail-matching is correct for every realistic tree: an external leaf-name
-    (``FuncSet``, ``List``) does not collide with a project theory name.  The
-    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
-    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
-    session — is a name collision, the province of `[disambig-names]`; if it
-    ever arises, gate the tail-match on the qualifier naming a known session
-    (`SessionInfo.name`)."""
-    if imp in sec_by_name:
-        return imp
-    if "." in imp:
-        tail = imp.rsplit(".", 1)[1]
-        if tail in sec_by_name:
-            return tail
-    return None
-
-
-def _import_depths(start: str, by_theory: dict[str, TheorySection],
-                   out_of_project: set[str] | None = None) -> dict[str, int]:
-    """``{theory: depth}`` over the in-project imports graph from `start`.
-
-    Depth 0 is a *direct* import, 1 an import of an import, and so on; `start`
-    itself is excluded.  When `out_of_project` is given, every import that does
-    not resolve to a loaded theory (``HOL-Library.*``, another entry) is
-    collected into it rather than walked.
-
-    Shared by ``deps -r``, which reports the closure, and ``refs``, which uses
-    it to decide which of several declarations of a name the citing theory can
-    actually see.
-    """
-    def imports_of(name: str) -> list[str]:
-        sec = by_theory.get(name)
-        if sec is None:
-            return []
-        children: list[str] = []
-        for imp in parse_thy_imports(sec.path):
-            child = _resolve_import(imp, by_theory)
-            if child is None:
-                if out_of_project is not None:
-                    out_of_project.add(imp)
-            else:
-                children.append(child)
-        return children
-
-    depths = _bfs_depths(imports_of, [start], seed_depth=-1)
-    depths.pop(start, None)
-    return depths
 
 
 def cmd_deps(sections: list[TheorySection], theory: str,

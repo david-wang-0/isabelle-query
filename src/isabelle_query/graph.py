@@ -13,10 +13,14 @@ index rather than a text question over source:
 * the proof-method census (``_scan_methods``), the router's complement — the
   tokens ``_is_citation_name`` rejects as fact edges are the method uses it
   tallies;
+* the in-project ``imports`` closure (``_resolve_import`` /
+  ``_import_depths``), which is what "can this theory SEE that declaration"
+  is asked of;
 * the one breadth-first walk behind every ``-r`` form (``_bfs_depths``).
 
-Depends only on ``model``, ``parsing`` (for the ``_line_mask`` primitive), and
-the Isabelle namespace tables — never on rendering or the CLI.
+Depends on ``model``, ``parsing`` (for the ``_line_mask`` primitive), the
+Isabelle namespace tables, and ``isabelle_layout``'s ``parse_thy_imports`` —
+never on rendering or the CLI.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
 )
+from isabelle_layout import parse_thy_imports
 from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
 
 
@@ -333,6 +338,70 @@ def _shadowed_uses_on_line(line: str, names: set[str],
         if terms:
             used = used | (rest & set(_WORD_RE.findall(terms)))
     return used
+
+
+def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
+    """Map a raw ``imports``-clause token to the bare in-project theory it
+    denotes, or ``None`` if it is external.
+
+    `parse_thy_imports` returns tokens verbatim, but the section index
+    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
+    are written bare (``Substrate``) and match directly; cross-session
+    imports are session-qualified (``Proj_Base.Substrate``) and resolve by
+    their tail after the last ``.``.  A genuinely external import
+    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
+    so it stays ``None`` and the caller keeps the *raw* token for the
+    ``[out-of-project]`` line.
+
+    Tail-matching is correct for every realistic tree: an external leaf-name
+    (``FuncSet``, ``List``) does not collide with a project theory name.  The
+    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
+    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
+    session — is a name collision, the province of `[disambig-names]`; if it
+    ever arises, gate the tail-match on the qualifier naming a known session
+    (`SessionInfo.name`)."""
+    if imp in sec_by_name:
+        return imp
+    if "." in imp:
+        tail = imp.rsplit(".", 1)[1]
+        if tail in sec_by_name:
+            return tail
+    return None
+
+
+def _import_depths(start: str, by_theory: dict[str, TheorySection],
+                   out_of_project: set[str] | None = None) -> dict[str, int]:
+    """``{theory: depth}`` over the in-project imports graph from `start`.
+
+    Depth 0 is a *direct* import, 1 an import of an import, and so on; `start`
+    itself is excluded.  When `out_of_project` is given, every import that does
+    not resolve to a loaded theory (``HOL-Library.*``, another entry) is
+    collected into it rather than walked.
+
+    Shared by ``deps -r``, which reports the closure, and ``refs``, which uses
+    it to decide which of several declarations of a name the citing theory can
+    actually see.  It lives here rather than in ``commands`` because that
+    second question is not a rendering concern: it is what the citation
+    attribution below has to ask, and a helper one layer up could not be asked
+    it [citation-reach].
+    """
+    def imports_of(name: str) -> list[str]:
+        sec = by_theory.get(name)
+        if sec is None:
+            return []
+        children: list[str] = []
+        for imp in parse_thy_imports(sec.path):
+            child = _resolve_import(imp, by_theory)
+            if child is None:
+                if out_of_project is not None:
+                    out_of_project.add(imp)
+            else:
+                children.append(child)
+        return children
+
+    depths = _bfs_depths(imports_of, [start], seed_depth=-1)
+    depths.pop(start, None)
+    return depths
 
 
 def _build_call_graph(sections: list[TheorySection],
