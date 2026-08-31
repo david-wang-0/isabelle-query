@@ -1,10 +1,11 @@
 r"""`outline` shows every heading, in every spelling [heading-outline].
 
-Two patterns used to answer "is this line a heading". `SECTION_RE` fed the
-`outline` view and was written tight — anchored at column 0, a space required
-before the cartouche, ASCII spelling only. `_HEADING_OPEN_RE` fed the prose mask
-and was written wide, because a mask that misses prose corrupts every scan
-downstream while a view that shows a junk heading merely looks untidy.
+Two patterns used to answer "is this line a heading". One fed the `outline`
+view and was written tight — anchored at column 0, a space required before the
+cartouche, ASCII spelling only. `_HEADING_OPEN_RE` fed the prose mask and was
+written wide, because a mask that misses prose corrupts every scan downstream
+while a view that shows a junk heading merely looks untidy.  Today there is one
+recogniser, `_heading_at`.
 
 Both instincts are right in isolation and the conclusion was wrong: a heading is
 a heading, so the recogniser is a fact about Isar, not about the consumer. The

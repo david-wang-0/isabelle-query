@@ -160,22 +160,23 @@ _HEADING_WORDS = r"chapter|section|subsection|subsubsection|paragraph|subparagra
 # cartouches and a plain quoted string, which is `text`-argument syntax too
 # (3,980 AFP headings, e.g. `section "Preliminary lemmas"`).
 _TITLE_OPEN = r'\\<open>|‹|"'
-# ONE pattern, shared by the two things that ask "is this line a heading?" —
-# `outline`'s view and the prose mask.  They were two patterns, tight and wide
-# respectively, on the reasoning that a view wants no false positives while a
-# mask cannot afford a false negative.  Both instincts are right in isolation
-# and the conclusion was wrong: a heading is a heading, so the recogniser is a
-# fact about Isar, not about the consumer.  Disagreeing cost `outline` 14,238
-# AFP headings it never showed [heading-outline].  Leading indent is allowed and
-# no space is required before the opener, because Isar is whitespace-insensitive
-# and both are written.
-SECTION_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*({_TITLE_OPEN})(.*)")
-# The heading command alone — the title is matched separately, because a
-# document marker may sit between the two
-# (`subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`) and
-# its body may itself hold a cartouche, which no regex can balance.  The
-# negative lookahead is what `SECTION_RE` got implicitly from requiring an
-# opener next: without it `sections` would lead with `section`.
+# The heading COMMAND; its title is matched separately by `_TITLE_OPEN_RE`,
+# because a document marker may sit between the two
+# (`subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`) and a
+# marker body may itself hold a cartouche, which no regex can balance.
+#
+# ONE recogniser (`_heading_at`) is built on this, shared by everything that
+# asks "is this line a heading?" — `outline`'s view, the prose mask, and the
+# proof extent.  There were once two patterns, tight and wide respectively, on
+# the reasoning that a view wants no false positives while a mask cannot afford
+# a false negative.  Both instincts are right in isolation and the conclusion
+# was wrong: a heading is a heading, so the recogniser is a fact about Isar, not
+# about the consumer.  Disagreeing cost `outline` 14,238 AFP headings it never
+# showed [heading-outline].  Leading indent is allowed and no space is required
+# before the opener, because Isar is whitespace-insensitive and both are
+# written.  The negative lookahead is what a combined pattern got implicitly
+# from demanding an opener next: without it `sections` would lead with
+# `section`.
 _HEADING_LEAD_RE = re.compile(rf"^\s*({_HEADING_WORDS})(?![A-Za-z_0-9'])")
 _TITLE_OPEN_RE = re.compile(rf"^\s*({_TITLE_OPEN})(.*)")
 # What closes each opener.  Quotes are their own close, which is why the quoted
@@ -2799,7 +2800,15 @@ def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:
         # are routine inside proof bodies.
         if stripped.startswith("text ") or stripped.startswith("text\\<open>"):
             break
-        if SECTION_RE.match(cline):
+        # `_heading_at`, not a regex of its own: this was a THIRD asker of "is
+        # this a heading", and it disagreed — a marked heading and a split
+        # heading both ended a proof for `outline` and the prose mask but not
+        # here.  7 lines over 2.36M in the AFP, so the size of the disagreement
+        # is not the argument; having three recognisers where the comments
+        # promise one is.  No prose mask is passed, as none was before: a
+        # heading inside a `(* ... *)` block still reads as one here, which is
+        # what `Retracts:1268` is.
+        if _heading_at(lines, line_no - 1) is not None:
             break
         if DECL_RE.match(cline):
             break

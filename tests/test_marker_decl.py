@@ -221,9 +221,9 @@ class TheHeadingFormsStillWork(unittest.TestCase):
                          [("section", "Split", 1)])
 
     def test_a_longer_word_does_not_lead_with_a_heading(self):
-        # `sections \<open>...\<close>` is not a `section`.  `SECTION_RE` got
-        # this implicitly by demanding an opener straight after the word; the
-        # split recogniser has to say it.
+        # `sections \<open>...\<close>` is not a `section`.  The combined
+        # pattern got this implicitly by demanding an opener straight after the
+        # word; the split recogniser has to say it.
         self.assertEqual(self.sections("sections \\<open>No\\<close>"), [])
 
     def test_a_bare_word_with_no_title_is_not_a_heading(self):
