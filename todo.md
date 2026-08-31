@@ -7,6 +7,41 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
+- [ ] `[import-leaf]` An import spelled as a **PATH** resolves to nothing, and
+      for the reachability filter that is a hole, and a hole PRUNES.
+
+          imports "../WFair"        -- HOL/UNITY/Simple/Token.thy:10
+          imports "variants/a_norreqid/A_Aodv_Loop_Freedom"   -- AODV/All.thy
+
+      `_resolve_import` matches an exact name, else the tail after the last
+      `.` — and `"." in imp` is true of the `.` in `..`, so the tail rule
+      yields `/WFair`, which names nothing.  Discovery has no such trouble
+      (`isabelle-layout` follows relative paths, and SCANNING.md says so), so
+      the theory IS loaded; only the edge to it is invisible.  The same hole
+      opens from the other end: a ROOT that spells a theory `"Simple/Reach"`
+      gives the SECTION that name, so a sibling importing `Reach` bare finds
+      no key.  Isabelle takes the **last segment** on both sides
+      (`Thy_Header.import_name`), which is the whole rule and leaves nothing
+      to design.
+      **Measured** (`scripts/probe_import_leaf.py`).  Over `src/HOL`: 83
+      unresolvable tokens name a loaded theory by their leaf, 92 theories
+      reach further once they resolve (`MicroJava` **1 → 164**), and **2,803**
+      citations are deleted by the hole.  Over the AFP: 2,513 tokens, 4,295
+      theories (`JinjaThreads` 13 → 548), **65,745** citations deleted.  The
+      shape is a total wipe, not a trim — `callers is` over `src/HOL` answers
+      **531 with `--reach name` and 0 with the closure**, because every citer
+      of `WFair`'s `is` reaches it only across `imports "../WFair"`, so the
+      entry is reported unused and is not.
+      Found by reviewing the Scala port (D13 in its `dev/DIVERGENCES.md`),
+      which hit the same hole, fixed it in `Reach.import_target`, and measured
+      `callers rev` 608 → 668 over the distribution; ours answers 610.
+      Couples to `[visibility-by-name]` and should land with it: a leaf is not
+      unique over a corpus either, so resolving one is the same question about
+      same-named candidates.  It is `_resolve_import`'s return value that
+      moves, so `deps` / `uses` / `graph imports` change output too — an
+      `[out-of-project]` line becomes a real dependency, which is a visible
+      change and wants its own corpus diff.
+
 - [ ] `[visibility-by-name]` `graph._Visibility` keys the import closure by
       theory NAME, so **two theories that share a name share one closure**.
       The last of the five name-as-identity collapses; the other four shipped
@@ -35,6 +70,16 @@ in `CONTRIBUTING.md`.
       directory prefix with the importer (`TheorySection.session` exists as a
       tiebreak, but is "first ROOT that references the theory" and so is
       itself approximate).  Decide that rule before writing anything.
+      **The Scala port already answered it, and the answer is cheaper than
+      the prefix rule.** D13 records the same approximation deliberately, on
+      the permissive side: where a corpus declares one theory name twice, its
+      adjacency is the **UNION** of every section of that name.  That is the
+      only choice that preserves what the filter claims — it is a *necessary*
+      condition on visibility and may only DROP, so a closure that is too
+      LARGE is merely weak, while last-wins (what `_sections_by_theory` gives
+      us) can be too SMALL and then deletes real citations.  Union needs no
+      session model and no tiebreak; the prefix rule can come later as a
+      narrowing, if it is ever worth one.
       It also does not stop at `_Visibility`: `_resolve_import` returns a
       NAME, and `deps` / `uses` / `graph imports` consume it the same way
       (`commands.py` 649, 671, 674, 733, 2058), so the same collapse decides
