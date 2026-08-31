@@ -113,7 +113,7 @@ matter every session:
 
 ## Release status
 
-The released version tracks `pyproject.toml` (currently **0.7.0**). Versioning is
+The released version tracks `pyproject.toml` (currently **0.8.0**). Versioning is
 alpha, and 0.7.0 is where the policy tightened: a **breaking change now takes
 the minor slot** (0.x semver — 0.6.x → 0.7.0), rather than riding a patch bump
 as it did while the CLI was moving weekly. Patch bumps stay additive. Switch to
@@ -134,4 +134,12 @@ the files or clear it first rather than re-offering a published release.) The
 
 ## Credit
 
-Artifacts are credited "By András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5."
+**Published artifacts** carry the line "By András Salamon, with Claude Opus
+4.6, 4.7, 4.8, and 5." — `README.md`'s sign-off and `pyproject.toml`'s author
+comment are the two places it belongs.
+
+**Commit messages do not.** They carry the `Co-Authored-By` trailer alone, and
+that includes the version-bump commit — even though its message is published
+verbatim as the GitHub Release body, a commit is not an artifact for this
+purpose. v0.7.0 carried both and is the only one of the eight releases that
+did; v0.6.3–v0.6.8 and v0.8.0 are the pattern.
