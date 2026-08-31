@@ -59,6 +59,7 @@ from isabelle_query.render import (
     _strip_text_wrapper,
     _truncate_preview,
     render_entry,
+    theory_labels,
 )
 
 
@@ -257,6 +258,21 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         for s in sections:
             if s.theory == name:
                 return s
+        # A LABEL, as `render.theory_labels` emits: the minimal path suffix
+        # that names one theory, matched here as a path suffix — the exact
+        # inverse of how it was built [disambig-names].  Without this the
+        # emitter's half is worse than useless: nineteen AFP theories are
+        # called `Examples`, and `beta/Examples` would fall to the stem
+        # fallback and resolve to `alpha/Examples`, silently and confidently.
+        # A label that looks paste-able and lands on a DIFFERENT theory is a
+        # worse answer than a bare ambiguous name, which at least reads as
+        # ambiguous.  Only a unique hit counts; anything else falls through.
+        want = tuple(Path(name).with_suffix("").parts)
+        hits = [s for s in sections
+                if tuple(s.path.resolve().with_suffix("").parts)[-len(want):]
+                == want]
+        if len(hits) == 1:
+            return hits[0]
         # Path that doesn't match a known section: fall back to its
         # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
         stem = Path(name).stem
@@ -1935,11 +1951,23 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
         print("No entries found.")
         return
 
-    print(f"Top {min(top, len(rows))} largest entries:\n")
+    # Qualified against the LOADED CORPUS, not against the rows on screen
+    # [disambig-names].  Scoping to the shown rows is the tempting reading and
+    # it breaks the round-trip: whether `Examples:11` names one theory is a
+    # fact about the corpus — nineteen AFP theories are called `Examples` — not
+    # about which of them a `-N 8` happened to print.  A label that is unique
+    # on screen and ambiguous on paste is worse than no label.
+    #
+    # A single-session run still shows bare `Bla`, because the qualification is
+    # driven by actual collisions and a session has none.
+    shown = rows[:top]
+    labels = theory_labels(sections)
+    print(f"Top {len(shown)} largest entries:\n")
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
-    for size, e, s in rows[:top]:
-        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.src_start}..{e.thy_end})")
+    for size, e, s in shown:
+        theory = labels.get(s.path.resolve(), s.theory)
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {theory}  ({e.src_start}..{e.thy_end})")
 
 
 # --- machine-readable graph export [graph-export] --------------------------

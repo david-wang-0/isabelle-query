@@ -15,6 +15,8 @@ commands that consume them, not here.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from pathlib import Path
 
 from isabelle_query.model import (
     _ANNOTATION_KINDS,
@@ -23,6 +25,63 @@ from isabelle_query.model import (
     TheorySection,
 )
 from isabelle_query.parsing import LATEX_LINE_RE, _proof_extent
+
+
+def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
+    r"""``{resolved path: the shortest path suffix unique in this set}``.
+
+    A theory's printed name is its bare stem, which is right for a session and
+    wrong for a corpus: **461 AFP theory names are used by more than one
+    theory**, covering 1,219 of its 9,910 — `Examples` names nineteen different
+    files.  A `largest` run over the AFP was a wall of unqualified `Bla` with
+    no way to tell one from another [disambig-names].
+
+    Qualified by the *minimal distinguishing* suffix, not by the full path.
+    Two reasons, and the second is the load-bearing one:
+
+    * a shared root prefix carries no information — every row would gain the
+      same `thys/` and be no easier to read;
+    * the name is INPUT as well as output.  `theory:line` is meant to round-
+      trip, so the emitter has to qualify far enough for the resolver to get
+      back to one theory, and no further.  Since [name-roundtrip] a name
+      containing a separator resolves *as a name*, so `List_Space/Bla` is not
+      mistaken for a path that does not exist — which is what makes a
+      qualified label paste-able.
+
+    Scoped to the sections actually being shown, so a single-session run keeps
+    bare `Bla` and only a genuine collision grows a prefix.  Two sections at
+    the same resolved path are one theory and share a label.
+    """
+    by_path: dict[Path, list[str]] = {}
+    for sec in sections:
+        p = sec.path.resolve()
+        if p not in by_path:
+            parts = list(p.with_suffix("").parts)
+            by_path[p] = parts
+    labels: dict[Path, str] = {}
+    pending = dict(by_path)
+    depth = 1
+    while pending:
+        groups: dict[str, list[Path]] = {}
+        for p, parts in pending.items():
+            groups.setdefault("/".join(parts[-depth:]), []).append(p)
+        nxt: dict[Path, list[str]] = {}
+        for label, paths in groups.items():
+            if len(paths) == 1:
+                labels[paths[0]] = label
+            else:
+                for p in paths:
+                    # Exhausted: the paths are equal, so no suffix separates
+                    # them.  Settle rather than loop — a label that repeats is
+                    # a poor answer, an infinite loop is not an answer.
+                    if depth >= len(pending[p]):
+                        labels[p] = label
+                    else:
+                        nxt[p] = pending[p]
+        pending = nxt
+        depth += 1
+    return labels
+
 
 def _format_target(entry: Entry) -> str:
     """Format an entry's enclosing locale/class as a scope step: ``context hpk``.

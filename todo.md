@@ -29,24 +29,29 @@ in `CONTRIBUTING.md`.
       shipped; the two turned out not to share a scan after all (the phantom
       was an unconditional placeholder, not a missing lookahead).
 
-- [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
-      **minimal distinguishing path**.  `query largest` (and any verb that
-      prints a bare theory name) currently strips both `.thy` and the
-      dirname, so across the AFP's thousands of theories the result is a
-      wall of unqualified `Bla` / `Foo` — collisions with no way to tell
-      `ae/Bla` from `ar/Bla`.  Show just enough *leading* path to make each
-      printed name unique within the result set — `ae/Bla`, `ar/Foo` — but
-      not the shared root prefix (`t/ae/Bla`).  Compute the shortest path
-      suffix unique among the names actually shown, so a single-session run
-      stays bare `Bla` and only genuine collisions grow a prefix.  Lands on
-      `largest` first.  Deeper than cosmetics: it is a prerequisite for the
-      `theory:line` **round-trip** convention (see `[locus-roundtrip]`) — a
-      bare `Bla:11` locus is unresolvable when two `Bla`s exist, so the
-      emitter must qualify the name far enough for the resolver to round it
-      back to one theory.  Half the resolver side is already done: since
-      `[name-roundtrip]` a theory name containing a separator resolves as a
-      name, so a qualified `ae/Bla` will not be mistaken for a path that does
-      not exist.  What is still open is the emitter choosing the prefix.
+- [ ] `[disambig-loci]` Carry the qualified theory label into the LOCUS
+      emitters.  `[disambig-names]` shipped the mechanism
+      (`render.theory_labels` — the shortest path suffix that names one theory,
+      1,316 of the AFP's 9,910 qualified) and put it on `largest`, plus the
+      resolver half, so a qualified label already resolves back to exactly one
+      theory.  What still prints bare is every `theory:line`:
+
+          commands.py   1219/1220  `enclosing`      1313/1323  `callers`
+                        1439/1443  `sorry` / `grep`
+          shape_cmds.py 291        `shape steps`    322  `shape lemma`
+                        384        `shape widest`
+
+      So `largest` says `Virtual_Substitution/QE` and `enclosing
+      Virtual_Substitution/QE:3495` answers `QE:3495` — the tool accepting a
+      qualified name and handing back an ambiguous one, which is the
+      round-trip hole `[locus-roundtrip]` exists to close, in the last place it
+      is still open.
+      Not folded into `[disambig-names]`: nine emitters across two modules,
+      each with its own output format and column arithmetic (`loc_w` alignment
+      widens when a label does), so it wants its own diff and its own
+      before/after on the fixture tests that pin those formats.
+      Cheap now that the mechanism and the resolver both exist — the work is
+      threading a label map to each emitter, not deciding anything.
 
 - [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
       `PIDE/markup` in a built session database.  The #8 entity export gives
