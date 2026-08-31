@@ -138,9 +138,11 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
         # Mirrors the fast builder: both read the redacted view, so a comment
         # sharing its line with proof text cites nothing in either.
         lines = sec.live_source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_map = def_sites.get(sec.theory, {})
-        idx = line_index.get(sec.theory, [])
+        # Keyed by path, mirroring the fast builder [name-is-not-identity]:
+        # a theory name is not an identity once two sections share one.
+        t_ranges = text_ranges.get(sec.path, [])
+        d_map = def_sites.get(sec.path, {})
+        idx = line_index.get(sec.path, [])
         for i, line in enumerate(lines):
             line_no = i + 1
             if any(line_no in r for r in t_ranges):

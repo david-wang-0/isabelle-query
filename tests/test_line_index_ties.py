@@ -62,10 +62,10 @@ class LineIndexTies(unittest.TestCase):
 
     def test_the_index_builds(self):
         index = cli._build_line_index([self.sec])
-        self.assertIn("Ties", index)
+        self.assertIn(self.sec.path, index)
 
     def test_tied_entries_keep_source_order(self):
-        index = cli._build_line_index([self.sec])["Ties"]
+        index = cli._build_line_index([self.sec])[self.sec.path]
         ordered = [e.name for _, _, e in index]
         source_order = [e.name for e in self.sec.entries if e.thy_line > 0]
         self.assertEqual(
@@ -73,13 +73,13 @@ class LineIndexTies(unittest.TestCase):
             "a stable sort must leave equal spans in source order")
 
     def test_the_index_is_sorted_by_span(self):
-        index = cli._build_line_index([self.sec])["Ties"]
+        index = cli._build_line_index([self.sec])[self.sec.path]
         keys = [(lo, hi) for lo, hi, _ in index]
         self.assertEqual(keys, sorted(keys))
 
     def test_enclosing_still_answers_below_the_tie(self):
         """The tie must not disturb lookup of the entries after it."""
-        index = cli._build_line_index([self.sec])["Ties"]
+        index = cli._build_line_index([self.sec])[self.sec.path]
         line = next(e.thy_line for e in self.sec.entries if e.name == "below")
         owners = [e.name for lo, hi, e in index if lo <= line <= hi]
         self.assertIn("below", owners)

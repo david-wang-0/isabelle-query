@@ -29,30 +29,29 @@ in `CONTRIBUTING.md`.
       shipped; the two turned out not to share a scan after all (the phantom
       was an unconditional placeholder, not a missing lookahead).
 
-- [ ] `[name-is-not-identity]` A theory NAME is used as a section's identity in
-      four more places, and each collapses two theories into one over a corpus.
-      Split out of `[disambig-loci]`, which fixed the fifth: `_find_callers`
-      handed its hits' theory names up and `cmd_callers` looked them back down
-      through `graph._sections_by_theory`, a last-wins `{name: section}` map,
-      so 9,239 of `callers assms`' 161,426 AFP rows printed a line out of one
-      file beside an owner out of another.  The same map, and the same
-      last-wins collapse, still backs:
-
-          graph._Visibility.by_theory   import closure keyed by theory name
-          graph._build_line_index       {theory: [entry spans]} for _entry_at_line
-          commands._noise_ranges        {theory: [prose spans]}
-          commands._build_def_sites     {theory: {name: def-site ranges}}
-
-      **758 of the AFP's 9,910 sections are shadowed** in such a map (461 names
-      shared, covering 1,219 sections).  Unmeasured whether any of the four
-      actually mis-answers — several are read back with the *same* section that
-      wrote them, in which case the collapse is invisible and the fix is
-      hygiene.  `_Visibility` is the one to measure first: it decides the
-      import closure per name, so two `Preliminaries` share one closure and a
-      citation may be kept or dropped on the other theory's imports.
-      Measure before changing anything — the parent item was filed as cosmetic
-      and turned out to be a wrong-attribution bug, and the reverse is just as
-      possible here.  `scripts/probe_disambig_loci.py` counts the shadowing.
+- [ ] `[visibility-by-name]` `graph._Visibility` keys the import closure by
+      theory NAME, so **two theories that share a name share one closure**.
+      The last of the five name-as-identity collapses; the other four shipped
+      under `[disambig-loci]` and `[name-is-not-identity]`, which is where the
+      measurements and the reasoning are.  Left because it is not the same
+      kind of fix: the other four were per-section lookups written and read by
+      loops over the same sections, so keying them by `sec.path` was
+      mechanical.  A closure key is a genuine **graph node**, and the edges
+      come from `parse_thy_imports` + `_resolve_import`, which map an import
+      STRING to a theory name.  Re-keying by path means resolving an import
+      relative to the importing theory's own entry — the session model, same
+      ground as `[keyword-scope]`.
+      Effect unmeasured, and the direction is not obvious.  The filter is a
+      necessary condition that may only DROP, so a wrong closure over-drops:
+      a citation in `alpha/Preliminaries` is tested against whichever
+      `Preliminaries` won, and kept or dropped on the other file's imports.
+      Bounded by the 1,219 AFP sections whose names collide, but bounded is
+      not measured — and the two parent items both turned out larger than
+      filed, so measure before deciding this is small.
+      Start from `scripts/probe_name_keyed_index.py`, which already isolates
+      the shadowed sections; the measurement wanted is `sees()` under a
+      per-section closure versus the shared one, counted over the citation
+      candidates in shadowed theories.
 
 - [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
       `PIDE/markup` in a built session database.  The #8 entity export gives

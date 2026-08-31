@@ -130,15 +130,25 @@ one theory, so the locus a verb hands you may not paste back to the theory it
 came from. Scope the label to the whole loaded corpus, never to the rows being
 shown — `cmd_largest` passes `sections`, not `rows[:top]`, for that reason.
 
-The corollary is the sharper half, and it is not about labels: **a located hit
-carries its own `TheorySection` (or its path), never its theory name.**
-Re-deriving the section by name goes through `graph._sections_by_theory`, a
-last-wins `{name: section}` map — so `cmd_callers` read its owner column and
-its `-U` context lines out of whichever same-named section won, for 9,239 of
-`callers assms`' 161,426 AFP rows. A name is not an identity; if a scanner
-hands one up and a renderer looks it back down, the round trip loses whichever
-file it was not thinking about. `scripts/probe_disambig_loci.py` measures both
-halves.
+The corollary is the sharper half, and it is not about labels: **a theory NAME
+is never a section's identity — key by `sec.path` and pass the section
+itself.** A name is unique in a session and not in a corpus, so any
+`{sec.theory: ...}` map written by one loop over the sections and read back by
+another silently hands 758 of the AFP's 9,910 sections another file's data.
+Four instances, all now keyed by path: `_build_line_index` (line → owning
+entry), `_noise_ranges` (prose vs live), `_build_def_sites` (declaration
+sites), and `cmd_callers` re-deriving its hit's section through
+`graph._sections_by_theory`.
+
+The two suppressing indexes are the worst, because a dropped citation leaves
+nothing to notice: over the AFP the collapse gave 381,710 lines a different
+owner, classified 38,068 the wrong side of prose-vs-live, and moved 48,177
+citation edges onto the wrong entry while hiding 43,912 real ones (`unused`
+95,696 → 104,028). Measured by `scripts/probe_name_keyed_index.py`, which
+reconstructs the name-keyed map itself and so reads the same on either side of
+the fix. `graph._Visibility` still keys its import closure by name — that one
+is a genuine graph node rather than a per-section lookup, and re-keying it
+means resolving imports per entry; see `[name-is-not-identity]` in `todo.md`.
 
 ## Library contract (`isabelle_query.api`)
 

@@ -901,10 +901,12 @@ def _find_callers(sections: list[TheorySection], name: str,
     antiq_re = re.compile(
         r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
 
-    # Shared infrastructure: per-theory def-site ranges (for `name`) and
-    # text-block ranges (prose to skip).
+    # Shared infrastructure: per-section def-site ranges (for `name`) and
+    # text-block ranges (prose to skip).  Both keyed by path, so `--external`
+    # skips the FILES that declare `name` rather than every file that happens
+    # to share their theory name [name-is-not-identity].
     all_def_sites = _build_def_sites(sections, {name})
-    def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
+    def_paths: set[Path] = {p for p, m in all_def_sites.items() if m}
     text_ranges = _noise_ranges(sections)
     # Read late: the namespace table is bound by the CLI after import.
     shadowed = name in _graph._NON_CITATION
@@ -914,7 +916,7 @@ def _find_callers(sections: list[TheorySection], name: str,
     for sec in sections:
         # External mode: skip every line in the defining theory(ies),
         # treating intra-theory cross-references as noise.
-        if external and sec.theory in def_theories:
+        if external and sec.path in def_paths:
             continue
         # Whole-theory visibility, tested once rather than per line: the
         # question is about the theory, not the site.
@@ -925,8 +927,8 @@ def _find_callers(sections: list[TheorySection], name: str,
         # proof text shares its line, but the hit we print is the user's line.
         lines = sec.live_source()
         raw = sec.source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_ranges = all_def_sites.get(sec.theory, {}).get(name, set())
+        t_ranges = text_ranges.get(sec.path, [])
+        d_ranges = all_def_sites.get(sec.path, {}).get(name, set())
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if not word_re.search(line):
@@ -1753,7 +1755,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
         lines = sec.source()
         live_lines = sec.live_source()
         noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
-        idx = line_index.get(sec.theory, [])
+        idx = line_index.get(sec.path, [])
         # Resolve the line window once: no window → the whole file; an open
         # upper bound (`PATH:A..`) → this section's last line (the sink the
         # range parser defers a `None` upper to).  With no window the bounds

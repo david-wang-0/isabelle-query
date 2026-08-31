@@ -110,7 +110,7 @@ def main() -> None:
         for n, line in export_lines.get(sec.theory, {}).items():
             if n in ours:
                 continue
-            gen = _entry_at_line(line_index.get(sec.theory, []), line)
+            gen = _entry_at_line(line_index.get(sec.path, []), line)
             derived[n] = (sec.theory,
                           gen.name if gen and gen.name != "?" else None,
                           gen.tag if gen else "-")

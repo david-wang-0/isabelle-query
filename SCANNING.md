@@ -235,6 +235,17 @@ and `sorry` report a **file** rather than a theory, so they qualify the same way
 with the suffix kept (`alpha/Examples.thy:12`), which leaves a non-`.thy`
 positional's own filename intact.
 
+The same collision decides which entry owns a line, which lines are prose, and
+which are declaration sites — all three are answered per *file*, so two
+theories sharing a name do not share an answer. That matters most for the
+citation graph: a line inside one file's `text` block is prose there and
+nowhere else, so a real citation in a same-named file is not dropped as
+documentation, and a prose mention in the other is not counted as a use.
+Over the whole AFP read as one root this moves 48,177 citation edges onto the
+entry that actually makes them and restores 43,912 that were suppressed;
+`unused` grows accordingly. A single-session run is unaffected, because within
+a session Isabelle already requires the names to be distinct.
+
 ## Aggregating across a corpus
 
 `summary --by-session` rolls the per-theory counts up to the **session** and

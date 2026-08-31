@@ -551,7 +551,7 @@ lemma uses_it: "terminate 0"
     def test_the_declaration_site_is_registered(self):
         sec = section_from(self.SRC)
         sites = cli._build_def_sites([sec], names={"termi_z"})
-        self.assertIn("termi_z", sites["Test"])
+        self.assertIn("termi_z", sites[sec.path])
 
     def test_find_matches_via_a_bound_name(self):
         sec = section_from(self.SRC)

@@ -46,12 +46,19 @@ from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
 
 
 def _build_line_index(sections: list[TheorySection]
-                      ) -> dict[str, list[tuple[int, int, Entry]]]:
+                      ) -> dict[Path, list[tuple[int, int, Entry]]]:
     """For each theory, build a sorted list of (src_start, thy_end, Entry)
     for binary-search lookup of which entry owns a given line.  The span
     starts at ``src_start`` (the leading preamble, if any) so a doc line
-    resolves to the entry it documents, not the preceding one."""
-    index: dict[str, list[tuple[int, int, Entry]]] = {}
+    resolves to the entry it documents, not the preceding one.
+
+    Keyed by the section's PATH [name-is-not-identity].  A theory name is not
+    an identity over a corpus — 461 AFP names are shared — and this map is
+    written by one loop over the sections and read back by another, so a
+    name key silently handed 758 sections another file's spans.  381,710 of
+    the 449,860 lines in those sections got a different owner that way.
+    """
+    index: dict[Path, list[tuple[int, int, Entry]]] = {}
     for sec in sections:
         spans = [(e.src_start, e.thy_end, e) for e in sec.entries
                  if e.thy_line > 0]
@@ -62,7 +69,7 @@ def _build_line_index(sections: list[TheorySection]
         # `TypeError` and killed every verb that builds this index.  The sort
         # is stable, so equal spans keep source order.
         spans.sort(key=lambda s: (s[0], s[1]))
-        index[sec.theory] = spans
+        index[sec.path] = spans
     return index
 
 
@@ -138,29 +145,37 @@ def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
             + [e.preamble for e in sec.entries if e.preamble])
 
 
-def _noise_ranges(sections: list[TheorySection]) -> dict[str, list[range]]:
-    r"""Per-theory ``range`` objects for the non-live (prose) line spans —
+def _noise_ranges(sections: list[TheorySection]) -> dict[Path, list[range]]:
+    r"""Per-section ``range`` objects for the non-live (prose) line spans —
     each section's :func:`_noise_spans` as ``range``s for membership tests.
     Used by single-name search (`_find_callers`) and bulk graph construction
     (`_build_call_graph`) — the oracle shares it — so both treat
     ``text``/``\<comment>``/preamble mentions as documentation, not calls.
+
+    Keyed by PATH, like the other two per-section indexes: this one decides
+    prose-vs-live, so a collapsed key does not merely misattribute a hit but
+    SUPPRESSES a real one and admits a fake one.  38,068 lines of the AFP were
+    classified the wrong way round [name-is-not-identity].
     """
-    return {sec.theory: [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
+    return {sec.path: [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
             for sec in sections}
 
 
 def _build_def_sites(sections: list[TheorySection],
                      names: set[str] | None = None,
-                     ) -> dict[str, dict[str, set[range]]]:
-    """Per-theory map of definition-site line ranges, keyed by entry name.
+                     ) -> dict[Path, dict[str, set[range]]]:
+    """Per-section map of definition-site line ranges, keyed by entry name.
 
     Used to exclude the definition itself from a search for references
     to that name.  When ``names`` is given, only those names are tracked;
     otherwise every entry with a source location is included.
 
-    Result shape: ``def_sites[theory][name] = {range(thy_line, thy_end+1), ...}``
+    Result shape: ``def_sites[path][name] = {range(thy_line, thy_end+1), ...}``
+    — by PATH, for the reason in :func:`_build_line_index`, and with the same
+    suppressing effect as :func:`_noise_ranges`: another file's def sites
+    exclude lines that are genuine citations here [name-is-not-identity].
     """
-    def_sites: dict[str, dict[str, set[range]]] = {}
+    def_sites: dict[Path, dict[str, set[range]]] = {}
     for sec in sections:
         site_map: dict[str, set[range]] = {}
         for e in sec.entries:
@@ -180,7 +195,7 @@ def _build_def_sites(sections: list[TheorySection],
                     if c in names:
                         site_map.setdefault(c, set()).add(
                             range(e.thy_line, e.thy_end + 1))
-        def_sites[sec.theory] = site_map
+        def_sites[sec.path] = site_map
     return def_sites
 
 
@@ -637,9 +652,9 @@ def _build_call_graph(sections: list[TheorySection],
         # preserves every line and column, so the mask below and the 1-indexed
         # arithmetic still address the same characters.
         lines = sec.live_source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_map = def_sites.get(sec.theory, {})
-        idx = line_index.get(sec.theory, [])
+        t_ranges = text_ranges.get(sec.path, [])
+        d_map = def_sites.get(sec.path, {})
+        idx = line_index.get(sec.path, [])
         # Flatten the prose ranges into a 1-indexed line mask: a single O(1)
         # lookup per line replaces the old `any(line_no in r for r in t_ranges)`
         # rescan (~65M range tests at AFP scale).  Slice-assignment marks each
@@ -772,7 +787,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
         # gives O(1) liveness per line, vs rescanning every noise range (the
         # same flattening the call-graph build uses).
         noise_mask = _line_mask(len(lines), _noise_spans(sec))
-        idx = line_index.get(sec.theory, [])
+        idx = line_index.get(sec.path, [])
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if noise_mask[line_no]:
