@@ -781,11 +781,19 @@ def _isa_word_pattern(name: str) -> str:
       symbol, e.g. `foo` in `foo\<gamma>`, is still a match — it does not end
       in `>`.)
     * **Plain identifiers**: a prime-aware word boundary — `\b` is wrong
-      because Isabelle allows `'` inside identifiers (`foo'`).
+      because Isabelle allows `'` inside identifiers (`foo'`), plus a guard
+      against the SYMBOL BODY.  A plain run also sits between non-`[\w']`
+      characters when it is the inside of a `\<...>` token, so `lambda` matched
+      within `\<lambda>`, `le` within `\<le>` and `sub` within `\<^sub>` — and
+      the AFP declares 7 entries named `lambda`, 37 named `le` and 27 named
+      `sub` [symbol-body-tokens].  The two lookbehinds are the single-name form
+      of what `graph._build_call_graph` does by blanking symbol tokens before
+      its word pass; a symbol's body is that symbol's name, never a fact's.
     """
     if _SPECIAL_NAME_RE.search(name):
         return r'(?<=")' + re.escape(name) + r'(?=")'
-    left = r"(?<![\w'])" + (r"(?<!>)" if name.startswith("\\<") else "")
+    left = r"(?<![\w'])" + (r"(?<!>)" if name.startswith("\\<")
+                            else r"(?<!\\<)(?<!\\<\^)")
     right = (r"(?!\\<)" if name.endswith(">") else "") + r"(?![\w'])"
     return left + re.escape(name) + right
 

@@ -119,6 +119,18 @@ where it comes from and where it is approximate. A narrow table is the safe
 direction there: an unlisted method may add a spurious citation, never remove a
 true one.
 
+## A symbol's body is not a name
+
+Isabelle symbols are written `\<lambda>`, `\<le>`, `\<^sub>`. The citation scan
+takes plain `[\w']` runs off each line so that a name glued to a symbol —
+`iso_transaction` in `iso_transaction\<^sub>h` — is still found, and those runs
+must stop at the symbol rather than reaching inside it. The body of `\<lambda>`
+is the symbol's own name; a project that declares a lemma called `lambda` is not
+citing it every time it writes a λ.
+
+The AFP declares 7 entries named `lambda`, 37 named `le` and 27 named `sub`, so
+this was not hypothetical: `callers sub` counted every `\<^sub>` in the corpus.
+
 ## A citation must be reachable
 
 A cited token is matched by name, and over one session that is enough:

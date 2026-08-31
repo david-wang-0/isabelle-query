@@ -7,32 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[symbol-body-tokens]` A `[\w']+` run INSIDE an Isabelle symbol token
-      is minted as a citation candidate.  `graph`'s tokeniser runs two passes:
-      `sym_re` (maximal runs including `\<...>` tokens, so `merge_rt_F\<^sub>m`
-      is one name) and `word_re` (`[\w']+`, so a bare name abutting a symbol is
-      still found).  The second reaches into the symbol's own body:
-
-          \<lambda>  ->  lambda        \<le>       ->  le
-          \<close>   ->  close         \<subseteq> ->  subseteq
-          \<^sub>    ->  sub           \<and>      ->  and
-
-      and the AFP declares entries with exactly those names — **7 named
-      `lambda`, 37 `le`, 27 `sub`, 35 `set`, 9 `close`** — so every `\<lambda>`
-      in the corpus was a citation of all seven.  Found while measuring
-      `[citation-reach]`: the 15 names losing the most attributions there are
-      `sub`, `close`, `lambda`, `le`, `noteq`, `set`, `and`, `forall`,
-      `subseteq`, `equiv`, `exists`, `nat`, `And`, `xs`, `not` — every one a
-      symbol body, and about **25% of the 1.88M edges that change**.
-      Visibility scoping masks most of it (a symbol appears everywhere, so most
-      of its spurious edges cross a closure boundary) but cannot fix it: the
-      spurious edges INSIDE a closure survive, and those are the ones a
-      single-session user sees.
-      The fix is at the root and is not a new pattern: `sym_re` already yields
-      the whole `\<lambda>` as one token, so the correct answer is available —
-      drop a `word_re` run whose span lies inside a symbol token's span.  Wants
-      its own before/after edge diff, and it will move `unused` again.
-
 - [ ] `[proof-extent-view]` `_proof_extent` looks for its boundaries in RAW
       source, so a commented-out one ends a proof that has not ended.  All four
       of its tests — `text `, a heading, `DECL_RE`, and the column-0 anchor —

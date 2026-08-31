@@ -595,7 +595,18 @@ def _build_call_graph(sections: list[TheorySection],
     #    double-quoted at the use site, so we also look up whole quoted
     #    spellings.  All three hashed into name_set are the linear-time
     #    equivalent of the per-name boundary search.
+    #
+    #    word_re is run over the SYMBOL-BLANKED line, not the raw one
+    #    [symbol-body-tokens].  A `\<...>` token's body is the symbol's own
+    #    name, never a fact's, but `[\w']+` reaches straight into it:
+    #    `\<lambda>` yields `lambda`, `\<le>` yields `le`, `\<^sub>` yields
+    #    `sub` — and the AFP declares 7 entries named `lambda`, 37 named `le`
+    #    and 27 named `sub`, so every `\<lambda>` in the corpus cited all
+    #    seven.  Blanking loses nothing the pass is for: `iso_transaction` in
+    #    `iso_transaction\<^sub>h` is still a maximal run, and the symbolic
+    #    spelling is sym_re's job.
     sym_re = re.compile(rf"{ISA_WORD_CHAR}+")
+    sym_token_re = re.compile(ISA_SYMBOL)
     word_re = re.compile(r"[\w']+")
     quoted_re = re.compile(r'"([^"]+)"')
 
@@ -613,6 +624,7 @@ def _build_call_graph(sections: list[TheorySection],
     antiq_sub = antiq_re.sub
     word_findall = word_re.findall
     sym_findall = sym_re.findall
+    sym_blank = sym_token_re.sub
     quoted_findall = quoted_re.findall
 
     vis = _Visibility(sections, reach)
@@ -646,7 +658,11 @@ def _build_call_graph(sections: list[TheorySection],
             # findalls run on just those lines, not every line.  The union is
             # identical to scanning all three unconditionally (the oracle's
             # reference), but skips the provably-redundant passes.
-            words = word_findall(stripped)
+            # A `\<...>` token's body is the symbol's name, not a fact's, so
+            # the word pass reads the line with those tokens blanked.  Only
+            # lines that carry one pay the substitution.
+            words = word_findall(
+                sym_blank(" ", stripped) if "\\<" in stripped else stripped)
             cand = ns_inter(words)
             # `foo_def` resolves to `foo` (see derived_base).  Guarded on the map
             # being non-empty so the default path pays a truthiness test rather
