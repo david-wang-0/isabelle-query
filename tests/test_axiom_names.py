@@ -36,10 +36,17 @@ FOOT = "\nend\n"
 
 
 def _axioms(snippet):
-    """`{name: line}` for the AXIOM entries of `snippet`, umbrella excluded."""
+    """`{name: line}` for the AXIOM entries of `snippet`, umbrella excluded.
+
+    The umbrella is the per-command anchor, spelled `?` since [axiom-names] —
+    it holds the command's line so `enclosing` does not attribute it to the
+    preceding declaration, and it has no name of its own.  It was spelled
+    `axiomatization` (a keyword), which `find '^axiomatization$'` duly answered
+    with, 395 times over the AFP, FOL and ZF.
+    """
     sec = section_from(HEAD + snippet + FOOT)
     return {e.name: e.thy_line for e in sec.entries
-            if e.tag == "AXIOM" and e.name != "axiomatization"}
+            if e.tag == "AXIOM" and e.name != "?"}
 
 
 class WhereDoesNotEndTheCommand(unittest.TestCase):
@@ -124,9 +131,10 @@ text \<open>Finiteness is needed for the maximum.\<close>
 axiomatization where process_finite: \<comment> \<open>a note\<close>
   "OFCLASS(process, finite_class)"
 ''' + FOOT)
-        umbrella = next(e for e in sec.entries if e.name == "axiomatization")
+        umbrella = next(e for e in sec.entries
+                        if e.tag == "AXIOM" and e.name == "?")
         at = [e.name for e in sec.entries if e.thy_line == umbrella.thy_line]
-        self.assertEqual(at, ["axiomatization", "process_finite"])
+        self.assertEqual(at, ["?", "process_finite"])
 
 
 class SeveralNamesOnOneLine(unittest.TestCase):
@@ -189,6 +197,64 @@ axiomatization where ax1: "P"
 lemma foo: "True" by simp
 ''')
         self.assertEqual(sorted(got), ["ax1"])
+
+
+class TheUmbrellaIsAnonymousAndStays(unittest.TestCase):
+    r"""`axiomatization` gets an anchor entry with no name [axiom-names].
+
+    Two things have to hold at once, and each is what makes the other safe.
+
+    It must have NO NAME: it was called `axiomatization`, so
+    `find '^axiomatization$'` answered with one per command — **374 in the AFP,
+    11 in FOL, 10 in ZF** — citable names that nothing can cite, and entries in
+    `summary`'s count for a command rather than a declaration.
+
+    It must EXIST: `axiomatization` usually declares its names on the lines
+    below, so with no entry on the command line that line falls to the
+    preceding declaration and `enclosing` names the wrong owner.  Deleting it
+    is the obvious-looking cleanup and it is wrong.
+    """
+
+    SRC = HEAD + r'''
+lemma before_it: "True" by simp
+
+axiomatization
+  eq :: "nat" and
+  neq :: "nat"
+where refl: "eq = eq"
+''' + FOOT
+
+    def setUp(self):
+        self.sec = section_from(self.SRC)
+        self.axioms = [e for e in self.sec.entries if e.tag == "AXIOM"]
+
+    def test_no_entry_is_named_after_the_keyword(self):
+        self.assertEqual(
+            [e.name for e in self.sec.entries if e.name == "axiomatization"],
+            [])
+
+    def test_the_umbrella_is_anonymous(self):
+        self.assertEqual(sum(1 for e in self.axioms if e.name == "?"), 1)
+
+    def test_the_declared_names_are_still_indexed(self):
+        self.assertEqual(sorted(e.name for e in self.axioms if e.name != "?"),
+                         ["eq", "neq", "refl"])
+
+    def test_the_anchor_owns_the_command_line(self):
+        # Without the umbrella this line belongs to `before_it`, and
+        # `enclosing` reports the lemma above as the owner of the command.
+        umbrella = next(e for e in self.axioms if e.name == "?")
+        cmd_line = next(i for i, ln in enumerate(self.sec.source(), 1)
+                        if ln.startswith("axiomatization"))
+        self.assertEqual(umbrella.thy_line, cmd_line)
+
+    def test_an_anonymous_entry_mints_no_citation_edge(self):
+        # Which is why `?` is the right spelling rather than a fresh sentinel:
+        # every place that must skip a nameless entry already tests for it.
+        from isabelle_query import graph
+        g = graph._build_call_graph([self.sec])
+        self.assertNotIn("?", g.all_names)
+        self.assertNotIn("axiomatization", g.all_names)
 
 
 if __name__ == "__main__":

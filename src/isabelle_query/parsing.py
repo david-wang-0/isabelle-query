@@ -2016,7 +2016,21 @@ def extract_entries(lines: list[str],
             continue
 
         if route == "axiom":
-            entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
+            # The command's own umbrella entry, ANONYMOUS [axiom-names].  It
+            # is load-bearing and must stay: `axiomatization` usually declares
+            # its names on the lines BELOW, so without an entry on the command
+            # line that line falls to the preceding declaration and `enclosing`
+            # names the wrong owner.
+            #
+            # It used to be named `axiomatization` — a keyword, not a name.
+            # `find '^axiomatization$'` answered with 395 of them (374 AFP, 11
+            # FOL, 10 ZF): citable names that nothing can cite, and an entry in
+            # `summary`'s count for a command rather than a declaration.  `?`
+            # is the established spelling for an entry with no name of its own
+            # (274 of them in FOL already, from anonymous lemmas), and every
+            # place that must skip one already tests for it — the call graph's
+            # name set, caller attribution, `unused`, `defs`.
+            entries.append(Entry("AXIOM", "?", "AXIOMATIZATION",
                                  thy_line=decl_line, decl_end_line=decl_line))
             # The command line itself may already carry the first name —
             # `axiomatization where process_finite:` or `axiomatization
