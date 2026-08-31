@@ -337,10 +337,12 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
     # explicitly rather than read off `flags` so it stays a `show` concern:
     # on `find`, `flags.statement` means "match the statement slice", which
     # must not bleed into how the matched entries are rendered.
-    if not matches:
-        print(f"No entries matching '{pattern}'.")
-        return
-
+    # Mode dispatch BEFORE the empty guard [count-mode-zero].  A count mode
+    # must print a number, and the empty case is the one a script most wants to
+    # branch on: with the sentence first, `$(query find X -c)` was arithmetic
+    # when X matched and a parse error when it did not.  `names` is the same
+    # rule — an empty list is the right answer for a pipeline, and a sentence
+    # on stdout would be read as a name.
     if flags.mode == "count":
         print(len(matches))
         return
@@ -348,6 +350,11 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
     if flags.mode == "names":
         for e in matches:
             print(_format_name_line(sections_by_theory[e.theory], e))
+        return
+
+    # Only the human-readable modes say so in words.
+    if not matches:
+        print(f"No entries matching '{pattern}'.")
         return
 
     if flags.mode == "all":

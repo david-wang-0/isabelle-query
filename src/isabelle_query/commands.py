@@ -1535,15 +1535,18 @@ def _compute_forest(graph: CallGraph,
 def _render_unused(entries: list[tuple[str, Entry, int]],
                    flags: 'CmdFlags', recursive: bool) -> None:
     """Shared rendering for unused and unused -r."""
-    if not entries:
-        print("No unused entries found.")
-        return
-
     label = "transitively unused" if recursive else "unused"
     total = len(entries)
 
+    # Before the empty guard [count-mode-zero]: a project with nothing unused
+    # has ZERO unused entries, and that is the answer a script wants — the one
+    # case it most wants to branch on, and the one that used to be a sentence.
     if flags.mode == "count":
         print(total)
+        return
+
+    if not entries:
+        print("No unused entries found.")
         return
 
     if flags.by_theory:
