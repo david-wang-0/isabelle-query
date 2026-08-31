@@ -7,21 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[bare-provenance]` Split `n_bare` by *why* a goal step has no
-      proposition.  It pools two unrelated things — **bare by construction**
-      (`show ?thesis`, `also`, `case`, `interpret`) and **the scanner found
-      none** — and that pooling is what hid issue #9(b) for as long as it did:
-      a wrapped statement was booked as bare, where nobody would look for a
-      scanner fault.  Suggested by the issue itself (its item 3, marked
-      optional) and left out of the fix because it changes the emitted record,
-      not just the numbers in it.  Two consequences worth having: a rise in
-      `n_bare` becomes interpretable as a fact about writing style rather than
-      possibly about the scanner, and the residue the narrow (b) rule leaves —
-      `obtain x where` on its own line, which is still booked bare — becomes
-      *countable* instead of invisible, which is the prerequisite for deciding
-      whether to widen the lookahead.  Land it as a new field, not a
-      redefinition of `n_bare`, so stored census rows stay comparable.
-
 - [ ] `[citation-reach]` Attribute a citation only to a declaration its
       theory can SEE.  `callers` / `callees` / `unused` / `graph citation`
       resolve a cited token by NAME alone: find `mono` on a line, look up

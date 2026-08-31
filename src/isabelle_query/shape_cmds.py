@@ -80,10 +80,13 @@ three-way split is ``introduce - both`` / ``consume - both`` / ``both``),
 ``trivial_frac`` (fraction of discharged steps closed by ``simp``/``auto``/…;
 ``null`` when nothing is discharged by a recognised method),
 ``removable_w2_est_at_8`` (**M6** fraction of stated width removable by naming
-≤8 repeated chunks per block), and ``method_kinds`` (the *automation axis*
+≤8 repeated chunks per block), ``method_kinds`` (the *automation axis*
 profile: a histogram of discharged steps by method kind — ``automation`` /
-``search`` / ``arith`` / ``structural`` / ``other`` — the one nested field, a
-finer grain than ``trivial_frac`` over the same discharged-step denominator).
+``search`` / ``arith`` / ``structural`` / ``other`` — a finer grain than
+``trivial_frac`` over the same discharged-step denominator), and ``bare_kinds``
+(why each of the ``n_bare`` steps states no proposition — ``construction`` /
+``undelimited`` / ``unfound``, summing to ``n_bare``, which is unchanged).
+Those two are the nested fields.
 This record is designed to be a *sufficient statistic* per proof — the analysis
 layer reads these scalars, never re-scans.
 """

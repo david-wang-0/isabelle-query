@@ -256,6 +256,9 @@ class Step:
     # step with no method on its own line (`qed`, an unclosed `have ... proof`,
     # a bare `.`/`..`).  Drives the "trivial" half of "long, wide, and trivial".
     method: str = ""
+    # Why a goal step states no proposition — one of `BARE_KINDS`, or "" for a
+    # step that states one (and for every non-goal step).  See `bare_kind`.
+    bare: str = ""
     # Filled by later metric passes:
     fanin: int = 0            # M5a: distinct facts cited FOR a goal step
     fanin_covered: bool = True  # False if a method shape could not be classified
@@ -339,6 +342,91 @@ def _statement_wrapped(lines: list[str], start_idx: int,
             return _balance_quote(lines, i, col, end_idx)
         return _balance_cartouche(lines, i, col, end_idx)
     return 0, 0, ""
+
+
+# --- Why a goal step states no proposition ---------------------------------
+#
+# `n_bare` pooled two unrelated things, and the pooling is what hid issue #9(b)
+# for as long as it did: a wrapped statement was booked as bare, where nobody
+# would look for a scanner fault.  These three buckets are named after the
+# measured population rather than guessed at — `scripts/probe_bare_provenance.py`
+# over the whole AFP, 195,733 bare goal steps out of 883,246.  That probe now
+# reports THROUGH `Step.bare`, so it cannot agree with a rule the tool does not
+# use; the first cut, which kept its own copy, put `undelimited` 18% low.
+
+# Goal commands that never carry a proposition of their own.  `also`/`finally`
+# continue a calculation; `interpret` instantiates a locale.
+_NO_PROPOSITION_CMDS = frozenset({"also", "finally", "interpret"})
+# What follows the command, once its own name and any label are gone.
+_STEP_LABEL_HEAD_RE = re.compile(r"^[A-Za-z][\w'.]*\s*(?:\[[^\]]*\])?\s*:(?!:)")
+# The proof tail that may follow an UNDELIMITED proposition on the same line.
+# `show False by simp` states `False`; the rest is the discharge.
+_PROOF_TAIL_WORDS = frozenset({
+    "by", "using", "unfolding", "apply", "proof", "done", "oops", "sorry",
+    ".", "..", "if", "for", "when", "is",
+})
+# An undelimited proposition: one term, no quotes and no cartouche.  Isar
+# allows it when the term is a single token — `show False`, `show thesis`,
+# `show ?case` — and the statement scanner looks only for delimiters, so these
+# are booked bare although the proposition is right there on the line.
+_UNDELIMITED_TERM_RE = re.compile(rf"^(?:{ISA_WORD_CHAR}|[?])+$")
+
+BARE_KINDS = ("construction", "undelimited", "unfound")
+
+
+def _after_goal_command(prefix: str, goal_cmd: str) -> str:
+    """The text a goal step writes after its command and its label.
+
+    Read from the COMMAND PREFIX, not the raw line: `_split_command_prefix`
+    blanks the balanced span of a fact cited in command position, so
+    `with \\<open>?nhip \\<noteq> dip\\<close> show False` leaves `show` findable
+    and cannot mistake the cited term for the statement.
+    """
+    if not goal_cmd:
+        return prefix.strip()
+    last = -1
+    for m in re.finditer(rf"(?<![\w']){re.escape(goal_cmd)}(?![\w'])", prefix):
+        last = m.end()
+    rest = (prefix[last:] if last >= 0 else prefix).strip()
+    m = _STEP_LABEL_HEAD_RE.match(rest)
+    return rest[m.end():].strip() if m else rest
+
+
+def bare_kind(step: Step, stripped: str) -> str:
+    r"""Why this goal step has no as-written proposition — one of
+    :data:`BARE_KINDS`, or ``""`` for a step that states one.
+
+    * ``construction`` — the step *cannot* carry an as-written proposition.
+      `also` / `finally` continue a calculation, `interpret` instantiates a
+      locale, and `show ?thesis` / `thus ?case` / `show ?rhs` name a goal
+      already in scope.  **88.70% of bare goal steps**, and a fact about how
+      Isar is written, not about this scanner.
+    * ``undelimited`` — the proposition is on the line, written without quotes
+      or a cartouche (`hence False by simp`).  **5.29%.**  Recoverable in
+      principle; not read today.
+    * ``unfound`` — the scanner looked and found nothing.  **6.01%**, most of
+      it `obtain x where` with the statement on the next line, which
+      `_statement_wrapped` deliberately declines because the remainder is not a
+      label.  This is the residue, and the point of the split: it is the only
+      bucket whose growth is evidence about the SCANNER rather than about
+      writing style, and until now it was invisible inside `n_bare`.
+    """
+    if step.stmt_text:
+        return ""
+    cmd = step.goal_cmd or step.kw
+    if cmd in _NO_PROPOSITION_CMDS:
+        return "construction"
+    rest = _after_goal_command(_command_prefix(stripped), cmd)
+    if rest.startswith("?"):
+        return "construction"          # `?thesis`, `?case`, `?rhs`
+    if not rest:
+        return "unfound"               # command alone on its line
+    head, _, tail = rest.partition(" ")
+    if (_UNDELIMITED_TERM_RE.match(head)
+            and (not tail.strip()
+                 or tail.split()[0] in _PROOF_TAIL_WORDS)):
+        return "undelimited"
+    return "unfound"
 
 
 def _balance_quote(lines: list[str], start_idx: int, open_col: int,
@@ -526,11 +614,16 @@ def _scan_steps(sec: TheorySection, entry: Entry) -> list[Step]:
         if kind == "goal":
             s_start, s_end, text = _extract_statement(lines, ln - 1, end - 1)
             label_m = _STEP_LABEL_RE.search(_command_prefix(stripped))
-            steps.append(Step(sec.theory, entry.name, ln, step_depth, kw, kind,
-                              s_start, s_end, text,
-                              label=label_m.group(1) if label_m else "",
-                              goal_cmd=_goal_command(stripped), block=cur_block,
-                              method=method))
+            st = Step(sec.theory, entry.name, ln, step_depth, kw, kind,
+                      s_start, s_end, text,
+                      label=label_m.group(1) if label_m else "",
+                      goal_cmd=_goal_command(stripped), block=cur_block,
+                      method=method)
+            # Classified here, where the step's own source line is still in
+            # hand: `bare_kind` reads the command prefix, and reconstructing it
+            # later from `Step.line` would be a second parse to keep in step.
+            st.bare = bare_kind(st, stripped)
+            steps.append(st)
         elif kind != "other":
             steps.append(Step(sec.theory, entry.name, ln, step_depth, kw, kind,
                               block=cur_block, method=method))
@@ -936,6 +1029,19 @@ def method_kind(method: str) -> str:
         if method in names:
             return kind
     return "other"
+
+
+def bare_kind_counts(steps: list[Step]) -> dict[str, int]:
+    """Histogram of a proof's bare goal steps by provenance — the split
+    `n_bare` never had.  Every :data:`BARE_KINDS` key is present (``0`` when a
+    kind is absent), so the schema is uniform, and the sum is exactly
+    ``n_bare``: this refines the field rather than redefining it, so a stored
+    census row stays comparable with a new one."""
+    counts = {k: 0 for k in BARE_KINDS}
+    for s in steps:
+        if s.bare:
+            counts[s.bare] += 1
+    return counts
 
 
 def method_kind_counts(steps: list[Step]) -> dict[str, int]:
@@ -2046,12 +2152,13 @@ class ProofSummary:
     counts goal steps with none (``show ?thesis`` / ``case`` — width hidden from
     source, so excluded from the w1/w2 distributions but reported alongside).
 
-    ``n_bare`` **pools two different things** — "bare by construction" and "the
-    scanner found no proposition" — which is what hid issue #9(b) for as long as
-    it did: a wrapped statement was silently booked here, where nobody would
-    look for it.  The scanner side is fixed, but the pooling remains, so a rise
-    in ``n_bare`` is not by itself evidence about writing style.  Splitting the
-    two in the emitted record is `[bare-provenance]` in `todo.md`."""
+    ``n_bare`` used to **pool two different things** — "bare by construction"
+    and "the scanner found no proposition" — which is what hid issue #9(b) for
+    as long as it did: a wrapped statement was silently booked here, where
+    nobody would look for it.  ``bare_kinds`` is the split [bare-provenance];
+    ``n_bare`` is unchanged and is its sum, so a rise in it is now readable
+    (``construction`` moves with writing style, ``unfound`` with the scanner)
+    without invalidating a stored row."""
     theory: str
     lemma: str
     n_steps: int
@@ -2108,6 +2215,12 @@ class ProofSummary:
     # (:data:`METHOD_KIND_NAMES`).  A finer grain than `trivial_frac` — its keys
     # sum to the same discharged-step denominator.
     method_kinds: dict[str, int]
+    # Why each bare goal step is bare (:data:`BARE_KINDS`).  Sums to `n_bare`,
+    # which is left exactly as it was — this REFINES the field rather than
+    # redefining it, so a stored census row stays comparable with a new one.
+    # `unfound` is the one that carries information about the scanner; the other
+    # two are facts about how the proof is written.
+    bare_kinds: dict[str, int]
     # ADD #3 induction discipline (LiFtEr source inputs), reduced per proof from
     # `scan_inductions`.  `n_induct` counts induction invocations; the rest
     # describe them (widest, deepest generalization, rule-bearing, recursion-rule
@@ -2174,7 +2287,7 @@ def summarize(pm: ProofMetrics) -> ProofSummary:
         int(fanin_max), fanin_mean, fanin_cited, pm.live_max, pm.live_mean,
         dag_max, ic.introduce, ic.consume, ic.both, ic.ratio,
         trivial_frac(pm.steps), removable_w2_at_8(pm.steps, pm.ctx),
-        method_kind_counts(pm.steps),
+        method_kind_counts(pm.steps), bare_kind_counts(pm.steps),
         ind.n, ind.terms_max, ind.arbitrary_max, ind.n_rule, ind.n_recursion,
         p_lines, p_lines_code, p_tokens, p_tokens_code, e.line_count,
         session=pm.sec.session)
@@ -2282,6 +2395,8 @@ def summary_record(ps: ProofSummary) -> dict:
         # reduction — the one structured field, kept grouped rather than spread
         # across five columns).
         "method_kinds": ps.method_kinds,
+        # Why the `n_bare` steps are bare; the three keys sum to `n_bare`.
+        "bare_kinds": ps.bare_kinds,
         # ADD #3 induction discipline (LiFtEr source inputs): induction
         # invocations in the proof and their shape.  `n_induct` 0 => this proof
         # inducts on nothing (the others are then 0 too).  Entry-level: the
