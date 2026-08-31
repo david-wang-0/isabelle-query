@@ -1158,14 +1158,22 @@ def _match_decl_at(outer_line: str, table: dict[str, str]
 #     definition
 #       foo :: "nat" where "foo = 0"
 # Bound the forward scan to a few lines so a truncated/malformed file cannot
-# run on looking for a name that is not there.
+# run on looking for a name that is not there.  Counted over blank and `text`
+# lines only: a formal comment is one lexer token however far it wraps, so it
+# is skipped without charge — see `_lookahead_name` [comment-before-name].
 _NAME_LOOKAHEAD_LINES = 3
+# Absolute cap on the walk, so "skipped without charge" still cannot run away
+# on a file whose comment never closes.  Generous against real source: the
+# longest pre-name comment measured over the AFP and the distribution is 4
+# lines (`HOL/UNITY/WFair.thy:37`).
+_NAME_SCAN_LINES = 40
 
 
 def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
-                    parse_fn, outer: list[str] | None = None) -> str:
+                    parse_fn, outer: list[str] | None = None,
+                    live: list[str] | None = None) -> str:
     r"""The name for a decl whose keyword stood alone: scan forward from the
-    0-indexed line ``start``, skipping blank / ``\<comment>`` / ``text`` lines,
+    0-indexed line ``start``, skipping blank / formal-comment / ``text`` lines,
     and parse the name from the **first content line** with ``parse_fn``.
 
     Only the first content line is consulted: a continuation name always sits
@@ -1175,13 +1183,40 @@ def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
     unrelated following prose.  A following *top-level command* likewise means
     no name here.  Does NOT consume lines — the caller's body scan still covers
     the peeked line, so the body buffer, ``decl_end_line`` and spans are
-    exactly as before; only the name changes."""
-    end = min(len(lines), start + _NAME_LOOKAHEAD_LINES)
+    exactly as before; only the name changes.
+
+    ``live`` is the tokenizer's redacted view, and asking it is what makes a
+    MULTI-LINE formal comment work [comment-before-name].  Testing the raw text
+    for a leading ``\<comment>`` recognises only the comment's FIRST line, so a
+    comment that wraps left its continuation looking like content and the name
+    was read out of the prose: ``HOL/UNITY/WFair.thy:35`` indexed ``is``, out of
+    "the rest **is** generic to all forms of fairness", and never indexed
+    ``transient`` at all.  It also caught only one of the four spellings, so a
+    ``\<^marker>`` on its own line — which `HOL/Analysis` writes on hundreds of
+    declarations — yielded ``?``.  The tokenizer already knows both: every such
+    line is blank in ``live``.
+
+    A redacted line does not spend the lookahead budget.  That bound exists so
+    "a truncated/malformed file cannot run on looking for a name that is not
+    there", and a formal comment is ONE token to Isabelle's lexer however many
+    lines it spans — its own cartouche already bounds it, so charging the
+    budget per line would make the guard fire on well-formed source.  Real
+    blank lines and ``text`` blocks still spend it, and ``_NAME_SCAN_LINES``
+    caps the walk outright so the runaway the guard was written for stays
+    impossible."""
+    limit = min(len(lines), start + _NAME_SCAN_LINES)
+    budget = _NAME_LOOKAHEAD_LINES
     j = start
-    while j < end:
+    while j < limit and budget > 0:
         stripped = lines[j].strip()
-        if not stripped or stripped.startswith("\\<comment>") \
+        # Blank in `live` but not in the source == the tokenizer redacted it:
+        # a formal comment of any of the four spellings, or one of its
+        # continuation lines.  A genuinely empty line is not "redacted".
+        redacted = bool(stripped) and live is not None and not live[j].strip()
+        if not stripped or redacted or stripped.startswith("\\<comment>") \
                 or TEXT_OPEN_RE.match(lines[j]):
+            if not redacted:
+                budget -= 1
             j += 1
             continue
         probe = outer[j] if outer is not None else lines[j]
@@ -1994,7 +2029,7 @@ def extract_entries(lines: list[str],
             name = _parse_typedecl_name(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=True):
                 name = _lookahead_name(lines, i + 1, table,
-                                       _parse_typedecl_name, outer)
+                                       _parse_typedecl_name, outer, live)
             # The body was never read: `decl_end_line` was pinned to the
             # declaration line, so `record state =` at `E_Aodv:16` measured one
             # line against the twenty it spans, and `show` rendered only the
@@ -2073,7 +2108,8 @@ def extract_entries(lines: list[str],
                         else _parse_name)
             name = parse_fn(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=False):
-                name = _lookahead_name(lines, i + 1, table, parse_fn, outer)
+                name = _lookahead_name(lines, i + 1, table, parse_fn, outer,
+                                       live)
             buf = [f"{tag} {rest}"]
             i, decl_end_line, body = _scan_decl_body(
                 lines, outer, live, open_at, table, i + 1, decl_line, keyword)
