@@ -6,10 +6,12 @@ corpus: **461 AFP theory names are used by more than one theory**, covering
 `Preliminaries`, twelve `Semantics`.  `query largest` over the AFP was a wall
 of unqualified `Bla` with no way to tell one from another [disambig-names].
 
-`render.theory_labels` gives each the shortest path suffix that names it
-uniquely — `Virtual_Substitution/QE`, `JinjaDCI/Compiler/Correctness2` — and
-leaves the rest bare.  Over the whole AFP that qualifies 1,316 of 9,910 labels
-and changes nothing else.
+`render.theory_labels` gives each the shortest directory-qualified name that
+identifies it uniquely — `Virtual_Substitution/QE`,
+`JinjaDCI/Compiler/Correctness2` — and leaves the rest bare.  Over the whole
+AFP that grows 1,219 of 9,910 labels and changes nothing else.  (Growing them
+from the file's STEM instead qualified 1,316; the extra 97 are theories whose
+files collide while their declared names do not — see `theory_labels`.)
 
 **Scoped to the loaded corpus, not to the rows on screen**, and that is the
 distinction the item itself got imprecise about.  Whether `Examples:11` names

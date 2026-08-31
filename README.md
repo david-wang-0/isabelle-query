@@ -58,6 +58,11 @@ tool's output is valid input: a locus from `callers` / `sorry` pastes into
 `enclosing`, and a span from `outline` / `largest` — or a proof block from
 `enclosing`'s own drill-down (`▸ have key 11..14`) — pastes into `lines`.
 
+A theory prints as its bare name, and only far enough qualified to name one
+theory. Over a corpus that matters: nineteen AFP theories are called
+`Examples`, so `largest` reports `Virtual_Substitution/QE` and `enclosing`
+takes it straight back. A name used once stays bare.
+
 ## What it reads
 
 Only **live Isar text**. A name in a comment, a `\<comment>` note, a `text`

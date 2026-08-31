@@ -545,7 +545,7 @@ lemma uses_it: "terminate 0"
         # callers of `Universal_Turing_Machine`'s `termi_z` were its own
         # declarations.
         hits = cli._find_callers([section_from(self.SRC)], "termi_z")
-        self.assertEqual([(t, ln) for t, ln, _ in hits], [("Test", 9)],
+        self.assertEqual([(s.theory, ln) for s, ln, _ in hits], [("Test", 9)],
                          f"expected only the `intro:` citation, got {hits}")
 
     def test_the_declaration_site_is_registered(self):

@@ -208,6 +208,33 @@ would process.
 The call graph behind the usage scans is constructed only when needed, so most
 commands stay fast.
 
+## Naming one theory out of a corpus
+
+A theory prints as the name it declares, which is unambiguous within a session
+and not across a corpus: **461 AFP theory names are used by more than one
+theory**, covering 1,219 of its 9,910. Nineteen files are called `Examples`,
+fifteen `Preliminaries`.
+
+So every printed `theory:line` is qualified by the shortest leading directory
+that names one theory — `Virtual_Substitution/QE`,
+`JinjaDCI/Compiler/Correctness2` — and no further, because a shared prefix
+distinguishes nothing and the label has to be typeable back in. A name used
+once stays bare, so a single-session run looks exactly as it always did. Over
+the whole AFP 1,219 labels grow a prefix; a further 902 already carry one,
+because their `ROOT` declares them that way (`theories "While/HoareTotal"`) and
+the label is then just the theory's own name.
+
+The qualification is decided against the **whole loaded corpus, not the rows on
+screen**. Whether `Examples:11` names one theory is a fact about the corpus
+however few rows a `-N 8` happened to print, and a label that is unique on
+screen but ambiguous on paste is worse than no label — it invites the paste.
+
+Both spellings resolve: `enclosing Virtual_Substitution/QE:3495` answers about
+that theory, and a bare `QE:3495` still works when the name is unique. `grep`
+and `sorry` report a **file** rather than a theory, so they qualify the same way
+with the suffix kept (`alpha/Examples.thy:12`), which leaves a non-`.thy`
+positional's own filename intact.
+
 ## Aggregating across a corpus
 
 `summary --by-session` rolls the per-theory counts up to the **session** and

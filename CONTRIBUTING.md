@@ -123,6 +123,23 @@ literal, because the failure mode is a *new* message, not an old one.
 `_prog` is a leaf module — it imports nothing from the package — precisely so
 that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
 
+**A printed `theory:line` goes through `render.locus_labels`, and a printed
+`file:line` through `render.file_locus`.** Emitting `sec.theory` is the obvious
+thing and it is ambiguous over a corpus: 461 AFP theory names name more than
+one theory, so the locus a verb hands you may not paste back to the theory it
+came from. Scope the label to the whole loaded corpus, never to the rows being
+shown — `cmd_largest` passes `sections`, not `rows[:top]`, for that reason.
+
+The corollary is the sharper half, and it is not about labels: **a located hit
+carries its own `TheorySection` (or its path), never its theory name.**
+Re-deriving the section by name goes through `graph._sections_by_theory`, a
+last-wins `{name: section}` map — so `cmd_callers` read its owner column and
+its `-U` context lines out of whichever same-named section won, for 9,239 of
+`callers assms`' 161,426 AFP rows. A name is not an identity; if a scanner
+hands one up and a renderer looks it back down, the round trip loses whichever
+file it was not thinking about. `scripts/probe_disambig_loci.py` measures both
+halves.
+
 ## Library contract (`isabelle_query.api`)
 
 **Four names are supported: `parse_theory`, `parse_root`, `Entry`,

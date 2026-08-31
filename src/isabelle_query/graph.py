@@ -30,6 +30,7 @@ from bisect import bisect_right
 from collections import Counter
 from collections.abc import Callable, Iterable
 from operator import itemgetter
+from pathlib import Path
 
 from isabelle_query import _census_namespace as _census_ns
 from isabelle_query import _isabelle_namespace as _isa_ns
@@ -728,7 +729,7 @@ _METHOD_INTRO_RE = re.compile(r"\b(?:by|apply|proof)\b\s*\(?\s*([\w']+)")
 
 
 def _scan_methods(sections: list[TheorySection], only: str | None = None,
-                  ) -> tuple[Counter, list[tuple[str, int, "Entry | None", str]]]:
+                  ) -> tuple[Counter, list[tuple[Path, int, "Entry | None", str]]]:
     """Tally proof-method uses across live theory source.
 
     Returns ``(counts, located)``:
@@ -737,9 +738,12 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
       every ``by`` / ``apply`` / ``proof`` introducer on a *live* line (not a
       ``text \\<open>...\\<close>`` block, a ``\\<comment>`` annotation, or a
       per-entry preamble — so prose like "apply the rule" is not mined).
-    * ``located`` — ``[(theory, line_no, owning_entry, line_text)]`` for the
+    * ``located`` — ``[(path, line_no, owning_entry, line_text)]`` for the
       method named by ``only`` (empty when ``only`` is None), the method
-      analogue of :func:`_find_callers`.
+      analogue of :func:`_find_callers`.  The section's PATH rather than its
+      theory name, because 461 AFP theory names are shared and the printed
+      locus has to name one theory; `render.locus_labels` turns it into the
+      label, which is a layer this module sits below [disambig-loci].
 
     The tally is **positional**, not table-filtered: whatever sits in introducer
     position is the method, exactly as :func:`_leading_method` classifies a
@@ -753,7 +757,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
     line between them by position, with no table mediating the split.
     """
     counts: Counter = Counter()
-    located: list[tuple[str, int, Entry | None, str]] = []
+    located: list[tuple[Path, int, Entry | None, str]] = []
     line_index = _build_line_index(sections)
     intro_finditer = _METHOD_INTRO_RE.finditer
     for sec in sections:
@@ -785,7 +789,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
                 if tok == only:
                     hit_only = True
             if hit_only:
-                located.append((sec.theory, line_no,
+                located.append((sec.path, line_no,
                                 _entry_at_line(idx, line_no),
                                 raw[line_no_0].rstrip()))
     return counts, located

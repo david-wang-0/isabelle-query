@@ -122,9 +122,11 @@ class FindCallersAgrees(ReachFixture):
     """
 
     def hits(self, name, reach="closure"):
+        # `_find_callers` reports the hit's SECTION, not its theory name
+        # [disambig-loci] — the question here is still which theories cite.
         from isabelle_query.commands import _find_callers
-        return {t for t, _ln, _txt in _find_callers(self.sections, name,
-                                                    reach=reach)}
+        return {s.theory for s, _ln, _txt in _find_callers(self.sections, name,
+                                                           reach=reach)}
 
     def test_the_invisible_theory_is_skipped(self):
         self.assertNotIn("C", self.hits("base"))

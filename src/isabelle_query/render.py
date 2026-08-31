@@ -28,13 +28,13 @@ from isabelle_query.parsing import LATEX_LINE_RE, _proof_extent
 
 
 def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
-    r"""``{resolved path: the shortest path suffix unique in this set}``.
+    r"""``{resolved path: the shortest directory-qualified name unique here}``.
 
-    A theory's printed name is its bare stem, which is right for a session and
-    wrong for a corpus: **461 AFP theory names are used by more than one
-    theory**, covering 1,219 of its 9,910 — `Examples` names nineteen different
-    files.  A `largest` run over the AFP was a wall of unqualified `Bla` with
-    no way to tell one from another [disambig-names].
+    A theory prints as its bare name, which is right for a session and wrong
+    for a corpus: **461 AFP theory names are used by more than one theory**,
+    covering 1,219 of its 9,910 — `Examples` names nineteen different files.
+    A `largest` run over the AFP was a wall of unqualified `Bla` with no way
+    to tell one from another [disambig-names].
 
     Qualified by the *minimal distinguishing* suffix, not by the full path.
     Two reasons, and the second is the load-bearing one:
@@ -51,13 +51,28 @@ def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
     Scoped to the sections actually being shown, so a single-session run keeps
     bare `Bla` and only a genuine collision grows a prefix.  Two sections at
     the same resolved path are one theory and share a label.
+
+    The label grows from the theory's declared NAME with its directory chain
+    in front, not from the file's stem.  Isabelle requires the two to agree
+    (`theory Foo` must live in `Foo.thy`) so on disk it is usually the same
+    string, and three things follow from preferring the name anyway:
+
+    * a section parsed from a BUFFER has no such file, and taking the stem
+      made a label out of the scratch file's name.  A label whose unqualified
+      case is not what every other verb prints is not a label;
+    * a ROOT may spell a theory with a directory (`theories "While/Hoare"`),
+      and then the NAME already carries it — 902 AFP theories, which now
+      label as themselves rather than as a bare `Hoare` that no verb accepts;
+    * it decides collisions on the right thing.  Growing from stems qualified
+      1,316 AFP labels, growing from names qualifies **1,219**: the extra 97
+      were theories whose FILES collide while their declared names do not,
+      given a prefix that separated nothing a reader could ever have typed.
     """
     by_path: dict[Path, list[str]] = {}
     for sec in sections:
         p = sec.path.resolve()
         if p not in by_path:
-            parts = list(p.with_suffix("").parts)
-            by_path[p] = parts
+            by_path[p] = list(p.parent.parts) + [sec.theory]
     labels: dict[Path, str] = {}
     pending = dict(by_path)
     depth = 1
@@ -81,6 +96,39 @@ def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
         pending = nxt
         depth += 1
     return labels
+
+
+def locus_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
+    r"""``theory_labels`` re-keyed by each section's path *as stored*.
+
+    The emitter-side view.  ``theory_labels`` keys on the RESOLVED path, so
+    that two spellings of one file are one theory and one label; a located hit
+    carries the section's path as the section holds it, and resolving that per
+    ROW is a syscall per row — `grep obtain` over the AFP prints 73,296 of
+    them.  Resolving once per section and looking the stored path up is the
+    same answer for free.
+
+    Use it wherever a ``theory:line`` is printed.  A theory NAME cannot be the
+    key: 461 AFP theory names are shared, which is the whole reason the label
+    exists [disambig-loci].
+    """
+    sections = list(sections)
+    labels = theory_labels(sections)
+    return {sec.path: labels[sec.path.resolve()] for sec in sections}
+
+
+def file_locus(labels: dict[Path, str], path: Path) -> str:
+    """The ``grep`` / ``sorry`` locus for *path*: its label, suffix restored.
+
+    Those two verbs report a FILE (``Examples.thy:12``), not a theory, because
+    a non-``.thy`` positional has no theory name to print.  ``theory_labels``
+    strips the suffix — a theory is cited as `Examples`, never `Examples.thy` —
+    so the file view puts it back, which keeps `notes.md` intact as readily as
+    it qualifies `Examples.thy` to `alpha/Examples.thy`.  Both spellings
+    round-trip: `_resolve_theory` strips a trailing `.thy` before matching the
+    label as a path suffix.
+    """
+    return labels.get(path, path.stem) + path.suffix
 
 
 def _format_target(entry: Entry) -> str:

@@ -58,8 +58,9 @@ from isabelle_query.render import (
     _statement_text,
     _strip_text_wrapper,
     _truncate_preview,
+    file_locus,
+    locus_labels,
     render_entry,
-    theory_labels,
 )
 
 
@@ -258,19 +259,23 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         for s in sections:
             if s.theory == name:
                 return s
-        # A LABEL, as `render.theory_labels` emits: the minimal path suffix
-        # that names one theory, matched here as a path suffix — the exact
-        # inverse of how it was built [disambig-names].  Without this the
+        # A LABEL, as `render.theory_labels` emits: the shortest directory
+        # qualification that names one theory, matched here as a suffix — the
+        # exact inverse of how it was built [disambig-names].  Without this the
         # emitter's half is worse than useless: nineteen AFP theories are
         # called `Examples`, and `beta/Examples` would fall to the stem
         # fallback and resolve to `alpha/Examples`, silently and confidently.
         # A label that looks paste-able and lands on a DIFFERENT theory is a
         # worse answer than a bare ambiguous name, which at least reads as
         # ambiguous.  Only a unique hit counts; anything else falls through.
+        # Matched against the directory chain plus the declared theory NAME —
+        # the exact tuple `render.theory_labels` builds the label out of, so
+        # the two cannot drift.  (On disk the name is the stem, since Isabelle
+        # requires it; a buffer-parsed section is where they part company.)
         want = tuple(Path(name).with_suffix("").parts)
         hits = [s for s in sections
-                if tuple(s.path.resolve().with_suffix("").parts)[-len(want):]
-                == want]
+                if (s.path.resolve().parent.parts
+                    + (s.theory,))[-len(want):] == want]
         if len(hits) == 1:
             return hits[0]
         # Path that doesn't match a known section: fall back to its
@@ -857,11 +862,17 @@ def cmd_outline(sections: list[TheorySection], theory: str,
 
 def _find_callers(sections: list[TheorySection], name: str,
                    external: bool = False, reach: str = "closure",
-                   ) -> list[tuple[str, int, str]]:
+                   ) -> list[tuple[TheorySection, int, str]]:
     """Find proof-body usages of *name* across all .thy files.
 
-    Returns a list of (theory_name, line_no, line_text) triples, filtering
-    out:
+    Returns a list of (section, line_no, line_text) triples.  The SECTION, not
+    its theory name: the caller needs the hit's own source for the owner column
+    and the `-U` context lines, and re-deriving it from the name through the
+    last-wins `_sections_by_theory` index silently read both out of a DIFFERENT
+    FILE whenever two theories share a name — 9,239 of `callers assms`' 161,426
+    AFP rows print a line that does not occur in the section their owner column
+    came from.  A wrong attribution, not an ambiguous label [disambig-loci].
+    Filters out:
       - Whole theories that cannot SEE any declaration of *name* — it is
         declared elsewhere in the project and not in this theory's transitive
         in-project `imports` closure, so the token here means something else
@@ -899,7 +910,7 @@ def _find_callers(sections: list[TheorySection], name: str,
     shadowed = name in _graph._NON_CITATION
     vis = _graph._Visibility(sections, reach)
 
-    results: list[tuple[str, int, str]] = []
+    results: list[tuple[TheorySection, int, str]] = []
     for sec in sections:
         # External mode: skip every line in the defining theory(ies),
         # treating intra-theory cross-references as noise.
@@ -933,7 +944,7 @@ def _find_callers(sections: list[TheorySection], name: str,
             # A name shared with a proof method earns its mention positionally.
             if shadowed and not _shadowed_uses_on_line(line, {name}):
                 continue
-            results.append((sec.theory, line_no, raw[line_no_0].rstrip()))
+            results.append((sec, line_no, raw[line_no_0].rstrip()))
     return results
 
 
@@ -1196,7 +1207,15 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
         when the proof is flat (then output is just the entry);
       * ``"blocks"`` — the full nesting path, entry then each block outer→inner;
       * ``"entry"`` — no drill-down, the owning entry alone (original output).
+
+    The echoed locus is the theory's LABEL, not the token the user typed: a
+    locus that came in as a path (`thys/Foo/Bar.thy:12`) goes back out in the
+    house `theory:line` form, and one that came in bare goes back out
+    qualified when the corpus holds two theories of that name.  Echoing the
+    input verbatim would be the easy answer and the wrong one — the point of
+    the echo is to say which theory the tool actually resolved to.
     """
+    labels = locus_labels(sections)
     for token in loci:
         parsed = _parse_locus(token)
         if parsed is None:
@@ -1216,10 +1235,11 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
         # `lo == hi` point-test stays on the *raw* hi (None never equals lo),
         # so `A..` is always a range, never mistaken for a single line.
         hi_eff = sec.thy_lines if hi is None else hi
-        loc = (f"{sec.theory}:{lo}" if lo == hi
-               else f"{sec.theory}:{lo}..{hi_eff}")
+        thy = labels.get(sec.path, sec.theory)
+        loc = (f"{thy}:{lo}" if lo == hi
+               else f"{thy}:{lo}..{hi_eff}")
         if lo > sec.thy_lines:
-            print(f"{loc} → (past end of {sec.theory} — "
+            print(f"{loc} → (past end of {thy} — "
                   f"{sec.thy_lines} lines)")
             continue
         if lo == hi:
@@ -1231,7 +1251,7 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             role = _locus_role(entry, lo)
             suffix = f"  ({role})" if role else ""
             target = _format_target(entry)
-            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            scope = f"{thy} ▸ {target}" if target else thy
             base = (f"{loc} → {entry.name} ({entry.tag}) — {scope} "
                     f"{_format_extent(entry)}")
             # Drill into the proof for the nearest/whole-path modes, but only
@@ -1264,7 +1284,7 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             continue
         for e in overlap:
             target = _format_target(e)
-            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            scope = f"{thy} ▸ {target}" if target else thy
             print(f"{loc} → {e.name} ({e.tag}) — {scope} "
                   f"{_format_extent(e)}")
 
@@ -1299,28 +1319,28 @@ def cmd_callers(sections: list[TheorySection], name: str,
     if not hits:
         print(f"No callers found for '{name}'.")
         return
-    # Build theory → section lookup once for enclosing-entry lookup and
-    # trailing-context line access.
-    by_theory = _sections_by_theory(sections)
     n_after = max(0, flags.context)
     # Align the match loci into a column; each is a clean `theory:line` that
-    # pastes into `enclosing` / `lines` / an editor (no trailing marker).
-    loc_w = max((len(f"{t}:{ln}") for t, ln, _ in hits), default=0)
+    # pastes into `enclosing` / `lines` / an editor (no trailing marker) — and
+    # is qualified far enough to name one theory, so what pastes back is the
+    # theory the row was found in [disambig-loci].
+    labels = locus_labels(sections)
+    loci = [f"{labels.get(s.path, s.theory)}:{ln}" for s, ln, _ in hits]
+    loc_w = max((len(loc) for loc in loci), default=0)
     print(f"{len(hits)} caller(s) of {name}:\n")
-    for theory, line_no, text in hits:
-        sec = by_theory.get(theory)
-        encl = _enclosing_entry(sec, line_no) if sec is not None else None
-        loc = f"{theory}:{line_no}"
+    for (sec, line_no, text), loc in zip(hits, loci):
+        encl = _enclosing_entry(sec, line_no)
         print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
-        if n_after > 0 and sec is not None:
+        if n_after > 0:
             src = sec.source()
             # 1-indexed line_no → 0-indexed slice start at line_no
             # (i.e., the line *after* the match).  Context keeps ripgrep's
             # `-` marker — it flags the line as context, not a match, and
             # `_parse_locus` strips it so the locus still round-trips.
+            label = loc.rsplit(":", 1)[0]
             for off, ctx in enumerate(src[line_no:line_no + n_after], start=1):
                 ctx_no = line_no + off
-                print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
+                print(f"  {label}:{ctx_no}-  {ctx.rstrip()}")
 
 
 def cmd_callees(sections: list[TheorySection], name: str,
@@ -1433,14 +1453,15 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
     if not located:
         print(f"No uses of method '{name}' found.")
         return
-    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in located), default=0)
+    labels = locus_labels(sections)
+    loci = [f"{labels.get(p, p.stem)}:{ln}" for p, ln, *_ in located]
+    loc_w = max((len(loc) for loc in loci), default=0)
     if flags.mode == "names":
-        for theory, ln, owner, _text in located:
-            print(f"  {f'{theory}:{ln}':<{loc_w}}  {_owner_field(owner)}")
+        for (_p, _ln, owner, _text), loc in zip(located, loci):
+            print(f"  {loc:<{loc_w}}  {_owner_field(owner)}")
         return
     print(f"{len(located)} use(s) of method '{name}':\n")
-    for theory, ln, owner, text in located:
-        loc = f"{theory}:{ln}"
+    for (_p, _ln, owner, text), loc in zip(located, loci):
         print(f"  {loc:<{loc_w}}  {_owner_field(owner)}  {text.strip()}")
 
 
@@ -1698,12 +1719,18 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
-                   ) -> list[tuple[str, int, str, "Entry | None", bool, bool]]:
+                   ) -> list[tuple[Path, int, str, "Entry | None", bool, bool]]:
     """Walk every section's source and return one tuple per line that
-    matches `pat`.  Each tuple is (loc_name, line_no, line_text,
-    owning_entry, is_live, is_thy), where loc_name is the file's real
-    name (e.g. `Foo.thy`, `notes.md`) so plain non-`.thy`
-    positionals report their actual filename rather than `<stem>.thy`.
+    matches `pat`.  Each tuple is (path, line_no, line_text,
+    owning_entry, is_live, is_thy).
+
+    The section's PATH, not a display name: these two verbs report a FILE, and
+    a bare file name is ambiguous over a corpus in exactly the way a bare
+    theory name is (nineteen AFP files are called `Examples.thy`).
+    `render.file_locus` turns the path into the printed locus — the label with
+    its suffix restored, so a non-`.thy` positional still reports its actual
+    filename rather than `<stem>.thy` [disambig-loci].
+
     `is_thy` is False for non-`.thy` positionals (Markdown / prose),
     which have no Isabelle entries and hence no owning-entry column —
     `cmd_grep` shows the matched line text directly for those.
@@ -1750,7 +1777,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
             is_live = (not any(line_no in r for r in noise)
                        and bool(pat.search(live_lines[line_no_0])))
             owner = _entry_at_line(idx, line_no)
-            out.append((sec.path.name, line_no, line.rstrip(), owner,
+            out.append((sec.path, line_no, line.rstrip(), owner,
                         is_live, sec.is_thy))
     return out
 
@@ -1794,13 +1821,15 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     else:
         print(f"{len(live_hits)} live match(es) for '{pattern}':\n")
 
+    labels = locus_labels(sections)
+    loci = [f"{file_locus(labels, p)}:{ln}" for p, ln, *_ in hits]
+    loc_w = max((len(loc) for loc in loci), default=0)
+
     if flags.mode == "names":
         # Compact: location + owning entry, no source line.  For a
         # non-`.thy` positional there is no owning entry, so names mode
         # would be content-free — fall back to the matched line text.
-        loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-        for loc_name, ln, text, owner, is_live, is_thy in hits:
-            loc = f"{loc_name}:{ln}"
+        for (_p, _ln, text, owner, is_live, is_thy), loc in zip(hits, loci):
             marker = "" if is_live else "  [in comment/text]"
             if not is_thy:
                 print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
@@ -1810,9 +1839,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
 
     # Default: location + owning entry + matched line text.  Non-`.thy`
     # positionals have no entry column — show the line inline on one row.
-    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-    for loc_name, ln, text, owner, is_live, is_thy in hits:
-        loc = f"{loc_name}:{ln}"
+    for (_p, _ln, text, owner, is_live, is_thy), loc in zip(hits, loci):
         marker = "" if is_live else "  [in comment/text]"
         if not is_thy:
             print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
@@ -1842,9 +1869,11 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
     if not hits:
         print("No sorries.")
         return
-    loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
-    for loc_name, ln, _text, owner, _live, _is_thy in hits:
-        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {_owner_field(owner, span=False)}")
+    labels = locus_labels(sections)
+    loci = [f"{file_locus(labels, p)}:{ln}" for p, ln, *_ in hits]
+    loc_w = max(len(loc) for loc in loci)
+    for (_p, _ln, _text, owner, _live, _is_thy), loc in zip(hits, loci):
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}")
     print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
 
 
@@ -1961,12 +1990,12 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     # A single-session run still shows bare `Bla`, because the qualification is
     # driven by actual collisions and a session has none.
     shown = rows[:top]
-    labels = theory_labels(sections)
+    labels = locus_labels(sections)
     print(f"Top {len(shown)} largest entries:\n")
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
     for size, e, s in shown:
-        theory = labels.get(s.path.resolve(), s.theory)
+        theory = labels.get(s.path, s.theory)
         print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {theory}  ({e.src_start}..{e.thy_end})")
 
 

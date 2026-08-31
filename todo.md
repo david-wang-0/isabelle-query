@@ -29,29 +29,30 @@ in `CONTRIBUTING.md`.
       shipped; the two turned out not to share a scan after all (the phantom
       was an unconditional placeholder, not a missing lookahead).
 
-- [ ] `[disambig-loci]` Carry the qualified theory label into the LOCUS
-      emitters.  `[disambig-names]` shipped the mechanism
-      (`render.theory_labels` — the shortest path suffix that names one theory,
-      1,316 of the AFP's 9,910 qualified) and put it on `largest`, plus the
-      resolver half, so a qualified label already resolves back to exactly one
-      theory.  What still prints bare is every `theory:line`:
+- [ ] `[name-is-not-identity]` A theory NAME is used as a section's identity in
+      four more places, and each collapses two theories into one over a corpus.
+      Split out of `[disambig-loci]`, which fixed the fifth: `_find_callers`
+      handed its hits' theory names up and `cmd_callers` looked them back down
+      through `graph._sections_by_theory`, a last-wins `{name: section}` map,
+      so 9,239 of `callers assms`' 161,426 AFP rows printed a line out of one
+      file beside an owner out of another.  The same map, and the same
+      last-wins collapse, still backs:
 
-          commands.py   1219/1220  `enclosing`      1313/1323  `callers`
-                        1439/1443  `sorry` / `grep`
-          shape_cmds.py 291        `shape steps`    322  `shape lemma`
-                        384        `shape widest`
+          graph._Visibility.by_theory   import closure keyed by theory name
+          graph._build_line_index       {theory: [entry spans]} for _entry_at_line
+          commands._noise_ranges        {theory: [prose spans]}
+          commands._build_def_sites     {theory: {name: def-site ranges}}
 
-      So `largest` says `Virtual_Substitution/QE` and `enclosing
-      Virtual_Substitution/QE:3495` answers `QE:3495` — the tool accepting a
-      qualified name and handing back an ambiguous one, which is the
-      round-trip hole `[locus-roundtrip]` exists to close, in the last place it
-      is still open.
-      Not folded into `[disambig-names]`: nine emitters across two modules,
-      each with its own output format and column arithmetic (`loc_w` alignment
-      widens when a label does), so it wants its own diff and its own
-      before/after on the fixture tests that pin those formats.
-      Cheap now that the mechanism and the resolver both exist — the work is
-      threading a label map to each emitter, not deciding anything.
+      **758 of the AFP's 9,910 sections are shadowed** in such a map (461 names
+      shared, covering 1,219 sections).  Unmeasured whether any of the four
+      actually mis-answers — several are read back with the *same* section that
+      wrote them, in which case the collapse is invisible and the fix is
+      hygiene.  `_Visibility` is the one to measure first: it decides the
+      import closure per name, so two `Preliminaries` share one closure and a
+      citation may be kept or dropped on the other theory's imports.
+      Measure before changing anything — the parent item was filed as cosmetic
+      and turned out to be a wrong-attribution bug, and the reverse is just as
+      possible here.  `scripts/probe_disambig_loci.py` counts the shadowing.
 
 - [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
       `PIDE/markup` in a built session database.  The #8 entity export gives
