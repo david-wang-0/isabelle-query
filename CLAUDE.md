@@ -36,8 +36,10 @@ The package is a strict module DAG — each imports only from earlier links:
     model → parsing → graph → render → commands → cli
 
 with `shape` + `shape_cmds` (the proof-shape family), `_prog` (the invoked
-command name — a leaf that imports nothing, so any layer can reach it), and
-`scripts/` (offline table-generation + dev utilities) as siblings.
+command name — a leaf that imports nothing, so any layer can reach it), `api`
+(the four-name supported import surface, sitting just above `parsing` and
+importing nothing else — see `CONTRIBUTING.md`), and `scripts/` (offline
+table-generation + dev utilities) as siblings.
 
 Session/ROOT discovery and the import closure are **not query's code**: the
 ROOT / session / theory-header parser is **`isabelle-layout`** (on PyPI,

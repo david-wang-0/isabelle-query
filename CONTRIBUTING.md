@@ -108,6 +108,37 @@ literal, because the failure mode is a *new* message, not an old one.
 `_prog` is a leaf module — it imports nothing from the package — precisely so
 that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
 
+## Library contract (`isabelle_query.api`)
+
+**Four names are supported: `parse_theory`, `parse_root`, `Entry`,
+`TheorySection`.** They carry the same promise as the CLI — a change that
+breaks them takes the **minor** version slot, never a patch. Everything else in
+the package is internal and may move in any release.
+
+Adding a fifth is a decision, not a convenience. `tests/test_api_surface.py`
+pins `__all__` **exactly**, not "at least", because a name that leaks into it
+is a name someone will import, and then it is promised whether or not that was
+meant. The same file pins the *span fields* of `Entry` and `TheorySection`,
+which is where the real contract lives: a consumer depends on `e.preamble` and
+`e.body_end_line` meaning what they say, not on which private function computed
+them — and that is precisely what leaves `parsing` free to keep changing.
+
+Prefer exporting a **composition** over its ingredients. Issue #10 asked for
+ten line-scanners plus `_attach_preambles` and `_proof_extent`; their results
+were already fields on the two objects, and the hard-won part is the order the
+scanners run in (tokenizer first, preambles before `compute_spans`,
+`_proof_extent` last). Pinning the pieces would have frozen the most volatile
+module in the package while promising nothing extra.
+
+`api` imports only from `model` and `parsing`, and `__init__.py` re-exports
+nothing — `import isabelle_query` must stay free of the parser, which `_prog`
+and the version lookup do not want. Both are enforced by that test file.
+
+A library entry point that reads a module global gets it **saved and restored**,
+or the answer depends on call order — `parse_theory` after a `parse_root` was
+returning the previous root's custom commands. Same family as the namespace
+default above: a caller must get the same result from the same arguments.
+
 ## Verification
 
 The suite is not sufficient on its own for parser changes; unit tests cannot

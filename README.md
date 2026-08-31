@@ -106,6 +106,34 @@ $ echo $?
 2
 ```
 
+## Library API
+
+The Isar span parsing is importable, for tools that want **spans** rather than
+a **report** — where a lemma starts and ends, where its `text ‹…›` preamble is,
+where its proof stops, which lines are comments or ML.
+
+```python
+from pathlib import Path
+from isabelle_query.api import parse_root, parse_theory
+
+sec = parse_theory("Foo", Path("Foo.thy"))
+for e in sec.entries:
+    print(e.name, e.src_start, e.thy_end, e.proof_line, e.body_end_line)
+```
+
+`isabelle_query.api` exports exactly four names — `parse_theory`, `parse_root`,
+`Entry`, `TheorySection` — and **they follow the same policy as the CLI: a
+change that breaks them takes the minor version slot, never a patch.** Nothing
+else in the package is supported; import from `isabelle_query.parsing` and a
+patch release may move it.
+
+Four rather than the dozen functions that look public, because their results
+are already fields on the two objects, and the hard part is the order the
+scanners run in — that composition is what `parse_theory` is. Use `parse_root`
+whenever the answer must match `query -R`: Isabelle's keyword table is
+session-wide, so a single theory parsed alone cannot see a custom command a
+sibling declares.
+
 ## Installation
 
 Requires Python 3.9 or greater. Installs the command on your `PATH` under two
