@@ -356,33 +356,98 @@ def _shadowed_uses_on_line(line: str, names: set[str],
     return used
 
 
-def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
-    """Map a raw ``imports``-clause token to the bare in-project theory it
-    denotes, or ``None`` if it is external.
+def _theory_leaf(name: str) -> str:
+    """The last path segment of a theory name or ``imports`` token — what
+    ``Thy_Header.import_name`` keeps.  ``"../BV/Altern"`` and ``"Altern"``
+    denote the same theory to Isabelle, and so must here [import-leaf]."""
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _leaf_index(sec_by_name: dict[str, TheorySection]) -> dict[str, list[str]]:
+    """``{leaf: [theory names carrying a path]}``, for resolving an import
+    written bare against a theory a ROOT spelled with a directory.
+
+    Only names that are *not* already their own leaf go in, so this can never
+    shadow a plain name — an exact match is tried first and always wins.  It
+    stays small for that reason: 56 of `src/HOL`'s 1,451 theories.
+    """
+    idx: dict[str, list[str]] = {}
+    for name in sec_by_name:
+        leaf = _theory_leaf(name)
+        if leaf != name:
+            idx.setdefault(leaf, []).append(name)
+    return idx
+
+
+def _import_candidates(imp: str, sec_by_name: dict[str, TheorySection],
+                       by_leaf: dict[str, list[str]] | None = None
+                       ) -> list[str]:
+    """Every in-project theory an ``imports`` token could denote, most
+    specific spelling first; empty when the token is external.
 
     `parse_thy_imports` returns tokens verbatim, but the section index
-    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
-    are written bare (``Substrate``) and match directly; cross-session
-    imports are session-qualified (``Proj_Base.Substrate``) and resolve by
-    their tail after the last ``.``.  A genuinely external import
-    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
-    so it stays ``None`` and the caller keeps the *raw* token for the
-    ``[out-of-project]`` line.
+    (`sec_by_name`) is keyed by theory name.  Four spellings reach a loaded
+    theory, tried in order:
 
-    Tail-matching is correct for every realistic tree: an external leaf-name
-    (``FuncSet``, ``List``) does not collide with a project theory name.  The
-    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
-    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
-    session — is a name collision, the province of `[disambig-names]`; if it
-    ever arises, gate the tail-match on the qualifier naming a known session
-    (`SessionInfo.name`)."""
+    * bare, matching directly (``Substrate``);
+    * session-qualified, by the tail after the last ``.``
+      (``Proj_Base.Substrate``);
+    * **path-spelled, by its leaf** — ``imports "../WFair"``
+      (HOL/UNITY/Simple/Token.thy:10), ``imports
+      "variants/a_norreqid/A_Aodv_Loop_Freedom"`` (AFP/AODV/All.thy);
+    * **bare against a path-spelled THEORY** — a ROOT that says
+      ``theories "Simple/Reach"`` gives the section that name, so a sibling's
+      ``imports Reach`` matches nothing without `by_leaf`.
+
+    The last two are the same rule seen from either end, and it is Isabelle's
+    (`Thy_Header.import_name` takes the last segment).  Without them the token
+    is classified external — cosmetic for ``deps``, but a HOLE in the
+    visibility closure, which may only DROP and so deletes every citation
+    across the edge in silence: 2,803 over `src/HOL` and 65,745 over the AFP
+    [import-leaf].
+
+    A genuinely external import (``HOL-Library.FuncSet``) names no in-project
+    theory by any of the four, so the list is empty and the caller keeps the
+    *raw* token for the ``[out-of-project]`` line.  The leaf rules add no new
+    way to mistake one for a local theory: they fire only when the token or a
+    loaded name contains ``/``, which an external session-qualified import
+    never does.
+
+    Several candidates are returned only for the last rule, where two ROOTs
+    spelled distinct theories with the same leaf.  Callers that must print one
+    dependency take :func:`_resolve_import`; the visibility closure takes them
+    all, because it may only drop and a union is the safe side.
+
+    `by_leaf` is :func:`_leaf_index` of the same map.  Pass it when resolving
+    in a loop — deriving it per call is a pass over every theory name.
+    """
     if imp in sec_by_name:
-        return imp
+        return [imp]
     if "." in imp:
         tail = imp.rsplit(".", 1)[1]
         if tail in sec_by_name:
-            return tail
-    return None
+            return [tail]
+    leaf = _theory_leaf(imp)
+    if "." in leaf:
+        leaf = leaf.rsplit(".", 1)[1]
+    if leaf != imp and leaf in sec_by_name:
+        return [leaf]
+    if by_leaf is None:
+        by_leaf = _leaf_index(sec_by_name)
+    return sorted(by_leaf.get(leaf, ()))
+
+
+def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection],
+                    by_leaf: dict[str, list[str]] | None = None) -> str | None:
+    """The one in-project theory an ``imports`` token denotes, or ``None``.
+
+    :func:`_import_candidates` narrowed to a single answer for the verbs that
+    print a dependency (``deps``, ``uses``, ``graph imports``), which need one
+    edge per import clause rather than a set.  Where the token is genuinely
+    ambiguous the first candidate in name order is taken, deterministically.
+    """
+    got = _import_candidates(imp, sec_by_name, by_leaf)
+    return got[0] if got else None
 
 
 def _import_depths(start: str, by_theory: dict[str, TheorySection],
@@ -400,14 +465,21 @@ def _import_depths(start: str, by_theory: dict[str, TheorySection],
     second question is not a rendering concern: it is what the citation
     attribution below has to ask, and a helper one layer up could not be asked
     it [citation-reach].
+
+    Single-valued, like the ``deps`` output it feeds: where a name is declared
+    twice this walks the last-wins section, and where a leaf is ambiguous it
+    takes one candidate.  The *filter* cannot afford either narrowing and does
+    not make them — see :class:`_Visibility`.
     """
+    by_leaf = _leaf_index(by_theory)
+
     def imports_of(name: str) -> list[str]:
         sec = by_theory.get(name)
         if sec is None:
             return []
         children: list[str] = []
         for imp in parse_thy_imports(sec.path):
-            child = _resolve_import(imp, by_theory)
+            child = _resolve_import(imp, by_theory, by_leaf)
             if child is None:
                 if out_of_project is not None:
                     out_of_project.add(imp)
@@ -459,6 +531,16 @@ class _Visibility:
     def __init__(self, sections: list[TheorySection], mode: str = "closure"):
         self.mode = mode
         self.by_theory = _sections_by_theory(sections)
+        self._leaf = _leaf_index(self.by_theory)
+        # theory -> EVERY section of that name, not the last-wins one.  A
+        # name is unique in a session and not in a corpus (461 AFP names are
+        # shared by 1,219 theories), and this filter may only DROP, so the
+        # adjacency has to be the UNION: too large a closure is merely weak,
+        # while one section's imports standing for another's deletes real
+        # citations [visibility-by-name].
+        self._sections_of: dict[str, list[TheorySection]] = {}
+        for sec in sections:
+            self._sections_of.setdefault(sec.theory, []).append(sec)
         self._closure: tuple[str, frozenset[str] | None] | None = None
         # theory -> its in-project imports, read once; None = could not read.
         self._imports: dict[str, list[str] | None] = {}
@@ -472,22 +554,31 @@ class _Visibility:
                 self.declared_in.setdefault(e.name, set()).add(sec.theory)
 
     def _read_imports(self, theory: str) -> list[str] | None:
-        """This theory's in-project imports, or None if they cannot be read."""
+        """The in-project imports of EVERY section of this name, unioned, or
+        None if any of them cannot be read.
+
+        Unknown wins over a partial union for the reason the class exists: a
+        union missing one section's imports is a closure that is too SMALL,
+        and a closure that is too small drops attributions.
+        """
         if theory in self._imports:
             return self._imports[theory]
-        sec = self.by_theory.get(theory)
+        secs = self._sections_of.get(theory, ())
         got: list[str] | None
         # The readability test has to happen HERE: `parse_thy_imports` returns
         # `[]` for a file that does not exist, so through it "imports nothing"
         # and "cannot be read" are the same answer — and they must not be, or a
         # section parsed from a buffer would silently lose every cross-theory
         # edge it has.
-        if sec is None or not sec.path.is_file():
+        if not secs or any(not s.path.is_file() for s in secs):
             got = None
         else:
-            got = [c for c in (_resolve_import(i, self.by_theory)
-                               for i in parse_thy_imports(sec.path))
-                   if c is not None]
+            names: set[str] = set()
+            for sec in secs:
+                for imp in parse_thy_imports(sec.path):
+                    names.update(_import_candidates(imp, self.by_theory,
+                                                    self._leaf))
+            got = sorted(names)
         self._imports[theory] = got
         return got
 

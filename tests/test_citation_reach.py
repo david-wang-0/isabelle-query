@@ -18,9 +18,14 @@ safe to reason about, because no output can grow except `unused`.
 
 Whole AFP, `scripts/probe_citation_reach.py`:
 
-    edges           3,020,075 -> 1,139,375   (-62%, 0 gained)
-    with no caller     81,259 ->    88,977   (+7,718)
-    callers mono -c      1,261 ->       232
+    edges           2,409,977 -> 1,440,680   (-40%, 0 gained)
+    unused -c          94,231 ->    97,747   (+3,516)
+    callers mono -c     1,263 ->       561
+
+(Those are the figures at `[import-leaf]`, which restored 319,734 edges the
+closure could not see because a path-spelled import resolved to nothing.  The
+ratio is what to read, not the absolute counts — the citation graph itself has
+moved twice since, under `[name-is-not-identity]` and again there.)
 
 `unused` growing is the point, not a cost: an entry kept alive only by a
 citation its citer could not see is dead.

@@ -37,11 +37,13 @@ they are claims a fixture cannot settle, tracked in `todo.md` instead:
                                 as a sibling note; needs heaps to reproduce
     D12 —                       `\w` differs between Python and Java.  Not
                                 ours, same reason as D9
-    D13 [import-leaf]           the port ADOPTED our reachability rule and
-                                +   fixed two things we did not: a path-spelled
-    [visibility-by-name]        import must resolve by its leaf, and a
-                                duplicated theory name must union its edges.
-                                Both measured; both cost us citations
+    D13 —                       the port ADOPTED our reachability rule and
+                                fixed two things we had not: a path-spelled
+                                import must resolve by its LEAF, and a
+                                duplicated theory name must UNION its edges.
+                                Both shipped here under [import-leaf];
+                                `scripts/probe_import_leaf.py` is the standing
+                                check and now reports no hole on any corpus
 
 Exit status is the number of claims still confirmed, so it falls to 0 as they
 are fixed.  A claim that flips back to CONFIRMED is a regression.

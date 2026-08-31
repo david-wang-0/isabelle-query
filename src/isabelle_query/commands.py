@@ -42,6 +42,7 @@ from isabelle_query.graph import (
     _entry_at_line,
     _entry_by_name,
     _import_depths,
+    _leaf_index,
     _noise_ranges,
     _noise_spans,
     _resolve_import,
@@ -644,9 +645,10 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         # import the child.  The reverse direction needs the whole graph
         # regardless of depth, so the full scan here is unavoidable.
         rev: dict[str, list[str]] = {s.theory: [] for s in sections}
+        by_leaf = _leaf_index(by_theory)
         for s in sections:
             for imp in parse_thy_imports(s.path):
-                resolved = _resolve_import(imp, by_theory)
+                resolved = _resolve_import(imp, by_theory, by_leaf)
                 if resolved is not None:
                     rev[resolved].append(s.theory)
         if recursive:
@@ -2053,9 +2055,10 @@ def _import_graph_data(sections: list[TheorySection]) -> dict:
              for s in sorted(sections, key=lambda s: s.theory)]
     edges: list[tuple[str, str]] = []
     external: set[str] = set()
+    by_leaf = _leaf_index(by_theory)
     for sec in sections:
         for imp in parse_thy_imports(sec.path):
-            resolved = _resolve_import(imp, by_theory)
+            resolved = _resolve_import(imp, by_theory, by_leaf)
             if resolved is None:
                 external.add(imp)
                 edges.append((sec.theory, imp))

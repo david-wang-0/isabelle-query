@@ -147,10 +147,18 @@ nowhere is not filtered at all, and a theory whose imports cannot be read (a
 buffer, stdin) is not filtered either, since an unknown closure must not delete
 a real edge.
 
-Over the whole AFP that removes 62% of citation edges (3,020,075 → 1,139,375)
-and `callers mono` goes 1,261 → 232. `unused` **grows** by 7,718 entries, which
+Over the whole AFP that removes 40% of citation edges (2,409,977 → 1,440,680)
+and `callers mono` goes 1,263 → 561. `unused` **grows** by 3,516 entries, which
 is the point rather than a cost: an entry kept alive only by a citation its
 citer could never have meant is dead.
+
+Because the rule may only drop, an import query cannot *resolve* is worse than
+one it resolves wrongly: the edge simply is not there, and every citation
+across it disappears. So an import is matched by the same rule Isabelle uses —
+its **last path segment** — which is what lets `imports "../WFair"` and a ROOT
+that spells a theory `"Simple/Reach"` reach each other. For the same reason,
+where a corpus declares one theory name twice the closure takes the **union**
+of both sections' imports rather than picking one.
 
 `--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
 `graph` and `refs` — every verb the scoping moves.

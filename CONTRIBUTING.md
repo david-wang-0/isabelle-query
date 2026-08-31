@@ -146,9 +146,19 @@ owner, classified 38,068 the wrong side of prose-vs-live, and moved 48,177
 citation edges onto the wrong entry while hiding 43,912 real ones (`unused`
 95,696 → 104,028). Measured by `scripts/probe_name_keyed_index.py`, which
 reconstructs the name-keyed map itself and so reads the same on either side of
-the fix. `graph._Visibility` still keys its import closure by name — that one
-is a genuine graph node rather than a per-section lookup, and re-keying it
-means resolving imports per entry; see `[name-is-not-identity]` in `todo.md`.
+the fix.
+
+The fifth instance, `graph._Visibility`'s import closure, is a genuine graph
+node rather than a per-section lookup, so it took a different answer: not a
+better tiebreak among same-named candidates but the **union** of their edges.
+That follows from what the filter is. A visibility closure is a *necessary*
+condition and may only DROP, so a closure that is too large is merely weak
+while one that is too small deletes real citations — and between two
+approximations, the permissive one is the only safe one. The same reasoning
+decides how an `imports` token is matched: **by its last path segment**, which
+is Isabelle's own rule (`Thy_Header.import_name`), because a token the resolver
+cannot map is not a missing feature but a hole, and a hole prunes
+[import-leaf].
 
 ## Library contract (`isabelle_query.api`)
 
