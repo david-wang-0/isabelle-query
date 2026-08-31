@@ -2816,6 +2816,19 @@ def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:
     must still end the proof, which whole-line masking gets right and
     character-level blanking would too but only by accident of what it blanks.
 
+    Two further changes were tried here and are NOT made, because each was
+    measured over the AFP and changes **0 records** [proof-extent-anchor]:
+
+    * dropping the column-0 anchor on `DECL_RE` for the deanchored
+      `_match_decl_at`.  `thy_end` is already bounded by the declaration
+      positions that scan found, so an indented declaration never falls
+      strictly inside a proof's span;
+    * masking prose inside a ``text`` block.  16 lines there are English
+      sentences beginning with a command word — `DiskPaxos_Inv4:66` is
+      literally "lemma $action$-$HInv4x$-$q$ proves the other case." — but the
+      block's OPENING line already ends the proof, so its body is unreachable
+      (`AutoCorres2/TypeStrengthen`: `body_end` 63, block 64..108).
+
     Only the BOUNDARY tests are masked.  A noise line still advances `last`
     exactly as before, because that is a separate question — whether a trailing
     comment block belongs to the proof — and answering it here would be a

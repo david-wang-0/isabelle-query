@@ -7,21 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[proof-extent-anchor]` `_proof_extent` still tests `DECL_RE.match(cline)`
-      at COLUMN 0, which is the anchor `_match_decl_at` retired everywhere else
-      (`[deanchor]`: Isar is whitespace-insensitive, `Error_Monad_Add` indents
-      its whole body, and 91 AFP theories reported no entries at all).  So an
-      indented declaration does not end the proof above it, and the two
-      recognisers disagree about what a declaration is.
-      Deliberately left out of `[proof-extent-view]`, which measured 287
-      entries and moved no other field: switching to `_match_decl_at` would
-      ride a second, larger change in on that diff.  Do it with its own
-      before/after, and note it can only SHRINK `body_end_line` — the opposite
-      direction from `[proof-extent-view]` — so the two must not be measured
-      together or they will partly cancel.
-      Same question for the `text` test, which `startswith("text ")` answers on
-      the raw line while `extract_text_blocks` answers it properly.
-
 - [ ] `[unresolved-subject]` A lookup verb whose SUBJECT does not exist prints
       its diagnostic on **stdout** and exits **0**.  `callees zzz`, `refs zzz`
       and `methods zzz` cannot be answered without a `zzz`, and they rightly
