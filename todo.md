@@ -70,6 +70,35 @@ in `CONTRIBUTING.md`.
       confined to one regex and its state machine.  D5 in the Scala port's
       `dev/DIVERGENCES.md`.
 
+- [ ] `[comment-before-name]` A formal comment BETWEEN a declaration keyword
+      and its name makes the name be read out of the comment's prose, and the
+      real declaration is then never indexed at all.
+
+          definition                                    -- HOL/UNITY/WFair.thy:35
+
+            \<comment> \<open>This definition specifies conditional fairness.  The rest
+                is generic to all forms of fairness. ...\<close>
+            transient :: "'a set => 'a program set" where
+
+      is indexed as `is` (from "is generic"), spanning 14..43, and `transient`
+      — the constant this file exists to define — is not an entry.  Same shape
+      at `HOL/Bali/TypeRel.thy:368`, where `inductive` followed by a comment
+      containing "i.e." mints `i`.
+      **Cost: 2 records, both in the distribution; 0 in the AFP.**  Measured
+      with `scripts/probe_comment_before_name.py`, which reports every entry
+      whose name is not a token of the live view near its own declaration.
+      The one AFP hit it finds — `C11-FrontEnd/.../C_Appendices:831` — is the
+      phantom already filed under `[keyword-scope]`, a different cause.
+      Sibling of `[comment-newline]` and NOT the same bug: there the marker
+      and its cartouche are on different lines, here they are on one line and
+      the name lookahead reads through them anyway.  Both are the same
+      question asked twice — where does a formal comment end — so they are
+      worth fixing together, and the fix is in the same lookahead the
+      `[marker-decl]` work touched.
+      Found while checking the Scala port's D13 claim that `WFair`'s `is` is
+      an entry "reported dead and not dead".  It is not: it is a phantom, and
+      the 531 `--reach name` callers of it are the `(is "?thesis")` KEYWORD.
+
 - [ ] `[keyword-scope]` The custom-command table is unioned over the whole
       ROOT, which is right for a session and too coarse for a corpus.  Both
       implementations mirror Isabelle's session-wide `Keywords.++`, but with
