@@ -7,28 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[axiom-untyped]` An `axiomatization` constant with NO type ascription is
-      not indexed.
-
-          axiomatization glob_one and glob_inv     -- FOL/ex/.../Locale_Test1:722
-            where glob_lone: \<open>prod(glob_one, x) = x\<close>
-
-      indexes `glob_lone` (the axiom) but neither constant.  `_AXIOM_NAME_RE`
-      is `([A-Za-z_][A-Za-z0-9_']*)\s*:` — it requires a colon, which is why a
-      TYPED constant matches (`f :` out of `f :: "nat"`) and an untyped one
-      never does.  The split is the type annotation, not the `and`.
-      **Cost: 1 command, corpus-wide.**  Measured over the AFP, FOL, ZF and
-      HOL/: exactly the one case above, and zero elsewhere.  That is the whole
-      argument for leaving it: the colon is what stops the scan matching
-      `where`, `and`, and any word in a proposition, and relaxing it to catch
-      one declaration risks the over-match it was written to prevent.
-      What would make it worth doing is a narrower rule rather than a looser
-      one — before `where`, on the command's own lines, a bare `NAME (and
-      NAME)*` list IS a constant list — which is a small grammar of its own,
-      not a regex tweak.  Split out of `[axiom-names]`, whose other half
-      shipped; the two turned out not to share a scan after all (the phantom
-      was an unconditional placeholder, not a missing lookahead).
-
 - [ ] `[visibility-by-name]` `graph._Visibility` keys the import closure by
       theory NAME, so **two theories that share a name share one closure**.
       The last of the five name-as-identity collapses; the other four shipped
@@ -41,17 +19,27 @@ in `CONTRIBUTING.md`.
       STRING to a theory name.  Re-keying by path means resolving an import
       relative to the importing theory's own entry — the session model, same
       ground as `[keyword-scope]`.
-      Effect unmeasured, and the direction is not obvious.  The filter is a
-      necessary condition that may only DROP, so a wrong closure over-drops:
-      a citation in `alpha/Preliminaries` is tested against whichever
-      `Preliminaries` won, and kept or dropped on the other file's imports.
-      Bounded by the 1,219 AFP sections whose names collide, but bounded is
-      not measured — and the two parent items both turned out larger than
-      filed, so measure before deciding this is small.
-      Start from `scripts/probe_name_keyed_index.py`, which already isolates
-      the shadowed sections; the measurement wanted is `sees()` under a
-      per-section closure versus the shared one, counted over the citation
-      candidates in shadowed theories.
+      **Measured** (`scripts/probe_visibility_by_name.py`), and it is not
+      small.  Of the AFP's 758 shadowed sections, 203 import exactly what
+      their winner imports and cannot differ; **555 import something else**,
+      **420 genuinely reach a different set of theories** (median symmetric
+      difference 5), and of the **64,738** visibility decisions those sections
+      consult the closure for, **7,881 (12%) would flip** under the section's
+      own imports.  The transitive hops in that measurement still run over the
+      collapsed adjacency, so 7,881 is a LOWER bound.  Worst: `Semantics` 311,
+      `Soundness` 304, `Limit` 252.
+      Not fixed with the other four because the fix is a different kind and
+      carries a **design choice**: among same-named candidates, which one does
+      `imports Base` mean?  Isabelle resolves within the session's
+      directories, so the natural rule is the candidate sharing the longest
+      directory prefix with the importer (`TheorySection.session` exists as a
+      tiebreak, but is "first ROOT that references the theory" and so is
+      itself approximate).  Decide that rule before writing anything.
+      It also does not stop at `_Visibility`: `_resolve_import` returns a
+      NAME, and `deps` / `uses` / `graph imports` consume it the same way
+      (`commands.py` 649, 671, 674, 733, 2058), so the same collapse decides
+      which theory an import points at there too — unmeasured, and worth its
+      own count before the signature changes under all of them.
 
 - [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
       `PIDE/markup` in a built session database.  The #8 entity export gives
@@ -145,6 +133,28 @@ in `CONTRIBUTING.md`.
       so the default and `ISABELLE_QUERY_NAMESPACE=committed` both answer 1261
       for `callers mono -c`.  Worth knowing before any measurement is quoted
       across machines.
+
+- [ ] `[axiom-untyped]` An `axiomatization` constant with NO type ascription is
+      not indexed.
+
+          axiomatization glob_one and glob_inv     -- FOL/ex/.../Locale_Test1:722
+            where glob_lone: \<open>prod(glob_one, x) = x\<close>
+
+      indexes `glob_lone` (the axiom) but neither constant.  `_AXIOM_NAME_RE`
+      is `([A-Za-z_][A-Za-z0-9_']*)\s*:` — it requires a colon, which is why a
+      TYPED constant matches (`f :` out of `f :: "nat"`) and an untyped one
+      never does.  The split is the type annotation, not the `and`.
+      **Cost: 1 command, corpus-wide.**  Measured over the AFP, FOL, ZF and
+      HOL/: exactly the one case above, and zero elsewhere.  That is the whole
+      argument for leaving it: the colon is what stops the scan matching
+      `where`, `and`, and any word in a proposition, and relaxing it to catch
+      one declaration risks the over-match it was written to prevent.
+      What would make it worth doing is a narrower rule rather than a looser
+      one — before `where`, on the command's own lines, a bare `NAME (and
+      NAME)*` list IS a constant list — which is a small grammar of its own,
+      not a regex tweak.  Split out of `[axiom-names]`, whose other half
+      shipped; the two turned out not to share a scan after all (the phantom
+      was an unconditional placeholder, not a missing lookahead).
 
 - [ ] `[grep-plain]` Optional `--plain`/`--raw` override on `grep`:
       force plain line-grep (no entry/comment parsing) instead of the
