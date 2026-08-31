@@ -119,6 +119,30 @@ where it comes from and where it is approximate. A narrow table is the safe
 direction there: an unlisted method may add a spurious citation, never remove a
 true one.
 
+## A citation must be reachable
+
+A cited token is matched by name, and over one session that is enough:
+everything in a session sees everything the session declares. Over a **corpus**
+it is not. The AFP has 74 entries spelled `mono`, and a `mono` in
+`MonoBoolTranAlgebra` is HOL's `Orderings.mono` arriving through `imports Main`,
+which query deliberately does not follow — not any of the 74.
+
+So attribution is scoped by **visibility**: a site in theory `T` may name a
+declaration in `D` only when `D` is `T` itself, or `D` is in `T`'s transitive
+in-project `imports` closure. This is a *necessary* condition, not a sufficient
+one, so it can only ever **drop** an attribution — a name the project declares
+nowhere is not filtered at all, and a theory whose imports cannot be read (a
+buffer, stdin) is not filtered either, since an unknown closure must not delete
+a real edge.
+
+Over the whole AFP that removes 62% of citation edges (3,020,075 → 1,139,375)
+and `callers mono` goes 1,261 → 232. `unused` **grows** by 7,718 entries, which
+is the point rather than a cost: an entry kept alive only by a citation its
+citer could never have meant is dead.
+
+`--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
+`graph` and `refs` — every verb the scoping moves.
+
 ## Locale scope
 
 A declaration inside a `locale` / `class` / `context` / `instantiation` block

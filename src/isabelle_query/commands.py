@@ -676,7 +676,8 @@ def cmd_refs(sections: list[TheorySection], theory: str,
         print(f"Theory '{theory}' not found.")
         return
 
-    graph_ = _build_call_graph(sections, flags.drop_names_upto)
+    graph_ = _build_call_graph(sections, flags.drop_names_upto,
+                               reach=flags.reach)
     by_theory = _sections_by_theory(sections)
     own = target.theory
     closure = _import_depths(own, by_theory)
@@ -810,12 +811,17 @@ def cmd_outline(sections: list[TheorySection], theory: str,
 
 
 def _find_callers(sections: list[TheorySection], name: str,
-                   external: bool = False,
+                   external: bool = False, reach: str = "closure",
                    ) -> list[tuple[str, int, str]]:
     """Find proof-body usages of *name* across all .thy files.
 
     Returns a list of (theory_name, line_no, line_text) triples, filtering
     out:
+      - Whole theories that cannot SEE any declaration of *name* — it is
+        declared elsewhere in the project and not in this theory's transitive
+        in-project `imports` closure, so the token here means something else
+        (`graph._Visibility`).  `reach="name"` restores name-only matching.
+        A name the project declares nowhere is not filtered at all.
       - The definition site itself (same theory, within the entry's span).
       - Lines inside ``text \\<open>...\\<close>`` blocks (prose, not proof).
       - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
@@ -846,12 +852,17 @@ def _find_callers(sections: list[TheorySection], name: str,
     text_ranges = _noise_ranges(sections)
     # Read late: the namespace table is bound by the CLI after import.
     shadowed = name in _graph._NON_CITATION
+    vis = _graph._Visibility(sections, reach)
 
     results: list[tuple[str, int, str]] = []
     for sec in sections:
         # External mode: skip every line in the defining theory(ies),
         # treating intra-theory cross-references as noise.
         if external and sec.theory in def_theories:
+            continue
+        # Whole-theory visibility, tested once rather than per line: the
+        # question is about the theory, not the site.
+        if not vis.sees(sec.theory, name):
             continue
         # Decide on the redacted view, report the raw one: a mention inside a
         # comment / `\<^cancel>` / inline ML body is not a use even when live
@@ -1217,7 +1228,8 @@ def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
     if flags.recursive:
-        graph = _build_call_graph(sections, flags.drop_names_upto)
+        graph = _build_call_graph(sections, flags.drop_names_upto,
+                                  reach=flags.reach)
         if name not in graph.all_names:
             bound = _resolve_binding(sections, name)
             if bound is not None:
@@ -1234,7 +1246,8 @@ def cmd_callers(sections: list[TheorySection], name: str,
         _render_graph_results(sections, reachable, "caller", name, flags)
         return
 
-    hits = _find_callers(sections, name, external=flags.external)
+    hits = _find_callers(sections, name, external=flags.external,
+                         reach=flags.reach)
     if flags.mode == "count":
         print(len(hits))
         return
@@ -1270,7 +1283,8 @@ def cmd_callees(sections: list[TheorySection], name: str,
     """Entry-level forward edge: the entries this entry references in
     its proof body (its callees).  Pairs with `cmd_callers` (reverse).
     Not to be confused with the theory-level `deps` / `uses` pair."""
-    graph = _build_call_graph(sections, flags.drop_names_upto)
+    graph = _build_call_graph(sections, flags.drop_names_upto,
+                              reach=flags.reach)
     if name not in graph.all_names:
         bound = _resolve_binding(sections, name)
         if bound is not None:
@@ -1606,7 +1620,8 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     # is a question about the DECLARATION: deleting `definition foo` breaks every
     # proof citing `foo_def`, so such a proof keeps `foo` alive.  Asking the
     # fact-level question here would report live definitions as dead.
-    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True)
+    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True,
+                              reach=flags.reach)
 
     keep = set(flags.keep)
     if keep:
@@ -1920,7 +1935,7 @@ def _dot_quote(s: str) -> str:
 def _citation_graph_data(sections: list[TheorySection],
                          flags: "CmdFlags") -> dict:
     """Nodes = indexed entries; edges = caller -> callee."""
-    g = _build_call_graph(sections, flags.drop_names_upto)
+    g = _build_call_graph(sections, flags.drop_names_upto, reach=flags.reach)
     by_name = _entry_by_name(sections)
     nodes = [{"name": n, "theory": by_name[n][0], "tag": by_name[n][1].tag,
               "line": by_name[n][1].thy_line}

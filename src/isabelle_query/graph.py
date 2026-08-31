@@ -404,9 +404,116 @@ def _import_depths(start: str, by_theory: dict[str, TheorySection],
     return depths
 
 
+# --- Visibility: can a site in theory T name a declaration in theory D? ----
+#
+# A NECESSARY condition, not a sufficient one, so it can only ever DROP an
+# attribution: `D == T`, or D is in T's transitive in-project `imports`
+# closure.  Within one session it filters nothing — everything there sees
+# everything the session declares — and over a corpus it is the difference
+# between "some theory somewhere spells this name" and "this proof could
+# possibly mean that lemma".
+REACH_MODES = ("closure", "name")
+
+
+class _Visibility:
+    r"""Which theories' declarations each theory can name, computed lazily.
+
+    One closure at a time, not all of them: over a whole corpus the closures
+    are large and overlapping, so materialising 9,600 of them costs far more
+    memory than the sections do — and every scan that needs this walks the
+    sections in order anyway, so a per-theory cache is used once and then
+    never again.  The `imports` ADJACENCY is memoised instead, which is the
+    part that costs I/O: `parse_thy_imports` re-reads a theory file on every
+    call, so without this a per-theory BFS would re-read the whole corpus once
+    per theory.
+
+    ``mode="name"`` disables the filter entirely (`sees` is always true) — the
+    compatibility switch, so a corpus-scale delta can be measured against the
+    numbers it replaces rather than merely asserted.
+
+    **An unreadable header means "unknown", never "imports nothing".**  The
+    rule is a necessary condition on visibility, so it may only drop an
+    attribution where it is confident; a theory whose `imports` clause cannot
+    be re-read (a section parsed from a buffer, the `-` stdin route, a path
+    that has since moved) has an unknown closure, and the honest answer is that
+    it sees everything.  Degrading the other way would delete real edges, which
+    is the failure this filter exists to avoid making.
+    """
+
+    def __init__(self, sections: list[TheorySection], mode: str = "closure"):
+        self.mode = mode
+        self.by_theory = _sections_by_theory(sections)
+        self._closure: tuple[str, frozenset[str] | None] | None = None
+        # theory -> its in-project imports, read once; None = could not read.
+        self._imports: dict[str, list[str] | None] = {}
+        # name -> the theories declaring it.  A name declared NOWHERE is never
+        # filtered: `sees` is asked about tokens the caller already believes
+        # are citable, and inventing an answer for one the project does not
+        # declare would drop a real use.
+        self.declared_in: dict[str, set[str]] = {}
+        for sec in sections:
+            for e in sec.entries:
+                self.declared_in.setdefault(e.name, set()).add(sec.theory)
+
+    def _read_imports(self, theory: str) -> list[str] | None:
+        """This theory's in-project imports, or None if they cannot be read."""
+        if theory in self._imports:
+            return self._imports[theory]
+        sec = self.by_theory.get(theory)
+        got: list[str] | None
+        # The readability test has to happen HERE: `parse_thy_imports` returns
+        # `[]` for a file that does not exist, so through it "imports nothing"
+        # and "cannot be read" are the same answer — and they must not be, or a
+        # section parsed from a buffer would silently lose every cross-theory
+        # edge it has.
+        if sec is None or not sec.path.is_file():
+            got = None
+        else:
+            got = [c for c in (_resolve_import(i, self.by_theory)
+                               for i in parse_thy_imports(sec.path))
+                   if c is not None]
+        self._imports[theory] = got
+        return got
+
+    def closure(self, theory: str) -> frozenset[str] | None:
+        """``{theory} | its transitive in-project imports``, or None if any
+        header on the walk could not be read — see the class docstring."""
+        if self._closure is not None and self._closure[0] == theory:
+            return self._closure[1]
+        unknown = False
+
+        def children(name: str) -> list[str]:
+            nonlocal unknown
+            got = self._read_imports(name)
+            if got is None:
+                unknown = True
+                return []
+            return got
+
+        depths = _bfs_depths(children, [theory], seed_depth=-1)
+        reach = None if unknown else frozenset(depths) | {theory}
+        self._closure = (theory, reach)
+        return reach
+
+    def sees(self, theory: str, name: str) -> bool:
+        """May a site in ``theory`` be naming the project's ``name``?"""
+        if self.mode != "closure":
+            return True
+        decl = self.declared_in.get(name)
+        if not decl:
+            return True                 # declared nowhere: nothing to scope to
+        if theory in decl:
+            return True                 # the fast path, and the common one
+        reach = self.closure(theory)
+        if reach is None:
+            return True                 # unknown closure: do not drop an edge
+        return not decl.isdisjoint(reach)
+
+
 def _build_call_graph(sections: list[TheorySection],
                       drop_upto: int = _DROP_NAMES_UPTO,
-                      derived: bool = False) -> CallGraph:
+                      derived: bool = False,
+                      reach: str = "closure") -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
     Uses the shared filtering helpers (`_noise_ranges`,
@@ -420,6 +527,12 @@ def _build_call_graph(sections: list[TheorySection],
     over FACTS and ``foo_def`` is a different fact from ``foo``; only
     :func:`commands.cmd_unused` turns it on, where the question is whether the
     DECLARATION is dead.  See the note there.
+
+    ``reach`` scopes attribution by VISIBILITY (:class:`_Visibility`): a
+    citation is attributed only to declarations the citing theory can actually
+    see.  ``"name"`` restores name-only matching.  The default is what the CLI
+    uses, deliberately — a library caller that got a different graph from the
+    one `query` prints would be the `trivial_frac` mistake again.
     """
     # 1. Collect candidate names.  A name too short to tell from a term
     #    variable, or a bare numeral, is not a citable fact, so the universal
@@ -502,6 +615,7 @@ def _build_call_graph(sections: list[TheorySection],
     sym_findall = sym_re.findall
     quoted_findall = quoted_re.findall
 
+    vis = _Visibility(sections, reach)
     for sec in sections:
         # The redacted view (`live_source`), not the raw source: a comment, an
         # `\<^cancel>` region or an inline ML body that SHARES its line with
@@ -571,6 +685,13 @@ def _build_call_graph(sections: list[TheorySection],
             for name in cand:
                 d_ranges = d_map.get(name)
                 if d_ranges and any(line_no in r for r in d_ranges):
+                    continue
+                # Visibility, asked per CANDIDATE rather than per name in the
+                # index: `cand` holds the handful of names actually on this
+                # line, where `name_set` holds every name in the corpus.  The
+                # closure is cached for the theory being scanned, so the walk
+                # is paid once per theory and this is a set test.
+                if not vis.sees(sec.theory, name):
                     continue
                 callers[name].add(caller_name)
                 callees.setdefault(caller_name, set()).add(name)

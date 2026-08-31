@@ -7,38 +7,31 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[citation-reach]` Attribute a citation only to a declaration its
-      theory can SEE.  `callers` / `callees` / `unused` / `graph citation`
-      resolve a cited token by NAME alone: find `mono` on a line, look up
-      every entry called `mono`, report the line as a caller of all of them.
-      Over one session that is right — everything in a session sees
-      everything it declares.  Over a corpus it is not: the AFP has two dozen
-      lemmas spelled `mono`, and a site in `Mono_Bool_Tran` (whose whole
-      in-project closure is two theories, neither declaring one) was reported
-      as a caller of all of them.  The `mono` there is HOL's `Orderings.mono`,
-      arriving through an `imports Main` query deliberately does not follow.
-      **This is the generalisation of what `refs`'s `owner_of` already does**
-      (see `git log --grep='\[theory-refs\]'`) — closure-scoped ownership,
-      applied at the two attribution points so every verb inherits it from
-      one place: the citation router's candidate filter and the single-name
-      section filter.  The rule is a NECESSARY condition on visibility, not a
-      sufficient one, so it can only ever DROP an attribution: a site in T may
-      name a declaration in D iff `D = T` or D is in T's transitive in-project
-      `imports` closure; a name the project declares nowhere is not filtered
-      at all.  `unused` may honestly GROW, which is the point — an entry kept
-      alive only by an unreachable same-name citation is dead.  `shape` and
-      `methods` are out of scope: neither attributes a token to an entry.
-      Ship it behind a compatibility switch, because a corpus-scale delta that
-      cannot be turned off cannot be measured against the old numbers.
-      D13 in the Scala port's `dev/DIVERGENCES.md`, which measures whole-AFP
-      `callers mono` going 1,361 -> 566 — *their* figure on their checkout,
-      not reproduced here, so measure ours before quoting it.  Their
-      `[reach-position]` is the refinement after this one: within a single
-      theory, visibility says nothing, and a citation written above the
-      declaration it names is still attributed to it.  What makes that more
-      than an inequality is `lemmas` re-exports, `sublocale`-induced bindings
-      and `context ... begin` re-entry, all of which bind a name at a line
-      other than its declaration's.
+- [ ] `[symbol-body-tokens]` A `[\w']+` run INSIDE an Isabelle symbol token
+      is minted as a citation candidate.  `graph`'s tokeniser runs two passes:
+      `sym_re` (maximal runs including `\<...>` tokens, so `merge_rt_F\<^sub>m`
+      is one name) and `word_re` (`[\w']+`, so a bare name abutting a symbol is
+      still found).  The second reaches into the symbol's own body:
+
+          \<lambda>  ->  lambda        \<le>       ->  le
+          \<close>   ->  close         \<subseteq> ->  subseteq
+          \<^sub>    ->  sub           \<and>      ->  and
+
+      and the AFP declares entries with exactly those names — **7 named
+      `lambda`, 37 `le`, 27 `sub`, 35 `set`, 9 `close`** — so every `\<lambda>`
+      in the corpus was a citation of all seven.  Found while measuring
+      `[citation-reach]`: the 15 names losing the most attributions there are
+      `sub`, `close`, `lambda`, `le`, `noteq`, `set`, `and`, `forall`,
+      `subseteq`, `equiv`, `exists`, `nat`, `And`, `xs`, `not` — every one a
+      symbol body, and about **25% of the 1.88M edges that change**.
+      Visibility scoping masks most of it (a symbol appears everywhere, so most
+      of its spurious edges cross a closure boundary) but cannot fix it: the
+      spurious edges INSIDE a closure survive, and those are the ones a
+      single-session user sees.
+      The fix is at the root and is not a new pattern: `sym_re` already yields
+      the whole `\<lambda>` as one token, so the correct answer is available —
+      drop a `word_re` run whose span lies inside a symbol token's span.  Wants
+      its own before/after edge diff, and it will move `unused` again.
 
 - [ ] `[proof-extent-view]` `_proof_extent` looks for its boundaries in RAW
       source, so a commented-out one ends a proof that has not ended.  All four

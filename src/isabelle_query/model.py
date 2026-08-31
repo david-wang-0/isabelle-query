@@ -425,3 +425,7 @@ class CmdFlags:
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
     external: bool = False       # --external (callers: skip defining theory)
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
+    # --reach: "closure" attributes a citation only to declarations the citing
+    # theory can SEE; "name" is the old name-only matching, kept so a
+    # corpus-scale delta can be measured against the numbers it replaces.
+    reach: str = "closure"
