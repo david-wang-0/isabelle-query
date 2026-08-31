@@ -18,12 +18,12 @@ CONFIRMED means the defect is still present.  Fixed as of 0.7.x:
     D3  [keyword-kind-quoted]   a quoted `keywords` kind registered no command
     D6  [marker-decl]           a name ran straight through a trailing marker
     D7  [span-ties]             a multi-name `axiomatization` crashed the line index
+    D8  [closed-stdout]         NOT ours — the contract was wrong, not the code
     D10 [cascade-level]         `unused -r` depths depended on the hash seed
 
 Still open, with todo tags:
 
     D5  [comment-newline]       `\<comment>` whose cartouche is on the next line
-    D8  [closed-stdout]         a closed stdout exits 0 or 120, not always 141
 
 Exit status is the number of claims still confirmed, so it falls to 0 as they
 are fixed.  A claim that flips back to CONFIRMED is a regression.
@@ -192,24 +192,39 @@ def d7_line_index_typeerror() -> None:
 
 # --------------------------------------------------------------- D8
 def d8_closed_stdout_status() -> None:
-    """Exit status when stdout closes early: contract says 141, always."""
-    corpus = Path.home() / "repos" / "afp" / "thys" / "Abstract_Completeness"
-    if not corpus.is_dir():
+    """Exit status when stdout closes early.
+
+    D8 asserts the contract is 141 always.  Measured, it is not, and should not
+    be: an answer that fits the 64K pipe buffer is written in full before the
+    reader stops, so nothing fails and 0 is correct — exactly what `seq 10 |
+    head` does, where `seq 200000 | head` dies of SIGPIPE.  So this checks the
+    RIGHT contract (0 under the buffer, 141 over it, silence on stderr either
+    way), not D8's.  See `scripts/probe_closed_stdout.py` and
+    `tests/test_closed_stdout.py` [closed-stdout].
+    """
+    afp = Path.home() / "repos" / "afp" / "thys"
+    small, large = afp / "Abstract_Completeness", afp / "Coinductive"
+    if not small.is_dir() or not large.is_dir():
         record("D8", False, "AFP corpus absent, skipped")
         return
     env = dict(os.environ, PYTHONHASHSEED="0")
-    statuses = []
-    for _ in range(3):
-        p1 = subprocess.Popen(
-            [QUERY, "-R", str(corpus), "shape", "census"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
-        p2 = subprocess.Popen(["head", "-3"], stdin=p1.stdout,
-                              stdout=subprocess.DEVNULL)
-        p1.stdout.close()
-        p2.wait()
-        statuses.append(p1.wait())
-    record("D8", any(s != 141 for s in statuses),
-           f"`shape census | head -3` exit statuses {statuses} (contract: 141)")
+    got = {}
+    for label, corpus in (("small", small), ("large", large)):
+        statuses = []
+        for _ in range(3):
+            p1 = subprocess.Popen(
+                [QUERY, "-R", str(corpus), "shape", "census"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+            p2 = subprocess.Popen(["head", "-3"], stdin=p1.stdout,
+                                  stdout=subprocess.DEVNULL)
+            p1.stdout.close()
+            p2.wait()
+            statuses.append(p1.wait())
+        got[label] = statuses
+    wrong = set(got["small"]) != {0} or set(got["large"]) != {141}
+    record("D8", wrong,
+           f"under 64K -> {got['small']} (want all 0); "
+           f"over -> {got['large']} (want all 141)")
 
 
 # --------------------------------------------------------------- D10

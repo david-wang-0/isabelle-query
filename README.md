@@ -93,8 +93,14 @@ the JSONL record schema.
 
 `0` the command ran; `1` the request could not be resolved (unknown theory or
 path, no subcommand); `2` bad usage — an argparse error, or **a root that could
-not be read**; `141` a downstream reader closed the pipe (`query shape census |
-head`), as a shell reports for SIGPIPE.
+not be read**; `141` a write failed because a downstream reader closed the pipe
+(`query shape census | head` over a corpus), as a shell reports for SIGPIPE.
+
+`141` is not promised for *every* `| head`. When the whole answer fits the pipe
+buffer no write ever fails and the status is `0` — the same as `seq 10 | head`,
+where `seq 200000 | head` dies of SIGPIPE. The producer wrote everything; the
+reader chose to stop. Either way stderr stays silent and the status is
+deterministic.
 
 A root that yields no theories is reported on stderr and never as an empty
 success, so a script can tell a broken run from an honestly empty one:

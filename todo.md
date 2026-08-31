@@ -49,28 +49,6 @@ in `CONTRIBUTING.md`.
       name is a declared entry.  `callees` needs the entry to exist before it
       can have callees.  Different questions, so different empty answers.
 
-- [ ] `[closed-stdout]` A closed stdout does not reliably exit 141.
-      `CONTRIBUTING.md` fixes the status at `128 + SIGPIPE`, so a pipeline and
-      a `$?` check read the same as they do for `yes | head`.  The handler
-      catches `BrokenPipeError` around the command body, points fd 1 at
-      `/dev/null` and exits 141 — which only works when the failing write
-      lands INSIDE that body.  Two ways out:
-        - the whole answer fits the interpreter's buffers, the first failing
-          write is the shutdown flush, the `except` never runs, and Python
-          exits **120** with `Exception ignored while flushing sys.stdout`;
-        - the whole answer fits the 64K pipe buffer, so no write ever fails,
-          and the command exits **0** while `head` is still being scheduled.
-      The second is the bad one: a script checking `$?` sees success on a
-      truncated answer.  Measured here — `shape census | head -3` on
-      `Abstract_Completeness` exits 0, five runs out of five; the split is
-      output size, not a race (D8's table puts it at the 64K buffer, 141 on
-      every corpus above it).  Fix by writing through a handle whose failure
-      surfaces where it happens rather than at interpreter shutdown, and pin
-      the status on a corpus under 64K as well as one over — one alone cannot
-      tell the two failure modes apart.
-      D8 in the Scala port's `dev/DIVERGENCES.md`; reproduced by
-      `scripts/probe_scala_port_findings.py`.
-
 - [ ] `[axiom-names]` `axiomatization` names, two ways.  Found while building
       the `[span-ties]` fixture — the synthetic form did not reproduce the
       crash, and chasing why turned up both of these on real sources.

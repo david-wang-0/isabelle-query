@@ -212,9 +212,19 @@ def active_t_dir() -> Path:
 # failure destroyed.
 _EXIT_BAD_ROOT = 2
 
-# Exit status when a downstream reader closes the pipe (`census | head`).  128 +
-# SIGPIPE(13) is what a shell reports for a process killed by SIGPIPE, so
-# pipelines and `$?` checks read the same as they do for `yes | head`.
+# Exit status when a downstream WRITE FAILS because the reader closed the pipe
+# (`census | head` over a corpus).  128 + SIGPIPE(13) is what a shell reports
+# for a process killed by SIGPIPE, so pipelines and `$?` checks read the same as
+# they do for `yes | head`.
+#
+# Note what this is NOT: a promise that every `| head` exits 141.  When the
+# whole answer fits the 64K pipe buffer no write ever fails, the command
+# finishes normally, and the status is 0 — which is correct, and is exactly what
+# `seq 10 | head -3` does while `seq 200000 | head -3` dies of SIGPIPE.  The
+# producer wrote everything; the reader chose to stop.  Forcing 141 there would
+# report failure for a run that succeeded.  Measured over five AFP corpora
+# straddling the buffer, 5 runs each, deterministic either side
+# (`scripts/probe_closed_stdout.py`) [closed-stdout].
 _EXIT_SIGPIPE = 141
 
 
