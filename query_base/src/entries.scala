@@ -730,10 +730,29 @@ object Entries {
       else {
         val stripped = Py.strip(cline)
         if (!inside && stripped.startsWith("text ")) go = false
-        /* A `\<comment>` note is not a command — it can stand wherever a token
-           can — so one inside a record's field list does not end it. */
-        else if (!inside && stripped.startsWith(MARGINAL) &&
-                 !(keyword == "record" && field_continues(outer, live, i + 1))) go = false
+        /* A formal comment is not a command — Isabelle's lexer skips all four
+           of them wherever a token may appear — so one cannot END a
+           declaration either, on any route.  Skip it and keep scanning.
+
+           This was a `break` gated to `record`, where breaking cost 11 of the
+           AFP's 507 records every field they declare; the gate was left narrow
+           because whether the break was right for the other routes had not
+           been measured.  It is not: the break truncates the
+           keyword-comment-name shape, where the comment sits before the name
+           and the recorded body collapses onto the keyword line —
+           `HOL/Hoare/SchorrWaite:14`'s `rel` reported body 14..14 for a
+           declaration running to 17.  `body_end` is the documented safe
+           relocation cut, so a consumer cutting there leaves the declaration
+           behind.
+
+           Asking the LIVE view rather than testing for a leading `\<comment>`
+           is what makes this cover a WRAPPED comment (only its first line
+           carries the marker), the other three spellings, and `(* ... *)`.
+           The comment is SKIPPED rather than appended, so `decl_end_line`
+           still ends on the last LIVE line and a trailing note does not
+           extend it.  Running on into the next declaration is not a risk: the
+           decl and boundary tests above already break there. */
+        else if (!inside && stripped.nonEmpty && Py.strip(live(i)).isEmpty) i += 1
         else {
           val where_on_this_line = Py.found(WHERE_RE, stripped)
           body += ("  " + stripped)

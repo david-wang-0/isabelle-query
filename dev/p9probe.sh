@@ -1158,6 +1158,154 @@ expect "the eight real names are all there" 0 "8" "" find '^transient[1-8]$' -c
 
 # ==========================================================================
 echo
+echo "11. [decl-body-comment] -- a formal comment does not end a declaration"
+# ==========================================================================
+#
+# The rule: a formal comment is not a command, so it cannot END a declaration
+# either.  The body scan broke on one, gated to `record` -- where breaking cost
+# 11 of the AFP's 507 records every field they declare -- and the gate stayed
+# narrow because the other routes had not been measured.  They were: the break
+# truncates the keyword-comment-name shape, where the comment sits before the
+# name and the recorded body collapses onto the keyword line.
+# `HOL/Hoare/SchorrWaite:14`'s `rel` reported body 14..14 for a declaration
+# running to 17, and `body_end` is the documented safe relocation cut, so a
+# consumer cutting there leaves the declaration behind.
+#
+# The comment is SKIPPED, not appended: `decl_end` still ends on the last LIVE
+# line, so a note TRAILING a declaration does not extend it either.  Both
+# directions are in the table -- `rel1` grows from 5 to 8, `emptyPost1` shrinks
+# from 28 to 27.
+#
+# Asking the LIVE view is what makes it cover a wrapped comment, all four
+# spellings and `(* ... *)` at once, exactly as §10 does for the name.
+
+mkdir -p "$PARSE/body" || exit 2
+cat >"$PARSE/body/Body.thy" <<'THY'
+theory Body
+imports Main
+begin
+
+definition
+  \<comment> \<open>Relations.\<close>
+  rel1 :: "nat set"
+  where "rel1 = {}"
+
+definition
+  \<comment> \<open>Relations induced
+      by a mapping.\<close>
+  rel2 :: "nat set"
+  where "rel2 = {}"
+
+definition
+  \<^marker>\<open>tag important\<close>
+  rel3 :: "nat set"
+  where "rel3 = {}"
+
+definition
+  (* Relations. *)
+  rel4 :: "nat set"
+  where "rel4 = {}"
+
+definition emptyPost1 :: nat where
+"emptyPost1 = 0"
+(* initially set to the lowest value *)
+
+definition emptyPost2 :: nat where
+"emptyPost2 = 0"
+\<comment> \<open>a note\<close>
+
+datatype tree = ET | MKT nat
+
+subsection \<open>Invariants and auxiliary functions\<close>
+
+primrec height :: "nat" where "height = 0"
+
+definition
+  \<comment> \<open>first\<close>
+  a :: "nat" where "a = 0"
+definition
+  \<comment> \<open>second\<close>
+  b :: "nat" where "b = 1"
+
+record st =
+  wa_cond :: "nat set"
+  \<comment> \<open>Termination condition\<close>
+  wa_body :: "nat"
+
+fun ff :: "nat \<Rightarrow> nat" where
+  "ff 0 = 0"
+  \<comment> \<open>a note between two equations\<close>
+| "ff (Suc n) = n"
+
+definition
+
+  \<comment> \<open>Specifies conditional fairness.\<close>
+  transient :: "nat set"
+  where "transient = {}"
+
+end
+THY
+
+# Hand-computed `decl_end`, which is also `body_end` on every proof-less route.
+#
+#   rel1 8, rel2 14, rel3 19, rel4 24  the four spellings of a note BEFORE the
+#          name -- one line, wrapped, `\<^marker>`, `(* ... *)`.  All four ran
+#          to the keyword line before, and rel3/rel4 were not even recognised
+#          as comments by the old leading-`\<comment>` test.
+#   emptyPost1 27, emptyPost2 31       the other direction: a note AFTER the
+#          declaration is skipped, not appended, so the end stays on the RHS.
+#   tree 34, height 38                 the containment guard, reduced from
+#          `AVL-Trees/AVL:23`: a heading between two declarations.  The
+#          rejected wider variant appends the heading and gives
+#          body_end 35 > thy_end 34.
+#   a 42, b 45                         two note-before-name declarations back
+#          to back: neither body may reach into the other.
+#   st 50                              the `record` case the old gate existed
+#          for -- both fields still declared.
+#   ff 55                              a note BETWEEN two equations of a `fun`.
+#   transient 57                       the residual, pinned as it stands.  A
+#          BLANK line before the note breaks the scan first, so the body stays
+#          collapsed on the keyword line.  The obvious fix -- do not break on a
+#          blank while the body is still empty -- was implemented upstream,
+#          measured, and REJECTED: it repairs this and takes containment
+#          violations from 82 to 719.  The NAME is right (§10 does that part),
+#          only the extent is not.
+BODY_WANT=$(cat <<'EXPECT'
+Body:5:DEF:rel1:src=5-9:decl_end=8:proof=0:body_end=8:bind=:target=
+Body:10:DEF:rel2:src=10-15:decl_end=14:proof=0:body_end=14:bind=:target=
+Body:16:DEF:rel3:src=16-20:decl_end=19:proof=0:body_end=19:bind=:target=
+Body:21:DEF:rel4:src=21-25:decl_end=24:proof=0:body_end=24:bind=:target=
+Body:26:DEF:emptyPost1:src=26-29:decl_end=27:proof=0:body_end=27:bind=:target=
+Body:30:DEF:emptyPost2:src=30-33:decl_end=31:proof=0:body_end=31:bind=:target=
+Body:34:DATATYPE:tree:src=34-35:decl_end=34:proof=0:body_end=34:bind=ET/constructor,MKT/constructor:target=
+Body:38:FUN:height:src=38-39:decl_end=38:proof=0:body_end=38:bind=:target=
+Body:40:DEF:a:src=40-42:decl_end=42:proof=0:body_end=42:bind=:target=
+Body:43:DEF:b:src=43-46:decl_end=45:proof=0:body_end=45:bind=:target=
+Body:47:RECORD:st:src=47-51:decl_end=50:proof=0:body_end=50:bind=wa_cond/field,wa_body/field:target=
+Body:52:FUN:ff:src=52-56:decl_end=55:proof=0:body_end=55:bind=:target=
+Body:57:DEF:transient:src=57-61:decl_end=57:proof=0:body_end=57:bind=:target=
+EXPECT
+)
+
+expect_dump "a note does not end a declaration, and does not extend one" \
+  "$PARSE/body" "$BODY_WANT"
+
+# The containment invariant, asserted rather than read off the table above: for
+# every entry in the fixture, the body must stay inside the entry's own span.
+# This is the check that rejected the wider variant, and a table alone cannot
+# make it -- a future expectation edited to match a regression would edit the
+# violation in with it.
+viol=$(isabelle query dump-entries "$PARSE/body" --spans 2>"$OUT/e.txt" |
+  sed -n 's/^.*:src=[0-9]*-\([0-9]*\):decl_end=[0-9]*:proof=[0-9]*:body_end=\([0-9]*\)$/\1 \2/p' |
+  awk '$2 > $1 { n++ } END { print n + 0 }')
+if [ "$viol" = "0" ]; then
+  note "and no body reaches past its own thy_end" "0 violations"
+else
+  bad "and no body reaches past its own thy_end" "$viol violations"
+fi
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #
