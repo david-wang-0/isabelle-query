@@ -40,7 +40,9 @@ object CLI {
   val prog = "query"
 
   /* Exit statuses, as the CLI contract fixes them: 0 ran, 1 an unresolved
-     subject, 2 a usage error or an unreadable root, 141 a closed stdout. */
+     subject, 2 a usage error or an unreadable root, 141 a closed stdout.  The
+     1 is `Commands.EXIT_UNRESOLVED` — it belongs to a command's verdict, and
+     `commands` sits below this file. */
   val EXIT_BAD_ROOT = 2
   val EXIT_SIGPIPE = 141
 
@@ -1113,9 +1115,9 @@ object CLI {
         Commands.cmd_summary(out, load_sections(s, ns), ns.bool("by_session"),
           ns.bool("verbose"), ns.bool("count"))
       case "theory" =>
-        Commands.cmd_theory(out, load_sections(s, ns), ns.one("name"), flags)
+        Commands.cmd_theory(out, err, load_sections(s, ns), ns.one("name"), flags)
       case "defs" =>
-        Commands.cmd_defs(out, load_sections(s, ns), ns.one("theory"), flags)
+        Commands.cmd_defs(out, err, load_sections(s, ns), ns.one("theory"), flags)
       case "outline" =>
         Commands.cmd_outline(out, err, load_sections(s, ns), ns.one("theory"), flags)
       case "enclosing" | "at" =>
@@ -1156,24 +1158,24 @@ object CLI {
       case "deps" =>
         val sections = s.load_index()
         each(out, ns.pos("theory"))(t =>
-          Usage.cmd_deps(out, sections, t, recursive = ns.bool("recursive")))
+          Usage.cmd_deps(out, err, sections, t, recursive = ns.bool("recursive")))
       case "uses" =>
         val sections = s.load_index()
         each(out, ns.pos("theory"))(t =>
-          Usage.cmd_deps(out, sections, t, reverse = true, recursive = ns.bool("recursive")))
+          Usage.cmd_deps(out, err, sections, t, reverse = true, recursive = ns.bool("recursive")))
       case "refs" =>
         val sections = s.load_index()
-        each(out, ns.pos("theory"))(t => Usage.cmd_refs(out, sections, t, flags))
+        each(out, ns.pos("theory"))(t => Usage.cmd_refs(out, err, sections, t, flags))
       case "callers" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Usage.cmd_callers(out, sections, n, flags))
+        each(out, ns.pos("name"))(n => Usage.cmd_callers(out, err, sections, n, flags))
       case "callees" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Usage.cmd_callees(out, sections, n, flags))
+        each(out, ns.pos("name"))(n => Usage.cmd_callees(out, err, sections, n, flags))
       case "unused" =>
         Usage.cmd_unused(out, err, s.load_index(), flags)
       case "methods" =>
-        Usage.cmd_methods(out, s.load_index(), ns.pos("name").headOption, flags)
+        Usage.cmd_methods(out, err, s.load_index(), ns.pos("name").headOption, flags)
       case "instances" =>
         val sections = s.load_index()
         each(out, ns.pos("name"))(n => Sites.cmd_instances(out, err, sections, n, flags))

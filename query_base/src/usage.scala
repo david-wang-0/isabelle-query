@@ -130,11 +130,11 @@ object Usage {
     Usage_Graph.bfs_depths(imports_of, List(start), seed_depth = -1) - start
   }
 
-  def cmd_deps(out: Out, sections: List[Theory_Section], theory: String,
+  def cmd_deps(out: Out, err: Out, sections: List[Theory_Section], theory: String,
     reverse: Boolean = false, recursive: Boolean = false
   ): Unit = {
     Commands.resolve_theory(sections, theory) match {
-      case None => out.println(s"Theory '$theory' not found.")
+      case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
         val by_theory = Usage_Graph.sections_by_theory(sections)
 
@@ -223,11 +223,11 @@ object Usage {
 
      One approximation remains, inherited from the name-level graph: counts are
      CITING ENTRIES, not citation sites. */
-  def cmd_refs(out: Out, sections: List[Theory_Section], theory: String,
+  def cmd_refs(out: Out, err: Out, sections: List[Theory_Section], theory: String,
     flags: Flags
   ): Unit = {
     Commands.resolve_theory(sections, theory) match {
-      case None => out.println(s"Theory '$theory' not found.")
+      case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
         val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
         val by_theory = Usage_Graph.sections_by_theory(sections)
@@ -405,13 +405,12 @@ object Usage {
     }
   }
 
-  def cmd_callers(out: Out, sections: List[Theory_Section], name0: String,
+  def cmd_callers(out: Out, err: Out, sections: List[Theory_Section], name0: String,
     flags: Flags
   ): Unit = {
     var name = name0
     if (flags.recursive) {
       val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
-      var ok = true
       if (!g.all_names(name)) {
         Commands.resolve_binding(sections, name) match {
           case Some((parent, how)) =>
@@ -419,15 +418,17 @@ object Usage {
               s"operates at the $parent (entry) level.")
             name = parent
           case None =>
-            out.println(s"'$name' not found in the entry index.")
-            ok = false
+            /* Only the RECURSIVE branch: the closure walks the entry index and
+               a name that is not in it has no closure to walk.  The plain scan
+               below asks a different question — how many times does this token
+               appear — and zero is a truthful answer to it whether or not the
+               name is declared [unresolved-subject]. */
+            Commands.fail_subject(out, err, s"'$name' is not in the entry index")
         }
       }
-      if (ok) {
-        val reachable =
-          Usage_Graph.bfs_depths(n => g.callers.getOrElse(n, Set.empty), List(name)) - name
-        render_graph_results(out, sections, reachable, "caller", name, flags)
-      }
+      val reachable =
+        Usage_Graph.bfs_depths(n => g.callers.getOrElse(n, Set.empty), List(name)) - name
+      render_graph_results(out, sections, reachable, "caller", name, flags)
     }
     else {
       val hits = find_callers(sections, name, external = flags.external)
@@ -461,12 +462,11 @@ object Usage {
     }
   }
 
-  def cmd_callees(out: Out, sections: List[Theory_Section], name0: String,
+  def cmd_callees(out: Out, err: Out, sections: List[Theory_Section], name0: String,
     flags: Flags
   ): Unit = {
     var name = name0
     val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
-    var ok = true
     if (!g.all_names(name)) {
       Commands.resolve_binding(sections, name) match {
         case Some((parent, how)) =>
@@ -474,41 +474,38 @@ object Usage {
             "(shared proof body).")
           name = parent
         case None =>
-          out.println(s"'$name' not found in the entry index.")
-          ok = false
+          Commands.fail_subject(out, err, s"'$name' is not in the entry index")
       }
     }
-    if (ok) {
-      if (flags.recursive) {
-        val reachable =
-          Usage_Graph.bfs_depths(n => g.callees.getOrElse(n, Set.empty), List(name)) - name
-        render_graph_results(out, sections, reachable, "dependency", name, flags)
+    if (flags.recursive) {
+      val reachable =
+        Usage_Graph.bfs_depths(n => g.callees.getOrElse(n, Set.empty), List(name)) - name
+      render_graph_results(out, sections, reachable, "dependency", name, flags)
+    }
+    else {
+      val by_name = Usage_Graph.entry_by_name(sections)
+      val used0 = g.callees.getOrElse(name, Set.empty)
+      val used =
+        if (flags.external) {
+          /* Mirror of `callers --external`: drop callees defined in NAME's own
+             theory, leaving only its cross-theory dependencies. */
+          val own_theory = by_name.get(name).map(_._1)
+          used0.filter(u => by_name.get(u).map(_._1) != own_theory)
+        }
+        else used0
+      if (flags.mode == "count") out.println(used.size.toString)
+      else if (used.isEmpty) {
+        val scope = if (flags.external) "cross-theory " else ""
+        out.println(s"No ${scope}references found in $name's body.")
       }
       else {
-        val by_name = Usage_Graph.entry_by_name(sections)
-        val used0 = g.callees.getOrElse(name, Set.empty)
-        val used =
-          if (flags.external) {
-            /* Mirror of `callers --external`: drop callees defined in NAME's own
-               theory, leaving only its cross-theory dependencies. */
-            val own_theory = by_name.get(name).map(_._1)
-            used0.filter(u => by_name.get(u).map(_._1) != own_theory)
+        out.println(s"${used.size} callee(s) of $name:\n")
+        for (uname <- used.toList.sorted)
+          by_name.get(uname) match {
+            case Some((thy, e)) =>
+              out.println(s"  $uname (${e.tag}) $EM_DASH $thy [L${e.thy_line}]")
+            case None => out.println(s"  $uname")
           }
-          else used0
-        if (flags.mode == "count") out.println(used.size.toString)
-        else if (used.isEmpty) {
-          val scope = if (flags.external) "cross-theory " else ""
-          out.println(s"No ${scope}references found in $name's body.")
-        }
-        else {
-          out.println(s"${used.size} callee(s) of $name:\n")
-          for (uname <- used.toList.sorted)
-            by_name.get(uname) match {
-              case Some((thy, e)) =>
-                out.println(s"  $uname (${e.tag}) $EM_DASH $thy [L${e.thy_line}]")
-              case None => out.println(s"  $uname")
-            }
-        }
       }
     }
   }
@@ -524,8 +521,8 @@ object Usage {
                       counts and corpus share.
        methods NAME   every live use of NAME with its location and owning
                       entry — the method analogue of `callers`. */
-  def cmd_methods(out: Out, sections: List[Theory_Section], name: Option[String],
-    flags: Flags
+  def cmd_methods(out: Out, err: Out, sections: List[Theory_Section],
+    name: Option[String], flags: Flags
   ): Unit = {
     val (counts, located) = Usage_Graph.scan_methods(sections, name)
     val count_map = counts.toMap
@@ -563,9 +560,10 @@ object Usage {
            Failing both is the only real error, and it must stay one — a mistyped
            name would otherwise get an empty success for a question never asked. */
         if (!count_map.contains(m) && !Namespace.proof_methods(m))
-          out.println(s"'$m' is not used as a proof method here, and is not in the " +
-            "resolved proof-method namespace.  Try `methods` for the list of " +
-            "methods actually used.")
+          Commands.fail_subject(out, err,
+            s"'$m' is not used as a proof method here, and is not in the " +
+              "resolved proof-method namespace.  Try `methods` for the list of " +
+              "methods actually used.")
         else if (flags.mode == "count") out.println(located.length.toString)
         else if (located.isEmpty) out.println(s"No uses of method '$m' found.")
         else {

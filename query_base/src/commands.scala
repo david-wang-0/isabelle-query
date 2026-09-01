@@ -44,6 +44,42 @@ object Commands {
 
 
   /* ------------------------------------------------------------------ */
+  /* the unresolvable subject                                           */
+  /* ------------------------------------------------------------------ */
+
+  /* Distinct from 0 (the question was asked and the answer was empty) and from
+     `CLI.EXIT_BAD_ROOT` 2 (the corpus itself could not be read), because those
+     are the distinctions a caller has to make.  Lives here rather than beside
+     the other two because it is a COMMAND's verdict and `commands` sits below
+     `cli`; `README.md`'s exit-status table is the user-facing statement of all
+     three. */
+  val EXIT_UNRESOLVED = 1
+
+  /* `CLI.Session.fail_root`'s rule one level down [unresolved-subject].  "No
+     callees of zzz" and "there is no zzz" are different answers, and a caller
+     cannot act on the difference if both arrive on stdout with status 0 —
+     `$(query callees X -c)` captured a sentence where it expected a number,
+     and `$?` said the run succeeded.
+
+     Note the two kinds of empty this keeps apart.  `find zzz -c` prints `0`,
+     because searching for something absent is a real search with a real
+     answer; `callees zzz` cannot begin, because there is no entry to have
+     callees.  The verbs disagree because the questions do.
+
+     `out.flush()` first, for the reason `fail_root` does it: on a terminal the
+     two streams interleave by flush order, and a diagnostic that overtakes the
+     stdout written before it reads as belonging to the wrong subject.  The
+     `Exit_Code` is caught in `CLI.run_result`, so in a batch the earlier
+     subjects' output survives and the loop stops here — which is exactly the
+     reference implementation's `sys.exit` inside `_run_each`. */
+  def fail_subject(out: Out, err: Out, what: String): Nothing = {
+    out.flush()
+    err.println(s"isabelle query: $what")
+    throw Exit_Code(EXIT_UNRESOLVED)
+  }
+
+
+  /* ------------------------------------------------------------------ */
   /* summary                                                            */
   /* ------------------------------------------------------------------ */
 
@@ -230,13 +266,17 @@ object Commands {
   /* theory / defs / outline                                            */
   /* ------------------------------------------------------------------ */
 
-  def cmd_theory(out: Out, sections: List[Theory_Section], name: String,
+  def cmd_theory(out: Out, err: Out, sections: List[Theory_Section], name: String,
     flags: Flags
   ): Unit =
     resolve_theory(sections, name) match {
       case None =>
-        out.println(s"Theory '$name' not found.  Known theories:")
-        for (s <- sections.sortBy(_.theory)) out.println(s"  ${s.theory}")
+        /* The known-theory list goes to stderr WITH the diagnostic, as one
+           message: it is the hint that makes the failure actionable, and a
+           caller reading stdout must get nothing at all. */
+        fail_subject(out, err,
+          (s"no theory '$name'.  Known theories:" ::
+            sections.map(_.theory).sorted.map("  " + _)).mkString("\n"))
       case Some(sec) =>
         if (flags.mode == "count") out.println(sec.entries.length.toString)
         else if (flags.mode == "names")
@@ -269,11 +309,11 @@ object Commands {
         }
     }
 
-  def cmd_defs(out: Out, sections: List[Theory_Section], theory: String,
+  def cmd_defs(out: Out, err: Out, sections: List[Theory_Section], theory: String,
     flags: Flags
   ): Unit =
     resolve_theory(sections, theory) match {
-      case None => out.println(s"Theory '$theory' not found.")
+      case None => fail_subject(out, err, s"no theory '$theory'")
       case Some(sec) =>
         val matches = sec.entries.filter(e => definition_tags(e.tag))
         if (matches.isEmpty) out.println(s"No definitions found in '${sec.theory}'.")
@@ -295,7 +335,7 @@ object Commands {
     flags: Flags
   ): Unit =
     resolve_theory(sections, theory) match {
-      case None => out.println(s"Theory '$theory' not found.")
+      case None => fail_subject(out, err, s"no theory '$theory'")
       case Some(sec) =>
         /* (line, kind, payload) with a stable sort on the line, exactly as the
            reference implementation's `items.sort(key=first)` does: a heading
