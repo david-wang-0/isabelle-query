@@ -1081,7 +1081,17 @@ object Entries {
           entries += e
         }
         else if (route == "axiom") {
-          entries += Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
+          /* The anchor for the lines below, and it is NOT called
+             `axiomatization`: the command is not a fact and nothing can cite
+             it, so a name minted from the keyword is a citable name no
+             citation can ever reach — one per `axiomatization` in the corpus
+             (11 in FOL, 10 in ZF), counted in `summary` as a declaration.
+             `?` is the established spelling for an entry with no name of its
+             own, and every site that must skip one already tests for it: the
+             call-graph name set (`Usage_Graph`), caller attribution, `unused`,
+             and `Commands.owner_field`.  The entry itself stays, so a line
+             inside the command still resolves to it in `enclosing`. */
+          entries += Entry("AXIOM", "?", "AXIOMATIZATION",
             thy_line = decl_line, decl_end_line = decl_line)
           /* The command line itself may already carry the first name —
              `axiomatization where process_finite:` — so read its remainder

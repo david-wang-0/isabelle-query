@@ -401,6 +401,112 @@ fi
 # hand-computed table.  Keep the failability section LAST.
 # ==========================================================================
 
+# --------------------------------------------------------------------------
+# S2 -- the parser: fixtures, and the one instrument the whole cluster uses.
+# --------------------------------------------------------------------------
+#
+# Every S2 item moves an ENTRY RECORD -- a name, a declaration end, a span, a
+# binding -- so the instrument is the dump verb dev/entrydiff.sh already runs,
+# and the expectation is the WHOLE record set of a small theory rather than a
+# grep for the one line that moved.  That is deliberate: a rule that fixes one
+# name while quietly moving the entry below it looks identical to a fix when
+# you only look at the name.
+#
+# `--spans --bindings` on every dump, so decl_end / body_end / a locale's
+# binding list are all in the comparison.  Every number below was read off the
+# fixture by hand from the rule in the matching commit message, then
+# cross-checked against the 0.8.1 oracle -- in that order.
+
+PARSE="$OUT/parser"
+mkdir -p "$PARSE" || exit 2
+
+# expect_dump NAME DIR EXPECTED
+#
+# EXPECTED is the complete `dump-entries --spans --bindings` output, newline
+# separated, trailing newline stripped (what `$(...)` yields on both sides).
+# A mismatch reports the diff, on one line, so the failing RECORD is named
+# rather than "the sets differ".
+expect_dump() {
+  local name=$1 dir=$2 want=$3
+  local got
+  got=$(isabelle query dump-entries "$dir" --spans --bindings 2>"$OUT/e.txt")
+  if [ "$got" = "$want" ]; then
+    note "$name" "$(printf '%s\n' "$got" | grep -c .) records"
+  else
+    bad "$name" \
+      "$(diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | tr '\n' '~')"
+  fi
+}
+
+# ==========================================================================
+echo
+echo "4. [axiom-names] -- the axiomatization anchor is '?', not a fact name"
+# ==========================================================================
+#
+# The rule: `axiomatization` opens a command, not a fact.  The anchor entry
+# that owns the lines of the command therefore has NO NAME of its own -- `?`,
+# the spelling already used for an anonymous lemma -- because a name minted
+# from the keyword is a citable name that nothing in Isabelle can cite, and it
+# is counted in `summary` as a declaration that does not exist.  The anchor
+# entry STAYS: the lines below it still have to resolve to something, which is
+# what `enclosing Ax:13` asks.
+#
+# Ax.thy below has two `axiomatization` commands and five real axiom names.
+
+mkdir -p "$PARSE/axiom" || exit 2
+cat >"$PARSE/axiom/Ax.thy" <<'THY'
+theory Ax
+imports Main
+begin
+
+axiomatization
+  f :: "nat \<Rightarrow> nat" and
+  Cap :: "nat"
+where
+  lower: "f 0 = 0" and
+  Upper_case: "f 1 = 1"
+
+axiomatization where process_finite:
+  "OFCLASS(process, finite_class)"
+
+lemma l: "True" by simp
+
+end
+THY
+
+# Hand-computed.  Line 5 and line 12 are the two anchors -- `?` under this
+# item, `axiomatization` before it.  Line 12 carries TWO entries (the anchor
+# and `process_finite`, whose name is on the command line itself), which is
+# the P1 span tie and is why both are pinned here.  The five named axioms and
+# the lemma are untouched by this item and are in the table so that a change
+# that moved one of them could not hide behind the two that were meant to
+# move.
+AXIOM_WANT=$(cat <<'EXPECT'
+Ax:5:AXIOM:?:src=5-5:decl_end=5:proof=0:body_end=5:bind=:target=
+Ax:6:AXIOM:f:src=6-6:decl_end=6:proof=0:body_end=6:bind=:target=
+Ax:7:AXIOM:Cap:src=7-8:decl_end=7:proof=0:body_end=7:bind=:target=
+Ax:9:AXIOM:lower:src=9-9:decl_end=9:proof=0:body_end=9:bind=:target=
+Ax:10:AXIOM:Upper_case:src=10-11:decl_end=10:proof=0:body_end=10:bind=:target=
+Ax:12:AXIOM:?:src=12-14:decl_end=12:proof=0:body_end=12:bind=:target=
+Ax:12:AXIOM:process_finite:src=12-14:decl_end=12:proof=0:body_end=12:bind=:target=
+Ax:15:LEMMA:l:src=15-15:decl_end=15:proof=15:body_end=15:bind=:target=
+EXPECT
+)
+
+expect_dump "the anchor of each axiomatization is '?'" "$PARSE/axiom" "$AXIOM_WANT"
+
+# The consequences, in the two verbs a user would notice them in.  `find` is
+# the direct one: `axiomatization` was findable as a fact name and now is not.
+ROOT_DIR="$PARSE/axiom"
+expect "no entry is named after the command" 0 "0" "" find '^axiomatization$' -c
+
+# ... and `enclosing` shows the anchor is still THERE.  Line 13 is inside the
+# second command's span (12..14) and belongs to no named axiom, so it resolves
+# to the anchor: same locus, same extent, only the name column changed.
+expect "but a line inside the command still resolves to the anchor" 0 \
+  "Ax:13 → ? (AXIOM) — Ax [src 12..14, body 12..12, 1/3 lines]" "" \
+  enclosing Ax:13
+
 # ==========================================================================
 echo
 echo "99. failability -- the harness must be able to say no"
