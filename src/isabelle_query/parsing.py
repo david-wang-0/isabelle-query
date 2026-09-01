@@ -693,6 +693,15 @@ def _scan_decl_body(lines: list[str], outer: list[str], live: list[str],
             # the keyword because `name ::` after a blank line means something
             # else everywhere else: it is a fresh `fixes`/`assumes` item, or the
             # signature of the *next* declaration.
+            # ...and unless nothing of the declaration has been seen yet.  A
+            # blank cannot END what has not STARTED, and a keyword standing
+            # alone above its name is routinely spaced: `WFair:35` is
+            # `definition`, a blank, a four-line note, then `transient ::`.
+            # Without this the blank breaks before the note is even reached,
+            # so the note skip below never runs [decl-body-comment].  Bounded
+            # exactly as before by the declaration and boundary checks, which
+            # come first; with no body to append, a run of blanks leaves
+            # `decl_end_line` on the keyword line either way.
             if not (_bar_continues(outer, i + 1)
                     or (keyword == "record"
                         and _field_continues(outer, live, i + 1))):
@@ -705,20 +714,34 @@ def _scan_decl_body(lines: list[str], outer: list[str], live: list[str],
         stripped = cline.strip()
         if not inside and stripped.startswith("text "):
             break
-        # A `\<comment>` note is not a command — it can stand wherever a token
-        # can — so one *inside* a record's field list does not end it.  Records
-        # are annotated field by field (`wa_cond :: "'S set"` under
-        # `\<comment> \<open>Termination condition\<close>`), and breaking there
-        # cost 11 of the AFP's 507 records every field they declare.  Gated on
-        # the keyword and on a field actually following, which is the same
-        # evidence `_field_continues` supplies after a blank line.  Whether the
-        # break is right for the other routes is a live question — a note
-        # between two `fun` equations is equally routine — but it has not been
-        # measured, and widening on the strength of this case would be a guess.
-        if not inside and stripped.startswith("\\<comment>") \
-                and not (keyword == "record"
-                         and _field_continues(outer, live, i + 1)):
-            break
+        # A formal comment is not a command — Isabelle's lexer skips all four
+        # of them wherever a token may appear — so one cannot END a declaration
+        # either, on any route.  Skip it and keep scanning [decl-body-comment].
+        #
+        # This was a `break` gated to `record`, where breaking cost 11 of the
+        # AFP's 507 records every field they declare; the gate was left narrow
+        # because "whether the break is right for the other routes ... has not
+        # been measured, and widening on the strength of this case would be a
+        # guess".  Measured now (`scripts/probe_comment_split_scale.py`): the
+        # break truncates 50 declarations over 11,514 theories, every one of
+        # the keyword-comment-name shape, where the comment sits before the
+        # name and the recorded body collapses onto the keyword line —
+        # `SchorrWaite:14`'s `rel` reported `body 14..14` for a declaration
+        # running to 17.  `body_end_line` is the documented "safe relocation
+        # cut" and now `api` surface, so a consumer cutting there leaves the
+        # declaration behind.
+        #
+        # Asking the live view rather than testing for a leading `\<comment>`
+        # is what makes this cover a WRAPPED comment (only its first line
+        # carries the marker), the other three spellings, and `(* ... *)` —
+        # the same correction as `_lookahead_name`'s [comment-before-name].
+        # The comment is skipped rather than appended, so `decl_end_line` still
+        # ends on the last LIVE line and a trailing note does not extend it.
+        # Running on into the next declaration is not a risk: `_match_decl_at`
+        # and `_is_boundary_at` above already break there.
+        if not inside and stripped and not live[i].strip():
+            i += 1
+            continue
         where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
         body.append(f"  {stripped}")
         i += 1
