@@ -28,6 +28,12 @@ so this script re-executes itself under the interpreter named by that command's
 shebang when it is not already importable.  Nothing about that path is written
 down here; it is read from `query` at run time.
 
+$QUERY_ORACLE names WHICH `query` that is, and is the same variable
+`dev/difftest.sh` pins the oracle with — so one export points both harnesses at
+one venv.  Unset, it falls back to the bare `query` / `isabelle-query` on PATH.
+Only the interpreter is borrowed: the reference code itself always comes from
+this checkout's `src/`, which is the point of the script.
+
 The discovery + parse loop below is `parsing._sections_from_dir` written out,
 with one difference: a theory whose parse raises is skipped rather than
 aborting the sweep, which is what the Scala side does and what a whole-corpus
@@ -44,8 +50,18 @@ _REPO = Path(__file__).resolve().parent.parent
 
 
 def _query_interpreter():
-    """The interpreter the installed `query` console script runs under."""
-    exe = shutil.which("query") or shutil.which("isabelle-query")
+    """The interpreter the `query` console script runs under.
+
+    `$QUERY_ORACLE` decides which one — the same variable `dev/difftest.sh`
+    pins the oracle with, so a single export keeps both harnesses on one venv.
+    """
+    named = os.environ.get("QUERY_ORACLE")
+    if named:
+        exe = shutil.which(named) or (named if os.path.isfile(named) else None)
+        if not exe:
+            sys.exit(f"dump_oracle: $QUERY_ORACLE={named!r} is not executable")
+    else:
+        exe = shutil.which("query") or shutil.which("isabelle-query")
     if not exe:
         return None
     try:

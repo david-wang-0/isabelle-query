@@ -13,6 +13,24 @@
 #   $QUERY_CORPORA      optional: whitespace-separated list, overriding the
 #                       default selection below
 #
+# THE ORACLE comes from $QUERY_ORACLE (default: the bare `query` on PATH), and
+# the run REFUSES (exit 2) unless it reports the version pinned in
+# $ORACLE_VERSION below.  The oracle is the frozen `src/isabelle_query/` tree
+# in this repo, so an oracle from somewhere else is a different tool wearing
+# the same name -- and a matrix run against the wrong one is not a red gate,
+# it is a plausible one, which is worse.  Same spirit as refusing without
+# corpora: never skip into a colour that has not been earned.
+#
+# Build one from THIS tree, in the repo's own gitignored scratch directory:
+#
+#   python3 -m venv .dev/oracle
+#   .dev/oracle/bin/pip install -e .
+#   QUERY_ORACLE=.dev/oracle/bin/query dev/difftest.sh
+#
+# (An editable install, so the oracle follows the tree rather than a copy of
+# it; nothing about that path is written down anywhere but here, and nothing
+# outside `.dev/` is touched.)
+#
 #   $QUERY_DIFFTEST_WARM=1  run the Scala side through the WARM SERVER
 #                       (shim -> thin client -> server) instead of `--no-server`.
 #                       $QUERY_DIFFTEST_DELEGATE=1 is the old name for it.
@@ -75,7 +93,13 @@ done
 # for.  The step-down path is then not exercised here; it is checked by running
 # both sides UNPINNED, which is a machine-dependent measurement (D11) and so
 # belongs in the phase status notes rather than in the gate.
-run_oracle() { ISABELLE_QUERY_NAMESPACE=committed query "$@"; }
+#
+# The ORACLE BINARY itself is $QUERY_ORACLE, defaulting to the bare `query` on
+# PATH; its version is checked against $ORACLE_VERSION below before any case
+# runs.
+oracle_bin=${QUERY_ORACLE:-query}
+ORACLE_VERSION=0.8.1
+run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 
 # WHICH JVM ANSWERS, and why it is a switch rather than a default.
 #
@@ -172,6 +196,32 @@ if [ ${#corpora[@]} -eq 0 ]; then
 fi
 if [ ${#corpora[@]} -eq 0 ]; then
   echo "difftest: no corpora (set \$QUERY_TEST_AFP / \$QUERY_TEST_DISTRO)" >&2
+  exit 2
+fi
+
+# --------------------------------------------------------------------------
+# The oracle is pinned to a VERSION, and a mismatch is a refusal.
+#
+# The frozen reference tree moves when upstream moves (0.7.0 -> 0.8.1 at
+# [p9-merge]), and every expectation in this matrix is that release's output.
+# An older `query` still runs, still answers, and still diffs -- it just diffs
+# against the wrong contract, so the failures it reports name the oracle's age
+# rather than the port's defects.  Refuse instead, before any corpus is read.
+# --------------------------------------------------------------------------
+oracle_version=$("$oracle_bin" --version 2>/dev/null | awk '{print $NF}')
+if [ -z "$oracle_version" ]; then
+  echo "difftest: cannot run the oracle '$oracle_bin' (\$QUERY_ORACLE)" >&2
+  echo "difftest: make one from this tree --" >&2
+  echo "difftest:   python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e ." >&2
+  echo "difftest:   QUERY_ORACLE=.dev/oracle/bin/query dev/difftest.sh" >&2
+  exit 2
+fi
+if [ "$oracle_version" != "$ORACLE_VERSION" ]; then
+  echo "difftest: oracle '$oracle_bin' is $oracle_version, expected $ORACLE_VERSION" >&2
+  echo "difftest: the matrix pins the frozen src/isabelle_query/ tree's version;" >&2
+  echo "difftest: set \$QUERY_ORACLE to one built from THIS tree --" >&2
+  echo "difftest:   python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e ." >&2
+  echo "difftest:   QUERY_ORACLE=.dev/oracle/bin/query dev/difftest.sh" >&2
   exit 2
 fi
 

@@ -12,6 +12,15 @@
 #   $QUERY_CORPORA      optional: whitespace-separated list, overriding the
 #                       default selection below
 #
+# The oracle side is `dev/dump_oracle.py`, which runs the FROZEN reference in
+# this checkout's `src/` — so unlike `dev/difftest.sh` there is no version to
+# pin: the tree IS the oracle.  What it does borrow is an interpreter, for
+# `isabelle_layout`, and $QUERY_ORACLE names which `query` to borrow it from
+# (default: the bare `query` on PATH).  Same variable, same venv, both
+# harnesses:
+#
+#   QUERY_ORACLE=.dev/oracle/bin/query dev/entrydiff.sh
+#
 # Exit status is non-zero if any corpus differs.  Diffs are left in
 # $QUERY_DIFF_DIR (default: a mktemp dir, reported on stderr) so a failure can
 # be inspected rather than re-run.

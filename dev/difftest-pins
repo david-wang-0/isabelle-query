@@ -14,47 +14,21 @@
 # that no longer describes anything is a lie about the state of the port.
 
 # ---------------------------------------------------------------------------
-# D7 — the oracle's line index crashes on a multi-name `axiomatization`
+# D7 and D10 were RESOLVED UPSTREAM in 0.8.0, and their pins are gone with them
 #
-# `graph._build_line_index` sorts `(src_start, thy_end, Entry)` tuples.  Two
-# AXIOM entries declared by one `axiomatization` line share both integers, so
-# Python falls through to comparing two `Entry` dataclasses and raises
-# TypeError.  Every command that builds the line index — `grep`, `sorry`, and
-# in P3 the whole call graph — dies with a traceback and exit 1 on any corpus
-# that has such a line.  FOL and ZF both do.
+# D7 was the oracle's `_build_line_index` raising TypeError on a multi-name
+# `axiomatization` (it sorted `(src_start, thy_end, Entry)` and fell through to
+# comparing two dataclasses), which made `grep`, `sorry` and the whole usage
+# family a traceback on FOL and ZF -- 132 pinned cases across the two.  D10 was
+# `unused -r`'s cascade depth depending on the interpreter's hash seed, because
+# the loop re-read the `unused` set its own body was growing.  Upstream fixed
+# both (`[span-ties]`, `[cascade-level]`), so at oracle 0.8.1 every one of those
+# cases AGREES -- and a pin that describes nothing is a stale pin, which fails
+# the run by design.  They are deleted rather than reworded.
+#
+# The evidence is not deleted: `dev/DIVERGENCES.md` keeps D7 and D10 with the
+# measurements that established them, marked with the release that closed them.
 # ---------------------------------------------------------------------------
-
-grep-name              FOL   D7   oracle TypeError in _build_line_index
-grep-count             FOL   D7   oracle TypeError in _build_line_index
-grep-names             FOL   D7   oracle TypeError in _build_line_index
-grep-with-comments     FOL   D7   oracle TypeError in _build_line_index
-grep-noop-n            FOL   D7   oracle TypeError in _build_line_index
-grep-alternation       FOL   D7   oracle TypeError in _build_line_index
-grep-anchored          FOL   D7   oracle TypeError in _build_line_index
-grep-no-match          FOL   D7   oracle TypeError in _build_line_index
-grep-dir               FOL   D7   oracle TypeError in _build_line_index
-grep-cartouche         FOL   D7   oracle TypeError in _build_line_index
-dashdash               FOL   D7   oracle TypeError in _build_line_index
-grep-names-comments    FOL   D7   oracle TypeError in _build_line_index
-sorry-default          FOL   D7   oracle TypeError in _build_line_index
-sorry-count            FOL   D7   oracle TypeError in _build_line_index
-sorry-noop-n           FOL   D7   oracle TypeError in _build_line_index
-
-grep-name              ZF    D7   oracle TypeError in _build_line_index
-grep-count             ZF    D7   oracle TypeError in _build_line_index
-grep-names             ZF    D7   oracle TypeError in _build_line_index
-grep-with-comments     ZF    D7   oracle TypeError in _build_line_index
-grep-noop-n            ZF    D7   oracle TypeError in _build_line_index
-grep-alternation       ZF    D7   oracle TypeError in _build_line_index
-grep-anchored          ZF    D7   oracle TypeError in _build_line_index
-grep-no-match          ZF    D7   oracle TypeError in _build_line_index
-grep-dir               ZF    D7   oracle TypeError in _build_line_index
-grep-cartouche         ZF    D7   oracle TypeError in _build_line_index
-dashdash               ZF    D7   oracle TypeError in _build_line_index
-grep-names-comments    ZF    D7   oracle TypeError in _build_line_index
-sorry-default          ZF    D7   oracle TypeError in _build_line_index
-sorry-count            ZF    D7   oracle TypeError in _build_line_index
-sorry-noop-n           ZF    D7   oracle TypeError in _build_line_index
 
 # ---------------------------------------------------------------------------
 # D8 — the oracle exits 120, not 141, when the broken pipe is only noticed by
@@ -71,63 +45,6 @@ closed-stdout   Abstract_Completeness   D8   oracle exits 120 (shutdown-flush Br
 # (Abstract_Completeness 34K, CTT 54K); the other five are 141 on both sides.
 shape-census-pipe   Abstract_Completeness   D8   whole census fits the pipe buffer; oracle exits 0
 shape-census-pipe   CTT                     D8   whole census fits the pipe buffer; oracle exits 0
-
-# ---------------------------------------------------------------------------
-# D7, continued — the P3 usage family on FOL and ZF
-#
-# Every verb that builds the line index dies the same way, so the whole usage
-# family is unrunnable in the oracle on these two corpora.  What is NOT pinned
-# is as informative as what is: `deps` / `uses` / `graph imports` read the
-# import graph and never touch the line index; `callers` without `-r` walks the
-# source directly; `refs No_Such` and the two usage-error cases return before
-# the graph is built.  Those all run, and they are clean.
-# ---------------------------------------------------------------------------
-
-callers-recursive*     FOL   D7   oracle TypeError in _build_line_index
-callees-*              FOL   D7   oracle TypeError in _build_line_index
-unused-*               FOL   D7   oracle TypeError in _build_line_index
-methods-*              FOL   D7   oracle TypeError in _build_line_index
-refs-default           FOL   D7   oracle TypeError in _build_line_index
-refs-count             FOL   D7   oracle TypeError in _build_line_index
-refs-names             FOL   D7   oracle TypeError in _build_line_index
-refs-external          FOL   D7   oracle TypeError in _build_line_index
-refs-last              FOL   D7   oracle TypeError in _build_line_index
-refs-drop0             FOL   D7   oracle TypeError in _build_line_index
-refs-batch             FOL   D7   oracle TypeError in _build_line_index
-graph-default          FOL   D7   oracle TypeError in _build_line_index
-graph-citation         FOL   D7   oracle TypeError in _build_line_index
-graph-dot              FOL   D7   oracle TypeError in _build_line_index
-graph-format-*         FOL   D7   oracle TypeError in _build_line_index
-graph-drop0            FOL   D7   oracle TypeError in _build_line_index
-
-callers-recursive*     ZF    D7   oracle TypeError in _build_line_index
-callees-*              ZF    D7   oracle TypeError in _build_line_index
-unused-*               ZF    D7   oracle TypeError in _build_line_index
-methods-*              ZF    D7   oracle TypeError in _build_line_index
-refs-default           ZF    D7   oracle TypeError in _build_line_index
-refs-count             ZF    D7   oracle TypeError in _build_line_index
-refs-names             ZF    D7   oracle TypeError in _build_line_index
-refs-external          ZF    D7   oracle TypeError in _build_line_index
-refs-last              ZF    D7   oracle TypeError in _build_line_index
-refs-drop0             ZF    D7   oracle TypeError in _build_line_index
-refs-batch             ZF    D7   oracle TypeError in _build_line_index
-graph-default          ZF    D7   oracle TypeError in _build_line_index
-graph-citation         ZF    D7   oracle TypeError in _build_line_index
-graph-dot              ZF    D7   oracle TypeError in _build_line_index
-graph-format-*         ZF    D7   oracle TypeError in _build_line_index
-graph-drop0            ZF    D7   oracle TypeError in _build_line_index
-
-# ---------------------------------------------------------------------------
-# D10 — `unused -r`'s cascade depths are not reproducible in the oracle
-#
-# The reference's cascade tests each name against the unused set AS IT GROWS
-# during a pass, so a chain collapses by however far Python's per-process string
-# hash happens to order it.  Two consecutive oracle runs over the same corpus
-# print different depths.  The unused SET agrees exactly — verified per corpus:
-# strip the `[cascade depth N]` markers and the two outputs are identical.
-# ---------------------------------------------------------------------------
-
-unused-recursive       *     D10  oracle cascade depth is hash-seed dependent
 
 # ---------------------------------------------------------------------------
 # D8 — the demo corpus is under the 64K pipe-buffer threshold
