@@ -185,8 +185,26 @@ object Entries {
 
   val heading_words = "chapter|section|subsection|subsubsection|paragraph|subparagraph"
   val TITLE_OPEN = """\\<open>|""" + Symbol.open_decoded + "|\""
-  val SECTION_RE: Pattern = Py.compile(s"""^\\s*($heading_words)\\s*($TITLE_OPEN)(.*)""")
-  val HEADING_BARE_RE: Pattern = Py.compile(s"""^\\s*($heading_words)\\s*$$""")
+
+  /* The heading COMMAND, on its own.  Its title is matched separately by
+     `TITLE_OPEN_RE`, because a document marker may sit between the two
+     (`subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`,
+     246 of them in HOL/Analysis) and a marker body may itself hold a
+     cartouche, which no regular expression can balance.
+
+     ONE recogniser, `heading_at`, is built on this and is shared by everything
+     that asks "is this line a heading?" — `outline`'s view, the prose mask,
+     and the proof extent.  There were once two patterns here, tight and wide
+     respectively, on the reasoning that a VIEW wants no false positives while
+     a MASK cannot afford a false negative.  Both instincts are right in
+     isolation and the conclusion was wrong: a heading is a fact about Isar,
+     not about the consumer, and a third asker (`proof_extent`) then disagreed
+     with both.
+
+     The negative lookahead is what the combined pattern got implicitly from
+     demanding an opener next: without it `sections` leads with `section`. */
+  val HEADING_LEAD_RE: Pattern =
+    Py.compile(s"""^\\s*($heading_words)(?![A-Za-z_0-9'])""")
   val TITLE_OPEN_RE: Pattern = Py.compile(s"""^\\s*($TITLE_OPEN)(.*)""")
   val title_close: Map[String, String] =
     Map("""\<open>""" -> """\<close>""", Symbol.open_decoded -> Symbol.close_decoded,
@@ -309,6 +327,41 @@ object Entries {
     List(Symbol.comment, Symbol.comment_decoded, Symbol.cancel, Symbol.cancel_decoded,
       Symbol.latex, Symbol.latex_decoded, Symbol.marker, Symbol.marker_decoded).distinct
 
+  /* `s.lstrip()` with every leading formal comment removed, along with the
+     cartouche each of them owns.
+
+     Isabelle's lexer skips all four of them wherever a token may appear, so
+     this is what stands between a command keyword and the thing that actually
+     follows it — a declaration's NAME, or a heading's TITLE.  Written once for
+     both: they are the same grammatical position, and having two of these was
+     how `strip_decl_prefix` came to know about markers while the heading
+     recogniser did not.
+
+     Balanced, not "to the first `\<close>`": a marker body may itself hold a
+     cartouche, as `\<^marker>\<open>contributor \<open>Martin
+     Desharnais\<close>\<close>` does.  A comment that runs past the end of
+     this line stops the scan and is left in place, so the caller sees an
+     unparseable rest rather than a wrong answer. */
+  def skip_formal_comments(s0: String): String = {
+    var s = Py.lstrip(s0)
+    var go = true
+    while (go && s.nonEmpty) {
+      annotation_markers.find(s.startsWith) match {
+        case None => go = false
+        case Some(marker) =>
+          var rest = Py.lstrip(s.substring(marker.length))
+          val open_tok = cart_open.find(rest.startsWith)
+          if (open_tok.isDefined) {
+            val k = balanced_end(rest, open_tok.get, cart_close(cart_open.indexOf(open_tok.get)))
+            if (k < 0) go = false      // comment runs past this line
+            else { rest = Py.lstrip(rest.substring(k)); s = rest }
+          }
+          else s = rest
+      }
+    }
+    s
+  }
+
   /* Drop the syntactic noise that can sit between a keyword and the name: a
      command modifier `(in foo)` / `(sequential)`, a leading formal comment,
      and — for type declarations — leading type arguments. */
@@ -321,13 +374,8 @@ object Entries {
         if (j < 0) go = false else s = Py.lstrip(s.substring(j))
       }
       else if (starts_with_any(s, annotation_markers)) {
-        val marker = annotation_markers.find(s.startsWith).get
-        s = Py.lstrip(s.substring(marker.length))
-        val open_tok = cart_open.find(s.startsWith)
-        if (open_tok.isDefined) {
-          val k = balanced_end(s, open_tok.get, cart_close(cart_open.indexOf(open_tok.get)))
-          if (k < 0) go = false else s = Py.lstrip(s.substring(k))
-        }
+        val skipped = skip_formal_comments(s)
+        if (skipped == s) go = false else s = skipped
       }
       else if (typevars && s.charAt(0) == '\'') {
         Py.matches_at_start(TYPEVAR_RE, s) match {
@@ -787,14 +835,25 @@ object Entries {
     prose: Array[Boolean]
   ): Option[(String, String, String, Int)] = {
     if (prose != null && prose(i + 1)) None
-    else Py.matches_at_start(SECTION_RE, lines(i)) match {
-      case Some(m) => Some((m.group(1), m.group(2), m.group(3), 0))
-      case None =>
-        Py.matches_at_start(HEADING_BARE_RE, lines(i)) match {
-          case Some(bare) if i + 1 < lines.length =>
-            Py.matches_at_start(TITLE_OPEN_RE, lines(i + 1))
-              .map(nxt => (bare.group(1), nxt.group(1), nxt.group(2), 1))
-          case _ => None
+    else Py.matches_at_start(HEADING_LEAD_RE, lines(i)) match {
+      case None => None
+      case Some(m) =>
+        /* A document marker may sit between the command and its title.
+           Skipped here rather than read off the outer view, because a
+           heading's TITLE is a cartouche: the view that blanks the marker
+           blanks the title with it, so this one has to read the RAW line. */
+        val rest = skip_formal_comments(lines(i).substring(m.end()))
+        Py.matches_at_start(TITLE_OPEN_RE, rest) match {
+          case Some(here) => Some((m.group(1), here.group(1), here.group(2), 0))
+          case None =>
+            /* The split form: the command alone on its line, its title on the
+               next — the same shape `TEXT_BARE_RE` handles for document
+               blocks.  Only ever a one-line lookahead, so a bare word cannot
+               reach an unrelated title. */
+            if (rest.isEmpty && i + 1 < lines.length)
+              Py.matches_at_start(TITLE_OPEN_RE, lines(i + 1))
+                .map(nxt => (m.group(1), nxt.group(1), nxt.group(2), 1))
+            else None
         }
     }
   }
@@ -1054,7 +1113,12 @@ object Entries {
       val cline = lines(line_no - 1)
       val stripped = Py.strip(cline)
       if (stripped.startsWith("text ") || stripped.startsWith("""text\<open>""")) go = false
-      else if (Py.matches_start(SECTION_RE, cline)) go = false
+      /* `heading_at`, not a regex of its own: this was a THIRD asker of "is
+         this a heading", and it disagreed — a marked heading and a split
+         heading both ended a proof for `outline` and the prose mask but not
+         here.  The size of the disagreement is not the argument; having three
+         recognisers where the comments promise one is. */
+      else if (heading_at(lines, line_no - 1, null).isDefined) go = false
       else if (Py.matches_start(DECL_RE, cline)) go = false
       else {
         if (stripped.nonEmpty) last = line_no

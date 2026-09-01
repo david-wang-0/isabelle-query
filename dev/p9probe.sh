@@ -779,6 +779,102 @@ expect "... and the marked context, which reopens rather than declares" 0 \
 
 # ==========================================================================
 echo
+echo "8. [marker-decl] c -- ONE heading recogniser"
+# ==========================================================================
+#
+# The rule: a heading is a heading.  There were three answers to "is this line
+# a heading?" -- a tight pattern for `outline`'s view, a wide one for the prose
+# mask, and a third inside `proof_extent` -- on the reasoning that a view wants
+# no false positives while a mask cannot afford a false negative.  Both
+# instincts are right in isolation and the conclusion was wrong: it is a fact
+# about Isar, not about the consumer.
+#
+# `heading_at` is now that one answer, and it reads the heading COMMAND
+# separately from its TITLE, with the formal-comment skip of §5 in between --
+# shared with `strip_decl_prefix`, since a marker before a declaration's name
+# and a marker before a heading's title are the same grammatical position.  It
+# has to read the RAW line: a title is a cartouche, so the view that blanks the
+# marker blanks the title with it.
+#
+# The consequence is not only that `outline` shows a marked heading (14,238 of
+# them AFP-wide).  A heading BOUNDS the entry above it, so its `src` end -- and
+# `body_end` with it -- shrinks to stop at the heading instead of running past
+# it to the next declaration.  211 records in HOL/Analysis.
+#
+# Four shapes: marker glued to the command, marker after a space, the split
+# form with the title on the next line, and an English `chapter` inside a
+# `text` block, which is prose and must NOT become a heading.
+
+mkdir -p "$PARSE/heading" || exit 2
+cat >"$PARSE/heading/Head.thy" <<'THY'
+theory Head
+imports Main
+begin
+
+subsection\<^marker>\<open>tag unimportant\<close> \<open>Glued Marker\<close>
+
+lemma above: "True"
+  by simp
+
+subsection \<^marker>\<open>tag unimportant\<close> \<open>Spaced Marker\<close>
+
+lemma middle: "True"
+  by simp
+
+subsection
+  \<open>Split Form\<close>
+
+lemma below: "True"
+  by simp
+
+text \<open>
+chapter \<open>Dynamic Programming\<close> is only prose here
+\<close>
+
+lemma last_one: "True"
+  by simp
+
+end
+THY
+
+# Hand-computed spans.  `above` runs 7..9 because the heading on line 10 bounds
+# it; without the marked heading it would run to 11, the line before `middle`.
+# `middle` runs 12..14, bounded by the SPLIT heading on line 15.  `last_one`
+# starts at 21, not 25: the three-line `text` block above it is short enough
+# and adjacent enough to be its preamble, which is the pre-existing rule and is
+# in the table so that a heading change moving it would be visible.
+HEADING_WANT=$(cat <<'EXPECT'
+Head:7:LEMMA:above:src=7-9:decl_end=7:proof=8:body_end=8:bind=:target=
+Head:12:LEMMA:middle:src=12-14:decl_end=12:proof=13:body_end=13:bind=:target=
+Head:18:LEMMA:below:src=18-20:decl_end=18:proof=19:body_end=19:bind=:target=
+Head:25:LEMMA:last_one:src=21-26:decl_end=25:proof=26:body_end=26:bind=:target=
+EXPECT
+)
+
+expect_dump "a marked heading bounds the entry above it" "$PARSE/heading" "$HEADING_WANT"
+
+ROOT_DIR="$PARSE/heading"
+
+# And the view itself.  Three headings, at 5, 10 and 15; the `chapter` on line
+# 22 is inside the `text` block, so it appears as the block's first line of
+# prose and not as a fourth heading.
+expect "all three shapes are in the outline, and the prose one is not" 0 \
+  "$(cat <<'EXPECT'
+Outline of Head.thy:
+
+      subsection: Glued Marker  (line 5)
+        LEMMA    above  (7..9, 3 lines)
+      subsection: Spaced Marker  (line 10)
+        LEMMA    middle  (12..14, 3 lines)
+      subsection: Split Form  (line 15)
+        LEMMA    below  (18..20, 3 lines)
+        text     [21..23, 3 lines]: chapter \<open>Dynamic Programming\<close> is only prose here
+        LEMMA    last_one  (21..26, 6 lines)
+EXPECT
+)" "" outline Head
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #
