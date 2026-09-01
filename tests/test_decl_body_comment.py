@@ -113,25 +113,50 @@ class ACommentIsNotPartOfADeclaration(unittest.TestCase):
         self.assertEqual(e.body_end_line, 5)
 
 
-class TheBodyStaysInsideItsOwnSpan(unittest.TestCase):
-    """A body that grew must not have grown into the next declaration.
+def entries(body: str):
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "Probe.thy"
+        p.write_text(HEAD + body + TAIL, encoding="utf-8")
+        return parse_theory("Probe", p).entries
 
-    The invariant a shrink-only check cannot see, and the one that rejected
-    the wider version of this fix: relaxing the BLANK-line break as well took
-    corpus-wide containment violations from 82 to 719.
+
+class TheBodyStaysInsideItsOwnSpan(unittest.TestCase):
+    r"""A body that grew must not have grown into its neighbour.
+
+    `compute_spans` sets `thy_end` from the NEXT entry's `src_start`, so
+    `body_end_line > thy_end` means one declaration's body overlaps the next.
+    This is the invariant a shrink-only check cannot see, and it is what
+    rejected the wider version of this fix (82 corpus violations -> 719).
+
+    `test_a_heading_bounds_the_body` is the DISCRIMINATING one, reduced from
+    `AVL-Trees/AVL:23` — a `datatype`, a blank, then a `subsection`.  The
+    rejected variant appends the heading line to the body, giving
+    `body_end=25 > thy_end=24`.  Checked against the variant rather than
+    assumed: the two-declaration case below passes under it, so on its own it
+    would have let the regression through.
     """
 
+    def test_a_heading_bounds_the_body(self):
+        es = entries(
+            'datatype tree = ET | MKT nat\n'
+            "\n"
+            "subsection \\<open>Invariants and auxiliary functions\\<close>\n"
+            "\n"
+            'primrec height :: "nat" where "height = 0"')
+        self.assertTrue(es)
+        for e in es:
+            self.assertLessEqual(
+                e.body_end_line, e.thy_end,
+                f"{e.name}: body_end {e.body_end_line} > thy_end {e.thy_end}")
+
     def test_two_declarations_do_not_overlap(self):
-        with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "Probe.thy"
-            p.write_text(HEAD + (
-                "definition\n"
-                "  \\<comment> \\<open>first\\<close>\n"
-                '  a :: "nat" where "a = 0"\n'
-                "definition\n"
-                "  \\<comment> \\<open>second\\<close>\n"
-                '  b :: "nat" where "b = 1"') + TAIL, encoding="utf-8")
-            es = parse_theory("Probe", p).entries
+        es = entries(
+            "definition\n"
+            "  \\<comment> \\<open>first\\<close>\n"
+            '  a :: "nat" where "a = 0"\n'
+            "definition\n"
+            "  \\<comment> \\<open>second\\<close>\n"
+            '  b :: "nat" where "b = 1"')
         self.assertEqual([e.name for e in es], ["a", "b"])
         for e in es:
             self.assertLessEqual(e.body_end_line, e.thy_end)
