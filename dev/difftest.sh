@@ -112,7 +112,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,086-case matrix, taken through
+# answers the oracle gives?  It is the same 2,107-case matrix, taken through
 # the socket.  The server is probe-private and stopped on the way out, for the
 # reason dev/p7probe.sh gives at greater length.
 #
@@ -496,6 +496,11 @@ emit_cases() {
   c find-dot               find .
   c find-no-match          find zzz_no_such_name_zzz
   c find-bad-regex         find '['
+  # The two empties, from the SEARCH side [count-mode-zero]: an absent pattern
+  # is a real search with a real answer, so `-c` is `0` and `--names` is
+  # nothing -- not the sentence the human modes print.
+  c find-count-zero        find zzz_no_such_name_zzz -c
+  c find-names-zero        find zzz_no_such_name_zzz --names
 
   # -- show ---------------------------------------------------------------
   c show-name              show "$NAME1"
@@ -510,6 +515,7 @@ emit_cases() {
   c show-batch             show "$NAME1" "$NAME2"
   c show-substring         show "${NAME1:0:3}"
   c show-unknown           show zzz_no_such_name_zzz
+  c show-count-zero        show zzz_no_such_name_zzz -c
 
   # -- path positionals (the file/dir routing, not a bare theory name) -----
   c grep-path              grep "$NAME1" "$THY1_PATH"

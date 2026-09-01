@@ -100,9 +100,9 @@ found): `[cartouche-escape]` (D1), `[keyword-kind-quoted]` (D3),
       3 pinned, 292 failing, 0 stale** (oracle 0.8.1, seven corpora).
 - [x] Commit the merge, then the harness changes.
 
-### S1 — the CLI contract (`.dev/gap-G1-cli-contract.md`)
+### S1 — the CLI contract (`.dev/gap-G1-cli-contract.md`) `[unresolved-subject]` `[count-mode-zero]` `[name-roundtrip]` — **DONE**
 
-- [ ] `[unresolved-subject]` — an unresolvable SUBJECT writes
+- [x] `[unresolved-subject]` — an unresolvable SUBJECT writes
       `isabelle query: …` to stderr, leaves stdout untouched, exits **1**:
       `theory`, `defs`, `outline`, `deps`, `uses`, `refs`, `callees`,
       `callees -r`, `callers -r`, `methods NAME`. One helper (`fail_subject`,
@@ -111,19 +111,19 @@ found): `[cartouche-escape]` (D1), `[keyword-kind-quoted]` (D3),
       texts byte-exact per the report. `callers` (non-recursive), `find`,
       `show`, `enclosing`, `shape lemma/steps`, `--theory` scope are
       **unchanged**.
-- [ ] `[count-mode-zero]` — `-c` prints `0` and `--names` prints nothing on
+- [x] `[count-mode-zero]` — `-c` prints `0` and `--names` prints nothing on
       an empty result: reorder `Render.emit_matches` (`find`, `find --and`,
       `show`) and `Usage.render_unused`. `unused --roots -c`, `defs`,
       `callees` stay as they are.
-- [ ] `[name-roundtrip]` — `Commands.resolve_theory` accepts the printed
+- [x] `[name-roundtrip]` — `Commands.resolve_theory` accepts the printed
       name of a path-spelled theory (`ex/Typechecking`, `LK/Propositional`):
       exact `s.theory == name` between the real-path match and the stem
       fallback. (S4 adds the unique-suffix step after it.)
-- [ ] `dev/p9probe.sh` §1–§3 with the report's fixtures; new difftest cases
+- [x] `dev/p9probe.sh` §1–§3 with the report's fixtures; new difftest cases
       `find-count-zero`, `find-names-zero`, `show-count-zero`.
-- [ ] Docs: README exit-status section, CONTRIBUTING "two empties" table,
+- [x] Docs: README exit-status section, CONTRIBUTING "two empties" table,
       MIGRATING.
-- [ ] Gate: difftest (expect the `*-unknown` family and CTT `deps/refs-last`,
+- [x] Gate: difftest (expect the `*-unknown` family and CTT `deps/refs-last`,
       `deps/refs/uses-batch` to clear), p7probe (exit + stderr over the
       socket, `QUERY_DIFFTEST_WARM=1` on one corpus).
 

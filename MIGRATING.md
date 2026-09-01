@@ -30,7 +30,7 @@ shuts the server down.
 subcommands, same flags, same abbreviations, same positional grammar, same
 `-R/--root` on either side of the command name.
 
-Same **output, byte for byte** — 2,086 (corpus × invocation) cases across seven
+Same **output, byte for byte** — 2,107 (corpus × invocation) cases across seven
 corpora are diffed on every change, plus the whole entry set and theory set
 over the entire AFP and the entire distribution `src`.
 
@@ -99,6 +99,26 @@ oracle reports is a strict subset of what this engine reports, on both corpora.
 
 ## Things that move
 
+- **An unresolvable subject now answers on stderr with exit `1`, and a count
+  mode prints `0`.** This is the Python tool's own 0.8.1 contract, which the
+  port matches; against **0.7.0** — and against earlier builds of this port —
+  it is a **breaking change**, because both used to print the diagnostic on
+  stdout and exit `0`:
+
+  ```
+  # 0.7.0                              # 0.8.1 and this port
+  $ query callees zzz -c               $ isabelle query callees zzz -c
+  'zzz' not found in the entry index.  isabelle query: 'zzz' is not in the entry index
+  $ echo $?                            $ echo $?
+  0                                    1
+  ```
+
+  Nine verbs: `theory`, `defs`, `outline`, `deps`, `uses`, `refs`, `callees`
+  (with or without `-r`), `callers -r`, `methods NAME`. If you grep **stdout**
+  for the old sentence, read stderr and the exit status instead. `callers NAME`
+  without `-r` is *not* in the list — it scans text, so zero mentions is an
+  honest `0` — and `find zzz -c` / `show zzz -c` now print `0` rather than
+  `No entries matching 'zzz'.`, with `--names` printing nothing at all.
 - **Installation** is `isabelle components -u`, not `pip install`. There is no
   PyPI package for the Scala tool and no Python runtime dependency.
 - **The program name** in diagnostics is `isabelle query`, not `query` or

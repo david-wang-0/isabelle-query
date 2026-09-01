@@ -343,11 +343,6 @@ $ echo $?
 1
 ```
 
-*(The unresolvable-subject half of that contract — stderr, exit `1`, and a `0`
-rather than a sentence from a count mode — lands in P9 S1; see
-[dev/P9-PLAN.md](dev/P9-PLAN.md). Until then those verbs print the diagnostic
-on stdout and exit `0`.)*
-
 `141` is not promised for *every* `| head`. When the whole answer fits the pipe
 buffer no write ever fails and the status is `0` — the same as `seq 10 | head`,
 where `seq 200000 | head` dies of SIGPIPE. The producer wrote everything; the
@@ -374,7 +369,7 @@ in the Scala engine is a translation — it is a reimplementation checked agains
 the original's output.
 
 Verification is **differential**, not unit: `dev/difftest.sh` runs both tools
-over a matrix of 2,086 (corpus × invocation) cases across seven corpora,
+over a matrix of 2,107 (corpus × invocation) cases across seven corpora,
 diffing stdout byte-for-byte and comparing exit statuses, and
 `dev/entrydiff.sh` diffs the whole entry set and theory set over the entire AFP
 and the entire distribution `src`.

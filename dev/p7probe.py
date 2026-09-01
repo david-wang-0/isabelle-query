@@ -197,10 +197,15 @@ def main(argv):
     head, body = conn.command(
         "query_run", {"argv": ["-R", work, "find", "p7probe_marker", "--names"],
                       "cwd": scratch, "env_root": ""})
-    # "No entries matching 'p7probe_marker'." names the marker, so the
-    # absence to test for is a MATCH LINE, not the string.
+    # The absence to test for is a MATCH LINE, not the string: "No entries
+    # matching 'p7probe_marker'." would name the marker itself.  Since P9 S1
+    # [count-mode-zero] a `--names` mode with nothing to list prints NOTHING at
+    # all -- an empty list is the right answer for a pipeline, and the sentence
+    # would be read as a name -- so the corpus-before state is empty stdout,
+    # exit 0, warm and cold alike.  (Before that it was the sentence, which is
+    # what this check used to look for.)
     check(head == "OK" and body.get("output") == out_c and body.get("exit") == rc_c
-          and "No entries" in out_c,
+          and out_c.strip() == "",
           "the marker is absent to begin with, warm and cold alike",
           "exit %s, %r" % (body.get("exit"), out_c[:40]))
 

@@ -384,6 +384,20 @@ q codeqs no_such_const_xyz -c >"$OUT/o2.txt" 2>/dev/null
 if [ ! -s "$OUT/o2.txt" ]; then note "-c on an unresolved subject prints nothing"
 else bad "-c on an unresolved subject prints nothing" "$(cat "$OUT/o2.txt")"; fi
 
+# Since P9 S1 the whole lookup family obeys the rule these two verbs were held
+# to first [unresolved-subject], so two of the nine are checked HERE as well --
+# the point being that the contract is the family's and not a property of the
+# two rewrite-only verbs.  The other seven, and the byte-exact texts, are
+# dev/p9probe.sh §1.
+expect_rc "and so does callees, since P9 S1"          1 callees no_such_name_xyz
+expect_rc "and theory"                                1 theory No_Such_Theory_Xyz
+isabelle query -R "$FIX" callees no_such_name_xyz -c >"$OUT/o3.txt" 2>"$OUT/e3.txt"
+if [ ! -s "$OUT/o3.txt" ] && grep -q "is not in the entry index" "$OUT/e3.txt"; then
+  note "same shape: stderr carries it, stdout stays empty"
+else
+  bad "same shape: stderr carries it, stdout stays empty" "$(head -1 "$OUT/o3.txt")"
+fi
+
 # ... but a KNOWN subject with no sites prints an honest 0.
 expect_out "-c on a known subject with no sites prints 0" "0" instances semi -c
 

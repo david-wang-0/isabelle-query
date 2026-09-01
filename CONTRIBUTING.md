@@ -97,9 +97,13 @@ the two empties before choosing, because they look identical at the call site:
 for a token, so zero mentions is truthful whether or not the name is declared,
 while `callees` needs the entry to exist before it can have callees. Different
 questions, different empties. `scripts/probe_count_modes.py` checks the whole
-family at once — add a verb there when you add one here. *(Scala: the port
-still prints the diagnostic on stdout and exits `0`; the `fail_subject` helper
-and the zero-count modes land in P9 S1, see `dev/P9-PLAN.md`.)*
+family at once — add a verb there when you add one here. *(Scala: the helper is
+`Commands.fail_subject`, the constant `Commands.EXIT_UNRESOLVED`, and the same
+two rows are pinned in `dev/p9probe.sh` §1–§2 and in `dev/p6bprobe.sh` §5 for
+`instances`/`codeqs`. A count mode dispatches BEFORE the empty guard on both
+sides — `find zzz -c` is `0`, `find zzz --names` is nothing — with three
+deliberate exceptions the oracle shares: `unused --roots -c`, `defs -c`, and
+`callees`, which were already count-first.)*
 
 **A user-typed pattern goes through `commands._user_pattern`, never straight to
 `re.compile`.** This is the same rule one level down: a pattern that cannot
@@ -216,7 +220,7 @@ a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 | harness | what it establishes | when |
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
-| `dev/difftest.sh` | 2,086 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
+| `dev/difftest.sh` | 2,107 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
 | `dev/p7probe.sh` | the warm server, the thin client, and the decline protocol that joins them to the cold path (§15, §16) | any change to `server.scala`, `cli.scala`, `lib/Tools/query`, or the client |
 
