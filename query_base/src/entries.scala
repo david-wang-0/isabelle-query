@@ -81,16 +81,49 @@ object Entries {
 
   /* --- lexical atoms shared by every name pattern --- */
 
-  val ISA_MARKUP: String = """\\<\^?\w+>"""
-  val ISA_WORD_CHAR: String = s"(?:$ISA_MARKUP|[\\w'])"
-  val ISA_NAME: String = s"(?:$ISA_MARKUP|[A-Za-z])$ISA_WORD_CHAR*"
-
-  val SYM_NAME_RE: Pattern = Py.compile(s"((?:$ISA_MARKUP|\\w)$ISA_WORD_CHAR*)")
-  val QUOTED_NAME_RE: Pattern = Py.compile("^\"([^\"]+)\"")
-
-  /* Isabelle structural control symbols are not fact names. */
+  /* The symbols that are STRUCTURE rather than name characters: the two
+     cartouche delimiters and the four formal comments.  Each can sit exactly
+     where a name is expected — a cartouche statement, an annotation, a
+     document marker — and must not be captured as one. */
   val reserved_name_prefixes: List[String] =
-    List("""\<open>""", """\<close>""", """\<comment>""", """\<^cancel>""")
+    List("""\<open>""", """\<close>""") ::: List(
+      """\<comment>""", """\<^cancel>""", """\<^latex>""", """\<^marker>""")
+
+  /* TWO questions, so two atoms.  `ISA_SYMBOL` is LEXICAL — is this an
+     Isabelle symbol token? — and `ISA_MARKUP` is GRAMMATICAL: may this token
+     occur inside a NAME?  They differ by exactly `reserved_name_prefixes`.
+
+     Conflating them let a name run straight through a structural symbol, so
+     `definition lipschitzI_on\<^marker>\<open>tag important\<close> :: ...` was
+     indexed as `lipschitzI_on\<^marker>\<open>tag` and
+     `lemma shows_box_of_aforms\<comment> \<open>…\<close>:` as
+     `shows_box_of_aforms\<comment>`.
+
+     Which one a scanner wants follows from what it is doing, and the split is
+     not cosmetic in either direction:
+
+       * a RUN scanner (`Usage_Graph`'s citation tokens and `SYM_RE`, `Shape`'s
+         token counter, `Commands`' user-pattern rewrite) asks only where a
+         token ENDS, over source the region scan has already redacted.  It
+         wants the lexical atom.  Narrowing it there does not help and actively
+         harms: `\<open>foo` would stop being one run and start offering `open`
+         as a candidate fact name, and `\<comment>` would count as ten tokens
+         rather than one;
+       * a NAME scanner (below, plus the datatype, target and `Sites` grammars)
+         reads RAW source, where a marker really can abut the name, and must
+         stop at it. */
+  val ISA_SYMBOL: String = """\\<\^?\w+>"""
+  private val NOT_STRUCTURAL: String =
+    "(?!" + reserved_name_prefixes.map(s => Pattern.quote(s.substring(2))).mkString("|") + ")"
+  val ISA_MARKUP: String = s"""\\\\<$NOT_STRUCTURAL\\^?\\w+>"""
+
+  /* One character of a symbol RUN (lexical) / of a NAME (grammatical). */
+  val ISA_WORD_CHAR: String = s"(?:$ISA_SYMBOL|[\\w'])"
+  val ISA_NAME_CHAR: String = s"(?:$ISA_MARKUP|[\\w'])"
+  val ISA_NAME: String = s"(?:$ISA_MARKUP|[A-Za-z])$ISA_NAME_CHAR*"
+
+  val SYM_NAME_RE: Pattern = Py.compile(s"((?:$ISA_MARKUP|\\w)$ISA_NAME_CHAR*)")
+  val QUOTED_NAME_RE: Pattern = Py.compile("^\"([^\"]+)\"")
 
   /* Outer-syntax keywords that are not fact names.  Only the BARE form is
      rejected: a quoted keyword (`fun "for"`) is a legitimate name and is

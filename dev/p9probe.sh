@@ -585,6 +585,101 @@ expect "a name inside a formal comment cites nothing" 0 "0" "" callers widget -c
 
 # ==========================================================================
 echo
+echo "6. [marker-decl] a -- a NAME stops at a structural symbol"
+# ==========================================================================
+#
+# The rule: an Isabelle name may interleave identifier characters with symbol
+# tokens (`\<phi>step`, `split\<^sub>i_tree`), but the two cartouche
+# delimiters and the four formal comments are STRUCTURE and not name
+# characters.  A name grammar that admits every `\<...>` runs straight through
+# the marker abutting the name: `definition lipschitzI_on\<^marker>\<open>tag
+# important\<close> ::` was indexed as `lipschitzI_on\<^marker>\<open>tag`, and
+# `lemma shows_box_of_aforms\<comment> \<open>...\<close>:` as
+# `shows_box_of_aforms\<comment>`.
+#
+# So two atoms, and which one a scanner wants follows from what it is doing:
+# a NAME scanner reads raw source and must stop at a marker, while a RUN
+# scanner (the citation tokeniser, `shape`'s token counter, the user-pattern
+# rewrite) asks only where a token ends and must NOT.  Both directions are
+# checked below, because narrowing the run scanners by mistake is the failure
+# this split invites -- and it is silent, unlike the one it fixes.
+
+mkdir -p "$PARSE/glued" || exit 2
+cat >"$PARSE/glued/Glued.thy" <<'THY'
+theory Glued
+imports Main
+begin
+
+definition lipschitzI_on\<^marker>\<open>tag important\<close> :: "bool"
+  where "lipschitzI_on = True"
+
+lemma shows_box_of_aforms\<comment> \<open>glued note\<close>: "True"
+  by simp
+
+definition split\<^sub>i_tree :: "bool" where "split\<^sub>i_tree = True"
+
+definition \<phi>step :: "bool" where "\<phi>step = True"
+
+lemma cancelled: "True" \<^cancel>\<open>lemma ghost: "False"\<close>
+  by simp
+
+lemma runs: "True"
+  using \<open>True\<close> lipschitzI_on_def by simp
+
+end
+THY
+
+# Hand-computed.  Lines 5 and 8 are the two the rule moves: the name ends where
+# the marker begins.  Lines 11 and 13 are the counterweight -- a subscript and
+# a Greek letter ARE name characters and must survive the narrowing -- and line
+# 15's `\<^cancel>` body must not be indexed as a lemma of its own, which is
+# what the six-record set says.
+GLUED_WANT=$(cat <<'EXPECT'
+Glued:5:DEF:lipschitzI_on:src=5-7:decl_end=6:proof=0:body_end=6:bind=:target=
+Glued:8:LEMMA:shows_box_of_aforms:src=8-10:decl_end=8:proof=9:body_end=9:bind=:target=
+Glued:11:DEF:split\<^sub>i_tree:src=11-12:decl_end=11:proof=0:body_end=11:bind=:target=
+Glued:13:DEF:\<phi>step:src=13-14:decl_end=13:proof=0:body_end=13:bind=:target=
+Glued:15:LEMMA:cancelled:src=15-17:decl_end=15:proof=16:body_end=16:bind=:target=
+Glued:18:LEMMA:runs:src=18-19:decl_end=18:proof=19:body_end=19:bind=:target=
+EXPECT
+)
+
+expect_dump "a name ends where its marker begins" "$PARSE/glued" "$GLUED_WANT"
+
+ROOT_DIR="$PARSE/glued"
+
+# The run scanners, in the other direction.  Each of these three would BREAK if
+# the lexical atom had been narrowed with the name one:
+#
+# (a) the citation tokeniser.  `\<open>foo` is one run; split at the delimiter
+#     it yields `open` as a candidate fact name, on every cartouche in the
+#     corpus.  Nothing declares `open` here, so the honest answer is 0.
+expect "a cartouche delimiter is not a citation" 0 "0" "" callers open -c
+
+# (b) the user-pattern rewrite, which escapes markup so `\<^sub>`'s `^` is not
+#     read as a start-of-string anchor.  It asks the LEXICAL question, so it
+#     must still recognise a symbol the name grammar rejects.
+expect "and a subscripted name is still findable by its own spelling" 0 \
+  "split\\<^sub>i_tree (DEF) — Glued [src 11..12, body 11..11, 1/2 lines]" "" \
+  find 'split\<^sub>i' --names
+
+# (c) `shape`'s proposition-token counter.  Line 19 is
+#     `using \<open>True\<close> lipschitzI_on_def by simp`: FIVE tokens --
+#     `using`, the cartouche as one run, the fact name, `by`, `simp`.  Under
+#     the name atom the cartouche shatters into its delimiters' characters and
+#     the count roughly doubles, which is a metric moving for a reason that has
+#     nothing to do with the proof.
+pt=$(isabelle query -R "$ROOT_DIR" shape summary --json 2>"$OUT/e.txt" |
+       sed -n 's/.*"lemma": "runs".*"proof_tokens": \([0-9]*\),.*/\1/p')
+if [ "$pt" = "5" ]; then
+  note "a cartouche is ONE proposition token, not its characters" "proof_tokens 5"
+else
+  bad "a cartouche is ONE proposition token, not its characters" \
+    "proof_tokens [$pt], wanted 5"
+fi
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #

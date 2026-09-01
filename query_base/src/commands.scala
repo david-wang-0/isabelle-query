@@ -407,7 +407,11 @@ object Commands {
   /* user patterns                                                      */
   /* ------------------------------------------------------------------ */
 
-  private val PAT_MARKUP_RE: Pattern = Py.compile(Entries.ISA_MARKUP)
+  /* `ISA_SYMBOL`, not the name atom: this asks the LEXICAL question — is this
+     an Isabelle symbol token, whose `^` must be protected from being read as
+     an anchor? — and the answer is yes for `\<open>` and `\<^marker>` as much
+     as for `\<^sub>`.  A user may legitimately grep for either. */
+  private val PAT_MARKUP_RE: Pattern = Py.compile(Entries.ISA_SYMBOL)
 
   /* Make a user-typed pattern mean what the user meant.  Both rewrites exist
      because a pattern that quietly matches nothing is worse than one that

@@ -211,8 +211,12 @@ object Usage_Graph {
      A name occurring there is a constant or statement text — a real use even
      when the name also happens to be a proof method. */
   private val PROP_TEXT_RE: Pattern = Py.compile("""\"([^\"]*)\"|\\<open>(.*?)\\<close>""")
+  /* `ISA_SYMBOL`, not the name atom: this is a RUN scanner over source the
+     region scan has already redacted, so it asks only where a token ends.
+     Narrowing it to name-legal symbols would split `\<open>foo` into two runs
+     and offer `open` as a candidate fact name. */
   private val FACT_TOK_RE: Pattern =
-    Py.compile(s"""\\.\\.|${Entries.ISA_WORD_CHAR}(?:${Entries.ISA_MARKUP}|[\\w'.])*|[():,|\\[\\]]|:""")
+    Py.compile(s"""\\.\\.|${Entries.ISA_WORD_CHAR}(?:${Entries.ISA_SYMBOL}|[\\w'.])*|[():,|\\[\\]]|:""")
   private val STRUCTURAL: Set[String] =
     Set("(", ")", "[", "]", "|", ",", ":", "..")
 
