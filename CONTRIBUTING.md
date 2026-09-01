@@ -84,6 +84,23 @@ exited 0, and a shell path-expansion bug turned that into a run of plausible
 zero-record censuses. A root that cannot be read reports on stderr and exits
 `2`, a code deliberately distinct from `1`.
 
+The same rule one level down: **an unresolvable SUBJECT goes through
+`commands._fail_subject`** — stderr, stdout untouched, exit `1`. Distinguish
+the two empties before choosing, because they look identical at the call site:
+
+| | example | answer |
+|---|---|---|
+| the search found nothing | `find zzz -c`, `callers zzz -c` | `0` on stdout, exit `0` |
+| the subject does not exist | `callees zzz`, `refs zzz`, `theory zzz` | stderr, exit `1` |
+
+`callers` is in the first row and that is not an inconsistency: it SCANS source
+for a token, so zero mentions is truthful whether or not the name is declared,
+while `callees` needs the entry to exist before it can have callees. Different
+questions, different empties. `scripts/probe_count_modes.py` checks the whole
+family at once — add a verb there when you add one here. *(Scala: the port
+still prints the diagnostic on stdout and exits `0`; the `fail_subject` helper
+and the zero-count modes land in P9 S1, see `dev/P9-PLAN.md`.)*
+
 **A user-typed pattern goes through `commands._user_pattern`, never straight to
 `re.compile`.** This is the same rule one level down: a pattern that cannot
 match is a silent zero the caller has no reason to doubt. Two rewrites live
@@ -152,6 +169,41 @@ literal, because the failure mode is a *new* message, not an old one.
 
 `_prog` is a leaf module — it imports nothing from the package — precisely so
 that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
+
+**A printed `theory:line` goes through one label helper, and a printed
+`file:line` through another.** Emitting a section's bare theory name is the
+obvious thing and it is ambiguous over a corpus: 461 AFP theory names name more
+than one theory, so the locus a verb hands you may not paste back to the theory
+it came from. Scope the label to the whole loaded corpus, never to the rows
+being shown — `largest` labels against every section it loaded, not against the
+`-N` rows it prints. *(Scala: `Render.theory_labels` / `locus_labels` /
+`file_locus` land in P9 S4, see `dev/P9-PLAN.md`; until then the port prints
+bare stems.)*
+
+The corollary is the sharper half, and it is not about labels: **a theory NAME
+is never a section's identity — key by the section's PATH and pass the section
+itself.** A name is unique in a session and not in a corpus, so any
+name-keyed map written by one loop over the sections and read back by another
+silently hands 758 of the AFP's 9,910 sections another file's data. In the
+reference tree that was four instances — the line index (line → owning entry),
+the prose mask (live vs comment), the declaration sites, and `callers`
+re-deriving its hit's section — all now keyed by path. The two suppressing
+indexes are the worst, because a dropped citation leaves nothing to notice:
+over the AFP the collapse gave 381,710 lines a different owner, classified
+38,068 the wrong side of prose-vs-live, and moved 48,177 citation edges onto
+the wrong entry while hiding 43,912 real ones. *(Scala: the same four sites
+are name-keyed here; they move to `sec.path` in P9 S3.)*
+
+The fifth instance, the import closure, is a genuine graph node rather than a
+per-section lookup, so it took a different answer: not a better tiebreak among
+same-named candidates but the **union** of their edges. That follows from what
+the filter is. A visibility closure is a *necessary* condition and may only
+DROP, so a closure that is too large is merely weak while one that is too small
+deletes real citations — and between two approximations, the permissive one is
+the only safe one. The same reasoning decides how an `imports` token is
+matched: **by its last path segment**, which is Isabelle's own rule
+(`Thy_Header.import_name`), because a token the resolver cannot map is not a
+missing feature but a hole, and a hole prunes `[import-leaf]`.
 
 ## Verification — the Scala tree
 

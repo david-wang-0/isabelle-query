@@ -212,9 +212,19 @@ def active_t_dir() -> Path:
 # failure destroyed.
 _EXIT_BAD_ROOT = 2
 
-# Exit status when a downstream reader closes the pipe (`census | head`).  128 +
-# SIGPIPE(13) is what a shell reports for a process killed by SIGPIPE, so
-# pipelines and `$?` checks read the same as they do for `yes | head`.
+# Exit status when a downstream WRITE FAILS because the reader closed the pipe
+# (`census | head` over a corpus).  128 + SIGPIPE(13) is what a shell reports
+# for a process killed by SIGPIPE, so pipelines and `$?` checks read the same as
+# they do for `yes | head`.
+#
+# Note what this is NOT: a promise that every `| head` exits 141.  When the
+# whole answer fits the 64K pipe buffer no write ever fails, the command
+# finishes normally, and the status is 0 — which is correct, and is exactly what
+# `seq 10 | head -3` does while `seq 200000 | head -3` dies of SIGPIPE.  The
+# producer wrote everything; the reader chose to stop.  Forcing 141 there would
+# report failure for a run that succeeded.  Measured over five AFP corpora
+# straddling the buffer, 5 runs each, deterministic either side
+# (`scripts/probe_closed_stdout.py`) [closed-stdout].
 _EXIT_SIGPIPE = 141
 
 
@@ -320,6 +330,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
                        for n in arg.split(",") if n.strip())
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
+    f.reach = getattr(ns, "reach", "closure")
     return f
 
 
@@ -691,6 +702,19 @@ def _add_context_flag(p: argparse.ArgumentParser, *, default: int = 2,
     help_text = help_text or f"lines of preview / context (default {default})"
     p.add_argument("-U", "--context", type=int, default=default, metavar="N",
                    help=help_text)
+
+def _add_reach_flag(p: argparse.ArgumentParser) -> None:
+    # Scope citation attribution by what a theory can SEE.  A cited token is
+    # resolved by NAME, and over one session that is right — everything there
+    # sees everything the session declares.  Over a corpus it is not: the AFP
+    # has two dozen lemmas spelled `mono`, and a site whose closure declares
+    # none of them was reported as a caller of all of them.
+    p.add_argument("--reach", choices=graph.REACH_MODES, default="closure",
+                   help="attribute a citation only to declarations the citing "
+                        "theory can see — itself or its transitive in-project "
+                        "imports (default 'closure'); 'name' matches by name "
+                        "alone, as before")
+
 
 def _add_drop_names_flag(p: argparse.ArgumentParser) -> None:
     # Filter short citation names out of the call graph: a length-1 token
@@ -1141,6 +1165,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--format", "-f", default="json", choices=["json", "dot"],
                    help="json (default) or dot")
     _add_drop_names_flag(p)
+    _add_reach_flag(p)
     _add_theory_scope_flag(p)
     p.set_defaults(func=_run_graph)
 
@@ -1159,6 +1184,7 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="exclude names this theory declares itself, leaving "
                         "only what it takes from elsewhere (same sense as "
                         "`callees --external`)")
+    _add_reach_flag(p)
     p.set_defaults(func=_run_refs)
 
     # outline
@@ -1275,6 +1301,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "own internal cross-references are noise).  Only "
                         "affects the non-recursive form; "
                         "transitive closure via -r ignores this flag.")
+    _add_reach_flag(p)
     p.set_defaults(func=_run_callers)
 
     # callees
@@ -1293,6 +1320,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "`callers --external`).  Only affects the "
                         "non-recursive form; transitive closure via -r "
                         "ignores this flag.")
+    _add_reach_flag(p)
     p.set_defaults(func=_run_callees)
 
     # grep
@@ -1358,6 +1386,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
     _add_drop_names_flag(p)
+    _add_reach_flag(p)
     p.set_defaults(func=_run_unused)
 
     # methods (alias: method) — proof-method usage; complement of the call

@@ -130,6 +130,9 @@ _SUMMARY_KEYS = {
     "introduce",
     "consume", "both", "ratio", "trivial_frac", "removable_w2_est_at_8",
     "method_kinds",
+    # Why each of the `n_bare` steps is bare; the three keys sum to `n_bare`,
+    # which is unchanged — a refinement, not a redefinition [bare-provenance].
+    "bare_kinds",
     "n_induct", "induct_terms_max", "induct_arbitrary_max", "induct_rule",
     "induct_recursion",
     "proof_lines", "proof_lines_code", "proof_tokens", "proof_tokens_code",

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from isabelle_query import graph
+from isabelle_query._prog import prog_name as _prog_name
 from isabelle_layout import parse_thy_imports
 from isabelle_query.model import (
     CallGraph,
@@ -32,7 +33,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
 )
-from isabelle_query.parsing import ISA_MARKUP, _isa_word_pattern
+from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern
 from isabelle_query.graph import (
     _bfs_depths,
     _build_call_graph,
@@ -40,8 +41,11 @@ from isabelle_query.graph import (
     _build_line_index,
     _entry_at_line,
     _entry_by_name,
+    _import_depths,
+    _leaf_index,
     _noise_ranges,
     _noise_spans,
+    _resolve_import,
     _scan_methods,
     _sections_by_theory,
     _shadowed_uses_on_line,
@@ -55,8 +59,37 @@ from isabelle_query.render import (
     _statement_text,
     _strip_text_wrapper,
     _truncate_preview,
+    file_locus,
+    locus_labels,
     render_entry,
 )
+
+
+# Exit status for a request that could not be resolved — an unknown theory or
+# entry name.  Distinct from 0 (the command ran and the answer is genuinely
+# empty) and from `cli._EXIT_BAD_ROOT` 2 (the corpus itself could not be read),
+# because those are the distinctions a caller has to make.  Documented in
+# `README.md`'s exit-status table.
+EXIT_UNRESOLVED = 1
+
+
+def _fail_subject(what: str) -> None:
+    """Report an unresolvable SUBJECT on stderr and exit non-zero.
+
+    `_fail_root`'s rule one level down [unresolved-subject].  "No callees of
+    zzz" and "there is no zzz" are different answers, and a caller cannot act
+    on the difference if both arrive on stdout with status 0 — `$(query callees
+    X -c)` captured a sentence where it expected a number, and `$?` said the
+    run succeeded.  Same family as the silent-zero root: an empty success for a
+    question that was never asked.
+
+    Note the two kinds of empty this keeps apart.  `find zzz -c` prints `0`,
+    because searching for something absent is a real search with a real answer;
+    `callees zzz` cannot begin, because there is no entry to have callees.  The
+    verbs disagree because the questions do, not because they are inconsistent.
+    """
+    print(f"{_prog_name()}: {what}", file=sys.stderr)
+    sys.exit(EXIT_UNRESOLVED)
 
 
 def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
@@ -201,6 +234,16 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         name (exact, then case-insensitive).  This is the convenience
         spelling: the name is looked up among the sections already
         discovered through ``isabelle_layout``'s ROOT-walking routines.
+
+    The two forms are tried in that order rather than chosen between, because
+    a discovered theory NAME may itself contain a separator: a ROOT can
+    address a theory in a subdirectory by path (``theories "LK/Propositional"``
+    — the grammar has no per-theory ``in`` clause), and discovery carries it
+    under that spelling.  Branching on ``"/"`` alone made such a name
+    unresolvable, so ``summary`` printed a row, ``theory``'s "Known theories"
+    listed it, and passing it back gave "not found" — the tool disagreeing
+    with its own output, and a hole in the round-trip the locus grammar rests
+    on.
     """
     if name.endswith(".thy") or "/" in name:
         try:
@@ -211,6 +254,31 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
             for s in sections:
                 if s.path.resolve() == target:
                     return s
+        # Before the stem fallback: the whole argument may be a path-spelled
+        # theory NAME.  Exact-first matters — with a `Propositional` section
+        # also present, the stem would otherwise capture `LK/Propositional`.
+        for s in sections:
+            if s.theory == name:
+                return s
+        # A LABEL, as `render.theory_labels` emits: the shortest directory
+        # qualification that names one theory, matched here as a suffix — the
+        # exact inverse of how it was built [disambig-names].  Without this the
+        # emitter's half is worse than useless: nineteen AFP theories are
+        # called `Examples`, and `beta/Examples` would fall to the stem
+        # fallback and resolve to `alpha/Examples`, silently and confidently.
+        # A label that looks paste-able and lands on a DIFFERENT theory is a
+        # worse answer than a bare ambiguous name, which at least reads as
+        # ambiguous.  Only a unique hit counts; anything else falls through.
+        # Matched against the directory chain plus the declared theory NAME —
+        # the exact tuple `render.theory_labels` builds the label out of, so
+        # the two cannot drift.  (On disk the name is the stem, since Isabelle
+        # requires it; a buffer-parsed section is where they part company.)
+        want = tuple(Path(name).with_suffix("").parts)
+        hits = [s for s in sections
+                if (s.path.resolve().parent.parts
+                    + (s.theory,))[-len(want):] == want]
+        if len(hits) == 1:
+            return hits[0]
         # Path that doesn't match a known section: fall back to its
         # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
         stem = Path(name).stem
@@ -265,7 +333,8 @@ def cmd_theory(sections: list[TheorySection], name: str,
                flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, name)
     if sec is None:
-        print(f"Theory '{name}' not found.  Known theories:")
+        _fail_subject(f"no theory '{name}'.  Known theories:\n  "
+                      + "\n  ".join(sorted(s.theory for s in sections)))
         for s in sorted(sections, key=lambda x: x.theory):
             print(f"  {s.theory}")
         return
@@ -302,7 +371,11 @@ def cmd_theory(sections: list[TheorySection], name: str,
     print("```")
 
 
-_PAT_MARKUP_RE = re.compile(ISA_MARKUP)
+# `ISA_SYMBOL`, not `ISA_MARKUP`: this asks the LEXICAL question — is this an
+# Isabelle symbol token? — and must answer yes for the structural symbols the
+# name grammar refuses.  A user pasting `\<open>` into a pattern means the
+# literal characters just as much as one pasting `\<^sub>`.
+_PAT_MARKUP_RE = re.compile(ISA_SYMBOL)
 
 
 def _user_pattern(pattern: str) -> str:
@@ -519,7 +592,7 @@ def cmd_defs(sections: list[TheorySection], theory: str,
              flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, theory)
     if sec is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
     matches = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
     if not matches:
@@ -535,67 +608,6 @@ def cmd_defs(sections: list[TheorySection], theory: str,
     for e in matches:
         print(render_entry(sec, e))
         print()
-
-
-def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection]) -> str | None:
-    """Map a raw ``imports``-clause token to the bare in-project theory it
-    denotes, or ``None`` if it is external.
-
-    `parse_thy_imports` returns tokens verbatim, but the section index
-    (`sec_by_name`) is keyed by **bare** theory name.  Same-session imports
-    are written bare (``Substrate``) and match directly; cross-session
-    imports are session-qualified (``Proj_Base.Substrate``) and resolve by
-    their tail after the last ``.``.  A genuinely external import
-    (``HOL-Library.FuncSet``) names no in-project theory by either spelling,
-    so it stays ``None`` and the caller keeps the *raw* token for the
-    ``[out-of-project]`` line.
-
-    Tail-matching is correct for every realistic tree: an external leaf-name
-    (``FuncSet``, ``List``) does not collide with a project theory name.  The
-    one case it cannot distinguish — an external ``Sess.Foo`` whose tail
-    equals an in-project ``Foo`` and whose ``Sess`` is *not* an in-project
-    session — is a name collision, the province of `[disambig-names]`; if it
-    ever arises, gate the tail-match on the qualifier naming a known session
-    (`SessionInfo.name`)."""
-    if imp in sec_by_name:
-        return imp
-    if "." in imp:
-        tail = imp.rsplit(".", 1)[1]
-        if tail in sec_by_name:
-            return tail
-    return None
-
-
-def _import_depths(start: str, by_theory: dict[str, TheorySection],
-                   out_of_project: set[str] | None = None) -> dict[str, int]:
-    """``{theory: depth}`` over the in-project imports graph from `start`.
-
-    Depth 0 is a *direct* import, 1 an import of an import, and so on; `start`
-    itself is excluded.  When `out_of_project` is given, every import that does
-    not resolve to a loaded theory (``HOL-Library.*``, another entry) is
-    collected into it rather than walked.
-
-    Shared by ``deps -r``, which reports the closure, and ``refs``, which uses
-    it to decide which of several declarations of a name the citing theory can
-    actually see.
-    """
-    def imports_of(name: str) -> list[str]:
-        sec = by_theory.get(name)
-        if sec is None:
-            return []
-        children: list[str] = []
-        for imp in parse_thy_imports(sec.path):
-            child = _resolve_import(imp, by_theory)
-            if child is None:
-                if out_of_project is not None:
-                    out_of_project.add(imp)
-            else:
-                children.append(child)
-        return children
-
-    depths = _bfs_depths(imports_of, [start], seed_depth=-1)
-    depths.pop(start, None)
-    return depths
 
 
 def cmd_deps(sections: list[TheorySection], theory: str,
@@ -614,7 +626,7 @@ def cmd_deps(sections: list[TheorySection], theory: str,
     semantics of the entry-level pair."""
     target = _resolve_theory(sections, theory)
     if target is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
     by_theory = _sections_by_theory(sections)
@@ -633,9 +645,10 @@ def cmd_deps(sections: list[TheorySection], theory: str,
         # import the child.  The reverse direction needs the whole graph
         # regardless of depth, so the full scan here is unavoidable.
         rev: dict[str, list[str]] = {s.theory: [] for s in sections}
+        by_leaf = _leaf_index(by_theory)
         for s in sections:
             for imp in parse_thy_imports(s.path):
-                resolved = _resolve_import(imp, by_theory)
+                resolved = _resolve_import(imp, by_theory, by_leaf)
                 if resolved is not None:
                     rev[resolved].append(s.theory)
         if recursive:
@@ -712,10 +725,11 @@ def cmd_refs(sections: list[TheorySection], theory: str,
     """
     target = _resolve_theory(sections, theory)
     if target is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
-    graph_ = _build_call_graph(sections, flags.drop_names_upto)
+    graph_ = _build_call_graph(sections, flags.drop_names_upto,
+                               reach=flags.reach)
     by_theory = _sections_by_theory(sections)
     own = target.theory
     closure = _import_depths(own, by_theory)
@@ -807,7 +821,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
                 flags: "CmdFlags") -> None:
     sec = _resolve_theory(sections, theory)
     if sec is None:
-        print(f"Theory '{theory}' not found.")
+        _fail_subject(f"no theory '{theory}'")
         return
 
     items: list[tuple[int, str, object]] = []
@@ -849,12 +863,23 @@ def cmd_outline(sections: list[TheorySection], theory: str,
 
 
 def _find_callers(sections: list[TheorySection], name: str,
-                   external: bool = False,
-                   ) -> list[tuple[str, int, str]]:
+                   external: bool = False, reach: str = "closure",
+                   ) -> list[tuple[TheorySection, int, str]]:
     """Find proof-body usages of *name* across all .thy files.
 
-    Returns a list of (theory_name, line_no, line_text) triples, filtering
-    out:
+    Returns a list of (section, line_no, line_text) triples.  The SECTION, not
+    its theory name: the caller needs the hit's own source for the owner column
+    and the `-U` context lines, and re-deriving it from the name through the
+    last-wins `_sections_by_theory` index silently read both out of a DIFFERENT
+    FILE whenever two theories share a name — 9,239 of `callers assms`' 161,426
+    AFP rows print a line that does not occur in the section their owner column
+    came from.  A wrong attribution, not an ambiguous label [disambig-loci].
+    Filters out:
+      - Whole theories that cannot SEE any declaration of *name* — it is
+        declared elsewhere in the project and not in this theory's transitive
+        in-project `imports` closure, so the token here means something else
+        (`graph._Visibility`).  `reach="name"` restores name-only matching.
+        A name the project declares nowhere is not filtered at all.
       - The definition site itself (same theory, within the entry's span).
       - Lines inside ``text \\<open>...\\<close>`` blocks (prose, not proof).
       - Antiquotation-only mentions: ``@{text name}``, ``@{thm name}``,
@@ -878,27 +903,34 @@ def _find_callers(sections: list[TheorySection], name: str,
     antiq_re = re.compile(
         r'@\{(?:text|thm|term|const)\s+["\']?' + re.escape(name) + r'["\']?\}')
 
-    # Shared infrastructure: per-theory def-site ranges (for `name`) and
-    # text-block ranges (prose to skip).
+    # Shared infrastructure: per-section def-site ranges (for `name`) and
+    # text-block ranges (prose to skip).  Both keyed by path, so `--external`
+    # skips the FILES that declare `name` rather than every file that happens
+    # to share their theory name [name-is-not-identity].
     all_def_sites = _build_def_sites(sections, {name})
-    def_theories: set[str] = {th for th, m in all_def_sites.items() if m}
+    def_paths: set[Path] = {p for p, m in all_def_sites.items() if m}
     text_ranges = _noise_ranges(sections)
     # Read late: the namespace table is bound by the CLI after import.
     shadowed = name in _graph._NON_CITATION
+    vis = _graph._Visibility(sections, reach)
 
-    results: list[tuple[str, int, str]] = []
+    results: list[tuple[TheorySection, int, str]] = []
     for sec in sections:
         # External mode: skip every line in the defining theory(ies),
         # treating intra-theory cross-references as noise.
-        if external and sec.theory in def_theories:
+        if external and sec.path in def_paths:
+            continue
+        # Whole-theory visibility, tested once rather than per line: the
+        # question is about the theory, not the site.
+        if not vis.sees(sec.theory, name):
             continue
         # Decide on the redacted view, report the raw one: a mention inside a
         # comment / `\<^cancel>` / inline ML body is not a use even when live
         # proof text shares its line, but the hit we print is the user's line.
         lines = sec.live_source()
         raw = sec.source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_ranges = all_def_sites.get(sec.theory, {}).get(name, set())
+        t_ranges = text_ranges.get(sec.path, [])
+        d_ranges = all_def_sites.get(sec.path, {}).get(name, set())
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if not word_re.search(line):
@@ -916,7 +948,7 @@ def _find_callers(sections: list[TheorySection], name: str,
             # A name shared with a proof method earns its mention positionally.
             if shadowed and not _shadowed_uses_on_line(line, {name}):
                 continue
-            results.append((sec.theory, line_no, raw[line_no_0].rstrip()))
+            results.append((sec, line_no, raw[line_no_0].rstrip()))
     return results
 
 
@@ -1179,7 +1211,15 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
         when the proof is flat (then output is just the entry);
       * ``"blocks"`` — the full nesting path, entry then each block outer→inner;
       * ``"entry"`` — no drill-down, the owning entry alone (original output).
+
+    The echoed locus is the theory's LABEL, not the token the user typed: a
+    locus that came in as a path (`thys/Foo/Bar.thy:12`) goes back out in the
+    house `theory:line` form, and one that came in bare goes back out
+    qualified when the corpus holds two theories of that name.  Echoing the
+    input verbatim would be the easy answer and the wrong one — the point of
+    the echo is to say which theory the tool actually resolved to.
     """
+    labels = locus_labels(sections)
     for token in loci:
         parsed = _parse_locus(token)
         if parsed is None:
@@ -1199,10 +1239,11 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
         # `lo == hi` point-test stays on the *raw* hi (None never equals lo),
         # so `A..` is always a range, never mistaken for a single line.
         hi_eff = sec.thy_lines if hi is None else hi
-        loc = (f"{sec.theory}:{lo}" if lo == hi
-               else f"{sec.theory}:{lo}..{hi_eff}")
+        thy = labels.get(sec.path, sec.theory)
+        loc = (f"{thy}:{lo}" if lo == hi
+               else f"{thy}:{lo}..{hi_eff}")
         if lo > sec.thy_lines:
-            print(f"{loc} → (past end of {sec.theory} — "
+            print(f"{loc} → (past end of {thy} — "
                   f"{sec.thy_lines} lines)")
             continue
         if lo == hi:
@@ -1214,7 +1255,7 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             role = _locus_role(entry, lo)
             suffix = f"  ({role})" if role else ""
             target = _format_target(entry)
-            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            scope = f"{thy} ▸ {target}" if target else thy
             base = (f"{loc} → {entry.name} ({entry.tag}) — {scope} "
                     f"{_format_extent(entry)}")
             # Drill into the proof for the nearest/whole-path modes, but only
@@ -1247,7 +1288,7 @@ def cmd_enclosing(sections: list[TheorySection], loci: list[str],
             continue
         for e in overlap:
             target = _format_target(e)
-            scope = f"{sec.theory} ▸ {target}" if target else sec.theory
+            scope = f"{thy} ▸ {target}" if target else thy
             print(f"{loc} → {e.name} ({e.tag}) — {scope} "
                   f"{_format_extent(e)}")
 
@@ -1256,7 +1297,8 @@ def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
     if flags.recursive:
-        graph = _build_call_graph(sections, flags.drop_names_upto)
+        graph = _build_call_graph(sections, flags.drop_names_upto,
+                                  reach=flags.reach)
         if name not in graph.all_names:
             bound = _resolve_binding(sections, name)
             if bound is not None:
@@ -1266,42 +1308,43 @@ def cmd_callers(sections: list[TheorySection], name: str,
                       f"(entry) level.")
                 name = parent
             else:
-                print(f"'{name}' not found in the entry index.")
+                _fail_subject(f"'{name}' is not in the entry index")
                 return
         reachable = _bfs_depths(lambda n: graph.callers.get(n, set()), {name})
         reachable.pop(name, None)
         _render_graph_results(sections, reachable, "caller", name, flags)
         return
 
-    hits = _find_callers(sections, name, external=flags.external)
+    hits = _find_callers(sections, name, external=flags.external,
+                         reach=flags.reach)
     if flags.mode == "count":
         print(len(hits))
         return
     if not hits:
         print(f"No callers found for '{name}'.")
         return
-    # Build theory → section lookup once for enclosing-entry lookup and
-    # trailing-context line access.
-    by_theory = _sections_by_theory(sections)
     n_after = max(0, flags.context)
     # Align the match loci into a column; each is a clean `theory:line` that
-    # pastes into `enclosing` / `lines` / an editor (no trailing marker).
-    loc_w = max((len(f"{t}:{ln}") for t, ln, _ in hits), default=0)
+    # pastes into `enclosing` / `lines` / an editor (no trailing marker) — and
+    # is qualified far enough to name one theory, so what pastes back is the
+    # theory the row was found in [disambig-loci].
+    labels = locus_labels(sections)
+    loci = [f"{labels.get(s.path, s.theory)}:{ln}" for s, ln, _ in hits]
+    loc_w = max((len(loc) for loc in loci), default=0)
     print(f"{len(hits)} caller(s) of {name}:\n")
-    for theory, line_no, text in hits:
-        sec = by_theory.get(theory)
-        encl = _enclosing_entry(sec, line_no) if sec is not None else None
-        loc = f"{theory}:{line_no}"
+    for (sec, line_no, text), loc in zip(hits, loci):
+        encl = _enclosing_entry(sec, line_no)
         print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
-        if n_after > 0 and sec is not None:
+        if n_after > 0:
             src = sec.source()
             # 1-indexed line_no → 0-indexed slice start at line_no
             # (i.e., the line *after* the match).  Context keeps ripgrep's
             # `-` marker — it flags the line as context, not a match, and
             # `_parse_locus` strips it so the locus still round-trips.
+            label = loc.rsplit(":", 1)[0]
             for off, ctx in enumerate(src[line_no:line_no + n_after], start=1):
                 ctx_no = line_no + off
-                print(f"  {theory}:{ctx_no}-  {ctx.rstrip()}")
+                print(f"  {label}:{ctx_no}-  {ctx.rstrip()}")
 
 
 def cmd_callees(sections: list[TheorySection], name: str,
@@ -1309,7 +1352,8 @@ def cmd_callees(sections: list[TheorySection], name: str,
     """Entry-level forward edge: the entries this entry references in
     its proof body (its callees).  Pairs with `cmd_callers` (reverse).
     Not to be confused with the theory-level `deps` / `uses` pair."""
-    graph = _build_call_graph(sections, flags.drop_names_upto)
+    graph = _build_call_graph(sections, flags.drop_names_upto,
+                              reach=flags.reach)
     if name not in graph.all_names:
         bound = _resolve_binding(sections, name)
         if bound is not None:
@@ -1318,7 +1362,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
                   f"reporting {parent}'s callees (shared proof body).")
             name = parent
         else:
-            print(f"'{name}' not found in the entry index.")
+            _fail_subject(f"'{name}' is not in the entry index")
             return
 
     if flags.recursive:
@@ -1404,24 +1448,24 @@ def cmd_methods(sections: list[TheorySection], name: str | None,
     # because a mistyped name would otherwise get "No uses found", an empty
     # success for a question that was never asked.
     if name not in counts and name not in graph._PROOF_METHODS:
-        print(f"'{name}' is not used as a proof method here, and is not in the "
-              f"resolved proof-method namespace.  Try `methods` for the list of "
-              f"methods actually used.")
-        return
+        _fail_subject(f"'{name}' is not used as a proof method here, and is "
+                      f"not in the resolved proof-method namespace.  Try "
+                      f"`methods` for the list of methods actually used.")
     if flags.mode == "count":
         print(len(located))
         return
     if not located:
         print(f"No uses of method '{name}' found.")
         return
-    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in located), default=0)
+    labels = locus_labels(sections)
+    loci = [f"{labels.get(p, p.stem)}:{ln}" for p, ln, *_ in located]
+    loc_w = max((len(loc) for loc in loci), default=0)
     if flags.mode == "names":
-        for theory, ln, owner, _text in located:
-            print(f"  {f'{theory}:{ln}':<{loc_w}}  {_owner_field(owner)}")
+        for (_p, _ln, owner, _text), loc in zip(located, loci):
+            print(f"  {loc:<{loc_w}}  {_owner_field(owner)}")
         return
     print(f"{len(located)} use(s) of method '{name}':\n")
-    for theory, ln, owner, text in located:
-        loc = f"{theory}:{ln}"
+    for (_p, _ln, owner, text), loc in zip(located, loci):
         print(f"  {loc:<{loc_w}}  {_owner_field(owner)}  {text.strip()}")
 
 
@@ -1453,17 +1497,25 @@ def _compute_unused_recursive(graph: CallGraph,
     """
     keep = keep or set()
     unused: dict[str, int] = {n: 0 for n in _compute_unused(graph, keep)}
-    changed = True
     depth = 1
-    while changed:
-        changed = False
-        for name in graph.all_names - set(unused) - keep:
-            callers = graph.callers.get(name, set())
-            if callers and callers <= set(unused):
-                unused[name] = depth
-                changed = True
+    while True:
+        # LEVEL-SYNCHRONISED: every test in this pass is against the frontier
+        # as it stood BEFORE the pass.  Re-reading a set the loop body is
+        # growing gave a name whose only caller was marked earlier in the same
+        # pass its caller's depth instead of one more — so how far a chain
+        # collapsed depended on the order names came out of `all_names`, i.e.
+        # on the process's string hash seed.  Snapshotting also makes the
+        # result independent of visit order, which is what lets two runs of a
+        # build-hygiene check be diffed at all.
+        frontier = set(unused)
+        newly = [name for name in graph.all_names - frontier - keep
+                 if (callers := graph.callers.get(name, set()))
+                 and callers <= frontier]
+        if not newly:
+            return unused
+        for name in newly:
+            unused[name] = depth
         depth += 1
-    return unused
 
 
 def _compute_forest(graph: CallGraph,
@@ -1552,15 +1604,18 @@ def _compute_forest(graph: CallGraph,
 def _render_unused(entries: list[tuple[str, Entry, int]],
                    flags: 'CmdFlags', recursive: bool) -> None:
     """Shared rendering for unused and unused -r."""
-    if not entries:
-        print("No unused entries found.")
-        return
-
     label = "transitively unused" if recursive else "unused"
     total = len(entries)
 
+    # Before the empty guard [count-mode-zero]: a project with nothing unused
+    # has ZERO unused entries, and that is the answer a script wants — the one
+    # case it most wants to branch on, and the one that used to be a sentence.
     if flags.mode == "count":
         print(total)
+        return
+
+    if not entries:
+        print("No unused entries found.")
         return
 
     if flags.by_theory:
@@ -1637,7 +1692,8 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     # is a question about the DECLARATION: deleting `definition foo` breaks every
     # proof citing `foo_def`, so such a proof keeps `foo` alive.  Asking the
     # fact-level question here would report live definitions as dead.
-    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True)
+    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True,
+                              reach=flags.reach)
 
     keep = set(flags.keep)
     if keep:
@@ -1667,12 +1723,18 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
-                   ) -> list[tuple[str, int, str, "Entry | None", bool, bool]]:
+                   ) -> list[tuple[Path, int, str, "Entry | None", bool, bool]]:
     """Walk every section's source and return one tuple per line that
-    matches `pat`.  Each tuple is (loc_name, line_no, line_text,
-    owning_entry, is_live, is_thy), where loc_name is the file's real
-    name (e.g. `Foo.thy`, `notes.md`) so plain non-`.thy`
-    positionals report their actual filename rather than `<stem>.thy`.
+    matches `pat`.  Each tuple is (path, line_no, line_text,
+    owning_entry, is_live, is_thy).
+
+    The section's PATH, not a display name: these two verbs report a FILE, and
+    a bare file name is ambiguous over a corpus in exactly the way a bare
+    theory name is (nineteen AFP files are called `Examples.thy`).
+    `render.file_locus` turns the path into the printed locus — the label with
+    its suffix restored, so a non-`.thy` positional still reports its actual
+    filename rather than `<stem>.thy` [disambig-loci].
+
     `is_thy` is False for non-`.thy` positionals (Markdown / prose),
     which have no Isabelle entries and hence no owning-entry column —
     `cmd_grep` shows the matched line text directly for those.
@@ -1695,7 +1757,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
         lines = sec.source()
         live_lines = sec.live_source()
         noise = [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
-        idx = line_index.get(sec.theory, [])
+        idx = line_index.get(sec.path, [])
         # Resolve the line window once: no window → the whole file; an open
         # upper bound (`PATH:A..`) → this section's last line (the sink the
         # range parser defers a `None` upper to).  With no window the bounds
@@ -1719,7 +1781,7 @@ def _grep_sections(sections: list[TheorySection], pat: re.Pattern
             is_live = (not any(line_no in r for r in noise)
                        and bool(pat.search(live_lines[line_no_0])))
             owner = _entry_at_line(idx, line_no)
-            out.append((sec.path.name, line_no, line.rstrip(), owner,
+            out.append((sec.path, line_no, line.rstrip(), owner,
                         is_live, sec.is_thy))
     return out
 
@@ -1763,13 +1825,15 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
     else:
         print(f"{len(live_hits)} live match(es) for '{pattern}':\n")
 
+    labels = locus_labels(sections)
+    loci = [f"{file_locus(labels, p)}:{ln}" for p, ln, *_ in hits]
+    loc_w = max((len(loc) for loc in loci), default=0)
+
     if flags.mode == "names":
         # Compact: location + owning entry, no source line.  For a
         # non-`.thy` positional there is no owning entry, so names mode
         # would be content-free — fall back to the matched line text.
-        loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-        for loc_name, ln, text, owner, is_live, is_thy in hits:
-            loc = f"{loc_name}:{ln}"
+        for (_p, _ln, text, owner, is_live, is_thy), loc in zip(hits, loci):
             marker = "" if is_live else "  [in comment/text]"
             if not is_thy:
                 print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
@@ -1779,9 +1843,7 @@ def cmd_grep(sections: list[TheorySection], pattern: str,
 
     # Default: location + owning entry + matched line text.  Non-`.thy`
     # positionals have no entry column — show the line inline on one row.
-    loc_w = max((len(f"{t}:{ln}") for t, ln, *_ in hits), default=0)
-    for loc_name, ln, text, owner, is_live, is_thy in hits:
-        loc = f"{loc_name}:{ln}"
+    for (_p, _ln, text, owner, is_live, is_thy), loc in zip(hits, loci):
         marker = "" if is_live else "  [in comment/text]"
         if not is_thy:
             print(f"  {loc:<{loc_w}}  {text.strip()}{marker}")
@@ -1811,9 +1873,11 @@ def cmd_sorry(sections: list[TheorySection], count_only: bool) -> None:
     if not hits:
         print("No sorries.")
         return
-    loc_w = max(len(f"{loc}:{ln}") for loc, ln, *_ in hits)
-    for loc_name, ln, _text, owner, _live, _is_thy in hits:
-        print(f"  {f'{loc_name}:{ln}':<{loc_w}}  {_owner_field(owner, span=False)}")
+    labels = locus_labels(sections)
+    loci = [f"{file_locus(labels, p)}:{ln}" for p, ln, *_ in hits]
+    loc_w = max(len(loc) for loc in loci)
+    for (_p, _ln, _text, owner, _live, _is_thy), loc in zip(hits, loci):
+        print(f"  {loc:<{loc_w}}  {_owner_field(owner, span=False)}")
     print(f"{len(hits)} sorr{'y' if len(hits) == 1 else 'ies'}")
 
 
@@ -1920,11 +1984,23 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
         print("No entries found.")
         return
 
-    print(f"Top {min(top, len(rows))} largest entries:\n")
+    # Qualified against the LOADED CORPUS, not against the rows on screen
+    # [disambig-names].  Scoping to the shown rows is the tempting reading and
+    # it breaks the round-trip: whether `Examples:11` names one theory is a
+    # fact about the corpus — nineteen AFP theories are called `Examples` — not
+    # about which of them a `-N 8` happened to print.  A label that is unique
+    # on screen and ambiguous on paste is worse than no label.
+    #
+    # A single-session run still shows bare `Bla`, because the qualification is
+    # driven by actual collisions and a session has none.
+    shown = rows[:top]
+    labels = locus_labels(sections)
+    print(f"Top {len(shown)} largest entries:\n")
     print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
-    for size, e, s in rows[:top]:
-        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {s.theory}  ({e.src_start}..{e.thy_end})")
+    for size, e, s in shown:
+        theory = labels.get(s.path, s.theory)
+        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {theory}  ({e.src_start}..{e.thy_end})")
 
 
 # --- machine-readable graph export [graph-export] --------------------------
@@ -1951,7 +2027,7 @@ def _dot_quote(s: str) -> str:
 def _citation_graph_data(sections: list[TheorySection],
                          flags: "CmdFlags") -> dict:
     """Nodes = indexed entries; edges = caller -> callee."""
-    g = _build_call_graph(sections, flags.drop_names_upto)
+    g = _build_call_graph(sections, flags.drop_names_upto, reach=flags.reach)
     by_name = _entry_by_name(sections)
     nodes = [{"name": n, "theory": by_name[n][0], "tag": by_name[n][1].tag,
               "line": by_name[n][1].thy_line}
@@ -1979,9 +2055,10 @@ def _import_graph_data(sections: list[TheorySection]) -> dict:
              for s in sorted(sections, key=lambda s: s.theory)]
     edges: list[tuple[str, str]] = []
     external: set[str] = set()
+    by_leaf = _leaf_index(by_theory)
     for sec in sections:
         for imp in parse_thy_imports(sec.path):
-            resolved = _resolve_import(imp, by_theory)
+            resolved = _resolve_import(imp, by_theory, by_leaf)
             if resolved is None:
                 external.add(imp)
                 edges.append((sec.theory, imp))

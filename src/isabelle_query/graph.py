@@ -13,10 +13,14 @@ index rather than a text question over source:
 * the proof-method census (``_scan_methods``), the router's complement — the
   tokens ``_is_citation_name`` rejects as fact edges are the method uses it
   tallies;
+* the in-project ``imports`` closure (``_resolve_import`` /
+  ``_import_depths``), which is what "can this theory SEE that declaration"
+  is asked of;
 * the one breadth-first walk behind every ``-r`` form (``_bfs_depths``).
 
-Depends only on ``model``, ``parsing`` (for the ``_line_mask`` primitive), and
-the Isabelle namespace tables — never on rendering or the CLI.
+Depends on ``model``, ``parsing`` (for the ``_line_mask`` primitive), the
+Isabelle namespace tables, and ``isabelle_layout``'s ``parse_thy_imports`` —
+never on rendering or the CLI.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from bisect import bisect_right
 from collections import Counter
 from collections.abc import Callable, Iterable
 from operator import itemgetter
+from pathlib import Path
 
 from isabelle_query import _census_namespace as _census_ns
 from isabelle_query import _isabelle_namespace as _isa_ns
@@ -36,21 +41,35 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
 )
-from isabelle_query.parsing import ISA_MARKUP, ISA_WORD_CHAR, _line_mask
+from isabelle_layout import parse_thy_imports
+from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
 
 
 def _build_line_index(sections: list[TheorySection]
-                      ) -> dict[str, list[tuple[int, int, Entry]]]:
+                      ) -> dict[Path, list[tuple[int, int, Entry]]]:
     """For each theory, build a sorted list of (src_start, thy_end, Entry)
     for binary-search lookup of which entry owns a given line.  The span
     starts at ``src_start`` (the leading preamble, if any) so a doc line
-    resolves to the entry it documents, not the preceding one."""
-    index: dict[str, list[tuple[int, int, Entry]]] = {}
+    resolves to the entry it documents, not the preceding one.
+
+    Keyed by the section's PATH [name-is-not-identity].  A theory name is not
+    an identity over a corpus — 461 AFP names are shared — and this map is
+    written by one loop over the sections and read back by another, so a
+    name key silently handed 758 sections another file's spans.  381,710 of
+    the 449,860 lines in those sections got a different owner that way.
+    """
+    index: dict[Path, list[tuple[int, int, Entry]]] = {}
     for sec in sections:
         spans = [(e.src_start, e.thy_end, e) for e in sec.entries
                  if e.thy_line > 0]
-        spans.sort()
-        index[sec.theory] = spans
+        # Sort on the two integers ONLY.  A bare `spans.sort()` compares the
+        # third component whenever the first two are equal, and `Entry` has no
+        # ordering — so one `axiomatization` declaring several names on a line
+        # (four such pairs in FOL/ex/Locale_Test/Locale_Test1) raised
+        # `TypeError` and killed every verb that builds this index.  The sort
+        # is stable, so equal spans keep source order.
+        spans.sort(key=lambda s: (s[0], s[1]))
+        index[sec.path] = spans
     return index
 
 
@@ -126,29 +145,37 @@ def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
             + [e.preamble for e in sec.entries if e.preamble])
 
 
-def _noise_ranges(sections: list[TheorySection]) -> dict[str, list[range]]:
-    r"""Per-theory ``range`` objects for the non-live (prose) line spans —
+def _noise_ranges(sections: list[TheorySection]) -> dict[Path, list[range]]:
+    r"""Per-section ``range`` objects for the non-live (prose) line spans —
     each section's :func:`_noise_spans` as ``range``s for membership tests.
     Used by single-name search (`_find_callers`) and bulk graph construction
     (`_build_call_graph`) — the oracle shares it — so both treat
     ``text``/``\<comment>``/preamble mentions as documentation, not calls.
+
+    Keyed by PATH, like the other two per-section indexes: this one decides
+    prose-vs-live, so a collapsed key does not merely misattribute a hit but
+    SUPPRESSES a real one and admits a fake one.  38,068 lines of the AFP were
+    classified the wrong way round [name-is-not-identity].
     """
-    return {sec.theory: [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
+    return {sec.path: [range(lo, hi + 1) for lo, hi in _noise_spans(sec)]
             for sec in sections}
 
 
 def _build_def_sites(sections: list[TheorySection],
                      names: set[str] | None = None,
-                     ) -> dict[str, dict[str, set[range]]]:
-    """Per-theory map of definition-site line ranges, keyed by entry name.
+                     ) -> dict[Path, dict[str, set[range]]]:
+    """Per-section map of definition-site line ranges, keyed by entry name.
 
     Used to exclude the definition itself from a search for references
     to that name.  When ``names`` is given, only those names are tracked;
     otherwise every entry with a source location is included.
 
-    Result shape: ``def_sites[theory][name] = {range(thy_line, thy_end+1), ...}``
+    Result shape: ``def_sites[path][name] = {range(thy_line, thy_end+1), ...}``
+    — by PATH, for the reason in :func:`_build_line_index`, and with the same
+    suppressing effect as :func:`_noise_ranges`: another file's def sites
+    exclude lines that are genuine citations here [name-is-not-identity].
     """
-    def_sites: dict[str, dict[str, set[range]]] = {}
+    def_sites: dict[Path, dict[str, set[range]]] = {}
     for sec in sections:
         site_map: dict[str, set[range]] = {}
         for e in sec.entries:
@@ -168,7 +195,7 @@ def _build_def_sites(sections: list[TheorySection],
                     if c in names:
                         site_map.setdefault(c, set()).add(
                             range(e.thy_line, e.thy_end + 1))
-        def_sites[sec.theory] = site_map
+        def_sites[sec.path] = site_map
     return def_sites
 
 
@@ -329,9 +356,271 @@ def _shadowed_uses_on_line(line: str, names: set[str],
     return used
 
 
+def _theory_leaf(name: str) -> str:
+    """The last path segment of a theory name or ``imports`` token — what
+    ``Thy_Header.import_name`` keeps.  ``"../BV/Altern"`` and ``"Altern"``
+    denote the same theory to Isabelle, and so must here [import-leaf]."""
+    return name.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _leaf_index(sec_by_name: dict[str, TheorySection]) -> dict[str, list[str]]:
+    """``{leaf: [theory names carrying a path]}``, for resolving an import
+    written bare against a theory a ROOT spelled with a directory.
+
+    Only names that are *not* already their own leaf go in, so this can never
+    shadow a plain name — an exact match is tried first and always wins.  It
+    stays small for that reason: 56 of `src/HOL`'s 1,451 theories.
+    """
+    idx: dict[str, list[str]] = {}
+    for name in sec_by_name:
+        leaf = _theory_leaf(name)
+        if leaf != name:
+            idx.setdefault(leaf, []).append(name)
+    return idx
+
+
+def _import_candidates(imp: str, sec_by_name: dict[str, TheorySection],
+                       by_leaf: dict[str, list[str]] | None = None
+                       ) -> list[str]:
+    """Every in-project theory an ``imports`` token could denote, most
+    specific spelling first; empty when the token is external.
+
+    `parse_thy_imports` returns tokens verbatim, but the section index
+    (`sec_by_name`) is keyed by theory name.  Four spellings reach a loaded
+    theory, tried in order:
+
+    * bare, matching directly (``Substrate``);
+    * session-qualified, by the tail after the last ``.``
+      (``Proj_Base.Substrate``);
+    * **path-spelled, by its leaf** — ``imports "../WFair"``
+      (HOL/UNITY/Simple/Token.thy:10), ``imports
+      "variants/a_norreqid/A_Aodv_Loop_Freedom"`` (AFP/AODV/All.thy);
+    * **bare against a path-spelled THEORY** — a ROOT that says
+      ``theories "Simple/Reach"`` gives the section that name, so a sibling's
+      ``imports Reach`` matches nothing without `by_leaf`.
+
+    The last two are the same rule seen from either end, and it is Isabelle's
+    (`Thy_Header.import_name` takes the last segment).  Without them the token
+    is classified external — cosmetic for ``deps``, but a HOLE in the
+    visibility closure, which may only DROP and so deletes every citation
+    across the edge in silence: 2,803 over `src/HOL` and 65,745 over the AFP
+    [import-leaf].
+
+    A genuinely external import (``HOL-Library.FuncSet``) names no in-project
+    theory by any of the four, so the list is empty and the caller keeps the
+    *raw* token for the ``[out-of-project]`` line.  The leaf rules add no new
+    way to mistake one for a local theory: they fire only when the token or a
+    loaded name contains ``/``, which an external session-qualified import
+    never does.
+
+    Several candidates are returned only for the last rule, where two ROOTs
+    spelled distinct theories with the same leaf.  Callers that must print one
+    dependency take :func:`_resolve_import`; the visibility closure takes them
+    all, because it may only drop and a union is the safe side.
+
+    `by_leaf` is :func:`_leaf_index` of the same map.  Pass it when resolving
+    in a loop — deriving it per call is a pass over every theory name.
+    """
+    if imp in sec_by_name:
+        return [imp]
+    if "." in imp:
+        tail = imp.rsplit(".", 1)[1]
+        if tail in sec_by_name:
+            return [tail]
+    leaf = _theory_leaf(imp)
+    if "." in leaf:
+        leaf = leaf.rsplit(".", 1)[1]
+    if leaf != imp and leaf in sec_by_name:
+        return [leaf]
+    if by_leaf is None:
+        by_leaf = _leaf_index(sec_by_name)
+    return sorted(by_leaf.get(leaf, ()))
+
+
+def _resolve_import(imp: str, sec_by_name: dict[str, TheorySection],
+                    by_leaf: dict[str, list[str]] | None = None) -> str | None:
+    """The one in-project theory an ``imports`` token denotes, or ``None``.
+
+    :func:`_import_candidates` narrowed to a single answer for the verbs that
+    print a dependency (``deps``, ``uses``, ``graph imports``), which need one
+    edge per import clause rather than a set.  Where the token is genuinely
+    ambiguous the first candidate in name order is taken, deterministically.
+    """
+    got = _import_candidates(imp, sec_by_name, by_leaf)
+    return got[0] if got else None
+
+
+def _import_depths(start: str, by_theory: dict[str, TheorySection],
+                   out_of_project: set[str] | None = None) -> dict[str, int]:
+    """``{theory: depth}`` over the in-project imports graph from `start`.
+
+    Depth 0 is a *direct* import, 1 an import of an import, and so on; `start`
+    itself is excluded.  When `out_of_project` is given, every import that does
+    not resolve to a loaded theory (``HOL-Library.*``, another entry) is
+    collected into it rather than walked.
+
+    Shared by ``deps -r``, which reports the closure, and ``refs``, which uses
+    it to decide which of several declarations of a name the citing theory can
+    actually see.  It lives here rather than in ``commands`` because that
+    second question is not a rendering concern: it is what the citation
+    attribution below has to ask, and a helper one layer up could not be asked
+    it [citation-reach].
+
+    Single-valued, like the ``deps`` output it feeds: where a name is declared
+    twice this walks the last-wins section, and where a leaf is ambiguous it
+    takes one candidate.  The *filter* cannot afford either narrowing and does
+    not make them — see :class:`_Visibility`.
+    """
+    by_leaf = _leaf_index(by_theory)
+
+    def imports_of(name: str) -> list[str]:
+        sec = by_theory.get(name)
+        if sec is None:
+            return []
+        children: list[str] = []
+        for imp in parse_thy_imports(sec.path):
+            child = _resolve_import(imp, by_theory, by_leaf)
+            if child is None:
+                if out_of_project is not None:
+                    out_of_project.add(imp)
+            else:
+                children.append(child)
+        return children
+
+    depths = _bfs_depths(imports_of, [start], seed_depth=-1)
+    depths.pop(start, None)
+    return depths
+
+
+# --- Visibility: can a site in theory T name a declaration in theory D? ----
+#
+# A NECESSARY condition, not a sufficient one, so it can only ever DROP an
+# attribution: `D == T`, or D is in T's transitive in-project `imports`
+# closure.  Within one session it filters nothing — everything there sees
+# everything the session declares — and over a corpus it is the difference
+# between "some theory somewhere spells this name" and "this proof could
+# possibly mean that lemma".
+REACH_MODES = ("closure", "name")
+
+
+class _Visibility:
+    r"""Which theories' declarations each theory can name, computed lazily.
+
+    One closure at a time, not all of them: over a whole corpus the closures
+    are large and overlapping, so materialising 9,600 of them costs far more
+    memory than the sections do — and every scan that needs this walks the
+    sections in order anyway, so a per-theory cache is used once and then
+    never again.  The `imports` ADJACENCY is memoised instead, which is the
+    part that costs I/O: `parse_thy_imports` re-reads a theory file on every
+    call, so without this a per-theory BFS would re-read the whole corpus once
+    per theory.
+
+    ``mode="name"`` disables the filter entirely (`sees` is always true) — the
+    compatibility switch, so a corpus-scale delta can be measured against the
+    numbers it replaces rather than merely asserted.
+
+    **An unreadable header means "unknown", never "imports nothing".**  The
+    rule is a necessary condition on visibility, so it may only drop an
+    attribution where it is confident; a theory whose `imports` clause cannot
+    be re-read (a section parsed from a buffer, the `-` stdin route, a path
+    that has since moved) has an unknown closure, and the honest answer is that
+    it sees everything.  Degrading the other way would delete real edges, which
+    is the failure this filter exists to avoid making.
+    """
+
+    def __init__(self, sections: list[TheorySection], mode: str = "closure"):
+        self.mode = mode
+        self.by_theory = _sections_by_theory(sections)
+        self._leaf = _leaf_index(self.by_theory)
+        # theory -> EVERY section of that name, not the last-wins one.  A
+        # name is unique in a session and not in a corpus (461 AFP names are
+        # shared by 1,219 theories), and this filter may only DROP, so the
+        # adjacency has to be the UNION: too large a closure is merely weak,
+        # while one section's imports standing for another's deletes real
+        # citations [visibility-by-name].
+        self._sections_of: dict[str, list[TheorySection]] = {}
+        for sec in sections:
+            self._sections_of.setdefault(sec.theory, []).append(sec)
+        self._closure: tuple[str, frozenset[str] | None] | None = None
+        # theory -> its in-project imports, read once; None = could not read.
+        self._imports: dict[str, list[str] | None] = {}
+        # name -> the theories declaring it.  A name declared NOWHERE is never
+        # filtered: `sees` is asked about tokens the caller already believes
+        # are citable, and inventing an answer for one the project does not
+        # declare would drop a real use.
+        self.declared_in: dict[str, set[str]] = {}
+        for sec in sections:
+            for e in sec.entries:
+                self.declared_in.setdefault(e.name, set()).add(sec.theory)
+
+    def _read_imports(self, theory: str) -> list[str] | None:
+        """The in-project imports of EVERY section of this name, unioned, or
+        None if any of them cannot be read.
+
+        Unknown wins over a partial union for the reason the class exists: a
+        union missing one section's imports is a closure that is too SMALL,
+        and a closure that is too small drops attributions.
+        """
+        if theory in self._imports:
+            return self._imports[theory]
+        secs = self._sections_of.get(theory, ())
+        got: list[str] | None
+        # The readability test has to happen HERE: `parse_thy_imports` returns
+        # `[]` for a file that does not exist, so through it "imports nothing"
+        # and "cannot be read" are the same answer — and they must not be, or a
+        # section parsed from a buffer would silently lose every cross-theory
+        # edge it has.
+        if not secs or any(not s.path.is_file() for s in secs):
+            got = None
+        else:
+            names: set[str] = set()
+            for sec in secs:
+                for imp in parse_thy_imports(sec.path):
+                    names.update(_import_candidates(imp, self.by_theory,
+                                                    self._leaf))
+            got = sorted(names)
+        self._imports[theory] = got
+        return got
+
+    def closure(self, theory: str) -> frozenset[str] | None:
+        """``{theory} | its transitive in-project imports``, or None if any
+        header on the walk could not be read — see the class docstring."""
+        if self._closure is not None and self._closure[0] == theory:
+            return self._closure[1]
+        unknown = False
+
+        def children(name: str) -> list[str]:
+            nonlocal unknown
+            got = self._read_imports(name)
+            if got is None:
+                unknown = True
+                return []
+            return got
+
+        depths = _bfs_depths(children, [theory], seed_depth=-1)
+        reach = None if unknown else frozenset(depths) | {theory}
+        self._closure = (theory, reach)
+        return reach
+
+    def sees(self, theory: str, name: str) -> bool:
+        """May a site in ``theory`` be naming the project's ``name``?"""
+        if self.mode != "closure":
+            return True
+        decl = self.declared_in.get(name)
+        if not decl:
+            return True                 # declared nowhere: nothing to scope to
+        if theory in decl:
+            return True                 # the fast path, and the common one
+        reach = self.closure(theory)
+        if reach is None:
+            return True                 # unknown closure: do not drop an edge
+        return not decl.isdisjoint(reach)
+
+
 def _build_call_graph(sections: list[TheorySection],
                       drop_upto: int = _DROP_NAMES_UPTO,
-                      derived: bool = False) -> CallGraph:
+                      derived: bool = False,
+                      reach: str = "closure") -> CallGraph:
     """Single-pass scan building a full name-level call graph.
 
     Uses the shared filtering helpers (`_noise_ranges`,
@@ -345,6 +634,12 @@ def _build_call_graph(sections: list[TheorySection],
     over FACTS and ``foo_def`` is a different fact from ``foo``; only
     :func:`commands.cmd_unused` turns it on, where the question is whether the
     DECLARATION is dead.  See the note there.
+
+    ``reach`` scopes attribution by VISIBILITY (:class:`_Visibility`): a
+    citation is attributed only to declarations the citing theory can actually
+    see.  ``"name"`` restores name-only matching.  The default is what the CLI
+    uses, deliberately — a library caller that got a different graph from the
+    one `query` prints would be the `trivial_frac` mistake again.
     """
     # 1. Collect candidate names.  A name too short to tell from a term
     #    variable, or a bare numeral, is not a citable fact, so the universal
@@ -407,7 +702,18 @@ def _build_call_graph(sections: list[TheorySection],
     #    double-quoted at the use site, so we also look up whole quoted
     #    spellings.  All three hashed into name_set are the linear-time
     #    equivalent of the per-name boundary search.
+    #
+    #    word_re is run over the SYMBOL-BLANKED line, not the raw one
+    #    [symbol-body-tokens].  A `\<...>` token's body is the symbol's own
+    #    name, never a fact's, but `[\w']+` reaches straight into it:
+    #    `\<lambda>` yields `lambda`, `\<le>` yields `le`, `\<^sub>` yields
+    #    `sub` — and the AFP declares 7 entries named `lambda`, 37 named `le`
+    #    and 27 named `sub`, so every `\<lambda>` in the corpus cited all
+    #    seven.  Blanking loses nothing the pass is for: `iso_transaction` in
+    #    `iso_transaction\<^sub>h` is still a maximal run, and the symbolic
+    #    spelling is sym_re's job.
     sym_re = re.compile(rf"{ISA_WORD_CHAR}+")
+    sym_token_re = re.compile(ISA_SYMBOL)
     word_re = re.compile(r"[\w']+")
     quoted_re = re.compile(r'"([^"]+)"')
 
@@ -425,8 +731,10 @@ def _build_call_graph(sections: list[TheorySection],
     antiq_sub = antiq_re.sub
     word_findall = word_re.findall
     sym_findall = sym_re.findall
+    sym_blank = sym_token_re.sub
     quoted_findall = quoted_re.findall
 
+    vis = _Visibility(sections, reach)
     for sec in sections:
         # The redacted view (`live_source`), not the raw source: a comment, an
         # `\<^cancel>` region or an inline ML body that SHARES its line with
@@ -435,9 +743,9 @@ def _build_call_graph(sections: list[TheorySection],
         # preserves every line and column, so the mask below and the 1-indexed
         # arithmetic still address the same characters.
         lines = sec.live_source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_map = def_sites.get(sec.theory, {})
-        idx = line_index.get(sec.theory, [])
+        t_ranges = text_ranges.get(sec.path, [])
+        d_map = def_sites.get(sec.path, {})
+        idx = line_index.get(sec.path, [])
         # Flatten the prose ranges into a 1-indexed line mask: a single O(1)
         # lookup per line replaces the old `any(line_no in r for r in t_ranges)`
         # rescan (~65M range tests at AFP scale).  Slice-assignment marks each
@@ -457,7 +765,11 @@ def _build_call_graph(sections: list[TheorySection],
             # findalls run on just those lines, not every line.  The union is
             # identical to scanning all three unconditionally (the oracle's
             # reference), but skips the provably-redundant passes.
-            words = word_findall(stripped)
+            # A `\<...>` token's body is the symbol's name, not a fact's, so
+            # the word pass reads the line with those tokens blanked.  Only
+            # lines that carry one pay the substitution.
+            words = word_findall(
+                sym_blank(" ", stripped) if "\\<" in stripped else stripped)
             cand = ns_inter(words)
             # `foo_def` resolves to `foo` (see derived_base).  Guarded on the map
             # being non-empty so the default path pays a truthiness test rather
@@ -497,6 +809,13 @@ def _build_call_graph(sections: list[TheorySection],
                 d_ranges = d_map.get(name)
                 if d_ranges and any(line_no in r for r in d_ranges):
                     continue
+                # Visibility, asked per CANDIDATE rather than per name in the
+                # index: `cand` holds the handful of names actually on this
+                # line, where `name_set` holds every name in the corpus.  The
+                # closure is cached for the theory being scanned, so the walk
+                # is paid once per theory and this is a set test.
+                if not vis.sees(sec.theory, name):
+                    continue
                 callers[name].add(caller_name)
                 callees.setdefault(caller_name, set()).add(name)
 
@@ -516,7 +835,7 @@ _METHOD_INTRO_RE = re.compile(r"\b(?:by|apply|proof)\b\s*\(?\s*([\w']+)")
 
 
 def _scan_methods(sections: list[TheorySection], only: str | None = None,
-                  ) -> tuple[Counter, list[tuple[str, int, "Entry | None", str]]]:
+                  ) -> tuple[Counter, list[tuple[Path, int, "Entry | None", str]]]:
     """Tally proof-method uses across live theory source.
 
     Returns ``(counts, located)``:
@@ -525,9 +844,12 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
       every ``by`` / ``apply`` / ``proof`` introducer on a *live* line (not a
       ``text \\<open>...\\<close>`` block, a ``\\<comment>`` annotation, or a
       per-entry preamble — so prose like "apply the rule" is not mined).
-    * ``located`` — ``[(theory, line_no, owning_entry, line_text)]`` for the
+    * ``located`` — ``[(path, line_no, owning_entry, line_text)]`` for the
       method named by ``only`` (empty when ``only`` is None), the method
-      analogue of :func:`_find_callers`.
+      analogue of :func:`_find_callers`.  The section's PATH rather than its
+      theory name, because 461 AFP theory names are shared and the printed
+      locus has to name one theory; `render.locus_labels` turns it into the
+      label, which is a layer this module sits below [disambig-loci].
 
     The tally is **positional**, not table-filtered: whatever sits in introducer
     position is the method, exactly as :func:`_leading_method` classifies a
@@ -541,7 +863,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
     line between them by position, with no table mediating the split.
     """
     counts: Counter = Counter()
-    located: list[tuple[str, int, Entry | None, str]] = []
+    located: list[tuple[Path, int, Entry | None, str]] = []
     line_index = _build_line_index(sections)
     intro_finditer = _METHOD_INTRO_RE.finditer
     for sec in sections:
@@ -556,7 +878,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
         # gives O(1) liveness per line, vs rescanning every noise range (the
         # same flattening the call-graph build uses).
         noise_mask = _line_mask(len(lines), _noise_spans(sec))
-        idx = line_index.get(sec.theory, [])
+        idx = line_index.get(sec.path, [])
         for line_no_0, line in enumerate(lines):
             line_no = line_no_0 + 1
             if noise_mask[line_no]:
@@ -573,7 +895,7 @@ def _scan_methods(sections: list[TheorySection], only: str | None = None,
                 if tok == only:
                     hit_only = True
             if hit_only:
-                located.append((sec.theory, line_no,
+                located.append((sec.path, line_no,
                                 _entry_at_line(idx, line_no),
                                 raw[line_no_0].rstrip()))
     return counts, located
@@ -722,8 +1044,12 @@ _CARTOUCHE_STRIP_RE = re.compile(r"\\<open>.*?\\<close>")
 _PROP_TEXT_RE = re.compile(r'"([^"]*)"|\\<open>(.*?)\\<close>')
 # Token stream for the fact walk: names (with internal dots for qualified
 # spellings), the `..` proof, and the structural chars that delimit method args.
+# `ISA_SYMBOL`, not the narrower name atom: this is a RUN scanner over source
+# the tokenizer has already redacted, so its job is to find where a token ends.
+# Narrowing it would split a stray `\<open>foo` and offer `open` as a candidate
+# fact — inventing an edge, which is the one thing this walk must not do.
 _FACT_TOK_RE = re.compile(
-    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_MARKUP}|[\w'.])*|[():,|\[\]]|:")
+    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_SYMBOL}|[\w'.])*|[():,|\[\]]|:")
 # Structural tokens that never name a fact.
 _STRUCTURAL = frozenset({"(", ")", "[", "]", "|", ",", ":", ".."})
 

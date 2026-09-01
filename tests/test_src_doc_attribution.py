@@ -109,7 +109,7 @@ class EnclosingAttribution(unittest.TestCase):
         # with the linear _enclosing_entry on the doc line.
         sec = _sec()
         fwd = _entry(sec, "fwd_loop_gen")
-        idx = cli._build_line_index([sec])["T"]
+        idx = cli._build_line_index([sec])[sec.path]
         owner = cli._entry_at_line(idx, fwd.preamble[0] + 1)
         self.assertEqual(owner.name, "fwd_loop_gen")
 

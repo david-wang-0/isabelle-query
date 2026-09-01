@@ -37,6 +37,19 @@ _MAX_DROP_FRACTION = 0.005
 _MAX_UNPARSED_FRACTION = 0.07
 # A leaked `(in locale)` modifier would appear verbatim at the start of a name.
 _LOCALE_LEAK_RE = re.compile(r"\(in\s")
+# Ceiling on entries whose recorded body runs PAST their own span
+# (`body_end_line > thy_end`), i.e. one declaration's body overlapping the
+# next.  `compute_spans` sets `thy_end` from the following entry's
+# `src_start`, so an overlap means a `show`/`enclosing`/relocation cut reaches
+# into a neighbour.
+#
+# Measured at 82 over the AFP.  It is a CEILING rather than an equality
+# because the residual is a real (small, unfixed) tail and the corpus moves;
+# the point is that it must not grow.  This is the check that rejected the
+# wider `[decl-body-comment]` fix, which repaired 5 truncated declarations and
+# took this number to 719 — a trade invisible to the entry-set diff, which
+# only reported "more records changed".
+_MAX_SPAN_OVERLAP = 120
 
 
 @unittest.skipUnless(CORPUS and os.path.isdir(CORPUS),
@@ -83,6 +96,26 @@ class Corpus(unittest.TestCase):
             frac, _MAX_UNPARSED_FRACTION,
             f"unparsed-name rate {frac:.2%} exceeds {_MAX_UNPARSED_FRACTION:.0%} "
             f"({unparsed:,}/{total:,})")
+
+    def test_bodies_stay_inside_their_own_spans(self):
+        # Full sections, not `_iter_entries`: that calls `extract_entries`
+        # alone, and `thy_end` is set later by `compute_spans`, so the
+        # comparison would be against 0 for every entry and pass vacuously.
+        over = []
+        for p in self.files:
+            try:
+                sec = cli._parse_one(Path(p).stem, Path(p))
+            except Exception:  # noqa: BLE001 — a corpus has unparseable files
+                continue
+            for e in sec.entries:
+                if e.thy_end and e.body_end_line > e.thy_end:
+                    over.append(f"{sec.theory}:{e.thy_line} {e.name} "
+                                f"body_end={e.body_end_line} > "
+                                f"thy_end={e.thy_end}")
+        self.assertLess(
+            len(over), _MAX_SPAN_OVERLAP,
+            f"{len(over)} entries whose body runs past their own span "
+            f"(ceiling {_MAX_SPAN_OVERLAP}); first few: {over[:5]}")
 
     def test_no_locale_prefix_leaks(self):
         # the `(in locale)` qualifier must never end up *in* the parsed name.

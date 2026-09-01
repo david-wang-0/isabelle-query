@@ -5,6 +5,7 @@ metadata:
   node_type: memory
   type: feedback
   originSessionId: bd12fa7c-6231-4fea-b046-588e4903c07e
+  modified: 2026-08-21T22:16:30.739Z
 ---
 
 When I need a temporary file — most often a multi-paragraph git commit
@@ -24,3 +25,13 @@ instinct as [[no-redundant-cd]].
 explicit paths (never `git add -A`, so the temp file can't sneak in), commit
 with `-F`, then `rm` it. Relates to the commit mechanics in
 [[small-frequent-commits]].
+
+**Scope — this is about files with no home, not files with one** (corrected
+2026-08-21). I had drifted into building release artifacts with
+`python -m build --outdir .scratch-build`, and the user pulled me up on it:
+`dist/` was right there, already gitignored, already holding the previous
+release. A commit message needs an ungated place to live because it has no
+canonical one; build output *does* — `dist/` is `build`'s default and what
+`twine upload dist/*` expects, so diverting it only adds friction. Before
+inventing a `.scratch-*` path, check whether the thing already has a
+conventional home. See [[release-versioning-policy]].

@@ -80,10 +80,13 @@ three-way split is ``introduce - both`` / ``consume - both`` / ``both``),
 ``trivial_frac`` (fraction of discharged steps closed by ``simp``/``auto``/…;
 ``null`` when nothing is discharged by a recognised method),
 ``removable_w2_est_at_8`` (**M6** fraction of stated width removable by naming
-≤8 repeated chunks per block), and ``method_kinds`` (the *automation axis*
+≤8 repeated chunks per block), ``method_kinds`` (the *automation axis*
 profile: a histogram of discharged steps by method kind — ``automation`` /
-``search`` / ``arith`` / ``structural`` / ``other`` — the one nested field, a
-finer grain than ``trivial_frac`` over the same discharged-step denominator).
+``search`` / ``arith`` / ``structural`` / ``other`` — a finer grain than
+``trivial_frac`` over the same discharged-step denominator), and ``bare_kinds``
+(why each of the ``n_bare`` steps states no proposition — ``construction`` /
+``undelimited`` / ``unfound``, summing to ``n_bare``, which is unchanged).
+Those two are the nested fields.
 This record is designed to be a *sufficient statistic* per proof — the analysis
 layer reads these scalars, never re-scans.
 """
@@ -104,6 +107,7 @@ from isabelle_query.commands import (
     _resolve_theory,
 )
 from isabelle_query.model import Entry, TheorySection
+from isabelle_query.render import locus_labels
 from isabelle_query.shape import CorpusConfig
 
 
@@ -255,37 +259,42 @@ def cmd_shape_steps(sections: list[TheorySection], span: str | None = None,
     ``--json`` streams one :func:`shape.step_record` per emitted step.  A corpus
     ``cfg`` adds the M3 ``frame_*`` columns to the JSON."""
     theory, lo, hi = _resolve_span(sections, span)
-    triples = []  # (step, ctx, lines)
+    # The label, not `step.theory`: a `Step` carries a theory NAME, which is
+    # the JSON record's position key and must stay one, but the human table
+    # prints a locus and 461 AFP theory names are shared [disambig-loci].
+    labels = locus_labels(sections)
+    rows = []  # (step, ctx, lines, label)
     for pm in shape.analyze_sections(sections, corpus_consts):
         if theory is not None and pm.theory != theory:
             continue
         lines = pm.sec.source()
+        label = labels.get(pm.sec.path, pm.theory)
         for s in pm.steps:
             if lo is not None and not (lo <= s.line <= hi):
                 continue
             if not all_steps and s.kind != "goal":
                 continue
-            triples.append((s, pm.ctx, lines))
+            rows.append((s, pm.ctx, lines, label))
 
     if as_json:
-        for s, ctx, lines in triples:
+        for s, ctx, lines, _label in rows:
             print(json.dumps(shape.step_record(s, ctx, lines, cfg)))
         return
-    if not triples:
+    if not rows:
         print("No steps in scope.")
         return
     print(f"{'location':<20} {'kind':<8} {'w2':>4} {'w1':>4} {'fan':>4} "
           f"{'live':>4}  statement")
     print(f"{'-' * 20:<20} {'-' * 8:<8} {'-' * 4:>4} {'-' * 4:>4} {'-' * 4:>4} "
           f"{'-' * 4:>4}  {'-' * 9}")
-    for s, ctx, lines in triples:
-        print(_step_row(s, ctx))
+    for s, ctx, _lines, label in rows:
+        print(_step_row(s, ctx, label))
 
 
-def _step_row(step: shape.Step, ctx: shape.ClassifyCtx) -> str:
+def _step_row(step: shape.Step, ctx: shape.ClassifyCtx, label: str) -> str:
     """One aligned per-step table row (location, kind, the four metrics, and a
-    statement preview)."""
-    loc = f"{step.theory}:{step.line}"
+    statement preview).  ``label`` is the theory's `locus_labels` name."""
+    loc = f"{label}:{step.line}"
     w1 = shape.w1_est(step, ctx).free
     return (f"{loc:<20} {step.kind:<8} {shape.w2_src(step):>4} {w1:>4} "
             f"{step.fanin:>4} {step.live:>4}  {_preview(step.stmt_text)}")
@@ -316,7 +325,8 @@ def cmd_shape_lemma(sections: list[TheorySection], name: str,
         return
 
     ps = shape.summarize(pm)
-    print(f"{entry.name}  ({entry.tag} {sec.theory}:{entry.src_start}.."
+    thy = locus_labels(sections).get(sec.path, sec.theory)
+    print(f"{entry.name}  ({entry.tag} {thy}:{entry.src_start}.."
           f"{entry.thy_end})\n")
     print(f"{'line':>5} {'kind':<8} {'w2':>4} {'w1':>4} {'fan':>4} {'live':>4}"
           f"  statement")
@@ -358,17 +368,23 @@ def cmd_shape_widest(sections: list[TheorySection], top: int = 20,
     break by source position for determinism.  ``--json`` emits the ranked
     :func:`shape.step_record`s."""
     key = _METRICS[metric]
-    rows = []  # (value, theory, line, step, ctx, lines)
+    labels = locus_labels(sections)
+    rows = []  # (value, theory, line, step, ctx, lines, label)
     for pm in shape.analyze_sections(sections, corpus_consts):
         lines = pm.sec.source()
+        label = labels.get(pm.sec.path, pm.theory)
         for s in pm.goals:
-            rows.append((key(s, pm.ctx), s.theory, s.line, s, pm.ctx, lines))
-    # widest first; ties by (theory, line) ascending for a stable order.
+            rows.append((key(s, pm.ctx), s.theory, s.line, s, pm.ctx, lines,
+                         label))
+    # widest first; ties by (theory, line) ascending for a stable order.  The
+    # sort key stays the theory NAME, not the label: the tie-break is about
+    # determinism, and a qualified label would reorder equal-width rows for no
+    # reason a reader could see.
     rows.sort(key=lambda r: (-r[0], r[1], r[2]))
     rows = rows[:top]
 
     if as_json:
-        for _v, _t, _ln, s, ctx, lines in rows:
+        for _v, _t, _ln, s, ctx, lines, _lb in rows:
             print(json.dumps(shape.step_record(s, ctx, lines)))
         return
     if not rows:
@@ -377,8 +393,8 @@ def cmd_shape_widest(sections: list[TheorySection], top: int = 20,
     print(f"Top {len(rows)} widest steps by {metric}:\n")
     print(f"{metric:>5} {'location':<22} {'lemma':<24}  statement")
     print(f"{'-' * 5:>5} {'-' * 22:<22} {'-' * 24:<24}  {'-' * 9}")
-    for value, theory, line, s, _ctx, _lines in rows:
-        loc = f"{theory}:{line}"
+    for value, _theory, line, s, _ctx, _lines, label in rows:
+        loc = f"{label}:{line}"
         print(f"{value:>5} {loc:<22} {s.lemma:<24}  {_preview(s.stmt_text)}")
 
 

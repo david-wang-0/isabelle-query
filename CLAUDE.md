@@ -54,7 +54,7 @@ One component tree, chained through `etc/components`:
     src/*.scala
     lib/scripts/query_client.py   ← the non-JVM thin client
   jedit_query/                 ← the jEdit plugin (depends on query_base's jar)
-  src/isabelle_query/          ← the PYTHON reference implementation (FROZEN — read only)
+  src/isabelle_query/          ← the PYTHON reference implementation, 0.8.1 (FROZEN — read only)
   tests/                       ← the Python test suite (reference for semantics; not run here)
   dev/                         ← differential harness, probes, benchmarks, phase notes
 ```
@@ -211,10 +211,12 @@ does not.
 
 ## Release status
 
-`pyproject.toml` tracks the **Python** package (0.7.0, frozen). The Scala
-tool's version is `CLI.version` — currently **0.8.0-scala**, deliberately
-distinguishable so a script can tell the two apart. Versioning is alpha: a
-breaking change takes the minor slot, patch bumps stay additive.
+`pyproject.toml` tracks the **Python** package — now **0.8.1**, still frozen:
+the reference tree is upstream's 0.8.1 release, and it is the oracle every
+harness here compares against. The Scala tool's version is `CLI.version` —
+still **0.8.0-scala** until P9 S5 bumps it, deliberately distinguishable so a
+script can tell the two apart. Versioning is alpha: a breaking change takes the
+minor slot, patch bumps stay additive.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.

@@ -119,6 +119,64 @@ where it comes from and where it is approximate. A narrow table is the safe
 direction there: an unlisted method may add a spurious citation, never remove a
 true one.
 
+## A symbol's body is not a name
+
+Isabelle symbols are written `\<lambda>`, `\<le>`, `\<^sub>`. The citation scan
+takes plain `[\w']` runs off each line so that a name glued to a symbol —
+`iso_transaction` in `iso_transaction\<^sub>h` — is still found, and those runs
+must stop at the symbol rather than reaching inside it. The body of `\<lambda>`
+is the symbol's own name; a project that declares a lemma called `lambda` is not
+citing it every time it writes a λ.
+
+The AFP declares 7 entries named `lambda`, 37 named `le` and 27 named `sub`, so
+this was not hypothetical: `callers sub` counted every `\<^sub>` in the corpus.
+
+*(P9 S3, see [dev/P9-PLAN.md](dev/P9-PLAN.md): this engine still reads inside
+the symbol, so `callers sub` over a corpus is inflated here until it lands.)*
+
+## A citation must be reachable
+
+A cited token is matched by name, and over one session that is enough:
+everything in a session sees everything the session declares. Over a **corpus**
+it is not. The AFP has 74 entries spelled `mono`, and a `mono` in
+`MonoBoolTranAlgebra` is HOL's `Orderings.mono` arriving through `imports Main`,
+which query deliberately does not follow — not any of the 74.
+
+So attribution is scoped by **visibility**: a site in theory `T` may name a
+declaration in `D` only when `D` is `T` itself, or `D` is in `T`'s transitive
+in-project `imports` closure. This is a *necessary* condition, not a sufficient
+one, so it can only ever **drop** an attribution — a name the project declares
+nowhere is not filtered at all, and a theory whose imports cannot be read (a
+buffer, stdin) is not filtered either, since an unknown closure must not delete
+a real edge.
+
+Over the whole AFP that removes 40% of citation edges (2,409,977 → 1,440,680)
+and `callers mono` goes 1,263 → 561. `unused` **grows** by 3,516 entries, which
+is the point rather than a cost: an entry kept alive only by a citation its
+citer could never have meant is dead.
+
+Because the rule may only drop, an import query cannot *resolve* is worse than
+one it resolves wrongly: the edge simply is not there, and every citation
+across it disappears. So an import is matched by the same rule Isabelle uses —
+its **last path segment** — which is what lets `imports "../WFair"` and a ROOT
+that spells a theory `"Simple/Reach"` reach each other. For the same reason,
+where a corpus declares one theory name twice the closure takes the **union**
+of both sections' imports rather than picking one. *(The last-path-segment rule
+and the union land in P9 S3; this engine still resolves an import by exact name,
+so a path-spelled import is a hole here — see [dev/P9-PLAN.md](dev/P9-PLAN.md).)*
+
+**Position inside a theory is not consulted** — a citation written above the
+declaration it names is still attributed to it. That is deliberate: `lemmas`
+re-exports, `sublocale`-induced bindings and a `context … begin` re-entry all
+bind a name at a line other than its declaration's, so a linear check would
+prune real citations. `dev/p7cprobe.sh` §2 pins it, and `[reach-position]` in
+`todo.md` is where the refinement would go.
+
+`--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
+`graph` and `refs` — every verb the scoping moves. *(P9 S3 again: this engine
+spells that `ISABELLE_QUERY_REACHABILITY=off` today, and the flag replaces the
+env var outright.)*
+
 ## Locale scope
 
 A declaration inside a `locale` / `class` / `context` / `instantiation` block
@@ -172,28 +230,47 @@ would process.
 The call graph behind the usage scans is constructed only when needed, so most
 commands stay fast.
 
-### And what a citation may be about
+## Naming one theory out of a corpus
 
-A name in a proof denotes something the theory can **see**, so a citation site
-in theory `T` is attributed to a declaration in theory `D` only when `D` is `T`
-itself or lies in `T`'s transitive `imports` closure. This matters exactly where
-a root holds more than one import tree — a whole corpus, or a tree of unrelated
-entries — because a name-level scan otherwise credits a token to every
-declaration that happens to be spelled the same way. Over the whole AFP,
-`callers mono` reports 566 usages rather than 1,361; over `src/HOL`, where
-everything imports `Main`, `callers rev` is unchanged, because there every
-theory really can see `List.rev`.
+A theory prints as the name it declares, which is unambiguous within a session
+and not across a corpus: **461 AFP theory names are used by more than one
+theory**, covering 1,219 of its 9,910. Nineteen files are called `Examples`,
+fifteen `Preliminaries`.
 
-It is a *necessary* condition and nothing more. It only ever removes a
-possibility: a site that can still see several same-named declarations is
-reported against all of them, and a name the project does not declare at all is
-not filtered (`callers` answers for any token, and an external name has no
-in-project declaration to be visible or invisible). **Position inside a theory
-is not consulted** — a citation written above the declaration it names is still
-attributed to it. `unused` can therefore report *more* entries than a name-only
-scan would: an entry whose only caller could never have called it is dead.
+So every printed `theory:line` is qualified by the shortest leading directory
+that names one theory — `Virtual_Substitution/QE`,
+`JinjaDCI/Compiler/Correctness2` — and no further, because a shared prefix
+distinguishes nothing and the label has to be typeable back in. A name used
+once stays bare, so a single-session run looks exactly as it always did. Over
+the whole AFP 1,219 labels grow a prefix; a further 902 already carry one,
+because their `ROOT` declares them that way (`theories "While/HoareTotal"`) and
+the label is then just the theory's own name.
 
-`ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution.
+The qualification is decided against the **whole loaded corpus, not the rows on
+screen**. Whether `Examples:11` names one theory is a fact about the corpus
+however few rows a `-N 8` happened to print, and a label that is unique on
+screen but ambiguous on paste is worse than no label — it invites the paste.
+
+Both spellings resolve: `enclosing Virtual_Substitution/QE:3495` answers about
+that theory, and a bare `QE:3495` still works when the name is unique. `grep`
+and `sorry` report a **file** rather than a theory, so they qualify the same way
+with the suffix kept (`alpha/Examples.thy:12`), which leaves a non-`.thy`
+positional's own filename intact.
+
+The same collision decides which entry owns a line, which lines are prose, and
+which are declaration sites — all three are answered per *file*, so two
+theories sharing a name do not share an answer. That matters most for the
+citation graph: a line inside one file's `text` block is prose there and
+nowhere else, so a real citation in a same-named file is not dropped as
+documentation, and a prose mention in the other is not counted as a use.
+Over the whole AFP read as one root this moves 48,177 citation edges onto the
+entry that actually makes them and restores 43,912 that were suppressed;
+`unused` grows accordingly. A single-session run is unaffected, because within
+a session Isabelle already requires the names to be distinct.
+
+*(Both halves are P9 work in this engine: the labels in S4, the path-keyed
+indexes in S3. Until then a printed theory name is the bare stem and the three
+per-file indexes are keyed by name. See [dev/P9-PLAN.md](dev/P9-PLAN.md).)*
 
 ## Aggregating across a corpus
 

@@ -104,8 +104,11 @@ end
         counts, located = scan(snippet, only="simp")
         self.assertEqual(counts["simp"], 1)
         self.assertEqual(len(located), 1)
-        theory, line_no, owner, text = located[0]
-        self.assertEqual(theory, "Test")
+        # The section's PATH, not its theory name [disambig-loci]: `graph` sits
+        # below `render`, so it hands the locus's *key* up and the renderer
+        # turns it into the label.
+        path, line_no, owner, text = located[0]
+        self.assertEqual(path.suffix, ".thy")
         self.assertIsNotNone(owner)
         self.assertEqual(owner.name, "headline")
         self.assertIn("by simp", text)

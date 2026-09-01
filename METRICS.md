@@ -70,7 +70,7 @@ The columns group into axes, which is how the `summary` table is laid out:
 
 | axis | asks | columns |
 |------|------|---------|
-| Length | how big is the proof? | `n_steps`, `n_goals`, `proof_lines`, `proof_tokens` (raw + `_code`), `entry_lines` |
+| Length | how big is the proof? | `n_steps`, `n_goals`, `n_bare` (+ `bare_kinds`), `proof_lines`, `proof_tokens` (raw + `_code`), `entry_lines` |
 | Depth | how deeply nested? | `depth_max` |
 | Width | how big is one step? | `w1_est`, `const_est`/`const_canon_est`, `w2_src` |
 | Space | how many facts held at once? | `fanin`, `live`, `introduce`/`consume` |
@@ -92,6 +92,24 @@ in the `shape_cmds` module docstring.**
 Per-proof records also carry `session` (`null` when the load had no session
 context), which a corpus run needs: AFP theory names are not unique across
 entries, so `(theory, lemma)` alone cannot identify one.
+
+`n_bare` counts goal steps with no as-written proposition — excluded from the
+width distributions, because there is nothing to measure — and `bare_kinds`
+says **why**, in three keys that sum to it:
+
+| key | meaning | whole AFP |
+|---|---|---|
+| `construction` | the step cannot state one: `show ?thesis`, `thus ?case`, `also`, `interpret` | 88.70% |
+| `unfound` | the scanner looked and found nothing — mostly `obtain x where` with the statement on the next line | 6.01% |
+| `undelimited` | written on the line without quotes or a cartouche (`hence False by simp`) | 5.29% |
+
+The split is what makes a change in `n_bare` readable: `construction` moves
+with writing style, `unfound` with this scanner. Pooled, a rise could be either,
+which is how a wrapped-statement bug once hid inside it. `n_bare` itself is
+unchanged, so rows from before the split still compare.
+
+*(`bare_kinds` lands in this engine in P9 S4 — see `dev/P9-PLAN.md`. Records
+emitted before it carry `n_bare` and no `bare_kinds` key.)*
 
 ## Running a census over a corpus
 

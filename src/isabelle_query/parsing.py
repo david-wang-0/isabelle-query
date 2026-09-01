@@ -160,21 +160,24 @@ _HEADING_WORDS = r"chapter|section|subsection|subsubsection|paragraph|subparagra
 # cartouches and a plain quoted string, which is `text`-argument syntax too
 # (3,980 AFP headings, e.g. `section "Preliminary lemmas"`).
 _TITLE_OPEN = r'\\<open>|‹|"'
-# ONE pattern, shared by the two things that ask "is this line a heading?" —
-# `outline`'s view and the prose mask.  They were two patterns, tight and wide
-# respectively, on the reasoning that a view wants no false positives while a
-# mask cannot afford a false negative.  Both instincts are right in isolation
-# and the conclusion was wrong: a heading is a heading, so the recogniser is a
-# fact about Isar, not about the consumer.  Disagreeing cost `outline` 14,238
-# AFP headings it never showed [heading-outline].  Leading indent is allowed and
-# no space is required before the opener, because Isar is whitespace-insensitive
-# and both are written.
-SECTION_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*({_TITLE_OPEN})(.*)")
-# The split form: the command word alone on its line, its title on the next —
-# the same shape `_TEXT_BARE_RE` handles for document blocks.  Only ever used
-# with that one-line lookahead, so a bare word cannot reach forward to an
-# unrelated title.
-_HEADING_BARE_RE = re.compile(rf"^\s*({_HEADING_WORDS})\s*$")
+# The heading COMMAND; its title is matched separately by `_TITLE_OPEN_RE`,
+# because a document marker may sit between the two
+# (`subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`) and a
+# marker body may itself hold a cartouche, which no regex can balance.
+#
+# ONE recogniser (`_heading_at`) is built on this, shared by everything that
+# asks "is this line a heading?" — `outline`'s view, the prose mask, and the
+# proof extent.  There were once two patterns, tight and wide respectively, on
+# the reasoning that a view wants no false positives while a mask cannot afford
+# a false negative.  Both instincts are right in isolation and the conclusion
+# was wrong: a heading is a heading, so the recogniser is a fact about Isar, not
+# about the consumer.  Disagreeing cost `outline` 14,238 AFP headings it never
+# showed [heading-outline].  Leading indent is allowed and no space is required
+# before the opener, because Isar is whitespace-insensitive and both are
+# written.  The negative lookahead is what a combined pattern got implicitly
+# from demanding an opener next: without it `sections` would lead with
+# `section`.
+_HEADING_LEAD_RE = re.compile(rf"^\s*({_HEADING_WORDS})(?![A-Za-z_0-9'])")
 _TITLE_OPEN_RE = re.compile(rf"^\s*({_TITLE_OPEN})(.*)")
 # What closes each opener.  Quotes are their own close, which is why the quoted
 # form needs a counting scan rather than the balancing one.
@@ -206,28 +209,62 @@ LATEX_LINE_RE = re.compile(
 # spelling verbatim so `show`/`callers` can find the entry by the name the
 # source actually uses.
 QUOTED_NAME_RE = re.compile(r'^"([^"]+)"')
+# Isabelle's FORMAL COMMENTS: a marginal note, deleted text, raw LaTeX and a
+# document-build marker.  Each owns the cartouche that follows it, and none of
+# the four is live Isar — Isabelle's lexer skips them wherever a token may
+# appear, which is why one can sit glued to a command keyword
+# (`definition\<^marker>\<open>tag important\<close> istopology`) or in a name
+# slot.  Listed once and used twice: the tokenizer redacts exactly these
+# (`_REDACTING_MARKERS`), and none of them is a name character.
+_MARGINAL = "\\<comment>"
+_CANCEL = "\\<^cancel>"
+_LATEX = "\\<^latex>"
+_MARKER = "\\<^marker>"
+FORMAL_COMMENTS = (_MARGINAL, _CANCEL, _LATEX, _MARKER)
+# The symbols that are STRUCTURE rather than name characters: the two cartouche
+# delimiters and the four formal comments.  Each can sit where a name is
+# expected — a cartouche statement, an annotation, a document marker — and must
+# not be captured as one.
+RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>") + FORMAL_COMMENTS
+
 # A bare name may interleave ASCII identifier characters with Isabelle
 # symbol tokens written `\<...>` (e.g. \<psi>, \<alpha>ah, \<tau>rtrancl3p)
 # and subscript controls (\<^sub>1).  Treating `\<...>` runs as name
 # characters captures the many AFP entries whose names are Greek letters or
 # decorated identifiers, which a plain `\w[\w']*` pattern misses.
 #
-# ONE Isabelle markup token, and one character of an Isabelle identifier (a
-# markup token counts as a single character).  Every name and token regex in
-# the package is built from these two rather than respelling them: the atom
-# was written out eight times across `parsing`, `graph`, `shape` and
-# `commands`, which is eight places to update when the lexical fact changes
-# and eight chances for one of them to drift.  Where a regex below still
-# differs, the difference is deliberate and commented — a target name admits
-# `.`, an entry name does not.
-ISA_MARKUP = r"\\<\^?\w+>"
-ISA_WORD_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
-SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_WORD_CHAR}*)")
-# Isabelle structural control symbols are not fact names: cartouche
-# delimiters (\<open>/\<close>) and the comment marker (\<comment>) can sit
-# where a name is expected (a cartouche statement, or a `\<comment> \<open>
-# ...\<close>` annotation), and must not be captured as the name.
-RESERVED_NAME_PREFIXES = ("\\<open>", "\\<close>", "\\<comment>", "\\<^cancel>")
+# TWO questions, so two atoms.  `ISA_SYMBOL` is LEXICAL — is this an Isabelle
+# symbol token? — and `ISA_MARKUP` is GRAMMATICAL: may this token occur inside a
+# NAME?  They differ by exactly `RESERVED_NAME_PREFIXES`.  Conflating them let a
+# name run straight through a structural symbol, so
+# `coprod_final_sink\<^marker>\<open>tag` was indexed as one name.
+#
+# Which one a scanner wants follows from what it is doing, and the split is not
+# cosmetic in either direction:
+#
+#   * a RUN scanner (`graph`'s citation tokens, `shape`'s token counter) asks
+#     only where a token ends, over source the tokenizer has already redacted.
+#     It wants the lexical atom.  Narrowing it there does not help and actively
+#     harms: `\<open>foo` would stop being one run and start yielding `open` as
+#     a candidate fact name, and `\<comment>` would count as ten tokens rather
+#     than one;
+#   * a NAME scanner (below, plus the datatype and target grammars) reads RAW
+#     source, where a marker really can abut the name, and must stop at it.
+#
+# Everything is built from these rather than respelling them: the atom was
+# written out eight times across `parsing`, `graph`, `shape` and `commands`,
+# which is eight places to update when the lexical fact changes and eight
+# chances for one of them to drift.  Where a regex below still differs, the
+# difference is deliberate and commented — a target name admits `.`, an entry
+# name does not.
+ISA_SYMBOL = r"\\<\^?\w+>"
+_NOT_STRUCTURAL = "(?!" + "|".join(
+    re.escape(s[len("\\<"):]) for s in RESERVED_NAME_PREFIXES) + ")"
+ISA_MARKUP = rf"\\<{_NOT_STRUCTURAL}\^?\w+>"
+# One character of a symbol RUN (lexical) / of a NAME (grammatical).
+ISA_WORD_CHAR = rf"(?:{ISA_SYMBOL}|[\w'])"
+ISA_NAME_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
+SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_NAME_CHAR}*)")
 # Outer-syntax keywords that are not fact names.  When the name slot holds one
 # of these *bare* — `lemma assumes ...`, `lemma fixes ...`, `... (eqvt) by ...`,
 # `lemma shows NAME: ...` — the construct is anonymous (or its true name
@@ -375,7 +412,7 @@ _AND_NAME_RE = re.compile(
 # Built from the same symbol-aware name fragment the rest of the parser uses,
 # because a constructor is routinely spelled with markup: `View\<^sub>m` reads
 # as `View` under a plain `[A-Za-z][\w']*`, which would index the wrong name.
-_ISA_NAME = rf"(?:{ISA_MARKUP}|[A-Za-z]){ISA_WORD_CHAR}*"
+_ISA_NAME = rf"(?:{ISA_MARKUP}|[A-Za-z]){ISA_NAME_CHAR}*"
 # `disc: Ctor` at the head of an alternative; the `disc:` part is optional.
 _ALT_HEAD_RE = re.compile(rf"^\s*(?:({_ISA_NAME})\s*:(?!:)\s*)?({_ISA_NAME})")
 # `(sel: type)` anywhere in the alternative's argument list.  The `(?!:)` is
@@ -656,6 +693,15 @@ def _scan_decl_body(lines: list[str], outer: list[str], live: list[str],
             # the keyword because `name ::` after a blank line means something
             # else everywhere else: it is a fresh `fixes`/`assumes` item, or the
             # signature of the *next* declaration.
+            # ...and unless nothing of the declaration has been seen yet.  A
+            # blank cannot END what has not STARTED, and a keyword standing
+            # alone above its name is routinely spaced: `WFair:35` is
+            # `definition`, a blank, a four-line note, then `transient ::`.
+            # Without this the blank breaks before the note is even reached,
+            # so the note skip below never runs [decl-body-comment].  Bounded
+            # exactly as before by the declaration and boundary checks, which
+            # come first; with no body to append, a run of blanks leaves
+            # `decl_end_line` on the keyword line either way.
             if not (_bar_continues(outer, i + 1)
                     or (keyword == "record"
                         and _field_continues(outer, live, i + 1))):
@@ -668,20 +714,34 @@ def _scan_decl_body(lines: list[str], outer: list[str], live: list[str],
         stripped = cline.strip()
         if not inside and stripped.startswith("text "):
             break
-        # A `\<comment>` note is not a command — it can stand wherever a token
-        # can — so one *inside* a record's field list does not end it.  Records
-        # are annotated field by field (`wa_cond :: "'S set"` under
-        # `\<comment> \<open>Termination condition\<close>`), and breaking there
-        # cost 11 of the AFP's 507 records every field they declare.  Gated on
-        # the keyword and on a field actually following, which is the same
-        # evidence `_field_continues` supplies after a blank line.  Whether the
-        # break is right for the other routes is a live question — a note
-        # between two `fun` equations is equally routine — but it has not been
-        # measured, and widening on the strength of this case would be a guess.
-        if not inside and stripped.startswith("\\<comment>") \
-                and not (keyword == "record"
-                         and _field_continues(outer, live, i + 1)):
-            break
+        # A formal comment is not a command — Isabelle's lexer skips all four
+        # of them wherever a token may appear — so one cannot END a declaration
+        # either, on any route.  Skip it and keep scanning [decl-body-comment].
+        #
+        # This was a `break` gated to `record`, where breaking cost 11 of the
+        # AFP's 507 records every field they declare; the gate was left narrow
+        # because "whether the break is right for the other routes ... has not
+        # been measured, and widening on the strength of this case would be a
+        # guess".  Measured now (`scripts/probe_comment_split_scale.py`): the
+        # break truncates 50 declarations over 11,514 theories, every one of
+        # the keyword-comment-name shape, where the comment sits before the
+        # name and the recorded body collapses onto the keyword line —
+        # `SchorrWaite:14`'s `rel` reported `body 14..14` for a declaration
+        # running to 17.  `body_end_line` is the documented "safe relocation
+        # cut" and now `api` surface, so a consumer cutting there leaves the
+        # declaration behind.
+        #
+        # Asking the live view rather than testing for a leading `\<comment>`
+        # is what makes this cover a WRAPPED comment (only its first line
+        # carries the marker), the other three spellings, and `(* ... *)` —
+        # the same correction as `_lookahead_name`'s [comment-before-name].
+        # The comment is skipped rather than appended, so `decl_end_line` still
+        # ends on the last LIVE line and a trailing note does not extend it.
+        # Running on into the next declaration is not a risk: `_match_decl_at`
+        # and `_is_boundary_at` above already break there.
+        if not inside and stripped and not live[i].strip():
+            i += 1
+            continue
         where_on_this_line = bool(re.search(r"\bwhere\b", stripped))
         body.append(f"  {stripped}")
         i += 1
@@ -744,11 +804,19 @@ def _isa_word_pattern(name: str) -> str:
       symbol, e.g. `foo` in `foo\<gamma>`, is still a match — it does not end
       in `>`.)
     * **Plain identifiers**: a prime-aware word boundary — `\b` is wrong
-      because Isabelle allows `'` inside identifiers (`foo'`).
+      because Isabelle allows `'` inside identifiers (`foo'`), plus a guard
+      against the SYMBOL BODY.  A plain run also sits between non-`[\w']`
+      characters when it is the inside of a `\<...>` token, so `lambda` matched
+      within `\<lambda>`, `le` within `\<le>` and `sub` within `\<^sub>` — and
+      the AFP declares 7 entries named `lambda`, 37 named `le` and 27 named
+      `sub` [symbol-body-tokens].  The two lookbehinds are the single-name form
+      of what `graph._build_call_graph` does by blanking symbol tokens before
+      its word pass; a symbol's body is that symbol's name, never a fact's.
     """
     if _SPECIAL_NAME_RE.search(name):
         return r'(?<=")' + re.escape(name) + r'(?=")'
-    left = r"(?<![\w'])" + (r"(?<!>)" if name.startswith("\\<") else "")
+    left = r"(?<![\w'])" + (r"(?<!>)" if name.startswith("\\<")
+                            else r"(?<!\\<)(?<!\\<\^)")
     right = (r"(?!\\<)" if name.endswith(">") else "") + r"(?![\w'])"
     return left + re.escape(name) + right
 
@@ -806,17 +874,54 @@ def _balanced_cartouche_end(s: str) -> int:
     return _balanced_end(s, "\\<open>", "\\<close>")
 
 
+def _skip_formal_comments(s: str) -> str:
+    r"""``s.lstrip()`` with every leading formal comment removed, along with the
+    cartouche each of them owns.
+
+    Isabelle's lexer skips all four of `FORMAL_COMMENTS` wherever a token may
+    appear, so this is what stands between a command keyword and the thing that
+    actually follows it — a declaration's name, or a heading's title.  Written
+    once for both: they are the same grammatical position.
+
+    Balanced, not "to the first ``\<close>``": a marker body may itself hold a
+    cartouche, as `First_Order_Terms/Term:37`'s
+    ``\<^marker>\<open>contributor \<open>Martin Desharnais\<close>\<close>`` does.
+    A comment that runs past the end of this line stops the scan, leaving it in
+    place — the caller sees an unparseable rest rather than a wrong answer.
+    """
+    s = s.lstrip()
+    while s:
+        marker = next((m for m in FORMAL_COMMENTS if s.startswith(m)), None)
+        if marker is None:
+            break
+        rest = s[len(marker):].lstrip()
+        if rest.startswith("\\<open>"):
+            k = _balanced_cartouche_end(rest)
+            if k < 0:
+                break                   # comment runs past this line
+            rest = rest[k:].lstrip()
+        s = rest
+    return s
+
+
 def _strip_decl_prefix(s: str, typevars: bool) -> str:
     r"""Drop the syntactic noise that can sit between a keyword and the name.
 
-    A fact or type name never starts with '(', a type variable, or a margin
+    A fact or type name never starts with '(', a type variable, or a formal
     comment, so this only removes:
       * command modifiers / locale specs — ``(in foo)``, ``(nonexhaustive)``,
         ``(overloaded)``, ``(discs_sels)``, ``(sequential)``, ...
-      * a leading margin comment ``\<comment> \<open>...\<close>`` that annotates
-        the declaration before its name;
+      * a leading formal comment — ``\<comment> \<open>...\<close>`` annotating
+        the declaration before its name, or the document marker
+        ``\<^marker>\<open>tag important\<close>`` that `HOL/Analysis` writes on
+        hundreds of them.  All four spellings, since Isabelle's lexer skips all
+        four in the same place;
       * for type declarations (``typevars=True``), leading type arguments,
         either bare (``'a``) or grouped (``('a, 'b)``).
+
+    The marker is stripped here as well as blanked by the tokenizer because
+    this reads the RAW line: recognition uses the outer view (where the marker
+    is already gone), but a name can live inside a term, so extraction cannot.
     """
     while s:
         if s[0] == "(":
@@ -825,13 +930,9 @@ def _strip_decl_prefix(s: str, typevars: bool) -> str:
                 break
             s = s[j:].lstrip()
             continue
-        if s.startswith("\\<comment>"):
-            s = s[len("\\<comment>"):].lstrip()
-            if s.startswith("\\<open>"):
-                k = _balanced_cartouche_end(s)
-                if k < 0:
-                    break               # comment runs past this line
-                s = s[k:].lstrip()
+        skipped = _skip_formal_comments(s)
+        if skipped != s:
+            s = skipped
             continue
         if typevars and s[0] == "'":
             m = re.match(r"'[\w']+\s+", s)
@@ -940,9 +1041,9 @@ def _kw_tokenize(block: str) -> list[tuple[str, str]]:
 
 def _kind_of(tok: str) -> str:
     """The leading identifier of a kind token (`thy_goal` from `thy_goal`,
-    or from a glued `::thy_goal`'s tail)."""
-    m = re.match(r"[A-Za-z_]+", tok)
-    return m.group(0) if m else ""
+    from a glued `::thy_goal`'s tail, or from a quoted `"thy_goal"`)."""
+    m = re.match(r'"?([A-Za-z_]+)', tok)
+    return m.group(1) if m else ""
 
 
 def _parse_keyword_block(block: str, table: dict[str, str]) -> None:
@@ -973,7 +1074,13 @@ def _parse_keyword_block(block: str, table: dict[str, str]) -> None:
                     kind = _kind_of(val[2:])
                 continue
             if seen_colon:
-                if not kind and flag == "op":   # the kind, just after `::`
+                # The kind is the first token after `::`, quoted or not —
+                # Isabelle's grammar reads it as a *name*, and Optics writes
+                # `:: "thy_defn"`.  Quoting only distinguishes a command name
+                # from a `% tag` value BEFORE the colon; past it the slot
+                # decides.  `not kind` is what still keeps a quoted tag value
+                # out: by the time `% "proof"` arrives the kind is bound.
+                if not kind:                   # the kind, just after `::`
                     kind = _kind_of(val)
                 continue                        # ignore load command / % tags
             if flag == "name":
@@ -1074,14 +1181,22 @@ def _match_decl_at(outer_line: str, table: dict[str, str]
 #     definition
 #       foo :: "nat" where "foo = 0"
 # Bound the forward scan to a few lines so a truncated/malformed file cannot
-# run on looking for a name that is not there.
+# run on looking for a name that is not there.  Counted over blank and `text`
+# lines only: a formal comment is one lexer token however far it wraps, so it
+# is skipped without charge — see `_lookahead_name` [comment-before-name].
 _NAME_LOOKAHEAD_LINES = 3
+# Absolute cap on the walk, so "skipped without charge" still cannot run away
+# on a file whose comment never closes.  Generous against real source: the
+# longest pre-name comment measured over the AFP and the distribution is 4
+# lines (`HOL/UNITY/WFair.thy:37`).
+_NAME_SCAN_LINES = 40
 
 
 def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
-                    parse_fn, outer: list[str] | None = None) -> str:
+                    parse_fn, outer: list[str] | None = None,
+                    live: list[str] | None = None) -> str:
     r"""The name for a decl whose keyword stood alone: scan forward from the
-    0-indexed line ``start``, skipping blank / ``\<comment>`` / ``text`` lines,
+    0-indexed line ``start``, skipping blank / formal-comment / ``text`` lines,
     and parse the name from the **first content line** with ``parse_fn``.
 
     Only the first content line is consulted: a continuation name always sits
@@ -1091,13 +1206,40 @@ def _lookahead_name(lines: list[str], start: int, table: dict[str, str],
     unrelated following prose.  A following *top-level command* likewise means
     no name here.  Does NOT consume lines — the caller's body scan still covers
     the peeked line, so the body buffer, ``decl_end_line`` and spans are
-    exactly as before; only the name changes."""
-    end = min(len(lines), start + _NAME_LOOKAHEAD_LINES)
+    exactly as before; only the name changes.
+
+    ``live`` is the tokenizer's redacted view, and asking it is what makes a
+    MULTI-LINE formal comment work [comment-before-name].  Testing the raw text
+    for a leading ``\<comment>`` recognises only the comment's FIRST line, so a
+    comment that wraps left its continuation looking like content and the name
+    was read out of the prose: ``HOL/UNITY/WFair.thy:35`` indexed ``is``, out of
+    "the rest **is** generic to all forms of fairness", and never indexed
+    ``transient`` at all.  It also caught only one of the four spellings, so a
+    ``\<^marker>`` on its own line — which `HOL/Analysis` writes on hundreds of
+    declarations — yielded ``?``.  The tokenizer already knows both: every such
+    line is blank in ``live``.
+
+    A redacted line does not spend the lookahead budget.  That bound exists so
+    "a truncated/malformed file cannot run on looking for a name that is not
+    there", and a formal comment is ONE token to Isabelle's lexer however many
+    lines it spans — its own cartouche already bounds it, so charging the
+    budget per line would make the guard fire on well-formed source.  Real
+    blank lines and ``text`` blocks still spend it, and ``_NAME_SCAN_LINES``
+    caps the walk outright so the runaway the guard was written for stays
+    impossible."""
+    limit = min(len(lines), start + _NAME_SCAN_LINES)
+    budget = _NAME_LOOKAHEAD_LINES
     j = start
-    while j < end:
+    while j < limit and budget > 0:
         stripped = lines[j].strip()
-        if not stripped or stripped.startswith("\\<comment>") \
+        # Blank in `live` but not in the source == the tokenizer redacted it:
+        # a formal comment of any of the four spellings, or one of its
+        # continuation lines.  A genuinely empty line is not "redacted".
+        redacted = bool(stripped) and live is not None and not live[j].strip()
+        if not stripped or redacted or stripped.startswith("\\<comment>") \
                 or TEXT_OPEN_RE.match(lines[j]):
+            if not redacted:
+                budget -= 1
             j += 1
             continue
         probe = outer[j] if outer is not None else lines[j]
@@ -1134,14 +1276,25 @@ def _heading_at(lines: list[str], i: int,
     """
     if prose is not None and prose[i + 1]:
         return None
-    m = SECTION_RE.match(lines[i])
-    if m:
-        return m.group(1), m.group(2), m.group(3), 0
-    bare = _HEADING_BARE_RE.match(lines[i])
-    if bare and i + 1 < len(lines):
+    m = _HEADING_LEAD_RE.match(lines[i])
+    if m is None:
+        return None
+    # A document marker may sit between the command and its title —
+    # `subsection\<^marker>\<open>tag unimportant\<close> \<open>Norm\<close>`,
+    # 246 of them in HOL/Analysis.  Skipped here rather than read off the outer
+    # view, because a heading's TITLE is a cartouche: the view that blanks the
+    # marker blanks the title with it, so this one has to read the raw line.
+    rest = _skip_formal_comments(lines[i][m.end():])
+    here = _TITLE_OPEN_RE.match(rest)
+    if here:
+        return m.group(1), here.group(1), here.group(2), 0
+    # The split form: the command alone on its line, its title on the next —
+    # the same shape `_TEXT_BARE_RE` handles for document blocks.  Only ever a
+    # one-line lookahead, so a bare word cannot reach an unrelated title.
+    if not rest and i + 1 < len(lines):
         nxt = _TITLE_OPEN_RE.match(lines[i + 1])
         if nxt:
-            return bare.group(1), nxt.group(1), nxt.group(2), 1
+            return m.group(1), nxt.group(1), nxt.group(2), 1
     return None
 
 
@@ -1350,12 +1503,13 @@ def extract_comment_ranges(lines: list[str]) -> list[tuple[int, int]]:
 # is not a fact citation, and a command word inside one is not a command.
 _CART_OPEN = ("\\<open>", "‹")
 _CART_CLOSE = ("\\<close>", "›")
-_CANCEL = "\\<^cancel>"
-_MARGINAL = "\\<comment>"
-# Markers that OWN the cartouche following them, so its body is prose or
-# deleted text rather than live Isar — as opposed to a bare cartouche, whose
-# owner is the command in front of it and which is usually a term.
-_REDACTING_MARKERS = (_CANCEL, _MARGINAL)
+# Markers that OWN the cartouche following them, so its body is prose, deleted
+# text, raw LaTeX or a document tag rather than live Isar — as opposed to a
+# bare cartouche, whose owner is the command in front of it and which is
+# usually a term.  Isabelle's four formal comments exactly; see
+# `FORMAL_COMMENTS`, where they are named, and which the name grammar reads
+# from the same tuple so the two views cannot disagree about what a marker is.
+_REDACTING_MARKERS = FORMAL_COMMENTS
 # Commands whose body is an ML cartouche.  ML source has its own namespace, so
 # an identifier there never cites an Isabelle fact.
 _ML_BODY_COMMANDS = frozenset({
@@ -1381,18 +1535,31 @@ _NOISE_STATES = frozenset({"comment", "verbatim", "cartouche"})
 # it.  The scan jumps region to region rather than stepping character by
 # character: it runs over every theory on every invocation, so the constant
 # factor is the difference between a free check and a visible one.
-_MARKER_OPEN_RE = r'\\<(?:\^cancel|comment)>\s*(?:\\<open>|‹)'
+_MARKER_ALT = "|".join(re.escape(s) for s in _REDACTING_MARKERS)
+_MARKER_OPEN_RE = rf'(?:{_MARKER_ALT})\s*(?:\\<open>|‹)'
 # Every token that can change the state, in ONE alternation, so a line costs a
 # single pass of the regex engine and Python-level work only per token found.
 # Order matters: `\\` and `\"` precede `"` so an escaped quote inside a string
 # is consumed rather than read as the closing delimiter, and the marker forms
 # (which swallow their cartouche) precede the bare `\<open>`.
+#
+# `\\` carries `(?!<)` because ordered choice would otherwise let the escape
+# eat half a markup symbol.  Isabelle reads source in two passes — a SYMBOL
+# layer where `\<close>` is one atom, then a token layer where `\\` is a string
+# escape — so in `\<open>\\<close>` (the residuation operator: a cartouche whose
+# body is one backslash) the close is a symbol and not two escaped characters.
+# Scanning both layers at once let the escape consume the body backslash plus
+# the `\` of `\<close>`, leaving the scanner in cartouche state to the end of
+# the file.  The lookahead declines the escape exactly when the second
+# backslash begins a markup token, which is symbol-precedence expressed here.
 _SCAN_RE = re.compile(
-    r'\(\*|\*\)|\{\*|\*\}|\\\\|\\"|"|'
+    r'\(\*|\*\)|\{\*|\*\}|\\\\(?!<)|\\"|"|'
     + _MARKER_OPEN_RE + r'|\\<open>|‹|\\<close>|›')
 # Nothing to redact unless one of these appears somewhere in the theory.  Most
-# of the cost is skipped outright on a file with no comment and no ML.
-_ANY_REGION_RE = re.compile(r'\(\*|\{\*|\\<\^cancel>|\\<comment>')
+# of the cost is skipped outright on a file with no comment and no ML.  Built
+# from `_REDACTING_MARKERS`, not respelled: a marker this gate does not know
+# about takes the early return and is never tokenised at all, which is silent.
+_ANY_REGION_RE = re.compile(r'\(\*|\{\*|' + _MARKER_ALT)
 
 
 def _leads_with_ml(line: str) -> bool:
@@ -1885,7 +2052,7 @@ def extract_entries(lines: list[str],
             name = _parse_typedecl_name(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=True):
                 name = _lookahead_name(lines, i + 1, table,
-                                       _parse_typedecl_name, outer)
+                                       _parse_typedecl_name, outer, live)
             # The body was never read: `decl_end_line` was pinned to the
             # declaration line, so `record state =` at `E_Aodv:16` measured one
             # line against the twenty it spans, and `show` rendered only the
@@ -1907,7 +2074,21 @@ def extract_entries(lines: list[str],
             continue
 
         if route == "axiom":
-            entries.append(Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
+            # The command's own umbrella entry, ANONYMOUS [axiom-names].  It
+            # is load-bearing and must stay: `axiomatization` usually declares
+            # its names on the lines BELOW, so without an entry on the command
+            # line that line falls to the preceding declaration and `enclosing`
+            # names the wrong owner.
+            #
+            # It used to be named `axiomatization` — a keyword, not a name.
+            # `find '^axiomatization$'` answered with 395 of them (374 AFP, 11
+            # FOL, 10 ZF): citable names that nothing can cite, and an entry in
+            # `summary`'s count for a command rather than a declaration.  `?`
+            # is the established spelling for an entry with no name of its own
+            # (274 of them in FOL already, from anonymous lemmas), and every
+            # place that must skip one already tests for it — the call graph's
+            # name set, caller attribution, `unused`, `defs`.
+            entries.append(Entry("AXIOM", "?", "AXIOMATIZATION",
                                  thy_line=decl_line, decl_end_line=decl_line))
             # The command line itself may already carry the first name —
             # `axiomatization where process_finite:` or `axiomatization
@@ -1950,7 +2131,8 @@ def extract_entries(lines: list[str],
                         else _parse_name)
             name = parse_fn(rest)
             if name == "?" and not _strip_decl_prefix(rest, typevars=False):
-                name = _lookahead_name(lines, i + 1, table, parse_fn, outer)
+                name = _lookahead_name(lines, i + 1, table, parse_fn, outer,
+                                       live)
             buf = [f"{tag} {rest}"]
             i, decl_end_line, body = _scan_decl_body(
                 lines, outer, live, open_at, table, i + 1, decl_line, keyword)
@@ -2506,7 +2688,11 @@ def _parse_one(thy: str, thy_path: Path,
     # next text \<open>...\<close> block or declaration.  For pure
     # declarations (no proof), body ends at decl_end_line.  Computed after
     # compute_spans because _proof_extent needs thy_end as a search bound.
-    sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines))
+    # Carries `nonisar_ranges` because `_proof_extent` reads them: a boundary
+    # written inside a comment is not a boundary, and a section without them
+    # would silently answer as if the theory had no comments at all.
+    sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
+                                   nonisar_ranges=nonisar_ranges)
     sec_for_extent._source_cache = lines
     for e in entries:
         if e.proof_line:
@@ -2683,26 +2869,69 @@ def sections_for_session(session: SessionInfo,
 
 
 def _proof_extent(sec: TheorySection, proof_line: int, thy_end: int) -> int:
-    """Walk forward from proof_line, return last line that belongs to the proof.
-    Stops at `text \\<open>...` blocks, section headers, next declarations, or
+    r"""Walk forward from proof_line, return last line that belongs to the proof.
+    Stops at `text \<open>...` blocks, section headers, next declarations, or
     end of file.  Returns proof_line itself for one-line proofs.
+
+    A boundary **written inside a comment is not a boundary** — 248 of the
+    AFP's 295,775 proofs stopped at one [proof-extent-view]: 231 at a
+    commented-out declaration (`ABY3_Protocols/Multiplication_Synthesization:56`),
+    11 at a heading inside a `(* ... *)` block, 6 at a commented-out `text`.
+    Authors supersede a lemma and leave the old one in a comment, and the proof
+    above it was truncated at the `(*`.
+
+    The test is `nonisar_ranges`, the WHOLE-LINE noise mask, and not the outer
+    view every other scanner uses.  Two reasons, and both are why this is its
+    own change rather than a line in a bigger one: the outer view blanks a
+    `text` block's own cartouche, so `startswith("text ")` would stop matching
+    there and the boundary would be lost in the other direction; and a
+    *partially* commented line (`lemma foo: "P" (* note *)`) is live Isar and
+    must still end the proof, which whole-line masking gets right and
+    character-level blanking would too but only by accident of what it blanks.
+
+    Two further changes were tried here and are NOT made, because each was
+    measured over the AFP and changes **0 records** [proof-extent-anchor]:
+
+    * dropping the column-0 anchor on `DECL_RE` for the deanchored
+      `_match_decl_at`.  `thy_end` is already bounded by the declaration
+      positions that scan found, so an indented declaration never falls
+      strictly inside a proof's span;
+    * masking prose inside a ``text`` block.  16 lines there are English
+      sentences beginning with a command word — `DiskPaxos_Inv4:66` is
+      literally "lemma $action$-$HInv4x$-$q$ proves the other case." — but the
+      block's OPENING line already ends the proof, so its body is unreachable
+      (`AutoCorres2/TypeStrengthen`: `body_end` 63, block 64..108).
+
+    Only the BOUNDARY tests are masked.  A noise line still advances `last`
+    exactly as before, because that is a separate question — whether a trailing
+    comment block belongs to the proof — and answering it here would be a
+    second change hiding inside this one.
     """
     lines = sec.source()
+    noise = _line_mask(len(lines), sec.nonisar_ranges)
     last = proof_line
     for line_no in range(proof_line + 1, thy_end + 1):
         if line_no > len(lines):
             break
         cline = lines[line_no - 1]
         stripped = cline.strip()
-        # Stop at top-level documentation blocks (text \<open>...\<close>) but
-        # NOT at in-proof Isar annotations (\<comment> \<open>...\<close>), which
-        # are routine inside proof bodies.
-        if stripped.startswith("text ") or stripped.startswith("text\\<open>"):
-            break
-        if SECTION_RE.match(cline):
-            break
-        if DECL_RE.match(cline):
-            break
+        if not noise[line_no]:
+            # Stop at top-level documentation blocks (text \<open>...\<close>)
+            # but NOT at in-proof Isar annotations (\<comment> \<open>...
+            # \<close>), which are routine inside proof bodies.
+            if (stripped.startswith("text ")
+                    or stripped.startswith("text\\<open>")):
+                break
+            # `_heading_at`, not a regex of its own: this was a THIRD asker of
+            # "is this a heading", and it disagreed — a marked heading and a
+            # split heading both ended a proof for `outline` and the prose mask
+            # but not here.  7 lines over 2.36M in the AFP, so the size of the
+            # disagreement is not the argument; having three recognisers where
+            # the comments promise one is.
+            if _heading_at(lines, line_no - 1) is not None:
+                break
+            if DECL_RE.match(cline):
+                break
         if stripped:
             last = line_no
     return last

@@ -75,8 +75,8 @@ lemma m: "True" by simp
 
     def test_a_wrapped_heading_carries_its_continuation_lines(self):
         # Smith_Normal_Form/Diagonal_To_Smith.thy:1172 — note `subsection` with
-        # no space before `\<open>`, which `SECTION_RE` (the outline pattern)
-        # does not match.  Masking must use the wider pattern.
+        # no space before `\<open>`, which the old tight outline pattern did not
+        # match.  One recogniser (`_heading_at`) now answers for both.
         sec = section_from(HEAD + r'''
 subsection\<open>Implementation and formal proof
   of the matrices $P$ and $Q$ which transform the input matrix by means

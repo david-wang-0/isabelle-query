@@ -47,7 +47,7 @@ def entry(sec, name):
 
 def enclosing(sec, line_no):
     """The entry whose span contains `line_no`, or None — what `enclosing` asks."""
-    idx = cli._build_line_index([sec]).get(sec.theory, [])
+    idx = cli._build_line_index([sec]).get(sec.path, [])
     return cli._entry_at_line(idx, line_no)
 
 

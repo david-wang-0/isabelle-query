@@ -12,8 +12,9 @@ python -m unittest discover -s tests -v
 These use small inline theory snippets (`tests/test_names.py`,
 `tests/test_call_graph.py`, `tests/test_keywords.py`) and run in well under a
 second. The call-graph tests pin `cli._build_call_graph` to a brute-force
-oracle (`support.brute_force_call_graph`), so the linear builder can never
-silently drift from the obvious O(lines×names) one.
+reference builder (`support.brute_force_call_graph`), so the linear builder can
+never silently drift from the obvious O(lines×names) one. It is a drift check,
+not an oracle — see the last section for the difference and why it matters.
 
 `tests/test_keywords.py` covers the **custom outer-syntax command scanner**:
 an AFP entry may define its own theory commands (AOT's `AOT_theorem`,
@@ -135,13 +136,37 @@ Done — the whole name-on-the-decl-line family, which together took the AFP
 See the `ContinuationLineName`, `ParseDefName` and reserved-keyword tests in
 `tests/test_names.py`.
 
-Longer-term nice-to-have — a **true ground-truth oracle from Isabelle's own
-outer-syntax parser**. `support.brute_force_call_graph` is only a slow
-*regex* reference: it guards the fast builder against drift, not against
-absolute error. Isabelle's real lexer (ML `Outer_Syntax`/`Token`/`Thy_Header`,
-mirrored in Scala `isabelle.Outer_Syntax`) would, on a small sample, *measure*
-this tool's true error rate against the parser itself. A full `isabelle build`
-checks proofs (CPU-days for the AFP — too slow); an outer-syntax-only parse is
-feasible but needs the per-session keyword table assembled (the same
-`keywords :: kind` headers the scanner already reads). Do it for rigor once the
-corner cases above are closed.
+## Ground truth from Isabelle, and the shape it should take
+
+`support.brute_force_call_graph` is **not** an oracle. It is a slow *regex*
+reference that guards the fast builder against drift, not against absolute
+error, and it shares its exclusion helpers with the builder it checks — so on
+the exclusion set it is a consistency check between two implementations of the
+same rules. Real ground truth about Isabelle has to come from Isabelle.
+
+It has been fetched, once, and it paid for itself: `[export-oracle]` read the
+`isabelle_exports` table out of a session database (read-only sqlite — note
+that `isabelle export` is **not** read-only and triggers a build) and asked
+what entities Isabelle knew that `query` did not. The answer was 713 unindexed
+names over 120 AFP entries, all 538 unambiguous ones cited, 40,741 occurrences
+— and it shipped as eight commits under `[declared-names]`: `and`-declared
+constants, named rules and equations, type constructors, locale and class
+names, `record` selectors. Recover it with
+
+    git log --grep='\[declared-names\]'
+
+**Then the tag was retired and nothing standing was kept.** That is the
+precedent, and it is the point of this section. Isabelle ground truth is a
+**one-time discovery instrument**, not a maintained artifact: once it says
+*what* to look for, the measurement is ordinary source scanning at full corpus
+scale, on a machine with no Isabelle installed — which is how the 713 became a
+corpus-wide number in the first place. A committed fixture corpus harvested
+from a heap would instead pin one Isabelle release's semantics and need
+regenerating forever, and the only cure for a stale reference is a rebuild,
+the one thing this tool must never do.
+
+So when a question needs Isabelle: ask it with a probe, fix what it finds, pin
+the fix with a **hand-written** fixture (hand-compute the value, then make the
+code match), cite the finding in the commit message, and let the probe go. The
+open instance is `[markup-step-model]` in `todo.md` — three proof steps on
+`DitherTM` that Isabelle's `PIDE/markup` counts and `query` does not.

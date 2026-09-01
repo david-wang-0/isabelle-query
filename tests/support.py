@@ -2,14 +2,29 @@
 
 Importing this module puts the ``src/`` layout on ``sys.path`` so the tests
 run against the working tree without an editable install, and exposes small
-fixture builders plus a brute-force call-graph oracle.
+fixture builders plus a brute-force call-graph REFERENCE BUILDER.
 
-The oracle (:func:`brute_force_call_graph`) is the deliberately-obvious
-O(lines x names) reference implementation: for every source line it tests
-every indexed name with the prime-aware boundary regex.  The shipped
-``cli._build_call_graph`` is a linear-time rewrite of the same thing, so
-pinning it to the oracle on fixtures guards against the fast path silently
-drifting from the slow-but-clearly-correct one.
+:func:`brute_force_call_graph` is the deliberately-obvious O(lines x names)
+reference implementation: for every source line it tests every indexed name
+with the prime-aware boundary regex.  The shipped ``cli._build_call_graph`` is
+a linear-time rewrite of the same thing, so pinning it to the reference on
+fixtures guards against the fast path silently drifting from the
+slow-but-clearly-correct one.
+
+**It is not an oracle, and that word is avoided here deliberately.**  It is a
+*differential* check between two implementations of query's own rules, and it
+shares its exclusion helpers with the thing it checks: ``cli._noise_ranges``,
+``_build_def_sites`` and ``_is_citation_name`` are called by both sides.  So
+for the exclusion set itself the two inherit the same membership — change what
+counts as live source and parity keeps holding while real output moves.  That
+is how the call graph's missing formal-comment skip stayed hidden for as long
+as it did, and it is why a change there needs its own fixture rather than a
+green parity run.
+
+Ground truth about *Isabelle* comes from Isabelle, and has never lived in this
+file: see ``scripts/probe_pide_markup.py`` and ``probe_export_oracle.py``.
+Two different claims, one word — this docstring exists so the two do not get
+confused again.
 """
 
 import functools
@@ -107,7 +122,10 @@ _ANTIQ_RE = re.compile(r'@\{(?:text|thm|term|const)\s+["\']?\w+["\']?\}')
 
 def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
                            derived=False):
-    """Reference O(lines x names) call-graph builder used as a test oracle.
+    """Reference O(lines x names) call-graph builder, for differential tests.
+
+    Not an oracle — see this module's docstring for what that distinction
+    costs when it is forgotten.
 
     Mirrors ``cli._build_call_graph`` semantics (text-block skip,
     antiquotation strip, def-site exclusion, line->entry attribution) but
@@ -138,9 +156,11 @@ def brute_force_call_graph(sections, drop_upto=cli._DROP_NAMES_UPTO,
         # Mirrors the fast builder: both read the redacted view, so a comment
         # sharing its line with proof text cites nothing in either.
         lines = sec.live_source()
-        t_ranges = text_ranges.get(sec.theory, [])
-        d_map = def_sites.get(sec.theory, {})
-        idx = line_index.get(sec.theory, [])
+        # Keyed by path, mirroring the fast builder [name-is-not-identity]:
+        # a theory name is not an identity once two sections share one.
+        t_ranges = text_ranges.get(sec.path, [])
+        d_map = def_sites.get(sec.path, {})
+        idx = line_index.get(sec.path, [])
         for i, line in enumerate(lines):
             line_no = i + 1
             if any(line_no in r for r in t_ranges):

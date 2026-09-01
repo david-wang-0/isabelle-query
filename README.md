@@ -85,6 +85,12 @@ tool's output is valid input: a locus from `callers` / `sorry` / `instances`
 pastes into `enclosing`, and a span from `outline` / `largest` pastes into
 `lines`.
 
+A theory prints as its bare name, and — *once P9 S4 lands, see
+[dev/P9-PLAN.md](dev/P9-PLAN.md)* — only far enough qualified to name one
+theory. Over a corpus that matters: nineteen AFP theories are called
+`Examples`, so `largest` reports `Virtual_Substitution/QE` and `enclosing`
+takes it straight back. A name used once stays bare.
+
 ### `instances` and `codeqs`, and what they do not see
 
 Each row is `LOCUS  NAME  KIND  source`, one site per line — the name sits where
@@ -151,7 +157,10 @@ does not follow. The same filter is what `callers`, `callees`, `refs`,
 `unused`, `graph citation`, `instances` and `codeqs` all read.
 
 `ISABELLE_QUERY_REACHABILITY=off` turns it off, restoring name-only
-attribution.
+attribution. *(P9 S3 replaces that channel with a `--reach {closure,name}`
+flag on `callers`, `callees`, `refs`, `unused` and `graph` — one switch, on
+every front door, and the env var goes away. See
+[dev/P9-PLAN.md](dev/P9-PLAN.md).)*
 
 Both exit `1` when the subject is not a locale/class (resp. not a constant)
 declared in the project, rather than reporting zero sites.
@@ -315,9 +324,35 @@ and the JSONL record schema.
 ## Exit status
 
 `0` the command ran; `1` the request could not be resolved (a subject that is
-not a locale, not a constant, an unknown theory or path); `2` bad usage — an
-argument error, or **a root that could not be read**; `141` a downstream reader
-closed the pipe, as a shell reports for SIGPIPE.
+not a locale, not a constant, an unknown theory, entry name or path, no
+subcommand); `2` bad usage — an argument error, or **a root that could not be
+read**; `141` a write failed because a downstream reader closed the pipe (a
+whole-corpus census piped into `head`), as a shell reports for SIGPIPE.
+
+**A diagnostic goes to stderr and stdout stays clean**, so a count mode is
+always safe to capture. The two empty answers are different and say so:
+
+```
+$ isabelle query find zzz -c        # a real search that found nothing
+0
+$ echo $?
+0
+$ isabelle query callees zzz -c     # no entry `zzz` to have callees
+isabelle query: 'zzz' is not in the entry index
+$ echo $?
+1
+```
+
+*(The unresolvable-subject half of that contract — stderr, exit `1`, and a `0`
+rather than a sentence from a count mode — lands in P9 S1; see
+[dev/P9-PLAN.md](dev/P9-PLAN.md). Until then those verbs print the diagnostic
+on stdout and exit `0`.)*
+
+`141` is not promised for *every* `| head`. When the whole answer fits the pipe
+buffer no write ever fails and the status is `0` — the same as `seq 10 | head`,
+where `seq 200000 | head` dies of SIGPIPE. The producer wrote everything; the
+reader chose to stop. Either way stderr stays silent and the status is
+deterministic.
 
 A root that yields no theories is reported on stderr and never as an empty
 success, so a script can tell a broken run from an honestly empty one:

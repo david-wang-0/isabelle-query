@@ -7,78 +7,86 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[bare-provenance]` Split `n_bare` by *why* a goal step has no
-      proposition.  It pools two unrelated things — **bare by construction**
-      (`show ?thesis`, `also`, `case`, `interpret`) and **the scanner found
-      none** — and that pooling is what hid issue #9(b) for as long as it did:
-      a wrapped statement was booked as bare, where nobody would look for a
-      scanner fault.  Suggested by the issue itself (its item 3, marked
-      optional) and left out of the fix because it changes the emitted record,
-      not just the numbers in it.  Two consequences worth having: a rise in
-      `n_bare` becomes interpretable as a fact about writing style rather than
-      possibly about the scanner, and the residue the narrow (b) rule leaves —
-      `obtain x where` on its own line, which is still booked bare — becomes
-      *countable* instead of invisible, which is the prerequisite for deciding
-      whether to widen the lookahead.  Land it as a new field, not a
-      redefinition of `n_bare`, so stored census rows stay comparable.
+- [ ] `[markup-step-model]` Resolve ONE discrepancy, then stop.  On
+      `DitherTM`, `PIDE/markup` decodes to 87 `command_span`s each carrying
+      the keyword, Isabelle's own **kind** (`thy_goal_stmt` / `qed` /
+      `prf_script` / `prf_decl`) and an exact extent — and `query` sees **38
+      steps where Isabelle marks 41 proof commands**.  Every `shape` metric
+      rests on the step model, and `shape` numbers are research output, so
+      three unexplained steps are worth an afternoon.
+      `scripts/probe_pide_markup.py` already decodes the markup; the work is
+      "explain the three".
+      **Deliberately NOT a fixture corpus.**  This replaces the former
+      `[markup-oracle]`, which specced a committed, digest-gated,
+      release-pinned harvest of `(source, answer)` pairs.  The precedent says
+      that is the wrong half: `[export-oracle]` used Isabelle ground truth as
+      a **one-time discovery instrument**, shipped eight commits under
+      `[declared-names]` (713 unindexed names, 40,741 cited occurrences), and
+      was then RETIRED — `git log --grep='\[declared-names\]'`.  Nothing
+      standing was kept and nothing needs maintaining.  As `probe(#8)` put it:
+      once the oracle says WHAT to look for, the measurement is ordinary
+      source scanning at full corpus scale, on a machine with no Isabelle.
+      So if this finds a defect: fix it, pin it with a **hand-written**
+      fixture (per `CLAUDE.md` — hand-compute the value, then make the code
+      match), cite the markup finding in the commit message, and let the probe
+      go.  No heap dependency enters `pytest`.
 
-- [ ] `[count-mode-zero]` `-c` / `--count` prints a sentence, not a count,
-      when nothing matches: `find zzz -c` says `No entries matching 'zzz'.`
-      where a count mode should say `0`.  The sentence is emitted by
-      `render._emit_matches`'s empty guard, which runs *before* the mode
-      dispatch, so every verb funnelling through it (`find`, `show`) is
-      affected.  Small, but it is the difference between `$(query find X -c)`
-      being arithmetic and being a parse error — and the empty case is the
-      one a script most wants to branch on.  Check the other count paths at
-      the same time (`refs`, `callers`, `callees`, `methods`) rather than
-      fixing one: whether they agree is not currently pinned anywhere.
+- [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
+      by a newline.  Isabelle's `comment_prefix` allows any blanks between the
+      marker and the cartouche it owns, newlines included, so
 
-- [ ] `[disambig-names]` AFP-scale output qualifies theory names by the
-      **minimal distinguishing path**.  `query largest` (and any verb that
-      prints a bare theory name) currently strips both `.thy` and the
-      dirname, so across the AFP's thousands of theories the result is a
-      wall of unqualified `Bla` / `Foo` — collisions with no way to tell
-      `ae/Bla` from `ar/Bla`.  Show just enough *leading* path to make each
-      printed name unique within the result set — `ae/Bla`, `ar/Foo` — but
-      not the shared root prefix (`t/ae/Bla`).  Compute the shortest path
-      suffix unique among the names actually shown, so a single-session run
-      stays bare `Bla` and only genuine collisions grow a prefix.  Lands on
-      `largest` first.  Deeper than cosmetics: it is a prerequisite for the
-      `theory:line` **round-trip** convention (see `[locus-roundtrip]`) — a
-      bare `Bla:11` locus is unresolvable when two `Bla`s exist, so the
-      emitter must qualify the name far enough for the resolver to round it
-      back to one theory.
+          shows \<open>\<exists> k. u k = \<emptyset>\<close>
+          \<comment>
+          \<open>
+            This lemma could easily be generalized ...
+          \<close>
 
-- [ ] `[markup-oracle]` Ground truth for **spans and the step model**, from
-      `PIDE/markup` in a built session database.  The #8 entity export gives
-      names and a *name* position (`offset..end_offset` brackets the name, not
-      the declaration), so declaration extents, command segmentation and
-      comment regions — what `parsing.scan_regions` actually computes, and
-      what `enclosing`/`outline`/`largest` and every `shape` metric rest on —
-      have no oracle at all.  `PIDE/markup` is the theory text with Isabelle's
-      markup interleaved: on `DitherTM` it decodes to 87 `command_span`s, each
-      carrying the keyword, Isabelle's own **kind** and an exact extent
-      (`definition 66..68`, `lemma 74..74`, `by 75..75`).  The kind field
-      (`thy_goal_stmt` / `qed` / `prf_script` / `prf_decl`) is Isabelle's own
-      version of the goal / closing / plumbing split `shape` builds by hand —
-      on that theory `query` sees 38 steps where Isabelle marks 41 proof
-      commands, which is a checkable discrepancy nothing currently checks.
-      `scripts/probe_pide_markup.py` already decodes it.
-      **Build it as a fixture generator, not a reference.**  A heap is a
-      snapshot; comparing today's parse against it live would ossify, and the
-      only cure for a stale reference is a rebuild — the one thing this tool
-      must never do.  `isabelle_sources` carries a plain SHA-1 digest and the
-      compressed body of every source consumed, so (a) staleness is *decided*
-      — gate every comparison on the digest and skip a moved theory with a
-      reason, never as a disagreement — and (b) the snapshot contains its own
-      inputs, so a `(source, answer)` pair harvested from it stays
-      self-consistent forever and replays with **no Isabelle installed**.
-      That is what gets these checks into `pytest` instead of a heap-dependent
-      `make` target, and it is why building more heaps is worth it: the cost
-      is paid once and the artifact is permanent.  Two constraints when
-      harvesting: commit minimal extracted snippets, not whole AFP files
-      (licensing and size), and record the Isabelle release in the fixture,
-      since it pins that release's semantics.
+      is ONE formal comment.  `_MARKER_OPEN_RE` matches marker-plus-cartouche
+      as a single token within a line, so the scanner sees a bare `\<comment>`
+      and then a separate LIVE cartouche, and charges all the prose to the
+      statement above it (`decl_end_line` 67 where the declaration ends at 62).
+      D5 in the Scala port's `dev/DIVERGENCES.md`.
+      **MEASURED, and the measurement says do not do it.**
+      `scripts/probe_comment_split_scale.py`, counting the scanner's own
+      failure (a marker still live in `live_source()` whose cartouche opens
+      below) rather than a text pattern that guesses at the same shape:
+
+          AFP           9,910 theories   1 site
+          HOL/FOL/ZF    1,604 theories   0 sites
+
+      **One occurrence in 11,514 theories** — Substitutions_Lambda_Free:63..67,
+      costing 4 prose lines wrongly live, 9 tokens in them that name a real
+      declaration, and one entry's `decl_end_line`.  The fix is a change to
+      the tokenizer state machine, the highest-risk code in the package, to
+      carry a pending marker across a line boundary.  That trade is not worth
+      taking for one record: leave it unless a cheap route appears that does
+      not touch `_scan_nonisar_spans`' state.  Kept on the list as a *measured*
+      decision rather than deleted, so it is not re-litigated from the shape.
+
+- [ ] `[decl-body-blank]` The residual 5 of `[decl-body-comment]`: a BLANK
+      line before the note breaks the body scan before the note is reached.
+
+          definition                                   HOL/UNITY/WFair.thy:35
+                                        <- blank; the scan ends here
+            \<comment> \<open>This definition specifies conditional fairness. ...\<close>
+            transient :: "'a set => 'a program set" where
+
+      so `transient` is still `src 35..43, body 35..35`.
+      **Cost: 5 records** — 4 HOL (`WFair:35`, `Inc:14`, `DBuffer:11`,
+      `Complex_Types:111`), 1 ZF (`GenPrefix:25`), 0 AFP.  Down from 50;
+      the other 45 shipped as `[decl-body-comment]`.
+      **The obvious fix was implemented, measured and REJECTED** — do not
+      re-derive it.  "A blank cannot end what has not started" (skip the
+      blank-line break while `body` is still empty) repairs all five and reads
+      principled.  It also takes corpus-wide containment violations
+      (`body_end > thy_end`, a body overlapping the NEXT declaration) from
+      **82 to 719**, and the whole-AFP diff from 706 records to 1,799.  Any
+      future attempt must report that containment number, not just the diff
+      count: `scripts/probe_span_diff.py` prints both.
+      Pinned as `expectedFailure` in
+      `tests/test_decl_body_comment.py::TheBlankLineVariantIsStillOpen`, so a
+      real fix reports an unexpected success rather than going unnoticed.
+      Low priority at 5 records: filed so the rejection is not re-litigated.
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
@@ -92,6 +100,58 @@ in `CONTRIBUTING.md`.
         is additive (live source *plus* comments); there's no way to see
         *only* the cartouche prose, which is what a PDF-commentary reader
         wants.
+
+- [ ] `[keyword-scope]` The custom-command table is unioned over the whole
+      ROOT, which is right for a session and too coarse for a corpus.  Both
+      implementations mirror Isabelle's session-wide `Keywords.++`, but with
+      the AFP `thys` directory as one root that puts Optics' `alphabet` in
+      scope for Formula_Derivatives, whose `sublocale DA < DAs` /
+      `alphabet init delta ...` continuation line then reads as a
+      declaration.  16 records over 4 entries (Formula_Derivatives,
+      MSO_Regex_Equivalence, UTP, Circus), and only when the whole AFP is
+      passed as ONE root — each of the four is clean read as its own root.
+      Fixing it means scoping the table per session, which changes the parse
+      of every custom-command entry, so it belongs with the session model.
+      Newly visible rather than newly introduced: before `[keyword-kind-quoted]`
+      the quoted-kind bug kept `alphabet` out of the table and hid it.
+      A second instance found while measuring [marker-decl]:
+      `Isabelle_C/C_Appendices:831` mints a phantom `DEF` whose name is read
+      out of a `text` block's prose, because Isabelle_C's `C_export_file` is in
+      scope for a theory that never imports it.  Same shape, different session,
+      and it shows the cost is not confined to one continuation-line accident.
+      D4 in the Scala port's `dev/DIVERGENCES.md`.
+      Sibling observation, same shape, deliberately not filed separately
+      (D11): the method/attribute table is resolved from whichever declared
+      sessions happen to have a BUILT HEAP, so `callers` can answer
+      differently on two machines reading identical sources — heap union, the
+      committed census union, or the Pure floor, three tables and three
+      answers.  It is documented behaviour rather than a defect (CLAUDE.md
+      says so), and it does not reproduce here — this machine has no AFP heaps,
+      so the default and `ISABELLE_QUERY_NAMESPACE=committed` both answer 1261
+      for `callers mono -c`.  Worth knowing before any measurement is quoted
+      across machines.
+
+- [ ] `[axiom-untyped]` An `axiomatization` constant with NO type ascription is
+      not indexed.
+
+          axiomatization glob_one and glob_inv     -- FOL/ex/.../Locale_Test1:722
+            where glob_lone: \<open>prod(glob_one, x) = x\<close>
+
+      indexes `glob_lone` (the axiom) but neither constant.  `_AXIOM_NAME_RE`
+      is `([A-Za-z_][A-Za-z0-9_']*)\s*:` — it requires a colon, which is why a
+      TYPED constant matches (`f :` out of `f :: "nat"`) and an untyped one
+      never does.  The split is the type annotation, not the `and`.
+      **Cost: 1 command, corpus-wide.**  Measured over the AFP, FOL, ZF and
+      HOL/: exactly the one case above, and zero elsewhere.  That is the whole
+      argument for leaving it: the colon is what stops the scan matching
+      `where`, `and`, and any word in a proposition, and relaxing it to catch
+      one declaration risks the over-match it was written to prevent.
+      What would make it worth doing is a narrower rule rather than a looser
+      one — before `where`, on the command's own lines, a bare `NAME (and
+      NAME)*` list IS a constant list — which is a small grammar of its own,
+      not a regex tweak.  Split out of `[axiom-names]`, whose other half
+      shipped; the two turned out not to share a scan after all (the phantom
+      was an unconditional placeholder, not a missing lookahead).
 
 - [ ] `[grep-plain]` Optional `--plain`/`--raw` override on `grep`:
       force plain line-grep (no entry/comment parsing) instead of the
@@ -174,6 +234,15 @@ in `CONTRIBUTING.md`.
 
 These are recorded in `dev/P7-STATUS.md` and `dev/P7C-STATUS.md` with their
 evidence; the entries here are the handles.
+
+**Not listed here, and not forgotten:** `[bare-provenance]`,
+`[count-mode-zero]` and `[disambig-names]` shipped upstream in 0.8.0, so they
+left this list with the merge — but the Scala engine does not have them yet.
+They are being ported under `dev/P9-PLAN.md`, S4 and S1 respectively, and that
+plan is where their state lives until it closes. Nothing above them in this
+file is a Scala-side statement either: the items in the first section describe
+the frozen Python reference, and several (`[keyword-scope]` = D4,
+`[comment-newline]` = D5) are the same defect on both sides.
 
 - [ ] `[namespace-by-value]` Thread the method/attribute table through as a
       **value** instead of binding `isabelle.query.Namespace`'s process-global
