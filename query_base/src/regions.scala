@@ -5,26 +5,38 @@ outer-syntax lexer.
 
 `Token.explode` already knows everything a region scan needs — that `(* *)`
 comments nest, that a `(*` inside a `"..."` term is multiplication and opens
-nothing, that a cartouche is ONE token however deeply it nests, that
-`\<comment> \<open>...\<close>` and `\<^cancel>\<open>...\<close>` are formal
-comments — so this module classifies tokens rather than re-deriving the lexical
-grammar.  The classification is the only judgement left:
+nothing, that a cartouche is ONE token however deeply it nests, that all four
+of `\<comment>`, `\<^cancel>`, `\<^latex>` and `\<^marker>` plus the cartouche
+each owns are formal comments — so this module classifies tokens rather than
+re-deriving the lexical grammar.  The classification is the only judgement
+left:
 
   live    ordinary outer syntax, and the terms inside it.
   inner   not a place a COMMAND can start: strings, cartouches, control
           cartouches — kept in `live_source`, blanked in `outer_source`.
-  noise   not live Isar text at all: comments, cancelled regions, marginal
-          notes, ML bodies — blanked in both views.
+  noise   not live Isar text at all: comments, cancelled regions, formal
+          comments of every spelling, ML bodies — blanked in both views.
 
-Two judgements are not the lexer's to make, and both are decided by the
-COMMAND in front of the token, exactly as `text` prose is:
+**All four formal comments are noise, and none of them is a term.**  The
+earlier reading was that `\<^latex>` and `\<^marker>` bodies are still
+*document* text rather than *deleted* text, so they should redact like a term
+(inner) rather than like a comment (noise).  That confuses what the body says
+with where it stands: none of the four is live Isar, Isabelle's lexer skips
+all four wherever a token may appear, and a consumer reading `live_source`
+is asking what the theory ASSERTS — to which a document tag contributes
+nothing.  Keeping two of them live meant `grep important` reported seven live
+matches in `\<^marker>\<open>tag important\<close>` bodies, `callers` counted a
+document tag as a citation, and every line-granular rule built on
+`nonisar_ranges` — the pre-name lookahead, the declaration-body scan — could
+not see that a `\<^marker>` line holds nothing.  One list, `redacting_markers`,
+and the name grammar in `entries` reads the same four from
+`annotation_markers`, so the two views cannot disagree about what a marker is.
 
-  * a cartouche is an ML body when its command is one (`ML`, `method_setup`,
-    …).  ML has its own namespace, so an identifier there cites no Isabelle
-    fact — and an ML `fun` is not an Isabelle `fun`.
-  * `\<^latex>` and `\<^marker>` are formal comments to the lexer but their
-    bodies are still document text rather than deleted text, so they redact
-    like a term (inner) rather than like a comment (noise).
+One judgement is genuinely not the lexer's to make, and it is decided by the
+COMMAND in front of the token, exactly as `text` prose is: a cartouche is an
+ML body when its command is one (`ML`, `method_setup`, …).  ML has its own
+namespace, so an identifier there cites no Isabelle fact — and an ML `fun` is
+not an Isabelle `fun`.
 
 Isabelle's inner syntax takes cartouche comments too, so a
 `\<comment> \<open>round 1\<close>` written INSIDE a multi-line term is prose
@@ -85,14 +97,24 @@ object Regions {
   private val cart_close: List[String] = List("\\<close>", Symbol.close_decoded)
 
   private val note_markers: List[String] = List(Symbol.comment, Symbol.comment_decoded)
+
+  /* Isabelle's FOUR formal comments — a marginal note, deleted text, raw LaTeX
+     and a document-build marker — each of which OWNS the cartouche after it.
+     Listed once and used three times: the classification below, the recovery
+     scan inside a delimited token, and (via `Entries.annotation_markers`, the
+     same four) the name grammar.  A marker missing from one of the three is a
+     view that disagrees with the others about what a marker is. */
   private val redacting_markers: List[String] =
-    note_markers ::: List(Symbol.cancel, Symbol.cancel_decoded)
+    (note_markers ::: List(Symbol.cancel, Symbol.cancel_decoded,
+      Symbol.latex, Symbol.latex_decoded, Symbol.marker, Symbol.marker_decoded)).distinct
 
   /* A marker plus the cartouche it owns, matched as one token — the same
-     shape, and the same same-line rule, the lexer applies at outer level. */
+     shape, and the same same-line rule, the lexer applies at outer level.
+     Built from the list above rather than respelled: a marker this pattern
+     does not know about is never recovered inside a term, silently. */
   private val MARKER_OPEN =
-    Py.compile("""\\<(?:\^cancel|comment)>[ \t]*(?:\\<open>|""" +
-      Pattern.quote(Symbol.open_decoded) + ")")
+    Py.compile("(?:" + redacting_markers.map(Pattern.quote).mkString("|") + ")[ \\t]*(?:" +
+      cart_open.map(Pattern.quote).mkString("|") + ")")
 
   private def starts_with_any(s: String, prefixes: List[String]): Boolean =
     prefixes.exists(s.startsWith)

@@ -509,6 +509,82 @@ expect "but a line inside the command still resolves to the anchor" 0 \
 
 # ==========================================================================
 echo
+echo "5. all FOUR formal comments redact in the live view"
+# ==========================================================================
+#
+# The rule: Isabelle has four formal comments -- `\<comment>` (a marginal
+# note), `\<^cancel>` (deleted text), `\<^latex>` (raw LaTeX) and `\<^marker>`
+# (a document-build tag) -- each owning the cartouche after it, and the lexer
+# skips all four wherever a token may appear.  None of them is live Isar, so
+# all four are NOISE: blanked in `live_source` as well as in `outer_source`.
+#
+# Two of them used to be kept live, on the reading that a LaTeX body or a
+# document tag is still document text rather than deleted text.  That confuses
+# what the body says with where it stands: `grep` then reports a document tag
+# as live source, `callers` counts it as a citation, and every line-granular
+# rule built on `nonisar_ranges` cannot see that a `\<^marker>` line holds
+# nothing -- which is what §9 and §10 need it to see.
+#
+# One theory, one word (`widget`), written once in each of the four comment
+# spellings and once for real.  Hand-computed: exactly ONE live match -- the
+# definition on line 16 -- and four in comments/text, one per spelling.
+
+mkdir -p "$PARSE/redact" || exit 2
+cat >"$PARSE/redact/Redact.thy" <<'THY'
+theory Redact
+imports Main
+begin
+
+lemma a1: "True" \<comment> \<open>the note mentions widget\<close>
+  by simp
+
+lemma a2: "True" \<^cancel>\<open>lemma ghost: "widget"\<close>
+  by simp
+
+lemma\<^marker>\<open>tag widget\<close> a3: "True" by simp
+
+lemma a4: "True" \<^latex>\<open>\emph{widget}\<close>
+  by simp
+
+definition widget :: "bool" where "widget = True"
+
+end
+THY
+
+ROOT_DIR="$PARSE/redact"
+
+expect "only the real definition is a LIVE match" 0 \
+  "$(printf "1 live match(es) for 'widget':\n\n  Redact.thy:16  widget (DEF)\n    definition widget :: \"bool\" where \"widget = True\"")" \
+  "" grep widget
+
+# The other four are found, and every one of them is classified as comment/text
+# -- so the classification moved, not the search.  The owner column is the
+# enclosing lemma in each case, which is what makes the four lines visible at
+# all.
+expect "and the other four are all comment/text, one per spelling" 0 \
+  "$(cat <<'EXPECT'
+5 match(es) for 'widget' (1 live, 4 in comments/text):
+
+  Redact.thy:5   a1 (LEMMA)  [in comment/text]
+    lemma a1: "True" \<comment> \<open>the note mentions widget\<close>
+  Redact.thy:8   a2 (LEMMA)  [in comment/text]
+    lemma a2: "True" \<^cancel>\<open>lemma ghost: "widget"\<close>
+  Redact.thy:11  a3 (LEMMA)  [in comment/text]
+    lemma\<^marker>\<open>tag widget\<close> a3: "True" by simp
+  Redact.thy:13  a4 (LEMMA)  [in comment/text]
+    lemma a4: "True" \<^latex>\<open>\emph{widget}\<close>
+  Redact.thy:16  widget (DEF)
+    definition widget :: "bool" where "widget = True"
+EXPECT
+)" "" grep widget --with-comments
+
+# The citation consequence, and the reason this is a prerequisite rather than a
+# cosmetic fix: a name written in a document tag is not a use of that name.
+# `widget` is declared here, so a stray edge would be a real one in the graph.
+expect "a name inside a formal comment cites nothing" 0 "0" "" callers widget -c
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #
