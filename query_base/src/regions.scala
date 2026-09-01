@@ -280,6 +280,20 @@ object Regions {
       try Token.explode(keywords, text)
       catch { case ERROR(_) => Nil }
 
+    /* A formal comment whose cartouche never closes.  The lexer cannot pair
+       them — `\<comment> \<open>...` with no `\<close>` comes back as a
+       SYM_IDENT, a space and a `bad input` token rather than one
+       FORMAL_COMMENT — so the pairing is made here, over the same
+       marker-then-cartouche shape and the same same-line rule the lexer
+       applies when it succeeds.  Without it the recovered cartouche is read as
+       a TERM, which leaves the rest of the file live: an unterminated note
+       before a declaration's name then hands `lookahead_name` its prose, and
+       the guard that bounds that walk cannot fire on lines it thinks are
+       source.  A marker NOT followed by a cartouche is left exactly as the
+       lexer classified it, which costs nothing — it is live either way. */
+    var pending = -1        // offset of a bare marker awaiting its cartouche
+    var pending_note = false
+
     var offset = 0
     for (tok <- tokens) {
       val len = tok.source.length
@@ -288,7 +302,18 @@ object Regions {
         val stop = offset + len
         val line = line_of(start)
         val col = start - line_starts(line)
-        classify(tok, lines, line, col) match {
+        val paired =
+          pending >= 0 && tok.kind == Token.Kind.ERROR && starts_with_any(tok.source, cart_open)
+        if (paired) {
+          add(nonisar, pending, stop)
+          add(inner, pending, stop)
+          mark_open(pending, stop)
+          if (pending_note) {
+            val ln = line_of(pending)
+            notes(ln) += (pending - line_starts(ln))
+          }
+        }
+        else classify(tok, lines, line, col) match {
           case NOISE =>
             add(nonisar, start, stop)
             add(inner, start, stop)
@@ -300,6 +325,13 @@ object Regions {
             scan_nested(tok.source, start, stop)
           case _ =>
         }
+        if (redacting_markers.contains(tok.source)) {
+          pending = start
+          pending_note = note_markers.contains(tok.source)
+        }
+        /* Only horizontal space may stand between a marker and its cartouche,
+           as `MARKER_OPEN` says at outer level. */
+        else if (!(tok.is_space && !tok.source.contains('\n'))) pending = -1
       }
       offset += len
     }

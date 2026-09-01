@@ -438,6 +438,22 @@ expect_dump() {
   fi
 }
 
+# expect_names NAME DIR EXPECTED -- the same, without the span/binding columns,
+# for an item whose whole effect is on the NAME.  Written as a separate
+# assertion rather than a wider one so that "the name is right" and "the extent
+# is right" stay separate findings.
+expect_names() {
+  local name=$1 dir=$2 want=$3
+  local got
+  got=$(isabelle query dump-entries "$dir" 2>"$OUT/e.txt")
+  if [ "$got" = "$want" ]; then
+    note "$name" "$(printf '%s\n' "$got" | grep -c .) records"
+  else
+    bad "$name" \
+      "$(diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | tr '\n' '~')"
+  fi
+}
+
 # ==========================================================================
 echo
 echo "4. [axiom-names] -- the axiomatization anchor is '?', not a fact name"
@@ -1014,6 +1030,131 @@ lemma commented_decl: "True"
   [+6 more proof lines]
 EXPECT
 )" "" show commented_decl
+
+# ==========================================================================
+echo
+echo "10. [comment-before-name] -- a comment between a keyword and its name"
+# ==========================================================================
+#
+# The rule: a decl keyword may stand alone with its name on a following line,
+# and a formal comment routinely sits between the two.  The forward scan tested
+# the RAW line for a leading `\<comment>`, which recognises only the comment's
+# FIRST line and only one of the four spellings.  A comment that WRAPPED left
+# its continuation looking like content, and the name was read out of the
+# prose: `HOL/UNITY/WFair:35` indexed `is`, out of "the rest IS generic to all
+# forms of fairness", and never indexed `transient` at all.  ZF recovers 49
+# names this way, HOL/UNITY 20, HOL/Bali `TypeRel:368` `i` -> `widen`.
+#
+# So the scan asks the LIVE view instead: a line that is non-blank in the
+# source and blank in `live` is a redaction, whichever of the four spellings
+# (or a `(* ... *)`) produced it.  And a redacted line does not spend the
+# 3-line budget -- a formal comment is ONE token to Isabelle's lexer however
+# far it wraps, so charging per line makes the guard fire on well-formed
+# source.  Blank and `text` lines still spend it, and a 40-line cap stops the
+# walk outright.
+#
+# Ten shapes, `transient1`..`transient9` and one guard.  This is a NAMES check:
+# nothing here moves a span (the two that look as if they do are §11's).
+
+mkdir -p "$PARSE/prename" || exit 2
+cat >"$PARSE/prename/Pre.thy" <<'THY'
+theory Pre
+imports Main
+begin
+
+definition
+  transient1 :: "nat set" where "transient1 = {}"
+
+definition \<comment> \<open>Generic to all forms.\<close>
+  transient2 :: "nat set" where "transient2 = {}"
+
+definition
+  \<comment> \<open>Generic to all forms.\<close>
+  transient3 :: "nat set" where "transient3 = {}"
+
+definition
+  \<comment> \<open>This specifies conditional fairness.  The rest
+      is generic to all forms of fairness.\<close>
+  transient4 :: "nat set" where "transient4 = {}"
+
+definition
+  \<^marker>\<open>tag important\<close>
+  transient5 :: "nat set" where "transient5 = {}"
+
+definition
+  \<^marker>\<open>tag important
+      and more\<close>
+  transient6 :: "nat set" where "transient6 = {}"
+
+definition
+  (* Adjustment to a clock *)
+  transient7 :: "nat set" where "transient7 = {}"
+
+definition
+
+  \<comment> \<open>Specifies conditional fairness.\<close>
+  transient8 :: "nat set"
+  where "transient8 = {}"
+
+definition
+
+
+
+
+  transient9 :: "nat set" where "transient9 = {}"
+
+definition
+  \<comment> \<open>this cartouche never closes
+  filler line 0
+  filler line 1
+  filler line 2
+  filler line 3
+  filler line 4
+  filler line 5
+
+end
+THY
+
+# Hand-computed, one line per shape.
+#
+#   5  keyword alone, name next line                     -- unchanged
+#   8  `\<comment>` on the KEYWORD line                   -- unchanged
+#  11  `\<comment>` alone on one line                     -- unchanged
+#  15  a WRAPPED `\<comment>` (the WFair shape)           -- was `is`
+#  20  `\<^marker>` alone on its line                     -- was `?`
+#  24  a wrapped `\<^marker>`                             -- was `?`
+#  29  a `(* ... *)` line                                 -- was `?`
+#  33  blank, then a note, then the name                  -- unchanged
+#  39  FOUR blank lines then the name: blanks still spend the budget, so `?`
+#  46  an unterminated comment then six lines of prose: the 40-line cap and
+#      the redaction between them must leave `?`, not a name invented out of
+#      `filler line 0`
+PRENAME_WANT=$(cat <<'EXPECT'
+Pre:5:DEF:transient1
+Pre:8:DEF:transient2
+Pre:11:DEF:transient3
+Pre:15:DEF:transient4
+Pre:20:DEF:transient5
+Pre:24:DEF:transient6
+Pre:29:DEF:transient7
+Pre:33:DEF:transient8
+Pre:39:DEF:?
+Pre:46:DEF:?
+EXPECT
+)
+
+expect_names "a comment before the name is skipped, not read" \
+  "$PARSE/prename" "$PRENAME_WANT"
+
+ROOT_DIR="$PARSE/prename"
+
+# The two guards, stated as the questions a user would ask.  Neither `is` nor
+# `filler` is a declaration here, and both were.
+expect "no name is read out of a wrapped comment's prose" 0 "0" "" find '^is$' -c
+expect "and none out of an unterminated one's" 0 "0" "" find 'filler' -c
+# The counterweight: the eight real names ARE found, so the two zeros above
+# are not a scan that stopped early.
+expect "the eight real names are all there" 0 "8" "" find '^transient[1-8]$' -c
 
 # ==========================================================================
 echo

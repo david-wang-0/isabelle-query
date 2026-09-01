@@ -466,18 +466,54 @@ object Entries {
 
   /* A decl keyword may stand alone with the name on a following line.  Bound
      the forward scan so a truncated file cannot run on looking for a name that
-     is not there. */
+     is not there.  Counted over BLANK and `text` lines only: a formal comment
+     is one lexer token however far it wraps, so it is skipped without
+     charge. */
   private val NAME_LOOKAHEAD_LINES = 3
 
+  /* Absolute cap on the walk, so "skipped without charge" still cannot run
+     away on a file whose comment never closes.  Generous against real source:
+     the longest pre-name comment measured over the AFP and the distribution is
+     4 lines. */
+  private val NAME_SCAN_LINES = 40
+
+  /* The name for a decl whose keyword stood alone: scan forward from the
+     0-indexed line `start`, skipping blank / formal-comment / `text` lines,
+     and parse the name from the FIRST CONTENT LINE.
+
+     `live` is the redacted view, and asking it is what makes a MULTI-LINE
+     formal comment work.  Testing the raw text for a leading `\<comment>`
+     recognises only the comment's FIRST line, so a comment that wraps left its
+     continuation looking like content and the name was read out of the prose:
+     `HOL/UNITY/WFair:35` indexed `is`, out of "the rest IS generic to all
+     forms of fairness", and never indexed `transient` at all.  It also caught
+     only one of the four spellings, so a `\<^marker>` on its own line — which
+     HOL/Analysis writes on hundreds of declarations — yielded `?`.  The region
+     scan already knows all four, and a `(* ... *)` besides: every such line is
+     blank in `live`.
+
+     A redacted line does not spend the budget.  That bound exists so a
+     truncated file cannot run on looking for a name that is not there, and a
+     formal comment is ONE token to Isabelle's lexer however many lines it
+     spans — its own cartouche bounds it — so charging per line would make the
+     guard fire on well-formed source.  Blank and `text` lines still spend it,
+     and `NAME_SCAN_LINES` caps the walk outright. */
   def lookahead_name(lines: Array[String], start: Int, table: Map[String, String],
-    parse_fn: String => String, outer: Array[String]
+    parse_fn: String => String, outer: Array[String], live: Array[String]
   ): String = {
-    val end = lines.length min (start + NAME_LOOKAHEAD_LINES)
+    val limit = lines.length min (start + NAME_SCAN_LINES)
+    var budget = NAME_LOOKAHEAD_LINES
     var j = start
-    while (j < end) {
+    while (j < limit && budget > 0) {
       val stripped = Py.strip(lines(j))
-      if (stripped.isEmpty || stripped.startsWith(MARGINAL) ||
-          Py.matches_start(TEXT_OPEN_RE, lines(j))) j += 1
+      /* Blank in `live` but not in the source == the region scan redacted it.
+         A genuinely empty line is not "redacted". */
+      val redacted = stripped.nonEmpty && live != null && Py.strip(live(j)).isEmpty
+      if (stripped.isEmpty || redacted || stripped.startsWith(MARGINAL) ||
+          Py.matches_start(TEXT_OPEN_RE, lines(j))) {
+        if (!redacted) budget -= 1
+        j += 1
+      }
       else {
         val probe = if (outer != null) outer(j) else lines(j)
         return if (match_decl_at(probe, table)._1.isDefined) "?" else parse_fn(stripped)
@@ -1194,7 +1230,7 @@ object Entries {
           val rest = TRAILING_WHERE_RE.matcher(rest0).replaceAll("")
           var name = parse_typedecl_name(rest)
           if (name == "?" && strip_decl_prefix(rest, typevars = true).isEmpty)
-            name = lookahead_name(lines, i + 1, table, parse_typedecl_name, outer)
+            name = lookahead_name(lines, i + 1, table, parse_typedecl_name, outer, live)
           val (ni, decl_end_line, body) =
             scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
           i = ni
@@ -1256,7 +1292,7 @@ object Entries {
             if (keyword == "definition" || keyword == "abbreviation") parse_def_name else parse_name
           var name = parse_fn(rest)
           if (name == "?" && strip_decl_prefix(rest, typevars = false).isEmpty)
-            name = lookahead_name(lines, i + 1, table, parse_fn, outer)
+            name = lookahead_name(lines, i + 1, table, parse_fn, outer, live)
           val (ni, decl_end_line, body) =
             scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
           i = ni
