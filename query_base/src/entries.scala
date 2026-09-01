@@ -1058,7 +1058,7 @@ object Entries {
           val (ni, decl_end_line, body) =
             scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line)
           i = ni
-          val e = Entry(tag, name, rest,
+          val e = Entry(tag, name, (s"$tag $rest" :: body).mkString("\n"),
             thy_line = decl_line, decl_end_line = decl_end_line)
           e.bindings = locale_facts(outer, decl_line, decl_end_line, name)
           entries += e
@@ -1072,7 +1072,7 @@ object Entries {
           val (ni, decl_end_line, body) =
             scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
           i = ni
-          val e = Entry(tag, name, rest,
+          val e = Entry(tag, name, (s"$tag $rest" :: body).mkString("\n"),
             thy_line = decl_line, decl_end_line = decl_end_line)
           e.bindings =
             if (tag == "DATATYPE") constructors(outer, decl_line, decl_end_line, name)
@@ -1082,7 +1082,7 @@ object Entries {
         }
         else if (route == "axiom") {
           entries += Entry("AXIOM", "axiomatization", "AXIOMATIZATION",
-            thy_line = decl_line, verbatim = true, decl_end_line = decl_line)
+            thy_line = decl_line, decl_end_line = decl_line)
           /* The command line itself may already carry the first name —
              `axiomatization where process_finite:` — so read its remainder
              before stepping below it. */
@@ -1091,7 +1091,7 @@ object Entries {
           for (head_name <- head_names) {
             entries += Entry("AXIOM", head_name,
               "  AXIOM " + Py.strip(line.substring(keyword.length min line.length)),
-              thy_line = decl_line, verbatim = true, decl_end_line = decl_line)
+              thy_line = decl_line, decl_end_line = decl_line)
           }
           i += 1
           var go = true
@@ -1100,7 +1100,7 @@ object Entries {
             if (found.nonEmpty) {
               for (name <- found) {
                 entries += Entry("AXIOM", name, "  AXIOM " + Py.strip(lines(i)),
-                  thy_line = i + 1, verbatim = true, decl_end_line = i + 1)
+                  thy_line = i + 1, decl_end_line = i + 1)
               }
               i += 1
             }
@@ -1124,7 +1124,7 @@ object Entries {
           val (ni, decl_end_line, body) =
             scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
           i = ni
-          val e = Entry(tag, name, rest,
+          val e = Entry(tag, name, (s"$tag $rest" :: body).mkString("\n"),
             thy_line = decl_line, decl_end_line = decl_end_line)
           e.bindings =
             and_siblings(outer, decl_line, decl_end_line, name, tag).map(s => (s, "sibling")) :::
@@ -1201,7 +1201,7 @@ object Entries {
             }
           }
 
-          val e = Entry(tag, name, buf.mkString("\n"), thy_line = decl_line, verbatim = true,
+          val e = Entry(tag, name, buf.mkString("\n"), thy_line = decl_line,
             decl_end_line = decl_end_line, proof_line = proof_line)
           e.bindings = conjuncts.toList.map(c => (c, "conjunct"))
           entries += e
