@@ -7,35 +7,6 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[decl-body-comment]` A comment between a keyword and its name collapses
-      `body_end_line` onto the KEYWORD line, so the recorded body is one line
-      for a declaration spanning many.
-
-          definition                                 HOL/Hoare/SchorrWaite:14
-            \<comment> \<open>Relations induced by a mapping\<close>
-            rel :: "('a \<Rightarrow> 'a ref) \<Rightarrow> ('a \<times> 'a) set"
-            where "rel m = {(x,y). m x = Ref y}"
-
-      is `src 14..18, body 14..14`.  `WFair`'s `transient` is `src 14..43,
-      body 35..35` for a declaration running to 43.
-      **Cost: 50 records** over 11,514 theories — 38 HOL, 1 ZF, 11 AFP
-      (`scripts/probe_comment_split_scale.py`).  Clustered by author style
-      rather than scattered (`SchorrWaite` x4, `Comp/Alloc` x6, `Semantics`
-      x3, `BVSpec` x2), so the count tracks how many authors write this way.
-      **Why it outranks `[comment-newline]` at 50x the frequency and a
-      fraction of the risk**: `body_end_line` is documented on `Entry` as the
-      field to use for "a safe relocation cut", and it is now part of the
-      supported `api` surface — issue #10's consumer DELETES source between
-      these lines.  A cut at the collapsed value leaves the declaration body
-      behind, which is a broken theory rather than a wrong number.  The fix is
-      in the declaration body scan (`_scan_decl_body` stopping at the redacted
-      line), NOT in the tokenizer: same family as `[comment-before-name]`,
-      which was one line in `_lookahead_name`, and probably the same shape of
-      answer — ask the `live` view the tokenizer already computed instead of
-      re-testing raw text.
-      Found while fixing `[comment-before-name]`; the entry-set diff proved it
-      pre-existing (that change moved no span at all).
-
 - [ ] `[markup-step-model]` Resolve ONE discrepancy, then stop.  On
       `DitherTM`, `PIDE/markup` decodes to 87 `command_span`s each carrying
       the keyword, Isabelle's own **kind** (`thy_goal_stmt` / `qed` /
@@ -91,6 +62,31 @@ in `CONTRIBUTING.md`.
       taking for one record: leave it unless a cheap route appears that does
       not touch `_scan_nonisar_spans`' state.  Kept on the list as a *measured*
       decision rather than deleted, so it is not re-litigated from the shape.
+
+- [ ] `[decl-body-blank]` The residual 5 of `[decl-body-comment]`: a BLANK
+      line before the note breaks the body scan before the note is reached.
+
+          definition                                   HOL/UNITY/WFair.thy:35
+                                        <- blank; the scan ends here
+            \<comment> \<open>This definition specifies conditional fairness. ...\<close>
+            transient :: "'a set => 'a program set" where
+
+      so `transient` is still `src 35..43, body 35..35`.
+      **Cost: 5 records** — 4 HOL (`WFair:35`, `Inc:14`, `DBuffer:11`,
+      `Complex_Types:111`), 1 ZF (`GenPrefix:25`), 0 AFP.  Down from 50;
+      the other 45 shipped as `[decl-body-comment]`.
+      **The obvious fix was implemented, measured and REJECTED** — do not
+      re-derive it.  "A blank cannot end what has not started" (skip the
+      blank-line break while `body` is still empty) repairs all five and reads
+      principled.  It also takes corpus-wide containment violations
+      (`body_end > thy_end`, a body overlapping the NEXT declaration) from
+      **82 to 719**, and the whole-AFP diff from 706 records to 1,799.  Any
+      future attempt must report that containment number, not just the diff
+      count: `scripts/probe_span_diff.py` prints both.
+      Pinned as `expectedFailure` in
+      `tests/test_decl_body_comment.py::TheBlankLineVariantIsStillOpen`, so a
+      real fix reports an unexpected success rather than going unnoticed.
+      Low priority at 5 records: filed so the rejection is not re-litigated.
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
