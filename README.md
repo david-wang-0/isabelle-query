@@ -232,11 +232,11 @@ table and the cost breakdown are in [dev/BENCH.md](dev/BENCH.md):
 | `summary` on `src/HOL` (1451 theories) | 4863 ms | 3890 ms | **64 ms** |
 | `summary --by-session` over the whole AFP | 37.4 s | 19.0 s | **0.28 s** |
 
-The index costs about **190 bytes per source line** of retained heap — roughly
-four times the source it indexes: 154 MB for `src/HOL`'s 34 MB, 1.2 GB for the
-AFP's 281 MB. Process RSS runs much higher (~4.5 GB with the AFP loaded)
-because the collector keeps what it has committed, so size a host by that
-rather than by the index.
+The index costs about **110 bytes per source line** of retained heap — 84 MB for
+`src/HOL`, 664 MB for the whole AFP. Process RSS runs much higher (~4.4 GB with
+the AFP loaded) because the collector keeps what it has committed and the peak
+is set by the parse, not by what is retained, so **size a host by RSS** — the
+index being smaller buys headroom for more of them, not a smaller process.
 `$ISABELLE_QUERY_SERVER_LIMIT` (default 4000 theories) **refuses rather than
 truncates**, so a stray `-R` at a whole checkout cannot quietly turn the server
 into a multi-gigabyte process.

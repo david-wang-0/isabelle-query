@@ -299,10 +299,12 @@ forcing a GC (`jcmd GC.run`, then `GC.heap_info`):
 
 | corpus | theories | entries | retained heap |
 |---|---:|---:|---:|
-| `Category3` | 28 | 1,636 | under 1 MB |
-| `src/HOL/Analysis` | 106 | 11,676 | 30 MB |
-| `src/HOL` | 1,451 | 78,279 | 154 MB |
-| the whole AFP | 10,262 | 411,181 | 1,156 MB |
+| `src/HOL` | 1,451 | 78,279 | 84 MB |
+| the whole AFP | 10,262 | 411,181 | 664 MB |
+
+Re-measured 2026-08-30 after `[index-footprint]`. The figures it replaced —
+154 MB and 1,156 MB, from the same method on 2026-08-29 — are what the index
+cost before the flat spans and the one-String-per-theory change:
 
 One index per server, so the figures are attributable rather than cumulative; an
 empty server is 100 MB of heap and 165 MB of RSS.
@@ -316,9 +318,15 @@ empty server is 100 MB of heap and 165 MB of RSS.
 | the whole AFP | 6,081,370 | 1,156 MB | 199 | 2,948 |
 
 Bytes-per-line is flat to within 12% across corpora spanning 34x; bytes-per-entry
-varies by 43% over the same three. So ~190 B/line is the number that predicts,
-and it is worth stating as a ratio: **the index is about four times the size of
-the source it indexes** (1,156 MB over 281 MB of `.thy`; 154 MB over 34 MB).
+varies by 43% over the same three. So bytes-per-line is the number that
+predicts. `[index-footprint]` took it from ~190 to ~110 — `src/HOL` 194 -> 105,
+the AFP 199 -> 114, a 43-46% reduction — leaving the index at about **twice**
+the size of the source it indexes rather than four times.
+
+**RSS barely moved: 4,532 -> 4,441 MB.** The process footprint is set by the
+transient peak during the parse, not by what survives it, and ZGC does not
+uncommit. So the win is headroom — more indexes resident per server, and room
+to raise the 4,000-theory cap — and NOT a smaller process. Size a host by RSS.
 
 Where it goes, at ~46 bytes of actual text per line: one `String` per line costs
 ~88 B once the object header, the `byte[]` and the array slot are counted; the
