@@ -204,7 +204,16 @@ object Commands {
 
   /* A theory by PATH (the token carries a separator or a `.thy` suffix) or by
      NAME (exact, then case-insensitive).  A path that matches no section falls
-     back to its stem, so `path/to/Foo.thy` still resolves to theory `Foo`. */
+     back to its stem, so `path/to/Foo.thy` still resolves to theory `Foo`.
+
+     The two forms are TRIED in that order rather than chosen between, because
+     a discovered theory NAME may itself contain a separator: a ROOT can address
+     a theory in a subdirectory by path (`theories "LK/Propositional"` — the
+     grammar has no per-theory `in` clause), and discovery carries it under that
+     spelling.  Branching on `/` alone made such a name unresolvable, so
+     `summary` printed a row, `theory`'s "Known theories" listed it, and passing
+     it back gave "not found" — the tool disagreeing with its own output, and a
+     hole in the round-trip the locus grammar rests on [name-roundtrip]. */
   def resolve_theory(sections: List[Theory_Section], name: String): Option[Theory_Section] = {
     if (name.endsWith(".thy") || name.contains("/")) {
       val target =
@@ -212,10 +221,17 @@ object Commands {
         catch { case _: Exception => None }
       val by_path =
         target.flatMap(t => sections.find(s => real(s.path) == t))
-      by_path.orElse {
-        val stem = stem_of(name)
-        sections.find(_.theory == stem)
-      }
+      by_path
+        /* Before the stem fallback: the whole argument may be a path-spelled
+           theory NAME.  Exact-first matters — with a `Propositional` section
+           also present, the stem would otherwise capture `LK/Propositional`.
+           (`[disambig-names]`'s unique-suffix step goes between this and the
+           stem, when it lands.) */
+        .orElse(sections.find(_.theory == name))
+        .orElse {
+          val stem = stem_of(name)
+          sections.find(_.theory == stem)
+        }
     }
     else
       sections.find(_.theory == name)
