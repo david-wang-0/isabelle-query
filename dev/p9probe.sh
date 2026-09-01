@@ -875,6 +875,148 @@ EXPECT
 
 # ==========================================================================
 echo
+echo "9. [proof-extent-view] -- a proof ends at a COMMAND, and a comment is not one"
+# ==========================================================================
+#
+# The rule: `proof_extent` walks down from the proof line looking for the three
+# things that end a proof -- a `text ` block, a heading, a declaration -- and
+# each of those is a COMMAND.  A line holding no live Isar text holds no
+# command, so the three tests are made only on lines outside the whole-line
+# noise mask that `nonisar_ranges` gives.  Read off the raw source instead,
+# a commented-out `lemma old_version` ended the proof above it at the comment
+# block, and `body_end` -- the documented safe relocation cut -- stopped short.
+#
+# Only the BOUNDARY tests are masked.  A noise line still advances the extent,
+# because whether a trailing comment block belongs to the proof is a separate
+# question and answering it here would be a second change hiding inside this
+# one.  Both halves are in the table below: `commented_decl` runs to 12, the
+# comment block's last line, and not to 7.
+#
+# Extent.thy has the three noise shapes; Live.thy is the counterweight -- the
+# same three boundaries written LIVE, where every one of them must still stop
+# the walk, plus a trailing `(* ... *)` on an otherwise live declaration line,
+# which must not.
+
+mkdir -p "$PARSE/extent" || exit 2
+cat >"$PARSE/extent/Extent.thy" <<'THY'
+theory Extent
+imports Main
+begin
+
+lemma commented_decl: "True"
+  using TrueI
+  by simp
+
+(* superseded, kept for reference
+lemma old_version: "True"
+  by auto
+*)
+
+lemma commented_heading: "True"
+  by simp
+
+(* not ready
+subsection \<open>Retracts and intervals\<close>
+*)
+
+lemma commented_text: "True"
+  by simp
+
+(* draft
+text \<open>Some prose that is not live.\<close>
+*)
+
+lemma tail: "True" by simp
+
+end
+THY
+
+cat >"$PARSE/extent/Live.thy" <<'THY'
+theory Live
+imports Main
+begin
+
+lemma stops_at_decl: "True"
+  by simp
+lemma next_decl: "True" by simp
+
+lemma stops_at_text: "True"
+  by simp
+text \<open>Real prose.\<close>
+
+lemma stops_at_heading: "True"
+  by simp
+subsection \<open>Real heading\<close>
+
+lemma trailing_comment: "True"
+  by simp
+lemma after_it: "P" (* a note on a live declaration *)
+  by simp
+
+lemma marked_heading_stops: "True"
+  by simp
+subsection\<^marker>\<open>tag unimportant\<close> \<open>Marked heading\<close>
+
+lemma split_heading_stops: "True"
+  by simp
+subsection
+  \<open>Split heading\<close>
+
+lemma last: "True" by simp
+
+end
+THY
+
+# Hand-computed, Extent.thy.  `commented_decl`: proof on 6, `thy_end` 13 (the
+# next entry starts on 14); the walk passes 7 live, 8 blank, 9..12 noise --
+# tested for nothing, but non-blank, so `body_end` is 12.  Read raw, line 10's
+# `lemma old_version` would have ended it at 7.  `commented_heading` and
+# `commented_text` are the same shape for the other two boundaries: 19 and 26,
+# not 15 and 22.  `tail` ends at 28 because `end` on line 30 backs up over the
+# blank to 29.
+#
+# Live.thy.  Each of the three boundaries, written live, stops the walk on the
+# line before it: 6, 10, 14.  `after_it` is the guard in the other direction --
+# a `(* note *)` at the END of a live declaration line leaves that line live,
+# so the noise mask (deliberately whole-line) does not cover it and the
+# declaration still bounds the proof above it.  `marked_heading_stops` (23) and
+# `split_heading_stops` (27) are §8's recogniser reaching this caller too.
+EXTENT_WANT=$(cat <<'EXPECT'
+Extent:5:LEMMA:commented_decl:src=5-13:decl_end=5:proof=6:body_end=12:bind=:target=
+Extent:14:LEMMA:commented_heading:src=14-20:decl_end=14:proof=15:body_end=19:bind=:target=
+Extent:21:LEMMA:commented_text:src=21-27:decl_end=21:proof=22:body_end=26:bind=:target=
+Extent:28:LEMMA:tail:src=28-28:decl_end=28:proof=28:body_end=28:bind=:target=
+Live:5:LEMMA:stops_at_decl:src=5-6:decl_end=5:proof=6:body_end=6:bind=:target=
+Live:7:LEMMA:next_decl:src=7-8:decl_end=7:proof=7:body_end=7:bind=:target=
+Live:9:LEMMA:stops_at_text:src=9-10:decl_end=9:proof=10:body_end=10:bind=:target=
+Live:13:LEMMA:stops_at_heading:src=11-14:decl_end=13:proof=14:body_end=14:bind=:target=
+Live:17:LEMMA:trailing_comment:src=17-18:decl_end=17:proof=18:body_end=18:bind=:target=
+Live:19:LEMMA:after_it:src=19-21:decl_end=19:proof=20:body_end=20:bind=:target=
+Live:22:LEMMA:marked_heading_stops:src=22-23:decl_end=22:proof=23:body_end=23:bind=:target=
+Live:26:LEMMA:split_heading_stops:src=26-27:decl_end=26:proof=27:body_end=27:bind=:target=
+Live:31:LEMMA:last:src=31-31:decl_end=31:proof=31:body_end=31:bind=:target=
+EXPECT
+)
+
+expect_dump "a commented-out boundary does not end a proof; a live one does" \
+  "$PARSE/extent" "$EXTENT_WANT"
+
+# The second caller.  `show` recomputes the extent to decide how many proof
+# lines it has left to preview, and had the same defect -- one rule, two
+# callers, so a fix applied to one of them is half a fix.  `commented_decl`
+# has 6 lines after its proof line (7..12), which is what the summary says.
+ROOT_DIR="$PARSE/extent"
+expect "and \`show\` counts the same extent" 0 \
+  "$(cat <<'EXPECT'
+--- commented_decl (LEMMA) — Extent.thy [src 5..13, body 5..12, 8/9 lines] ---
+lemma commented_decl: "True"
+  using TrueI
+  [+6 more proof lines]
+EXPECT
+)" "" show commented_decl
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #

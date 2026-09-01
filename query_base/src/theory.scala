@@ -100,10 +100,14 @@ object Theory {
       lines.length)
     Entries.attach_annotations(entries, comment_lines)
 
+    /* Built once for the whole theory, not once per entry: `proof_extent`
+       asks it per line, and the ranges it comes from are the same for every
+       entry in the file. */
+    val noise_mask = Entries.line_mask(lines.length, nonisar_ranges)
     for (e <- entries) {
       e.theory = theory
       e.body_end_line =
-        if (e.proof_line > 0) Entries.proof_extent(lines, e.proof_line, e.thy_end)
+        if (e.proof_line > 0) Entries.proof_extent(lines, e.proof_line, e.thy_end, noise_mask)
         else if (e.decl_end_line > 0) e.decl_end_line
         else e.thy_line
     }

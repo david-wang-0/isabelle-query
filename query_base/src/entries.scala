@@ -1104,22 +1104,41 @@ object Entries {
 
   /* Walk forward from proof_line; the last line that belongs to the proof.
      Stops at top-level documentation blocks but NOT at in-proof `\<comment>`
-     annotations, which are routine inside proof bodies. */
-  def proof_extent(lines: Array[String], proof_line: Int, thy_end: Int): Int = {
+     annotations, which are routine inside proof bodies.
+
+     `noise` is the WHOLE-LINE mask built from `nonisar_ranges`, and the three
+     boundary tests are made only on lines that are outside it.  A boundary is
+     a COMMAND, and a line holding no live Isar text holds no command: a
+     commented-out `lemma old_version`, a heading inside `(* ... *)`, a `text `
+     inside `(* ... *)`.  Reading them off the raw source ended the proof at
+     the comment block instead of at the next real declaration, which shortened
+     `body_end` — the documented safe relocation cut — for 287 AFP entries.
+
+     The mask governs the BOUNDARY tests only.  A noise line still advances
+     `last` exactly as before: whether a trailing comment block belongs to the
+     proof is a separate question, and answering it here would be a second
+     change hiding inside this one. */
+  def proof_extent(lines: Array[String], proof_line: Int, thy_end: Int,
+    noise: Array[Boolean]
+  ): Int = {
     var last = proof_line
     var line_no = proof_line + 1
     var go = true
     while (go && line_no <= thy_end && line_no <= lines.length) {
       val cline = lines(line_no - 1)
       val stripped = Py.strip(cline)
-      if (stripped.startsWith("text ") || stripped.startsWith("""text\<open>""")) go = false
-      /* `heading_at`, not a regex of its own: this was a THIRD asker of "is
-         this a heading", and it disagreed — a marked heading and a split
-         heading both ended a proof for `outline` and the prose mask but not
-         here.  The size of the disagreement is not the argument; having three
-         recognisers where the comments promise one is. */
-      else if (heading_at(lines, line_no - 1, null).isDefined) go = false
-      else if (Py.matches_start(DECL_RE, cline)) go = false
+      if (!noise(line_no) &&
+          (stripped.startsWith("text ") || stripped.startsWith("""text\<open>""") ||
+           /* `heading_at`, not a regex of its own: this was a THIRD asker of
+              "is this a heading", and it disagreed — a marked heading and a
+              split heading both ended a proof for `outline` and the prose mask
+              but not here. */
+           heading_at(lines, line_no - 1, null).isDefined ||
+           /* The column-0 anchor stays.  `thy_end` is already bounded by the
+              declaration positions the scan found, so an indented declaration
+              never falls strictly inside a proof's span; deanchoring it here
+              moves 0 records. */
+           Py.matches_start(DECL_RE, cline))) go = false
       else {
         if (stripped.nonEmpty) last = line_no
         line_no += 1

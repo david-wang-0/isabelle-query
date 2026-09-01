@@ -223,7 +223,12 @@ object Render {
           val first_proof =
             if (e.proof_line <= e.decl_end_line) Nil
             else sec.slice(e.proof_line, e.proof_line).toList
-          val proof_end = Entries.proof_extent(sec.source, e.proof_line, e.thy_end)
+          /* The same noise mask the parse used, rebuilt rather than retained:
+             an `Array[Boolean]` per section would be paid by every theory in a
+             resident index to answer a question only a RENDERED entry asks. */
+          val src = sec.source
+          val proof_end = Entries.proof_extent(src, e.proof_line, e.thy_end,
+            Entries.line_mask(src.length, sec.nonisar_ranges))
           val remaining = (proof_end - e.proof_line) max 0
           out += (stmt ::: first_proof).mkString("\n")
           if (comments != "off" && e.annotations.nonEmpty)
