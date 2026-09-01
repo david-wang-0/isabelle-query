@@ -680,6 +680,105 @@ fi
 
 # ==========================================================================
 echo
+echo "7. [marker-decl] b -- a marked locale/class name, and the target chain"
+# ==========================================================================
+#
+# The rule: a target's name is read from the LIVE view, so once all four formal
+# comments redact there (§5) a document marker between the keyword and the name
+# is simply gone before the name grammar sees it.  There is no second
+# marker-skipping step in `target_name` for exactly that reason: two views with
+# their own idea of what a marker is are two answers to one question.
+#
+# What moves is not only the LOCALE/CLASS entry's name.  Every entry inside the
+# block carries the enclosing target, so a mis-read name propagates to the
+# `target` field of each of them and to what `enclosing` prints -- which is the
+# thing a user is most likely to paste somewhere.  19 real cases in
+# HOL/Analysis (`subset_class`, `sigma_algebra`, `Dynkin_system`,
+# `finite_measure`, `Retracts`, class `Gamma`, ...).
+#
+# Four shapes: marker glued to `locale`, glued to `class`, after a SPACE, and
+# on `context`, which reopens rather than declares.
+
+mkdir -p "$PARSE/target" || exit 2
+cat >"$PARSE/target/Loc.thy" <<'THY'
+theory Loc
+imports Main
+begin
+
+locale\<^marker>\<open>tag important\<close> sigma_algebra =
+  fixes M :: "nat set"
+  assumes nonempty: "M \<noteq> {}"
+begin
+
+lemma inside_marked_locale: "True" by simp
+
+end
+
+class\<^marker>\<open>tag important\<close> Gamma =
+  fixes g :: "'a"
+begin
+
+definition inside_marked_class :: "'a" where "inside_marked_class = g"
+
+end
+
+locale \<^marker>\<open>tag unimportant\<close> spaced =
+  fixes h :: "nat"
+begin
+
+lemma inside_spaced: "True" by simp
+
+end
+
+context\<^marker>\<open>tag important\<close> sigma_algebra
+begin
+
+lemma reopened: "True" by simp
+
+end
+
+end
+THY
+
+# Hand-computed.  Three declared targets (`sigma_algebra`, `Gamma`, `spaced`)
+# and four entries inside them, whose `target=` is the name of the block they
+# sit in -- including the one inside the REOPENED `context`, which declares no
+# entry of its own.  `bind=nonempty/assumption` is in the table because the
+# locale head's element scan reads the same lines: a name read wrong there
+# would show up as a lost binding rather than as a wrong name.
+TARGET_WANT=$(cat <<'EXPECT'
+Loc:5:LOCALE:sigma_algebra:src=5-7:decl_end=7:proof=0:body_end=7:bind=nonempty/assumption:target=
+Loc:10:LEMMA:inside_marked_locale:src=10-10:decl_end=10:proof=10:body_end=10:bind=:target=sigma_algebra
+Loc:14:CLASS:Gamma:src=14-15:decl_end=15:proof=0:body_end=15:bind=:target=
+Loc:18:DEF:inside_marked_class:src=18-18:decl_end=18:proof=0:body_end=18:bind=:target=Gamma
+Loc:22:LOCALE:spaced:src=22-23:decl_end=23:proof=0:body_end=23:bind=:target=
+Loc:26:LEMMA:inside_spaced:src=26-26:decl_end=26:proof=26:body_end=26:bind=:target=spaced
+Loc:33:LEMMA:reopened:src=33-33:decl_end=33:proof=33:body_end=33:bind=:target=sigma_algebra
+EXPECT
+)
+
+expect_dump "the marked target names, and the chain under them" \
+  "$PARSE/target" "$TARGET_WANT"
+
+ROOT_DIR="$PARSE/target"
+
+# What the user actually reads.  `enclosing` names the enclosing target, so all
+# four shapes are visible here in the form they are pasted in.
+expect "enclosing names the marked locale" 0 \
+  "Loc:10 → inside_marked_locale (LEMMA) — Loc ▸ locale sigma_algebra [src 10..10, 1 lines]  (in proof)" \
+  "" enclosing Loc:10
+expect "... the marked class" 0 \
+  "Loc:18 → inside_marked_class (DEF) — Loc ▸ class Gamma [src 18..18, 1 lines]  (in statement)" \
+  "" enclosing Loc:18
+expect "... the space-before-marker locale" 0 \
+  "Loc:26 → inside_spaced (LEMMA) — Loc ▸ locale spaced [src 26..26, 1 lines]  (in proof)" \
+  "" enclosing Loc:26
+expect "... and the marked context, which reopens rather than declares" 0 \
+  "Loc:33 → reopened (LEMMA) — Loc ▸ context sigma_algebra [src 33..33, 1 lines]  (in proof)" \
+  "" enclosing Loc:33
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #

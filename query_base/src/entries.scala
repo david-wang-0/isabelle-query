@@ -671,6 +671,16 @@ object Entries {
   /* target blocks                                                      */
   /* ------------------------------------------------------------------ */
 
+  /* A target's name is read from the LIVE view (see `target_opener`), so a
+     document marker between the keyword and the name -- `locale\<^marker>\
+     <open>tag important\<close> sigma_algebra =`, which HOL/Analysis writes on
+     19 of its locales and classes -- is already blanked before this sees it:
+     `Regions` classifies all four formal comments as noise.  There is no
+     marker-skipping step here for that reason, and it is the reason: the two
+     views must not each have their own idea of what a marker is.  The
+     `reserved_name_prefixes` guard below is the belt to that braces -- it
+     declines a bare `\<open>...`, which survives `live` because a cartouche is
+     inner syntax rather than noise. */
   def target_name(rest: String): String = {
     Py.matches_at_start(QUOTED_NAME_RE, rest) match {
       case Some(mq) => mq.group(1)
