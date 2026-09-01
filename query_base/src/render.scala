@@ -255,10 +255,17 @@ object Render {
   def emit_matches(out: Out, by_theory: Map[String, Theory_Section],
     matches: List[Entry], pattern: String, flags: Flags, statement: Boolean = false
   ): Unit = {
-    if (matches.isEmpty) out.println(s"No entries matching '$pattern'.")
-    else if (flags.mode == "count") out.println(matches.length.toString)
+    /* Mode dispatch BEFORE the empty guard [count-mode-zero].  A count mode
+       must print a number, and the empty case is the one a script most wants
+       to branch on: with the sentence first, `$(query find X -c)` was
+       arithmetic when X matched and a parse error when it did not.  `names` is
+       the same rule — an empty list is the right answer for a pipeline, and a
+       sentence on stdout would be read as a name.  Only the human-readable
+       modes say so in words. */
+    if (flags.mode == "count") out.println(matches.length.toString)
     else if (flags.mode == "names")
       for (e <- matches) out.println(format_name_line(by_theory(e.theory), e))
+    else if (matches.isEmpty) out.println(s"No entries matching '$pattern'.")
     else if (flags.mode == "all")
       for (e <- matches) {
         out.println(render_entry(by_theory(e.theory), e, verbatim = flags.verbatim,

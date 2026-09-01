@@ -699,43 +699,45 @@ object Usage {
   private def render_unused(out: Out, entries: List[(String, Entry, Int)],
     flags: Flags, recursive: Boolean
   ): Unit = {
-    if (entries.isEmpty) out.println("No unused entries found.")
-    else {
-      val label = if (recursive) "transitively unused" else "unused"
-      val total = entries.length
-      if (flags.mode == "count") out.println(total.toString)
-      else if (flags.by_theory) {
-        val theory_entries = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[(Entry, Int)]]
-        for ((theory, e, depth) <- entries)
-          theory_entries.getOrElseUpdate(theory, new mutable.ListBuffer) += ((e, depth))
-        val total_lines =
-          theory_entries.values.flatten.filter(_._1.thy_line > 0).map(_._1.line_count).sum
-        out.println(s"$total $label entries across ${theory_entries.size} theories " +
-          s"($total_lines source lines):\n")
-        for ((theory, tes) <- theory_entries.toList.sortBy(-_._2.length)) {
-          val lines = tes.filter(_._1.thy_line > 0).map(_._1.line_count).sum
-          val head = tes.take(4).map(_._1.name).mkString(", ")
-          val names = if (tes.length > 4) head + s", ... (+${tes.length - 4})" else head
-          out.println(s"  ${pad_left(tes.length.toString, 3)}  ${pad_right(theory, 30)}  " +
-            s"${pad_left(lines.toString, 5)} lines  $names")
-        }
+    val label = if (recursive) "transitively unused" else "unused"
+    val total = entries.length
+    /* Before the empty guard [count-mode-zero]: a project with nothing unused
+       has ZERO unused entries, and that is the answer a script wants — the one
+       case it most wants to branch on, and the one that used to be a
+       sentence. */
+    if (flags.mode == "count") out.println(total.toString)
+    else if (entries.isEmpty) out.println("No unused entries found.")
+    else if (flags.by_theory) {
+      val theory_entries = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[(Entry, Int)]]
+      for ((theory, e, depth) <- entries)
+        theory_entries.getOrElseUpdate(theory, new mutable.ListBuffer) += ((e, depth))
+      val total_lines =
+        theory_entries.values.flatten.filter(_._1.thy_line > 0).map(_._1.line_count).sum
+      out.println(s"$total $label entries across ${theory_entries.size} theories " +
+        s"($total_lines source lines):\n")
+      for ((theory, tes) <- theory_entries.toList.sortBy(-_._2.length)) {
+        val lines = tes.filter(_._1.thy_line > 0).map(_._1.line_count).sum
+        val head = tes.take(4).map(_._1.name).mkString(", ")
+        val names = if (tes.length > 4) head + s", ... (+${tes.length - 4})" else head
+        out.println(s"  ${pad_left(tes.length.toString, 3)}  ${pad_right(theory, 30)}  " +
+          s"${pad_left(lines.toString, 5)} lines  $names")
       }
-      else {
-        if (recursive) {
-          val direct = entries.count(_._3 == 0)
-          val cascade = total - direct
-          val total_lines = entries.filter(_._2.thy_line > 0).map(_._2.line_count).sum
-          out.println(s"$total $label entries ($direct direct + $cascade cascading, " +
-            s"$total_lines source lines):\n")
-        }
-        else out.println(s"$total unused entries (zero callers):\n")
-        out.println(s"${pad_right("Tag", 8)}  ${pad_right("Name", 42)}  Theory  (span)")
-        out.println(s"${pad_right("-" * 8, 8)}  ${pad_right("-" * 42, 42)}  ------")
-        for ((theory, e, depth) <- entries) {
-          val mark = if (recursive && depth > 0) s"  [cascade depth $depth]" else ""
-          out.println(s"${pad_right(e.tag, 8)}  ${pad_right(e.name, 42)}  $theory  " +
-            s"(${e.src_start}..${e.thy_end}, ${e.line_count} lines)$mark")
-        }
+    }
+    else {
+      if (recursive) {
+        val direct = entries.count(_._3 == 0)
+        val cascade = total - direct
+        val total_lines = entries.filter(_._2.thy_line > 0).map(_._2.line_count).sum
+        out.println(s"$total $label entries ($direct direct + $cascade cascading, " +
+          s"$total_lines source lines):\n")
+      }
+      else out.println(s"$total unused entries (zero callers):\n")
+      out.println(s"${pad_right("Tag", 8)}  ${pad_right("Name", 42)}  Theory  (span)")
+      out.println(s"${pad_right("-" * 8, 8)}  ${pad_right("-" * 42, 42)}  ------")
+      for ((theory, e, depth) <- entries) {
+        val mark = if (recursive && depth > 0) s"  [cascade depth $depth]" else ""
+        out.println(s"${pad_right(e.tag, 8)}  ${pad_right(e.name, 42)}  $theory  " +
+          s"(${e.src_start}..${e.thy_end}, ${e.line_count} lines)$mark")
       }
     }
   }
