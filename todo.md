@@ -7,60 +7,34 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`.
 
-- [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
-      by a newline.  Isabelle's `comment_prefix` allows any blanks between the
-      marker and the cartouche it owns, newlines included, so
+- [ ] `[decl-body-comment]` A comment between a keyword and its name collapses
+      `body_end_line` onto the KEYWORD line, so the recorded body is one line
+      for a declaration spanning many.
 
-          shows \<open>\<exists> k. u k = \<emptyset>\<close>
-          \<comment>
-          \<open>
-            This lemma could easily be generalized ...
-          \<close>
+          definition                                 HOL/Hoare/SchorrWaite:14
+            \<comment> \<open>Relations induced by a mapping\<close>
+            rel :: "('a \<Rightarrow> 'a ref) \<Rightarrow> ('a \<times> 'a) set"
+            where "rel m = {(x,y). m x = Ref y}"
 
-      is ONE formal comment.  `_MARKER_OPEN_RE` matches marker-plus-cartouche
-      as a single token within a line, so the scanner sees a bare `\<comment>`
-      and then a separate LIVE cartouche, and charges all the prose to the
-      statement above it (`decl_end_line` 9 where the declaration ends at 5).
-      Costs 1 record in the whole AFP — Substitutions_Lambda_Free:58 — but the
-      fix is confined to one regex and its state machine, and it is half of
-      one question rather than a standalone cheap win: see the next item.
-      D5 in the Scala port's `dev/DIVERGENCES.md`.
-
-- [ ] `[comment-before-name]` A formal comment BETWEEN a declaration keyword
-      and its name makes the name be read out of the comment's prose, and the
-      real declaration is then never indexed at all.
-
-          definition                                    -- HOL/UNITY/WFair.thy:35
-
-            \<comment> \<open>This definition specifies conditional fairness.  The rest
-                is generic to all forms of fairness. ...\<close>
-            transient :: "'a set => 'a program set" where
-
-      is indexed as `is` (from "is generic"), spanning 14..43, and `transient`
-      — the constant this file exists to define — is not an entry.  Same shape
-      at `HOL/Bali/TypeRel.thy:368`, where `inductive` followed by a comment
-      containing "i.e." mints `i`.
-      **Cost: 2 records, both in the distribution; 0 in the AFP.**  Measured
-      with `scripts/probe_comment_before_name.py`, which reports every entry
-      whose name is not a token of the live view near its own declaration.
-      The one AFP hit it finds — `C11-FrontEnd/.../C_Appendices:831` — is the
-      phantom already filed under `[keyword-scope]`, a different cause.
-      **The SAME-LINE form is already fixed**: `_strip_decl_prefix` skips a
-      leading `\<comment>` cartouche, so `definition \<comment> \<open>..\<close>
-      bar :: ...` parses.  What is unhandled is the comment on a line of its
-      own between the keyword and the name — i.e. `_lookahead_name`, which
-      reads the first content line below a bare keyword, does not apply the
-      same skip.  Check `tests/test_known_failures.py` first: its
-      comment-prefixed-name entries may already pin part of this.
-      Sibling of `[comment-newline]` and NOT the same bug: there the marker
-      and its cartouche are on different lines, here they are on one line and
-      the name lookahead reads through them anyway.  Both are the same
-      question asked twice — where does a formal comment end — so they are
-      worth fixing together, and the fix is in the same lookahead the
-      `[marker-decl]` work touched.
-      Found while checking the Scala port's D13 claim that `WFair`'s `is` is
-      an entry "reported dead and not dead".  It is not: it is a phantom, and
-      the 531 `--reach name` callers of it are the `(is "?thesis")` KEYWORD.
+      is `src 14..18, body 14..14`.  `WFair`'s `transient` is `src 14..43,
+      body 35..35` for a declaration running to 43.
+      **Cost: 50 records** over 11,514 theories — 38 HOL, 1 ZF, 11 AFP
+      (`scripts/probe_comment_split_scale.py`).  Clustered by author style
+      rather than scattered (`SchorrWaite` x4, `Comp/Alloc` x6, `Semantics`
+      x3, `BVSpec` x2), so the count tracks how many authors write this way.
+      **Why it outranks `[comment-newline]` at 50x the frequency and a
+      fraction of the risk**: `body_end_line` is documented on `Entry` as the
+      field to use for "a safe relocation cut", and it is now part of the
+      supported `api` surface — issue #10's consumer DELETES source between
+      these lines.  A cut at the collapsed value leaves the declaration body
+      behind, which is a broken theory rather than a wrong number.  The fix is
+      in the declaration body scan (`_scan_decl_body` stopping at the redacted
+      line), NOT in the tokenizer: same family as `[comment-before-name]`,
+      which was one line in `_lookahead_name`, and probably the same shape of
+      answer — ask the `live` view the tokenizer already computed instead of
+      re-testing raw text.
+      Found while fixing `[comment-before-name]`; the entry-set diff proved it
+      pre-existing (that change moved no span at all).
 
 - [ ] `[markup-step-model]` Resolve ONE discrepancy, then stop.  On
       `DitherTM`, `PIDE/markup` decodes to 87 `command_span`s each carrying
@@ -85,6 +59,38 @@ in `CONTRIBUTING.md`.
       fixture (per `CLAUDE.md` — hand-compute the value, then make the code
       match), cite the markup finding in the commit message, and let the probe
       go.  No heap dependency enters `pytest`.
+
+- [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
+      by a newline.  Isabelle's `comment_prefix` allows any blanks between the
+      marker and the cartouche it owns, newlines included, so
+
+          shows \<open>\<exists> k. u k = \<emptyset>\<close>
+          \<comment>
+          \<open>
+            This lemma could easily be generalized ...
+          \<close>
+
+      is ONE formal comment.  `_MARKER_OPEN_RE` matches marker-plus-cartouche
+      as a single token within a line, so the scanner sees a bare `\<comment>`
+      and then a separate LIVE cartouche, and charges all the prose to the
+      statement above it (`decl_end_line` 67 where the declaration ends at 62).
+      D5 in the Scala port's `dev/DIVERGENCES.md`.
+      **MEASURED, and the measurement says do not do it.**
+      `scripts/probe_comment_split_scale.py`, counting the scanner's own
+      failure (a marker still live in `live_source()` whose cartouche opens
+      below) rather than a text pattern that guesses at the same shape:
+
+          AFP           9,910 theories   1 site
+          HOL/FOL/ZF    1,604 theories   0 sites
+
+      **One occurrence in 11,514 theories** — Substitutions_Lambda_Free:63..67,
+      costing 4 prose lines wrongly live, 9 tokens in them that name a real
+      declaration, and one entry's `decl_end_line`.  The fix is a change to
+      the tokenizer state machine, the highest-risk code in the package, to
+      carry a pending marker across a line boundary.  That trade is not worth
+      taking for one record: leave it unless a cheap route appears that does
+      not touch `_scan_nonisar_spans`' state.  Kept on the list as a *measured*
+      decision rather than deleted, so it is not re-litigated from the shape.
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
