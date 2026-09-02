@@ -581,3 +581,56 @@ itself is verified where it can be, by the hand-computed fixtures in
 The variable is env-only, like `$ISABELLE_QUERY_NAMESPACE` and for the same
 reason: a global that moves a measurement gets one default AND one channel, and
 an argv flag would exist on only one of the four front doors.
+
+## D14 — a BOUND name is a declaration too, for the visibility filter
+
+**Cost: nothing on any gate corpus** — no corpus in the matrix declares a name
+in one entry's bindings and mentions it from a theory that cannot see the
+binder, so nothing is pinned for this and nothing needs to be.  It is one
+refinement of D13's rule, in D13's own direction, and it is stated here because
+it is the one place where the two implementations answer a `callers` question
+differently on purpose.
+
+D13 fixes the rule: a site in theory `T` may be attributed to a declaration in
+theory `D` iff `D = T`, or `D` is in `T`'s transitive in-project `imports`
+closure.  Everything then turns on what counts as *a declaration of the name*.
+Upstream 0.8.1 consults ENTRIES only (`graph._Visibility.declared_in`, an entry
+of any tag).  The port consults entries **and the names an entry BINDS** — a
+datatype constructor, a `shows … and C:` conjunct, an introduction rule, a
+`.simps` — because Isabelle binds those names in the theory that writes them
+and a theory that does not import it cannot write them either.
+
+```
+X.thy:  theory X imports Main begin
+          datatype colour = Bar | Baz
+          locale rev = fixes r :: nat
+        end
+Z.thy:  theory Z imports X begin  lemma z_mentions_bar: "Bar = Bar" by simp  end
+W.thy:  theory W imports Main begin  lemma w_mentions_bar: "Bar = Bar" by simp  end
+```
+
+`callers Bar`: upstream reports **2** — `Z:5` and `W:4` — because no ENTRY is
+named `Bar`, so `declared_in["Bar"]` is empty and the filter declines to
+constrain anything.  The port reports **1**, dropping `W:4`: `Bar` IS declared
+here, by `datatype colour` in `X`, and `W` imports only `Main`.  The `Bar` on
+`W:4` is a constructor of something else, exactly as the `mono` on
+`Mono_Bool_Tran:45` is a different `mono`.
+
+**Why the port keeps it.**  The filter's licence is that it may only drop what
+the citing theory positively cannot see, and a constructor bound in `X` is not
+visible from a `W` that does not import `X`.  Dropping bindings from the
+declared set would not make the port more correct, only more permissive in the
+one case the rule was written for; and `codeqs Cons` — a rewrite-only verb with
+no oracle — is precisely the question "where is this CONSTRUCTOR given a code
+equation", which needs the binding to be a declaration or the verb has no
+subject at all.  `instances` and `codeqs` therefore use the same rule, and
+`callers` uses it too rather than carrying two answers to one question.
+
+The cost is a `callers <constructor>` that can differ from the oracle's on a
+corpus where a bound name is mentioned outside the binder's import cone.  It is
+the plugin's commonest call (the word under the caret), which is the argument
+for the port's reading rather than against it.
+
+Everything else about the declared set now agrees: an entry of ANY tag counts
+(a `comp` that is a TYPE, a `rev` that is a LOCALE), which is
+`[citation-reach]`'s own rule and was the port's last gap in it.

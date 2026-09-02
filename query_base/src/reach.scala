@@ -58,6 +58,8 @@ package isabelle.query
 
 import isabelle.*
 
+import java.nio.file.Files
+
 import scala.collection.mutable
 
 
@@ -195,7 +197,8 @@ object Reach {
      how deep the import chains run. */
   final class Closure private[Reach] (
     private val ids: Map[String, Int],
-    private val rows: Array[java.util.BitSet]
+    private val rows: Array[java.util.BitSet],
+    private val unreadable: java.util.BitSet
   ) {
     def theories: Int = rows.length
 
@@ -203,12 +206,25 @@ object Reach {
        theory ends up constraining nothing. */
     def id(theory: String): Int = ids.getOrElse(theory, -1)
 
+    /* AN UNREADABLE HEADER MEANS "UNKNOWN", NEVER "IMPORTS NOTHING".
+       `Discovery.thy_imports` answers `Nil` both for a theory that imports
+       nothing and for a file it cannot read, and through it the two are the
+       same answer — which they must not be.  A section parsed from a BUFFER
+       (the plugin hands the engine one for an unsaved file) would otherwise
+       silently lose every cross-theory edge it has.  For a rule justified by
+       "it can only drop", degrading to "sees nothing" is the one direction
+       that breaks the justification, so a walk that met an unreadable header
+       anywhere declines to filter at all.  Transitive, because the walk is:
+       the row already holds everything reachable, so one BitSet intersection
+       answers it. */
+    private def unknown(i: Int): Boolean = rows(i).intersects(unreadable)
+
     /* What a site in `theory` may be attributed to.  An UNKNOWN theory admits
        everything: the filter may only remove an attribution it can positively
        rule out, and about a theory it has never seen it can rule out nothing. */
     def visible_from(theory: String): Int => Boolean = {
       val i = id(theory)
-      if (i < 0) (_ => true)
+      if (i < 0 || unknown(i)) (_ => true)
       else {
         val row = rows(i)
         (j: Int) => j >= 0 && row.get(j)
@@ -257,12 +273,24 @@ object Reach {
 
     /* One file read and one header parse per section, and over the whole AFP
        there are ten thousand of them — the only part of this that touches the
-       disk, so it is the only part worth parallelising. */
-    val headers = Par_List.map((sec: Theory_Section) => Discovery.thy_imports(sec.path), sections)
+       disk, so it is the only part worth parallelising.  The READABILITY test
+       has to happen here, beside the read: `Discovery.thy_imports` answers
+       `Nil` for a file it cannot open, so downstream "imports nothing" and
+       "cannot be read" are indistinguishable, and they mean opposite things to
+       a filter that may only drop (`Closure.unknown`). */
+    val headers = Par_List.map(
+      (sec: Theory_Section) =>
+        (Files.isRegularFile(sec.path), Discovery.thy_imports(sec.path)),
+      sections)
 
+    /* Per THEORY NAME, not per section, and any unreadable section poisons the
+       name: the adjacency is the union of every section of that name, so a
+       union missing one section's imports is a closure that is too SMALL. */
+    val unreadable = new java.util.BitSet(n)
     val kids = Array.fill(n)(mutable.LinkedHashSet.empty[Int])
-    for ((sec, imps) <- sections.zip(headers)) {
+    for ((sec, (readable, imps)) <- sections.zip(headers)) {
       val src = id_map(sec.theory)
+      if (!readable) unreadable.set(src)
       for (imp <- imps; name <- import_candidates(imp, id_map.contains, by_leaf)) {
         val dst = id_map(name)
         if (dst != src) kids(src) += dst
@@ -325,7 +353,7 @@ object Reach {
       }
     }
 
-    new Closure(id_map, rows)
+    new Closure(id_map, rows, unreadable)
   }
 
   /* Cached per corpus, keyed by the IDENTITY of the section list: one load of a

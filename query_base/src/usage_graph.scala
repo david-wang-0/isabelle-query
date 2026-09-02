@@ -458,14 +458,25 @@ object Usage_Graph {
     for (sec <- sections) {
       val tid = if (reach != null) reach.id(sec.theory) else -1
       for (e <- sec.entries) {
+        /* A DECLARATION of the name, for the visibility question, is an entry
+           of ANY tag [citation-reach].  The graph's NODES are the citable tags
+           — a `locale rev` is not a fact anything can cite — but the question
+           here is the other one: can a theory that declares `comp` as a TYPE
+           see the `comp` this line names?  It plainly can, and scoping the
+           declared set to the citable tags dropped `COMP -> comp` on
+           Category3 and `rerr -> sqn` on AODV, where the only visible
+           same-name entry is a TYPE.  The filter may only remove what the
+           citing theory positively CANNOT see, and a tag is no evidence about
+           that.  (The `"?"` anchor name goes in too, harmlessly: it is never a
+           candidate.) */
+        if (reach != null) {
+          val seen = declared_at.getOrElse(e.name, Nil)
+          if (!seen.contains(tid)) declared_at(e.name) = tid :: seen
+        }
         if (citable_tags(e.tag) && e.name != "?" &&
           e.name.codePointCount(0, e.name.length) > drop_upto && !is_all_digits(e.name)) {
           name_set += e.name
           if (Namespace.non_citation(e.name)) shadowed += e.name
-          if (reach != null) {
-            val seen = declared_at.getOrElse(e.name, Nil)
-            if (!seen.contains(tid)) declared_at(e.name) = tid :: seen
-          }
         }
       }
     }
