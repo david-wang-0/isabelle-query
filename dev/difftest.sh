@@ -98,6 +98,12 @@ done
 # PATH; its version is checked against $ORACLE_VERSION below before any case
 # runs.
 oracle_bin=${QUERY_ORACLE:-query}
+# Made absolute when it names a file: the cwd-discovery and marker-file case
+# families run the oracle from INSIDE a corpus, where a checkout-relative
+# `.dev/oracle/bin/query` resolves to nothing and every case in them reports
+# exit 127 -- nine failures that name the harness's own usage line rather
+# than the port.
+case "$oracle_bin" in */*) oracle_bin=$(cd -- "$(dirname -- "$oracle_bin")" && pwd)/$(basename -- "$oracle_bin") ;; esac
 ORACLE_VERSION=0.8.1
 run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 
