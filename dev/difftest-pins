@@ -47,21 +47,26 @@ shape-census-pipe   Abstract_Completeness   D8   whole census fits the pipe buff
 shape-census-pipe   CTT                     D8   whole census fits the pipe buffer; oracle exits 0
 
 # ---------------------------------------------------------------------------
-# D8 — the demo corpus is under the 64K pipe-buffer threshold
+# D8 — the demo corpora sit between the two thresholds
 #
-# `demo/Demo_Core` is a few hundred lines, so the whole answer to `find ... -V`
-# and to `shape census` fits in the pipe buffer: the oracle's writes never fail,
-# it finishes before `head -3` is scheduled, and it exits 0.  This engine writes
-# through a raw file descriptor and reports 141 whatever the size, which is what
-# CONTRIBUTING.md fixes.  D8's own table names the threshold.
+# Both demo sessions are a few hundred lines, so their answers are small: the
+# oracle fills a 64K pipe buffer without a single write failing and exits 0,
+# while this engine's writer encodes 8K at a time, so an answer over 8K leaves
+# in several writes and the second one meets a `head` that has already gone --
+# 141.  Between 8K and 64K the two therefore disagree, which is every pin here:
+# `Demo_Core` `find ... -a -V` and its census, and `Demo_Extras` `find ... -a
+# -V` at 12,739 bytes.  D8's own tables name both thresholds.
 #
-# `demo/Demo_Extras` is NOT pinned and is not expected to be clean: it holds the
-# `definition\<^marker>` the oracle cannot index (D2) on purpose, so ~60 cases
-# differ by exactly one missing entry.  Pinning them would hide the showcase.
+# `Demo_Extras` used to differ in ~60 cases as well, because it holds the
+# `definition\<^marker>\<open>tag important\<close> marked_const` showcase that the
+# oracle's DECL_RE could not match (D2) -- and pinning THOSE would have hidden
+# the showcase.  Upstream fixed its side in 0.8.0, so they are clean now and
+# there is nothing left to hide; only the pipe case remains.
 # ---------------------------------------------------------------------------
 
-closed-stdout          Demo_Core   D8   answer fits the pipe buffer: oracle exits 0
-shape-census-pipe      Demo_Core   D8   answer fits the pipe buffer: oracle exits 0
+closed-stdout          Demo_Core     D8   answer fits the pipe buffer: oracle exits 0
+shape-census-pipe      Demo_Core     D8   answer fits the pipe buffer: oracle exits 0
+closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, under the 64K pipe
 
 # ---------------------------------------------------------------------------
 # D2 — the demo tree is ONE project, and it contains the marker showcase
@@ -70,9 +75,10 @@ shape-census-pipe      Demo_Core   D8   answer fits the pipe buffer: oracle exit
 # that the jEdit walkthrough can query across them (the locale is declared in
 # Demo_Core and instantiated in Demo_Extras).  A marker beats -R nothing and
 # ROOT proximity, so the two cwd-discovery cases read the WHOLE tree -- which
-# includes `definition\<^marker>\<open>tag important\<close> marked_const`, the one
-# declaration the oracle's DECL_RE cannot match.  Every other Demo_Core case
-# passes an explicit -R and is byte-identical.
+# includes the `\<^marker>` showcase.  That USED to make them the one place a
+# Demo_Core run differed, and it is why `demo/` was built the way it is.
+#
+# The pin is GONE as of P9: `[marker-decl]` closed D2 on both sides, so the
+# case agrees and a pin on it is a stale pin, which fails the run by design.
+# The comment stays because the fixture was designed around it.
 # ---------------------------------------------------------------------------
-
-cwd-discovery          Demo_Core   D2   marker widens the root to the tree holding the \<^marker> showcase
