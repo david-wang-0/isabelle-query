@@ -18,10 +18,12 @@ What it proves, in order:
      request, and a new file appears without a manual refresh;
   5. refusals -- over the size cap the reply is a protocol ERROR carrying a
      message, NOT an OK with an empty answer;
-  6. the namespace -- a request that binds the broad table unconditionally
-     does not leave it bound for the next project;
-  7. errors -- a bad index id, a missing argv, a malformed command;
-  8. failability -- with $P7PROBE_FAILDEMO set, one expectation is perturbed
+  6. the namespace -- a request that takes the broad table unconditionally
+     does not leave it in force for the next project;
+  7. two projects at once -- a HOL root and a non-HOL root queried back to
+     back on one connection, each answering with its OWN table;
+  8. errors -- a bad index id, a missing argv, a malformed command;
+  9. failability -- with $P7PROBE_FAILDEMO set, one expectation is perturbed
      and the run must go red.
 
 Usage:  p7probe.py SERVER_NAME AFP_ENTRY ZF_CORPUS SCRATCH_DIR
@@ -287,9 +289,9 @@ def main(argv):
     # ------------------------------------------------------------------
     print()
     print("6. the namespace does not leak between requests")
-    # `census` binds the broad HOL union unconditionally.  A ZF project must
+    # `census` takes the broad HOL union unconditionally.  A ZF project must
     # step DOWN to the Pure floor, and would silently not if the previous
-    # request's binding survived -- `induct` is a HOL method, so under the
+    # request's table survived -- `induct` is a HOL method, so under the
     # broad table it stops being a citation.
     rc_zf, zf_cold, _ = cold(zf, ["callers", "induct"])
     conn.command("query_run", {"argv": ["-R", zf, "shape", "census"],
@@ -311,7 +313,64 @@ def main(argv):
 
     # ------------------------------------------------------------------
     print()
-    print("7. bad requests are refused, not guessed at")
+    print("7. two projects at once -- each request carries its own table")
+    # The case that used to need the restore in `Query_Server.run`, with no
+    # `census` anywhere in it: two roots whose tables DIFFER, queried back to
+    # back on one connection.  Until [p10-namespace-value] the table was
+    # process-global and the server put it back before every request; it is
+    # now a value resolved per request and threaded down by parameter, and
+    # this is the check that says so.
+    #
+    # `methods NAME` is the sharpest table-sensitive probe there is, because
+    # its refusal is a function of the table ALONE: `Usage.cmd_methods` fails
+    # a subject that is neither USED in the corpus nor in the resolved
+    # proof-method table.  `sos` (HOL-Library's Positivstellensatz tactic) is
+    # in CENSUS_METHODS, is not in PURE_METHODS, and is used by neither
+    # corpus.  So, hand-computed before running it:
+    #
+    #   ZF  -> base logic ZF, positively non-HOL -> the Pure floor.  `sos` is
+    #          unused and not in the floor -> exit 1, empty stdout, a
+    #          diagnostic on stderr.
+    #   AFP -> base logic HOL -> the census union.  `sos` is unused but IS in
+    #          the table -> exit 0, "No uses of method 'sos' found."
+    #
+    # A table that leaked from the previous request inverts exactly one of
+    # those, and the COLD answer is what says which -- a cold run resolves the
+    # table from the root and nothing else.  (A change to the shared semantics
+    # would move warm and cold together; that is the difftest's job, not this
+    # check's.)
+    def served(root, argv):
+        rc_c, out_c, err_c = cold(root, argv)
+        head, body = conn.command(
+            "query_run", {"argv": ["-R", root] + argv, "cwd": scratch, "env_root": ""})
+        agrees = (head == "OK" and body.get("output") == out_c
+                  and body.get("exit") == rc_c
+                  and bool(body.get("error")) == bool(err_c))
+        return agrees, rc_c, out_c
+
+    ok_zf, rc_zf, out_zf = served(zf, ["methods", "sos"])
+    ok_afp, rc_afp, out_afp = served(afp, ["methods", "sos"])
+    check(rc_zf == 1 and out_zf == "",
+          "hand-computed: on the Pure floor `methods sos` is a refusal",
+          "exit %s, stdout %r" % (rc_zf, out_zf[:30]))
+    check(rc_afp == 0 and "No uses of method 'sos'" in out_afp,
+          "hand-computed: on the census union it is an honest zero",
+          "exit %s, stdout %r" % (rc_afp, out_afp[:40]))
+    check(ok_zf and ok_afp,
+          "non-HOL then HOL, back to back, each answers as it does cold",
+          "zf %s, afp %s" % (ok_zf, ok_afp))
+
+    # The other order too: a leak is directional, and only one of the two
+    # orders would catch a table that is resolved once and then kept.
+    ok_afp2, _, _ = served(afp, ["methods", "sos"])
+    ok_zf2, _, _ = served(zf, ["methods", "sos"])
+    check(ok_afp2 and ok_zf2,
+          "and HOL then non-HOL likewise",
+          "afp %s, zf %s" % (ok_afp2, ok_zf2))
+
+    # ------------------------------------------------------------------
+    print()
+    print("8. bad requests are refused, not guessed at")
     head, body = conn.command("query_run", {"argv": ["summary"],
                                             "index_id": "not-a-real-id"})
     check(head == "ERROR" and "no such index" in str(body.get("message", "")),
@@ -332,7 +391,7 @@ def main(argv):
 
     # ------------------------------------------------------------------
     print()
-    print("8. close")
+    print("9. close")
     head, body = conn.command("query_version", {"open": True})
     open_before = len(body.get("open", []))
     head, body = conn.command("query_close", {"root": afp})
