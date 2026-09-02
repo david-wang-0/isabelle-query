@@ -3,30 +3,54 @@
 Every place the Scala engine deliberately does NOT reproduce the Python
 implementation, with the evidence that made it deliberate.  `PLAN.md` requires
 this list to stay near-empty and every entry to have a reason better than "hard
-to match"; each one below is a case where the Python implementation disagrees
-with Isabelle's own lexer or its own header parser, and reproducing it would
-mean shipping a known bug.
+to match".
 
-Measured over the whole AFP (Isabelle2025-2 vintage): 411,181 Scala records vs
-409,277 oracle records over 10,262 theories, 1,952 differing records — all of
-them accounted for below.  Over the whole Isabelle distribution `src`: 101,388
-vs 100,879 records over 1,818 theories, 751 differing, all of them D2.  Both
-theory sets are byte-identical.
+**The oracle is upstream 0.8.1 as of P9** (`git merge v0.8.1`, `[p9-merge]`;
+`src/isabelle_query/` and `tests/` are that release, frozen).  That matters for
+reading this file, because most of what is written down here was *found* here
+and has since been fixed **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0
+from this port's own findings (upstream ships them as
+`scripts/probe_scala_port_findings.py`), and D2 and D6 closed on both sides
+during P9.  Those entries stay, with their evidence and with the release that
+closed them, because the evidence is what made the case; they are history, not
+open differences.
 
-No entry is ever LOST: over both corpora the set of `theory:line:tag:name`
-identities the oracle reports is a subset of the Scala engine's.  Every
-difference is a declaration the oracle misses, or a span that moves because a
-missed declaration turns out to be the neighbour that bounds it.
+## Measured at the close of P9 (2026-09-02)
 
-The five standard P1 corpora (`Abstract_Completeness`, `AODV`, `Category3`,
-`FOL`, `ZF`) are byte-identical in all four dump variants; none of these cases
-occurs there.
+Whole AFP, `afp-2025-2` (Isabelle2025-2 vintage), all four dump variants:
+
+| | oracle 0.8.1 | this engine | differing |
+|---|---:|---:|---:|
+| theories | 10,262 | 10,262 | **0** |
+| entries | 411,181 | 411,181 | **0** |
+| entries `--spans` | 411,181 | 411,181 | **1** (D5) |
+| entries `--bindings` | 411,181 | 411,181 | **0** |
+
+Whole Isabelle distribution `src` — 1,818 theories, 101,388 records on each
+side, **byte-identical in all four variants, 0 differing records**.  So is
+each of the seven standard corpora (`Abstract_Completeness`, `AODV`,
+`Category3`, `FOL`, `ZF`, `Sequents`, `CTT`): 28 of 28 dumps identical.
+
+**One record differs over both corpora, and it is D5** —
+`Substitutions_Lambda_Free:58`, whose `decl_end` the oracle puts at 67 and this
+engine at 62.  Nothing is gained or lost on either side: the two engines now
+report the same `theory:line:tag:name` set, where at P1 the oracle's was a
+strict subset that missed 1,904 AFP and 509 distribution declarations.  D1
+(1,867 records), D2 (751 + 16), D3 (37) and D4 (16) are all agreement now.
 
 ---
 
 ## D1 — `\<open>\\<close>`: a cartouche whose body is a backslash
 
-**Cost: 1,867 records over 5 entries.** ResiduatedTransitionSystem (1,052),
+**RESOLVED UPSTREAM in 0.8.0 (`[cartouche-escape]`, 5329089), from this port's
+own finding — upstream ships the check as
+`scripts/probe_scala_port_findings.py`.  The evidence below stays because it is
+what made the case; the two implementations now agree on all 1,867 records
+(verified at the close of P9: the whole-AFP entry dump is byte-identical, and
+`ResiduatedTransitionSystem/LambdaCalculus` has the same 378 records on each
+side).**
+
+**Cost while it lasted: 1,867 records over 5 entries.** ResiduatedTransitionSystem (1,052),
 ResiduatedTransitionSystem2 (742), HOL-CSP (49), Circus (13),
 Isabelle_Meta_Model (11).
 
@@ -51,7 +75,15 @@ declarations the oracle loses.
 
 ## D2 — `definition\<^marker>\<open>tag ...\<close> name`
 
-**Cost: 751 records in the Isabelle distribution, 16 in the AFP.**  This is the
+**CLOSED ON BOTH SIDES during P9 (`[marker-decl]`).**  Upstream took the
+declaration site in 0.8.0 (9ab103f, 141e3b6, 092981d) from this port's finding;
+this port took the three halves it was still missing in P9 S2 — all four formal
+comments redact in the LIVE view (909bf9c), the name grammar stops at a
+structural token (5c21d76), and one heading recogniser skips markers (50a6e55).
+The whole distribution `src` dump is byte-identical now, 509 declarations and
+242 span records included, and so is the AFP's.
+
+**Cost while it lasted: 751 records in the Isabelle distribution, 16 in the AFP.**  This is the
 one divergence that is large where it matters most: `HOL/Analysis` tags its
 declarations for the document build throughout, so the oracle silently misses
 509 distribution declarations — `istopology`, `moebius`, `is_Arg`,
@@ -80,11 +112,18 @@ every formal-comment marker (`\<comment>`, `\<^cancel>`, `\<^latex>`,
 `\<^marker>`, in both spellings) the way the reference implementation already
 steps over `\<comment>`, and the name comes out right.
 
-Residual, deliberately not fixed here — see D6.
+The residual this entry used to carry — a marker *inside* the name — is D6, and
+it closed with the same tag on both sides.
 
 ## D3 — `keywords "cmd" :: "kind"` with a QUOTED kind
 
-**Cost: 37 records over 2 entries when each is read on its own** —
+**RESOLVED UPSTREAM in 0.8.0 (`[keyword-kind-quoted]`, 53f0af9), from this
+port's own finding.  The two implementations now read the same keyword table,
+and the 37 records agree.  It had a second-order effect worth following: with
+`alphabet` in the oracle's table too, the oracle now reproduces D4 — see
+there.**
+
+**Cost while it lasted: 37 records over 2 entries when each is read on its own** —
 Optics (6), Shallow_Expressions (31).
 
 ```isabelle
@@ -102,6 +141,18 @@ with `Thy_Header`, which is the parser Isabelle itself uses.
 
 ## D4 — cross-session keyword union, whole-corpus root only
 
+**NO LONGER A DIVERGENCE — it is a shared weakness now, and that is a
+consequence of D3.**  P1 recorded this as a difference on the reasoning quoted
+below: *"the oracle has the same union and only escapes the symptom because D3
+keeps `alphabet` out of its table."*  0.8.0 fixed D3, so `alphabet` is in the
+oracle's table too and the oracle mints the same 16 records.  Measured at the
+close of P9: the whole-AFP entry dump is byte-identical, and
+`Isabelle_C/C11-FrontEnd/appendices/C_Appendices:831:DEF:\<^verbatim>` — the
+phantom whose name is read out of a `text` block — is line 203,558 of BOTH
+dumps.  Upstream filed the defect as `[keyword-scope]`, which is where
+`todo.md` carries it; the entry stays here because it is where the measurement
+is written down.
+
 **Cost: 16 records over 4 entries, and only when the whole AFP is passed as ONE
 root.** Formula_Derivatives (4), MSO_Regex_Equivalence (3), UTP (3), Circus (6).
 Each of those four is byte-identical when read as its own root.
@@ -113,13 +164,21 @@ right for one session and too coarse for a corpus of a thousand: with the AFP
 Formula_Derivatives, whose `sublocale DA < DAs` / `alphabet init delta ...`
 continuation line then reads as a declaration.
 
-This is the tool's existing design, not a change: the oracle has the same union
-and only escapes the symptom because D3 keeps `alphabet` out of its table.  It
-is listed because a whole-corpus sweep shows it.  Fixing it means scoping the
-table per session, which changes the parse of every custom-command entry and
-belongs with the session model, not with P1.
+This is the tool's existing design, not a change.  It is listed because a
+whole-corpus sweep shows it.  Fixing it means scoping the table per session,
+which changes the parse of every custom-command entry and belongs with the
+session model, on both sides.
 
 ## D5 — `\<comment>` whose cartouche is on the next line
+
+**OPEN, and as of P9 it is the ONLY differing record over either corpus.**
+Upstream measured it and declined: `[comment-newline]` in `todo.md` reports one
+occurrence in 11,514 theories against a change to `_scan_nonisar_spans`' state
+machine, the highest-risk code in that package, and keeps the item on the list
+as a *measured* decision rather than deleting it.  The port is right on the
+record — Isabelle's `comment_prefix` allows the newline — and reproducing the
+oracle here would mean charging five lines of English to a lemma's statement,
+so it stays.
 
 **Cost: 1 record.** Substitutions_Lambda_Free/Substitutions_Lambda_Free:58.
 
@@ -138,11 +197,25 @@ matches the marker with a per-LINE regex, so it sees a bare `\<comment>` and a
 separate live cartouche, and charges all five prose lines to the lemma's
 statement (`decl_end=67` instead of `62`).
 
-## D6 — a structural marker inside a name (shared weakness, NOT fixed)
+## D6 — a structural marker inside a name (shared weakness, since FIXED on both sides)
 
-Both implementations build a name out of Isabelle markup tokens
+**CLOSED ON BOTH SIDES during P9 (`[marker-decl]`).**  Upstream split the
+lexical atom from the NAME atom in 0.8.0 (9ab103f) so a name stops at a
+structural token; this port took the same split in P9 S2 (5c21d76), leaving the
+citation and `shape` tokenisers on the lexical atom.  All 7 AFP names come out
+right on both sides —
+`Differential_Privacy/…/Source_and_Sink_Algebras_Constructions:194:DEF:coprod_final_sink`
+is the same record in both dumps — and the 3 records this entry warned would
+move did move, on both sides together, so nothing about them is a difference.
+The **related residual** below is agreement too: on
+`First_Order_Terms/Term:37` both implementations now print `?`, and both still
+miss `inj_on_Fun_fun`, which is the `goal` route's missing name-lookahead and
+is nobody's divergence.
+
+The evidence that made the case, as it stood at P1.  Both implementations built
+a name out of Isabelle markup tokens
 (`\<^sub>`, `\<^bold>` and friends are ordinary name characters), and neither
-stops at a *structural* one, so
+stopped at a *structural* one, so
 
 ```isabelle
 definition\<^marker>\<open>tag important\<close> coprod_final_sink\<^marker>\<open>tag important\<close> :: "..."
@@ -158,17 +231,27 @@ currently AGREE with the oracle, and the effect is observable in `find` /
 matrix, where the change can be judged against the commands that display it,
 not with P1's entry-set parity.
 
-Related residual: where a marker's cartouche fills the whole declaration line
+Related residual, and it closed with the rest: where a marker's cartouche fills
+the whole declaration line
 (`lemma \<^marker>\<open>contributor \<open>...\<close>\<close>` with the name on the
-next line, First_Order_Terms/Term:37) the Scala engine reports `?`.  The oracle
-reports the marker text.  Both miss `inj_on_Fun_fun`; recovering it needs the
+next line, First_Order_Terms/Term:37) the Scala engine reported `?` and the
+oracle the marker text.  Since 0.8.0 the oracle reports `?` as well.
+Both still miss `inj_on_Fun_fun`; recovering it needs the
 `goal` route to take the name-lookahead the `def` and `typedecl` routes already
 take, which would rename every `lemma`-alone-on-its-line declaration and so is
 a change to make deliberately, with its own corpus diff.
 
 ## D7 — the oracle's line index crashes on a multi-name `axiomatization`
 
-**Cost: `grep`, `sorry` and most of the usage family do not run AT ALL in the
+**RESOLVED UPSTREAM in 0.8.0 (`[span-ties]`, ec4f1c1), from this port's own
+finding — upstream ships the check as
+`scripts/probe_scala_port_findings.py`.  `_build_line_index` sorts by the two
+integers only now, which is the rule `Usage_Graph` has always run, so the whole
+usage family answers on FOL and ZF.  The 132 pins this entry carried are gone
+from `dev/difftest-pins`: at oracle 0.8.1 every one of them AGREES, and a pin
+that describes nothing is a stale pin, which fails the run by design.**
+
+**Cost while it lasted: `grep`, `sorry` and most of the usage family did not run AT ALL in the
 oracle on 2 of the 7 standard corpora** (`FOL`, `ZF`).  P3 confirmed the
 prediction: 66 pinned cases per corpus, 15 from P2 and 51 from the usage
 family.
@@ -207,10 +290,11 @@ FOL, `grep subst_all` reports the one live hit at `IFOL.thy:830` and, with
 `--with-comments`, the ML-body mention at `FOL.thy:348` — the two occurrences a
 raw `grep -rn` finds, correctly classified.
 
-Reproducing the crash would mean shipping a `TypeError` as a feature, so this
-is a deliberate divergence.  132 difftest cases are pinned on it (66 each on
-FOL and ZF); the pins carry the exit-status difference (1 vs 0) as well as the
-stdout one.
+Reproducing the crash would have meant shipping a `TypeError` as a feature, so
+this was a deliberate divergence.  132 difftest cases were pinned on it (66
+each on FOL and ZF), the pins carrying the exit-status difference (1 vs 0) as
+well as the stdout one; `[p9-merge]` deleted all 132 when the oracle stopped
+raising.
 
 Which P3 verbs SURVIVE is the useful part of the map, because it says exactly
 what the line index is for: `deps`, `uses` and `graph imports` read the import
@@ -220,9 +304,24 @@ the graph exists.  Those run in the oracle on FOL and ZF, and they are clean.
 It also cost the P3 gate two distribution corpora, replaced by `Sequents` and
 `CTT` — the two the oracle can carry, verified by running it there first.
 
-## D8 — a closed stdout is 141, always; the oracle sometimes says 120
+## D8 — a closed stdout: both tools say 0 below a threshold and 141 above it, and the thresholds differ
 
-**Cost: 1 difftest case, on the smallest corpus.**
+**REWRITTEN AT P9.  The three pins are unchanged and none of them is stale; the
+PROSE was wrong twice, and both errors flattered this side.**  What this entry
+used to claim — "the rewrite is 141 throughout" and "the oracle's 0 is the same
+defect from the other side" — is not what either tool does.  Both tools exit
+**0** when the whole answer fits the buffers between them and the reader, and
+**141** when a write actually fails; they differ only in where that threshold
+sits (~8 KB here, 64 KB there), and upstream 0.8.1 now documents the 0 as the
+contract rather than as a defect (`[closed-stdout]`, 5b5d66b — a docs-only
+commit).  The measurements below stand; the reading of them is corrected at the
+end of the entry.
+
+**Cost: 3 difftest cases on the standard corpora (`closed-stdout` on
+`Abstract_Completeness`, `shape-census-pipe` on `Abstract_Completeness` and
+`CTT`), plus three on the demo — where `Demo_Extras`'s `find … -a -V` is
+12,739 bytes, over this engine's 8 KB and under the reference's 64 KB, which is
+the threshold difference in one case.**
 
 `CONTRIBUTING.md` fixes the closed-stdout status at 141 — `128 + SIGPIPE`, what
 a shell reports for a process killed by SIGPIPE, so a pipeline and a `$?` check
@@ -270,11 +369,66 @@ split is exactly the output size, not a race:
 | `AODV` | 1,677,225 | 141 | 141 |
 | `ZF` | 5,267,121 | 141 | 141 |
 
-Five runs each, stable.  So the oracle's closed-stdout status is 0, 120 or 141
-depending on how much output there happened to be — which is the same fact D8
-already records, now with the threshold named.  The rewrite is 141 throughout,
-which is what `CONTRIBUTING.md` fixes.  Pinned as `shape-census-pipe` on the
-two corpora under 64K; a pin on the other five would be stale.
+Five runs each, stable.  Pinned as `shape-census-pipe` on the two corpora under
+64K; a pin on the other five would be stale.
+
+### What P9 corrects, and what is left
+
+Every row of the P4 table above still holds at oracle 0.8.1, and the three pins
+are what say so: `shape-census-pipe` differs on `Abstract_Completeness` and
+`CTT` and on no other corpus, `closed-stdout` differs on
+`Abstract_Completeness` alone, and the difftest reports **3 pinned, 0 stale**,
+so none of them has rotted.
+
+**The 120 is still a defect, and it is still the oracle's.**  `closed-stdout
+Abstract_Completeness` (`find . . . . -a -V | head -3`) is unchanged at 0.8.1:
+the answer is over the pipe buffer, so a write does fail, but the first one to
+fail is the interpreter's shutdown flush — outside the `except
+BrokenPipeError` around the command body — and Python exits 120 after printing
+`Exception ignored while flushing sys.stdout` to stderr.  Upstream's own
+`tests/test_closed_stdout.py` asserts that noise "does not occur", and it does
+occur; their case is a census on a large corpus, which fails inside the body.
+That pin is earned.
+
+**The 0 is NOT a defect, on either side, and this entry used to say it was.**
+0.8.1's README now states it: *"`141` is not promised for every `| head`.  When
+the whole answer fits the pipe buffer no write ever fails and the status is
+`0` — the same as `seq 10 | head`, where `seq 200000 | head` dies of SIGPIPE.
+The producer wrote everything; the reader chose to stop."*  That is the honest
+description of the mechanism, and it applies here too.
+
+**Because this engine is not 141 throughout.**  It writes through a
+`BufferedWriter` over an `OutputStreamWriter` on the raw descriptor
+(`query_base/src/output.scala`), and the encoder under that writer holds 8,192
+bytes — so a whole answer under 8 KB leaves the process in ONE `write(2)`, that
+write lands in a pipe buffer nothing has closed yet, and the run exits **0**.
+An answer over it is split across several writes, and between two of them the
+reader has been woken, printed its lines and gone: the second write is EPIPE
+and the run is 141.  Measured on `Abstract_Completeness`, `| head -1`, five
+runs each and identical every time:
+
+| argv | bytes | this engine |
+|---|---:|---|
+| `summary -c` | 113 | **0** |
+| `theory Abstract_Completeness --names` | 4,139 | **0** |
+| `theory Abstract_Completeness` | 5,913 | **0** |
+| `largest -N 82` (the whole corpus) | 7,806 | **0** |
+| `find . -a` | 20,052 | 141 |
+
+So the shape is the oracle's shape, with the threshold at the writer's encoder
+buffer instead of at the pipe's.
+
+What is left of D8 is one defect and one difference:
+
+- the oracle's 120-with-stderr-noise, which is a real defect and keeps its
+  `closed-stdout Abstract_Completeness` pin;
+- **a documented difference in THRESHOLD** — 8 KB here against 64 KB there —
+  which is what the two `shape-census-pipe` pins measure.  Neither number is
+  promised to a caller, and neither could be: they belong to a JVM writer's
+  encoder and to a Linux pipe.  `README.md` and `CONTRIBUTING.md` therefore say
+  `141` means *a write failed because a downstream reader closed the pipe*, and
+  say that `141` is not promised for every `| head` — true of both tools, and
+  committing neither to a size.
 
 ## D9 — regex dialect: two Python-only spellings are rejected, not misread
 
@@ -381,10 +535,12 @@ tables as data, and an ML dump is a different kind of dependency from
 behaviour exactly, which is the branch the reference itself takes on a clean
 machine and on all seven gate corpora (verified: each binds either the census
 union or the Pure floor, never a dump).  Pin both sides with
-`ISABELLE_QUERY_NAMESPACE=committed` and a whole-AFP `callers mono` agrees on
-1,363 output lines with **4 differing lines, all of them D1** — the two
-`Hiding` hits whose owning entry the oracle's unterminated cartouche has
-swallowed.
+`ISABELLE_QUERY_NAMESPACE=committed` and a whole-AFP `callers mono` agrees.  At
+P4 that agreement was 1,363 output lines with **4 differing lines, all of them
+D1** — the two `Hiding` hits whose owning entry the oracle's unterminated
+cartouche had swallowed.  Re-taken at the close of P9 against oracle 0.8.1,
+which has D1's fix: `callers mono --reach name` is **1,365 lines on each side
+and byte-identical**, 0 differing.  The residual was D1's, and D1 is closed.
 
 Closing it means an `isabelle dump`-backed resolver, which belongs with the
 server/plugin work (a warm index has somewhere to keep the result), not with
@@ -495,13 +651,19 @@ $ isabelle query -R $QUERY_TEST_AFP callers mono -c
 566
 ```
 
-(The pair as first measured, at P7c.  Both numbers have since moved, with the
-parser and with `[symbol-body-tokens]` / `[import-leaf]`; the corpus-scale
-figures are re-taken at the close of P9 — `dev/P9-PLAN.md` S5.)  795 of those
-1,361 hits are impossible.  (Both figures are under the
+(The pair as first measured, at P7c, when 795 of the 1,361 hits were
+impossible.  Both figures moved during P9, with the parser and with
+`[symbol-body-tokens]` / `[import-leaf]` / `[citation-reach]`; **re-taken at
+the close of P9 on the same corpus and the same pin, the pair is 1,363 →
+634**, so 729 of the hits a name-only scan reports are in theories whose whole
+import closure declares no `mono`.  Two more corpus-scale figures from the
+same run, because they are what the rule is FOR: the citation graph goes
+2,291,456 edges → 1,355,188, a 41% cut, and `unused -c` goes 97,568 → 101,154
+— it **grows** by 3,586 entries, each of them kept alive until now by a
+citation its citer could never have meant.  Every figure here is under the
 committed-namespace pin the harness runs with; under the unpinned default the
-pair is 2,437 → 1,311 — a different baseline, the same pruning, the same
-sites.)  The shape of every one of them:
+`callers` pair was 2,437 → 1,311 at P7c — a different baseline, the same
+pruning, the same sites.)  The shape of every one of them:
 
 ```
 $ isabelle query -R $QUERY_TEST_AFP callers mono -U 0 | grep Mono_Bool_Tran:45
