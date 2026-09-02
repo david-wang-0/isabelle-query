@@ -146,6 +146,9 @@ object Shape {
     var fanin: Int = 0
     var fanin_covered: Boolean = true
     var live: Int = 0
+    /* Why a goal step states no proposition — one of `BARE_KINDS`, or "" for a
+       step that states one (and for every non-goal step).  See `bare_kind`. */
+    var bare: String = ""
   }
 
   private val STEP_LABEL_RE: Pattern = Py.compile(
@@ -301,6 +304,124 @@ object Shape {
     cmds.lastOption.getOrElse("")
   }
 
+  /* ------------------------------------------------------------------ */
+  /* why a goal step states no proposition                              */
+  /* ------------------------------------------------------------------ */
+
+  /* `n_bare` pooled two unrelated things, and the pooling is what hid the
+     wrapped-statement fault for as long as it did: a wrapped statement was
+     booked as bare, where nobody would look for a scanner fault.  These three
+     buckets are named after the MEASURED population rather than guessed at —
+     upstream bucketed all 195,733 bare goal steps of the AFP's 883,246 first:
+
+       construction  173,613  88.70%  `?thesis`, `?case`, `also`, `interpret`
+       unfound        11,766   6.01%  `obtain x where`, statement on the next line
+       undelimited    10,354   5.29%  `hence False by simp` — written, unquoted
+
+     `unfound` is the residue and the reason for the split: the only bucket
+     whose growth is evidence about the SCANNER rather than about how Isar is
+     written [bare-provenance]. */
+
+  /* Goal commands that never carry a proposition of their own.
+     `also`/`finally` continue a calculation; `interpret` instantiates. */
+  private val NO_PROPOSITION_CMDS: Set[String] = Set("also", "finally", "interpret")
+  /* What follows the command, once its own name and any label are gone. */
+  private val STEP_LABEL_HEAD_RE: Pattern =
+    Py.compile("""^[A-Za-z][\w'.]*\s*(?:\[[^\]]*\])?\s*:(?!:)""")
+  /* The proof tail that may follow an UNDELIMITED proposition on the same
+     line.  `show False by simp` states `False`; the rest is the discharge. */
+  private val PROOF_TAIL_WORDS: Set[String] = Set(
+    "by", "using", "unfolding", "apply", "proof", "done", "oops", "sorry",
+    ".", "..", "if", "for", "when", "is")
+  /* An undelimited proposition: one term, no quotes and no cartouche.  Isar
+     allows it when the term is a single token — `show False`, `show thesis` —
+     and `extract_statement` looks only for delimiters, so these are booked
+     bare although the proposition is right there on the line. */
+  private val UNDELIMITED_TERM_RE: Pattern =
+    Py.compile(s"^(?:${Entries.ISA_WORD_CHAR}|[?])+$$")
+
+  val BARE_KINDS: List[String] = List("construction", "undelimited", "unfound")
+
+  /* The text a goal step writes after its command and its label.  Read from
+     the COMMAND PREFIX, not the raw line: `split_command_prefix` blanks the
+     balanced span of a fact cited in command position, so
+     `with \<open>\<not> False\<close> show False ..` leaves `show` findable and
+     cannot mistake the cited term for the statement.  Off the raw line that
+     case reads backwards. */
+  /* One compiled pattern per goal command rather than one per STEP: a census
+     over the AFP asks this 883,246 times, and `cmd` ranges over
+     `GOAL_KEYWORDS`.  Python gets the same for free from `re`'s cache. */
+  private val goal_cmd_res = new java.util.concurrent.ConcurrentHashMap[String, Pattern]
+
+  private def after_goal_command(prefix: String, goal_cmd: String): String = {
+    if (goal_cmd.isEmpty) Py.strip(prefix)
+    else {
+      val re = goal_cmd_res.computeIfAbsent(goal_cmd, c =>
+        Py.compile("""(?<![\w'])""" + Py.re_escape(c) + """(?![\w'])"""))
+      val m = re.matcher(prefix)
+      var last = -1
+      while (m.find()) last = m.end()
+      val rest = Py.strip(if (last >= 0) prefix.substring(last) else prefix)
+      Py.matches_at_start(STEP_LABEL_HEAD_RE, rest) match {
+        case Some(lm) => Py.strip(rest.substring(lm.end))
+        case None => rest
+      }
+    }
+  }
+
+  /* Why this goal step has no as-written proposition — one of `BARE_KINDS`, or
+     "" for a step that states one.
+
+       construction  the step CANNOT carry one: `also` / `finally` continue a
+                     calculation, `interpret` instantiates a locale, and
+                     `show ?thesis` / `thus ?case` name a goal already in scope.
+       undelimited   the proposition is on the line, written without quotes or
+                     a cartouche (`hence False by simp`).  Recoverable in
+                     principle; not read today.
+       unfound       the scanner looked and found nothing — mostly
+                     `obtain x where` with the statement on the next line,
+                     which `statement_wrapped` deliberately declines. */
+  def bare_kind(step: Step, stripped: String): String = {
+    if (step.stmt_text.nonEmpty) ""
+    else {
+      val cmd = if (step.goal_cmd.nonEmpty) step.goal_cmd else step.kw
+      if (NO_PROPOSITION_CMDS(cmd)) "construction"
+      else {
+        val rest = after_goal_command(command_prefix(stripped), cmd)
+        if (rest.startsWith("?")) "construction"      // `?thesis`, `?case`, `?rhs`
+        else if (rest.isEmpty) "unfound"              // command alone on its line
+        else {
+          /* Python's `rest.partition(" ")` — a single space, not any
+             whitespace run; then `tail.split()[0]`, which is the first
+             whitespace-delimited word of what is left. */
+          val i = rest.indexOf(' ')
+          val head = if (i < 0) rest else rest.substring(0, i)
+          val tail = Py.strip(if (i < 0) "" else rest.substring(i + 1))
+          val tail_head = {
+            var j = 0
+            while (j < tail.length && !Py.is_space(tail.charAt(j))) j += 1
+            tail.substring(0, j)
+          }
+          if (Py.matches_start(UNDELIMITED_TERM_RE, head) &&
+            (tail.isEmpty || PROOF_TAIL_WORDS(tail_head))) "undelimited"
+          else "unfound"
+        }
+      }
+    }
+  }
+
+  /* Histogram of a proof's bare goal steps by provenance — the split `n_bare`
+     never had.  Every `BARE_KINDS` key is present (0 when absent), so the
+     schema is uniform, and the sum is exactly `n_bare`: this REFINES the field
+     rather than redefining it, so a stored census row stays comparable. */
+  def bare_kind_counts(steps: List[Step]): List[(String, Int)] = {
+    val counts = mutable.LinkedHashMap.empty[String, Int]
+    for (k <- BARE_KINDS) counts(k) = 0
+    for (s <- steps if s.bare.nonEmpty) counts(s.bare) = counts(s.bare) + 1
+    BARE_KINDS.map(k => k -> counts(k))
+  }
+
+
   /* Classify the Isar commands in an entry's proof body into a flat list, in
      source order.  A proof written on the statement's own line is scanned from
      the column the proof starts at; the statement half is BLANKED rather than
@@ -355,9 +476,15 @@ object Shape {
                 val st = extract_statement(lines, ln - 1, end - 1)
                 val label =
                   Py.search(STEP_LABEL_RE, command_prefix(stripped)).map(_.group(1)).getOrElse("")
-                steps += new Step(ctx.sec.theory, entry.name, ln, step_depth, kw, kind,
+                val step = new Step(ctx.sec.theory, entry.name, ln, step_depth, kw, kind,
                   st.start, st.end, st.text, label = label,
                   goal_cmd = goal_command(stripped), block = cur_block, method = method)
+                /* Classified here, where the step's own source line is still
+                   in hand: `bare_kind` reads the command prefix, and
+                   reconstructing it later from `Step.line` would be a second
+                   parse to keep in step [bare-provenance]. */
+                step.bare = bare_kind(step, stripped)
+                steps += step
               }
               else if (kind != "other")
                 steps += new Step(ctx.sec.theory, entry.name, ln, step_depth, kw, kind,
@@ -1434,8 +1561,14 @@ object Shape {
 
   /* The per-proof aggregate row — the unit of `shape summary`'s table and the
      `shape census` stream.  Distributions are over the proof's GOAL steps with
-     an as-written proposition; `n_bare` counts goal steps with none, and pools
-     "bare by construction" with "the scanner found no proposition". */
+     an as-written proposition; `n_bare` counts goal steps with none.
+
+     `n_bare` USED TO pool two different things — "bare by construction" and
+     "the scanner found no proposition" — which is what hid the wrapped-
+     statement fault for as long as it did.  `bare_kinds` is the split
+     [bare-provenance]; `n_bare` is unchanged and is its sum, so a rise in it is
+     now readable (`construction` moves with writing style, `unfound` with the
+     scanner) without invalidating a stored row. */
   final case class Proof_Summary(
     theory: String, lemma: String,
     n_steps: Int, n_goals: Int, n_bare: Int,
@@ -1449,7 +1582,7 @@ object Shape {
     dag_max: Double,
     intro: Int, consume: Int, both: Int, ratio: Option[Double],
     trivial_frac: Option[Double], removable_w2: Double,
-    method_kinds: List[(String, Int)],
+    method_kinds: List[(String, Int)], bare_kinds: List[(String, Int)],
     n_induct: Int, induct_terms_max: Int, induct_arbitrary_max: Int,
     induct_rule: Int, induct_recursion: Int,
     proof_lines: Int, proof_lines_code: Int, proof_tokens: Int, proof_tokens_code: Int,
@@ -1484,7 +1617,7 @@ object Shape {
       fanin_max.toInt, fanin_mean, fanin_cited, pm.live_max, pm.live_mean,
       dag_max, ic.introduce, ic.consume, ic.both, ic.ratio,
       trivial_frac(pm.steps), removable_w2_at_8(pm.steps, pm.cctx),
-      method_kind_counts(pm.steps),
+      method_kind_counts(pm.steps), bare_kind_counts(pm.steps),
       ind.n, ind.terms_max, ind.arbitrary_max, ind.n_rule, ind.n_recursion,
       p_lines, p_lines_code, p_tokens, p_tokens_code, e.line_count,
       pm.sec.session)

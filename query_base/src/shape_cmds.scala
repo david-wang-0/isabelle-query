@@ -423,6 +423,8 @@ object Shape_Cmds {
       "trivial_frac" -> Jsonl.opt(ps.trivial_frac),
       "removable_w2_est_at_8" -> Jsonl.D(ps.removable_w2),
       "method_kinds" -> Jsonl.O(ps.method_kinds.map(kv => kv._1 -> Jsonl.I(kv._2))),
+      /* Why the `n_bare` steps are bare; the three keys sum to `n_bare`. */
+      "bare_kinds" -> Jsonl.O(ps.bare_kinds.map(kv => kv._1 -> Jsonl.I(kv._2))),
       "n_induct" -> Jsonl.I(ps.n_induct),
       "induct_terms_max" -> Jsonl.I(ps.induct_terms_max),
       "induct_arbitrary_max" -> Jsonl.I(ps.induct_arbitrary_max),

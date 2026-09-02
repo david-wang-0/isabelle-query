@@ -235,14 +235,9 @@ in `CONTRIBUTING.md`.
 These are recorded in `dev/P7-STATUS.md` and `dev/P7C-STATUS.md` with their
 evidence; the entries here are the handles.
 
-**Not listed here, and not forgotten:** `[bare-provenance]`,
-`[count-mode-zero]` and `[disambig-names]` shipped upstream in 0.8.0, so they
-left this list with the merge — but the Scala engine does not have them yet.
-They are being ported under `dev/P9-PLAN.md`, S4 and S1 respectively, and that
-plan is where their state lives until it closes. Nothing above them in this
-file is a Scala-side statement either: the items in the first section describe
-the frozen Python reference, and several (`[keyword-scope]` = D4,
-`[comment-newline]` = D5) are the same defect on both sides.
+Nothing above this section is a Scala-side statement: the items in the first
+section describe the frozen Python reference, and several (`[keyword-scope]` =
+D4, `[comment-newline]` = D5) are the same defect on both sides.
 
 - [ ] `[namespace-by-value]` Thread the method/attribute table through as a
       **value** instead of binding `isabelle.query.Namespace`'s process-global

@@ -108,9 +108,6 @@ with writing style, `unfound` with this scanner. Pooled, a rise could be either,
 which is how a wrapped-statement bug once hid inside it. `n_bare` itself is
 unchanged, so rows from before the split still compare.
 
-*(`bare_kinds` lands in this engine in P9 S4 — see `dev/P9-PLAN.md`. Records
-emitted before it carry `n_bare` and no `bare_kinds` key.)*
-
 ## Running a census over a corpus
 
 ```sh
