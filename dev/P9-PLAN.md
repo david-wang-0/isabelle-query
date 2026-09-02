@@ -127,39 +127,58 @@ found): `[cartouche-escape]` (D1), `[keyword-kind-quoted]` (D3),
       `deps/refs/uses-batch` to clear), p7probe (exit + stderr over the
       socket, `QUERY_DIFFTEST_WARM=1` on one corpus).
 
-### S2 — the parser (`.dev/gap-G3-parser.md`)
+### S2 — the parser (`.dev/gap-G3-parser.md`) — **DONE**
 
 In this order; entrydiff after each commit.
 
-- [ ] `[axiom-names]` — the `axiomatization` anchor is named `?`.
-- [ ] Regions prerequisite — all FOUR formal comments (`\<comment>`,
+- [x] `[axiom-names]` — the `axiomatization` anchor is named `?`.
+- [x] Regions prerequisite — all FOUR formal comments (`\<comment>`,
       `\<^cancel>`, `\<^latex>`, `\<^marker>`) redact in the **live** view,
       as upstream's `_REDACTING_MARKERS = FORMAL_COMMENTS`; rewrite the
       rationale at the top of `regions.scala`.
-- [ ] `[marker-decl]` 4a — name grammar stops at a structural token
+- [x] `[marker-decl]` 4a — name grammar stops at a structural token
       (`lipschitzI_on\<^marker>…` → `lipschitzI_on`); split the lexical atom
       from the name atom exactly as upstream did, and leave the citation /
       `shape` tokenisers on the lexical one.
-- [ ] `[marker-decl]` 4b — marked `locale`/`class` names and the `target`
-      chain under them.
-- [ ] `[marker-decl]` 4c — one heading recogniser (`heading_at` +
+- [x] `[marker-decl]` 4b — marked `locale`/`class` names and the `target`
+      chain under them. **No code change was needed**: a target's name is read
+      from `live`, so the regions prerequisite above fixes it. The second
+      route the report offered — skip formal comments inside `target_name` —
+      is deliberately NOT taken; the comment there says why.
+- [x] `[marker-decl]` 4c — one heading recogniser (`heading_at` +
       `skip_formal_comments`, shared with `strip_decl_prefix`); marked
       headings enter `outline` and bound spans; delete `SECTION_RE`.
-- [ ] `[proof-extent-view]` — `proof_extent` tests boundaries on the
+      `proof_extent` switched to `heading_at` here (092981d), the mask
+      below (1ee841f).
+- [x] `[proof-extent-view]` — `proof_extent` tests boundaries on the
       whole-line noise mask (`nonisar_ranges`), both callers.
-- [ ] `[comment-before-name]` — `lookahead_name` walks past redacted lines
+- [x] `[comment-before-name]` — `lookahead_name` walks past redacted lines
       with the 3-line budget spent only by blanks/`text`, 40-line cap, using
-      the live view.
-- [ ] `[decl-body-comment]` — `scan_decl_body` skips (does not append, does
+      the live view. Needed one thing under it: an UNTERMINATED formal
+      comment is not one FORMAL_COMMENT token to Isabelle's lexer, so
+      `Regions.scan` now pairs marker and recovered cartouche itself.
+- [x] `[decl-body-comment]` — `scan_decl_body` skips (does not append, does
       not stop at) a line that is blank in the live view; the `record`
       exception stays; the blank-before-note variant is NOT taken (upstream
       measured and rejected it: containment violations 82 → 719).
-- [ ] `dev/p9probe.sh` §4–§11 from the report's f4–f8 fixtures.
-- [ ] Gate: entrydiff on the seven corpora **and** HOL/Analysis, HOL/UNITY,
-      HOL/Bali, HOL/Hoare, CoSMeDis, Tabulation_Hashing, Interval_Analysis
-      (expected byte-identical except the five blank-before-note records,
-      which agree anyway); difftest count down by the ZF/FOL/Sequents/CTT
-      entry-name cases; p5/p6/p6b probes.
+      Re-measured here on the whole AFP: 411,181 records before and after,
+      0 gained, 0 lost, 752 moved; `body_end > thy_end` 81 → 81 and bodies
+      reaching into the next declaration 226 → 226.
+- [x] `dev/p9probe.sh` §4–§11 from the report's f4–f8 fixtures — 73 checks,
+      0 failing, failability shown.
+- [x] Gate: `dev/entrydiff.sh` **byte-identical in all four variants** on
+      the seven corpora (28/28), on the whole of `src/HOL` (1,451 theories,
+      78,279 entries — which is where HOL/Analysis, UNITY, Bali and Hoare
+      live), and on CoSMeDis, Tabulation_Hashing, Interval_Analysis,
+      ResiduatedTransitionSystem and Optics. `dev/difftest.sh` against
+      oracle 0.8.1: **2,107 cases — 1,949 clean, 3 pinned, 155 failing, 0
+      stale**, down from 210 failing at S1 with **no case newly red**. The
+      155 are S3 (101: the `callees`/`deps`/`graph`/`refs`/`unused`/`uses`
+      families) and S4 (45 `bare_kinds` in `shape-census*` /
+      `shape-summary-json*`, plus 9 `grep-{alternation,anchored,cartouche}`
+      that differ only in the locus column's width — `[disambig-loci]`).
+      `Sequents/closed-stdout` (D8) cleared on its own with the entry names.
+      p5/p6/p6b/p7c/p7 probes all green.
 
 ### S3 — the citation graph (`.dev/gap-G2-graph.md`)
 
