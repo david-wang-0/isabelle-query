@@ -93,7 +93,7 @@ verb's is not — and the round trip through `enclosing`/`at` is lost.
       listing. `SCANNING.md` gains the clause that puts the two verbs on the
       theory side of the file/theory split.
 
-### S3 — the namespace table is a value, not process state `[p10-namespace-value]`
+### S3 — the namespace table is a value, not process state `[p10-namespace-value]` — **DONE**
 
 `Namespace` (`namespace.scala`) holds four `@volatile var`s bound by
 `configure` / `use_census_namespace` / `use_pure_namespace`, and read at
@@ -105,20 +105,38 @@ rebinds under `Query_Index.synchronized`. P9 removed the other global
 (`Reach.enabled`); this is the last one, and the reason two projects cannot
 be queried at once in one JVM.
 
-- [ ] Introduce an immutable `Namespace.Table` (methods, attributes,
+- [x] Introduce an immutable `Namespace.Table` (methods, attributes,
       keywords, and the derived `non_citation`), with `Namespace.census` and
       `Namespace.pure` as the two named tables and `configure` returning a
       table instead of binding one. Delete the `var`s and the three
       binders. The seam that reads `$ISABELLE_QUERY_NAMESPACE` and the built
       heaps (`CLI.configure_namespace`, D11) becomes a function from a
       session to a table.
-- [ ] Thread the table by parameter to the five readers and up through
+      **`non_citation` is a `lazy val`**, so resolving a table for a `find`
+      or a `grep` — a verb that never asks the router anything — still costs
+      nothing, which is what the old "nothing binds at class-init" note was
+      protecting. `keywords` stays readable in its own right: the shape
+      width classifier's question (methods ∪ attributes ∪ keywords) is not
+      the router's reject-set, which also carries `ARG_MODIFIERS`.
+      `CLI.configure_namespace` → `CLI.resolve_namespace`, same policy to
+      the letter.
+- [x] Thread the table by parameter to the five readers and up through
       their callers: `Usage_Graph.build`, the `Usage` entry points, the
       `Shape` step scanner, and whatever `CLI.Session` / `CLI.run_result`
       need so that ONE request binds one table. The corpus-wide shape view
       (the `census` subcommand) binds the broad union for its own run and
       nothing else sees it.
-- [ ] Take out what the global made necessary: the restore in
+      `CLI.Session.namespace` is the store; `dispatch` / `dispatch_shape`
+      hand it to the six usage verbs and the five shape views, and below
+      that it is an ordinary parameter defaulting to `Namespace.census`.
+      The shape side carries it in **`Classify_Ctx`** rather than as one
+      more argument on every metric — the context is exactly "the inputs to
+      the classifier", and `build_ctx` / `analyze_proof` /
+      `analyze_sections` thread it the way they already thread
+      `corpus_consts`. `refs` and `graph` are not in `namespace_commands`,
+      so they get `census` — which is precisely what the old dispatch left
+      bound for them, and why this step moved no bytes.
+- [x] Take out what the global made necessary: the restore in
       `Query_Server.run` and the rebind in `Query_Index.with_namespace`.
       Keep the server's lock only if something else still needs it (the
       index cache does — say so at the lock), and keep the plugin's single
@@ -126,18 +144,50 @@ be queried at once in one JVM.
       this one. Re-read the `Namespace` paragraph of `CLAUDE.md`
       §"Architecture" and `SCANNING.md`'s method-vs-fact section and make
       them true.
-- [ ] Prove the point: a probe check (in `dev/p7probe.py`, which already
+      The lock now guards **`refresh` then `provide` as one step** — `Index`
+      has its own monitor for its own fields, but a second request between
+      the two could hand this run sections whose fingerprint it never
+      checked, and `refresh_ms` / `used` are written across the pair — plus
+      a ceiling of one whole-corpus analysis in flight.
+      `with_namespace` → **`with_table[A](body: Table => A)`**, which keeps
+      the captured non-HOL stderr note (the panel shows it) and loses the
+      `Query_Index.synchronized`. `SCANNING.md` needed nothing: its
+      method-vs-fact section never mentioned binding. `METRICS.md` did — it
+      named `use_pure_namespace` / `configure` — and `CONTRIBUTING.md`'s
+      "one process-global fewer than P7c shipped" is now "none left".
+- [x] Prove the point: a probe check (in `dev/p7probe.py`, which already
       holds a server) that two `query_run`s against two roots with DIFFERENT
       tables, issued back-to-back, each answer as they would cold — the
       case that used to need the restore. Hand-compute both answers.
-- [ ] Gates: the FULL difftest (0 failing, no new pins — this step must be
+      §7, four checks, on `methods sos` — the sharpest table-sensitive
+      probe there is, because `Usage.cmd_methods`' refusal is a function of
+      the table alone. `sos` ∈ `CENSUS_METHODS`, ∉ `PURE_METHODS`, unused by
+      either corpus, so ZF (Pure floor) must answer exit 1 with empty stdout
+      and a diagnostic, and the AFP entry (census union) exit 0 with "No
+      uses of method 'sos' found." Both hand-computed values are pinned as
+      their own checks; the parity comparisons then run in BOTH orders,
+      because a leak is directional. Confirmed against the cold tool before
+      the checks were written.
+- [x] Gates: the FULL difftest (0 failing, no new pins — this step must be
       byte-neutral), `dev/entrydiff.sh` on the seven standard corpora,
       `dev/p9probe.sh`, `dev/p7cprobe.sh`, `dev/p7probe.sh`,
       `dev/p5probe.sh`, `dev/p6probe.sh`, `dev/p6bprobe.sh`. `scala_build`
       builds both jars; the plugin's dynamic shim needs the `isabelle scala
       -e` line in `CLAUDE.md`.
-- [ ] `todo.md`: delete `[namespace-by-value]`. `CLAUDE.md`: the hazard
+      Difftest **2149 cases: 2146 clean, 3 pinned, 0 failing, 0 stale
+      pins** — identical, field for field, to the run taken before the first
+      edit. entrydiff clean on all seven. p9probe 140/0, p7cprobe 45/0,
+      p6probe OK, p6bprobe 45/0, p5probe OK, p7probe 91/0 (was 87).
+- [x] `todo.md`: delete `[namespace-by-value]`. `CLAUDE.md`: the hazard
       paragraph becomes a statement of the invariant that replaced it.
+
+Found on the way: `Usage_Graph.is_citation_name` has no caller in the tree
+— it is public API the router inlined past. Left in place, now taking a
+table like everything else; deleting it is a separate question from this
+step. And `CLI.resolve_namespace` is still called with the literal verb
+`"callers"` by the plugin, which is right (it wants the per-project table)
+but reads as a magic string; a named constant for "a verb that reads the
+table" would be an improvement nobody needs yet.
 
 ### S4 — a theory is named by its leaf `[p10-theory-leaf]`
 
