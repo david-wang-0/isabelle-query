@@ -303,9 +303,14 @@ first is spelled `(?<n>...)` here and the second is a comment.
 
 ## D10 — `unused -r`'s cascade depths are not reproducible, even oracle-to-oracle
 
-**Cost: the `[cascade depth N]` marker on `unused -r`, on every corpus.  The
-unused SET, the entry order, the header counts and every other `unused` form
-agree exactly.**
+**RESOLVED UPSTREAM in 0.8.0 (`[cascade-level]`, d8a50c9), which took this
+reading and credited it here.  The evidence below stays because it is what
+made the case; the divergence is closed, the `unused-recursive` pin is gone
+from `dev/difftest-pins`, and the two implementations print the same depths.**
+
+**Cost while it lasted: the `[cascade depth N]` marker on `unused -r`, on
+every corpus.  The unused SET, the entry order, the header counts and every
+other `unused` form agreed exactly.**
 
 ```
 $ cd $QUERY_TEST_AFP/Abstract_Completeness
@@ -337,11 +342,12 @@ depth-0 entries were removed", which is what the flag's help text promises.
 That is deterministic, and it is the only reading under which two runs of a
 build-hygiene check can be diffed.
 
-The divergence is confined to the marker.  Verified on all five corpora the
-oracle can run this on: strip `  [cascade depth N]` from both sides and the
-outputs are byte-identical.  One pinned case, `unused-recursive`, on every
-corpus that can run it at all (on FOL and ZF the D7 family pin gets there
-first).
+The divergence was confined to the marker.  Verified at the time on all five
+corpora the oracle could run this on: strip `  [cascade depth N]` from both
+sides and the outputs were byte-identical.  0.8.0's `_compute_unused_recursive`
+now snapshots the frontier before each pass, which is the same rule
+`Usage.compute_unused_recursive` has always run, and the whole form agrees
+without stripping anything.
 
 ## D11 — the oracle's method table is resolved from BUILT HEAPS; ours is committed
 
@@ -463,25 +469,36 @@ entry condition.  This entry stays the evidence; the todo item is the handle.
 
 ## D13 — a citation is attributed only to a declaration its theory can SEE
 
-**Cost: nothing on any gate corpus, and everything on a corpus with more than
-one import tree.**  This is the one entry here that is neither a reproduced bug
-nor a corrected one: it is a **narrowing** of what the tool claims, it can only
-remove an answer, and it has a switch.
+**RESOLVED BY CONVERGENCE: upstream shipped the same rule in 0.8.0
+(`[citation-reach]`, 1e6cbd2, refined by `[name-is-not-identity]` and
+`[import-leaf]`), so this is no longer a difference between the two
+implementations.**  It stays as a full entry because it is the reasoning behind
+a rule both tools now apply, because `dev/difftest.sh` compared against the
+name-only mode for four phases and the record of why belongs somewhere, and
+because ONE clause of it still differs — see **D14**.
 
-The reference implementation attributes a citation by NAME alone.  It finds the
+**Cost while it was a divergence: nothing on any gate corpus, and everything on
+a corpus with more than one import tree.**  It was the one entry here that was
+neither a reproduced bug nor a corrected one: a **narrowing** of what the tool
+claims, able only to remove an answer, with a switch.
+
+The 0.7.0 reference implementation attributes a citation by NAME alone.  It finds the
 token `mono` on a line, looks up the entries called `mono`, and reports the
 line as a caller of all of them.  Over one session that is right — everything
 in the session can see everything the session declares.  Over a corpus it is
 not:
 
 ```
-$ ISABELLE_QUERY_REACHABILITY=off isabelle query -R $QUERY_TEST_AFP callers mono -c
+$ isabelle query -R $QUERY_TEST_AFP callers mono -c --reach name
 1361
 $ isabelle query -R $QUERY_TEST_AFP callers mono -c
 566
 ```
 
-795 of those 1,361 hits are impossible.  (Both figures are under the
+(The pair as first measured, at P7c.  Both numbers have since moved, with the
+parser and with `[symbol-body-tokens]` / `[import-leaf]`; the corpus-scale
+figures are re-taken at the close of P9 — `dev/P9-PLAN.md` S5.)  795 of those
+1,361 hits are impossible.  (Both figures are under the
 committed-namespace pin the harness runs with; under the unpinned default the
 pair is 2,437 → 1,311 — a different baseline, the same pruning, the same
 sites.)  The shape of every one of them:
@@ -541,17 +558,21 @@ filter must never remove an attribution that could be real:
   section of that name.  `Usage.import_depths`, which `deps` and `refs` read,
   takes the last-wins section instead; the two agree except on such a
   duplicate, where this one reaches further;
-- a declaration is any entry or bound name of that spelling, whatever its tag.
+- a declaration is any entry of that spelling, whatever its tag — **and any
+  name an entry BINDS**, which is the one clause upstream does not share.  See
+  **D14**, which states it, gives the fixture and says why the port keeps it.
 
-And one place where it is deliberately broader than `deps`: an import spelled
-as a **path**.  `HOL-MicroJava` reaches across its own subdirectories with
-`imports ../BV/Altern`, which discovery follows — those theories are in the
-index — but the name-level rule cannot map it, because its `.` rule finds the
-`.` of `..`.  For `deps` that is a cosmetic `[out-of-project]` line and stays
-(it is what the reference prints).  For the closure it would be a HOLE, and a
-hole prunes: `callers rev` over the distribution was 608 against 668 before
-`Reach.import_target` learned the leaf rule.  `dev/p7cprobe.sh` §8 is the
-standing canary for it.
+And one place where it used to be broader than `deps`: an import spelled as a
+**path**.  `HOL-MicroJava` reaches across its own subdirectories with `imports
+../BV/Altern`, which discovery follows — those theories are in the index — but
+the name-level rule could not map it, because its `.` rule finds the `.` of
+`..`.  For the closure that is a HOLE, and a hole prunes: `callers rev` over
+the distribution was 608 against 668 before the leaf rule.  `deps` printed a
+cosmetic `[out-of-project]` line for the same token, because that is what the
+0.7.0 reference printed — and upstream then fixed its own side in 0.8.1
+(`[import-leaf]`), so the two resolvers are one rule again and `deps` /
+`uses` / `refs` / `graph imports` resolve the path too.  `dev/p7cprobe.sh` §8
+is the standing canary for the closure half.
 
 The leaf rule has to hold on BOTH sides, and the other side is the same
 divergence seen from the theory end.  A ROOT may address a theory in a
@@ -560,8 +581,8 @@ subdirectory by path — `"Locale_Test/Locale_Test"` (FOL),
 `"Simple/Reach"` (`HOL-UNITY`) — and both implementations then carry it under
 that spelling.  Isabelle does not: `Thy_Header.import_name` takes the last
 segment.  The reference's naming is reproduced here all the same, so only the
-closure is corrected — import resolution runs against the theory ids PLUS one
-alias per prefixed name, its own leaf.  Without it a sibling that imports
+resolution is corrected — an import is matched against the theory ids PLUS the
+leaf index, one entry per prefixed name.  Without it a sibling that imports
 `"../Simple/Reach"`, or simply `Reach`, resolves to a leaf no known name
 matches, and every attribution across that edge is pruned in silence: over
 `src/HOL` that was one entry (`UNITY/WFair`'s `is`, reported dead and not
@@ -569,18 +590,22 @@ dead).  `dev/p7cprobe.sh` §8b is the fixture; `todo.md`'s
 `[theory-name-leaf]` is the handle for the naming half, which is held back by
 parity with the reference and nothing else.
 
-**The compatibility mode, and why the gate uses it.**
-`$ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution exactly.  A
-differential matrix can only measure a difference, never an improvement, so
-`dev/difftest.sh` pins the rewrite side to `off` — asymmetrically, because the
-oracle has no such notion to pin — and the standard totals are unchanged, which
-is the statement that pin exists to make: nothing else moved.  The improvement
-itself is verified where it can be, by the hand-computed fixtures in
-`dev/p7cprobe.sh` and by the whole-AFP measurement in `dev/P7C-STATUS.md`.
+**The compatibility mode.**  `--reach name` restores name-only attribution
+exactly, on `callers`, `callees`, `refs`, `unused` and `graph` — every verb the
+scoping moves — and both implementations spell it that way, with `closure` the
+default on both.
 
-The variable is env-only, like `$ISABELLE_QUERY_NAMESPACE` and for the same
-reason: a global that moves a measurement gets one default AND one channel, and
-an argv flag would exist on only one of the four front doors.
+It was `$ISABELLE_QUERY_REACHABILITY=off` from P7c to P9 S3, env-only on the
+argument that a global moving a measurement gets one default AND one channel,
+and that an argv flag would exist on only one of the four front doors.  The
+second half of that was wrong: the thin client and the warm server forward argv
+verbatim, so a flag reaches them without a second channel, and the plugin and a
+library caller want the default anyway — which a parameter gives them with no
+global to rebind.  P9 S3 deleted the variable.  `dev/difftest.sh` correspondingly
+stopped pinning the rewrite side: for four phases it exported `off` there and
+nowhere else, because a differential matrix can measure a difference and not an
+improvement; now both engines answer the same question by default and six
+`*-reach-name` cases pin the compatibility mode by NAME instead.
 
 ## D14 — a BOUND name is a declaration too, for the visibility filter
 
