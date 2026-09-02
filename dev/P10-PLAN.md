@@ -1,6 +1,7 @@
 # P10 — what P9 handed forward
 
-**Status: IN PROGRESS** (started 2026-09-02). This is the task list for the
+**Status: DONE** (2026-09-02; the closing measurements are in
+`dev/P10-STATUS.md`). This is the task list for the
 four items `dev/P9-STATUS.md` §"What the next phase inherits" left open, in
 the order they are taken. Per-step evidence goes into commit messages under
 the tags below; the closing measurements go into `dev/P10-STATUS.md`.
@@ -288,9 +289,9 @@ widens the name-keyed import adjacency there — `Reach`'s second documented
 approximation, and it may only widen; `callers rev` over `src/HOL` is 670 on
 both engines either way.
 
-### Close — `dev/P10-STATUS.md` `[p10-status]`
+### Close — `dev/P10-STATUS.md` `[p10-status]` — **DONE**
 
-- [ ] The closing measurements: difftest clean/pinned/failing, entrydiff,
+- [x] The closing measurements: difftest clean/pinned/failing, entrydiff,
       every probe's count. What each step established and what it left.
-- [ ] `CLAUDE.md`: the verification table's case and check counts; the
+- [x] `CLAUDE.md`: the verification table's case and check counts; the
       status-doc row; `todo.md` reconciled.

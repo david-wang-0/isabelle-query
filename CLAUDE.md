@@ -198,7 +198,7 @@ hand-compute a fixture value first, then make the code match.
 | `CONTRIBUTING.md` | **normative**: the CLI contract, the verification habits, where design decisions are recorded |
 | `query_base/src/shape.scala` + the Python `shape.py` | **authoritative** metric definitions |
 | `dev/DIVERGENCES.md` | every deliberate difference from the oracle, with its evidence |
-| `dev/P1..P9-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P1..P10-STATUS.md` | what each phase established, and what it left for the next |
 | `dev/BENCH.md` | the three-column benchmark and how it was taken |
 | `todo.md` | **open work only** — not a changelog |
 | `.claude/memory/` | granular working rules (written for the Python project) |
