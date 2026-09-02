@@ -1484,12 +1484,12 @@ echo "13a. one citation, from the file that makes it"
 expect "callers target" 0 \
   '1 caller(s) of target:
 
-  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
+  beta/Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
   "" callers target
 expect "and --external skips the FILES that declare it, not the name" 0 \
   '1 caller(s) of target:
 
-  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
+  beta/Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
   "" callers target --external
 # Not a visibility artefact either: both `Preliminaries` really do import a
 # `Base` that declares `target`, so the closure drops nothing here.
@@ -1525,36 +1525,37 @@ echo "13c. the LINE INDEX: every owner is an entry of its own file"
 expect "grep True names the right owner for each file" 0 \
   '7 live match(es) for '"'"'True'"'"':
 
-  Base.thy:4           target (LEMMA)
+  alpha/Base.thy:4           target (LEMMA)
     lemma target: "True" by simp
-  Preliminaries.thy:4  a_head (LEMMA)
+  alpha/Preliminaries.thy:4  a_head (LEMMA)
     lemma a_head: "True" by simp
-  Preliminaries.thy:9  a_tail (LEMMA)
+  alpha/Preliminaries.thy:9  a_tail (LEMMA)
     lemma a_tail: "True" by simp
-  Base.thy:4           target (LEMMA)
+  beta/Base.thy:4            target (LEMMA)
     lemma target: "True" by simp
-  Preliminaries.thy:4  b_head (LEMMA)
+  beta/Preliminaries.thy:4   b_head (LEMMA)
     lemma b_head: "True" by simp
-  Preliminaries.thy:6  b_cites (LEMMA)
+  beta/Preliminaries.thy:6   b_cites (LEMMA)
     lemma b_cites: "True" using target by simp
-  Preliminaries.thy:8  b_tail (LEMMA)
+  beta/Preliminaries.thy:8   b_tail (LEMMA)
     lemma b_tail: "True" by simp' \
   "" grep True
 expect "and so does methods, which reads the same index" 0 \
   "7 use(s) of method 'simp':
 
-  Base:4           target (LEMMA) 4..4  lemma target: \"True\" by simp
-  Preliminaries:4  a_head (LEMMA) 4..4  lemma a_head: \"True\" by simp
-  Preliminaries:9  a_tail (LEMMA) 5..9  lemma a_tail: \"True\" by simp
-  Base:4           target (LEMMA) 4..4  lemma target: \"True\" by simp
-  Preliminaries:4  b_head (LEMMA) 4..5  lemma b_head: \"True\" by simp
-  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: \"True\" using target by simp
-  Preliminaries:8  b_tail (LEMMA) 8..8  lemma b_tail: \"True\" by simp" \
+  alpha/Base:4           target (LEMMA) 4..4  lemma target: \"True\" by simp
+  alpha/Preliminaries:4  a_head (LEMMA) 4..4  lemma a_head: \"True\" by simp
+  alpha/Preliminaries:9  a_tail (LEMMA) 5..9  lemma a_tail: \"True\" by simp
+  beta/Base:4            target (LEMMA) 4..4  lemma target: \"True\" by simp
+  beta/Preliminaries:4   b_head (LEMMA) 4..5  lemma b_head: \"True\" by simp
+  beta/Preliminaries:6   b_cites (LEMMA) 6..7  lemma b_cites: \"True\" using target by simp
+  beta/Preliminaries:8   b_tail (LEMMA) 8..8  lemma b_tail: \"True\" by simp" \
   "" methods simp
 
-# (The LOCUS column is still the bare stem on both sides of every row above --
-# `beta/Preliminaries:6` is [disambig-names] / [disambig-loci], S4, and is why
-# these rows are not yet byte-identical with the oracle's.)
+# The LOCUS column above is QUALIFIED, and that is S4's [disambig-loci]
+# landing on the fixture S3 wrote: `beta/Preliminaries:6` names one theory
+# where `Preliminaries:6` named two.  These rows were the bare stem until then,
+# and they are now byte-identical with the oracle's (checked).
 
 # ==========================================================================
 echo
@@ -1817,6 +1818,504 @@ expect "callees z_cites_rev -c, --reach name" 0 "1" "" callees z_cites_rev --rea
 
 # ==========================================================================
 echo
+echo "16. [disambig-names] -- a label qualifies only as far as it needs"
+# ==========================================================================
+#
+# Fixture C: three entries, each with its own ROOT, between them declaring
+# THREE theories called `Base` and TWO called `Examples`, plus one called
+# `Unique`.  That is the AFP's own shape -- 461 of its theory names are used
+# more than once -- and it is what a single-session fixture cannot show.
+#
+# The rule, applied by hand.  A section's tuple is its resolved parent
+# directory's components with its DECLARED name on the end, and the label is
+# the shortest SUFFIX of that tuple which is unique among the sections loaded:
+#
+#   depth 1   Base x3, Examples x2, Unique x1   -> only `Unique` settles
+#   depth 2   alpha/Base, beta/Base, solo/Base,
+#             alpha/Examples, beta/Examples     -> all five settle
+#
+# So the shared root prefix (this probe's own $OUT) never appears: it is on
+# every tuple and separates nothing.  The resolver matches the SAME tuple as a
+# suffix, which is what makes a printed label valid input.
+
+FIXC="$OUT/fixC"
+mkdir -p "$FIXC/alpha" "$FIXC/beta" "$FIXC/solo" || exit 2
+
+for e in alpha beta solo; do
+  cat >"$FIXC/$e/Base.thy" <<'THY'
+theory Base
+imports Main
+begin
+lemma shared: "True" by simp
+
+lemma structured: "True \<and> True"
+proof
+  show "True" by simp
+  show "True" by simp
+qed
+end
+THY
+done
+
+# alpha's `Examples` is FIVE lines and beta's is NINE, with different lemmas
+# at every line they share.  That asymmetry is the point: an owner column or a
+# context line read out of the wrong file is visible rather than plausible.
+cat >"$FIXC/alpha/Examples.thy" <<'THY'
+theory Examples
+imports Base
+begin
+lemma a_owner: "True" using shared by simp
+end
+THY
+
+cat >"$FIXC/beta/Examples.thy" <<'THY'
+theory Examples
+imports Base
+begin
+lemma b_pad: "True" by simp
+
+lemma b_owner: "True" using shared by simp
+
+lemma b_after: "True" sorry
+end
+THY
+
+cat >"$FIXC/solo/Unique.thy" <<'THY'
+theory Unique
+imports Base
+begin
+lemma only_one: "True" using shared by simp
+end
+THY
+
+cat >"$FIXC/alpha/ROOT" <<'ROOT'
+session Alpha = HOL +
+  theories
+    Base
+    Examples
+ROOT
+
+cat >"$FIXC/beta/ROOT" <<'ROOT'
+session Beta = HOL +
+  theories
+    Base
+    Examples
+ROOT
+
+cat >"$FIXC/solo/ROOT" <<'ROOT'
+session Solo = HOL +
+  theories
+    Base
+    Unique
+ROOT
+
+# A file that is not a theory, for `file_locus`: it has no theory name to
+# qualify, so it must come back as itself.
+printf 'a note mentioning shared\n' >"$FIXC/notes.md"
+
+ROOT_DIR="$FIXC"
+
+# Two projections, for the rows whose TAIL carries trailing blanks (an empty
+# statement preview, a blank context line).  Pinning those as literals would
+# put invisible bytes in this file that any editor would silently strip, and a
+# probe nobody can edit safely is not one.  What §16/§17 are about is the
+# LOCUS column, so that is what these compare.
+loci() { isabelle query -R "$ROOT_DIR" "$@" 2>/dev/null |
+  sed -n 's/^  \([^ ][^ ]*\).*/\1/p'; }
+col1() { isabelle query -R "$ROOT_DIR" "$@" 2>/dev/null | awk 'NF {print $1}'; }
+
+# expect_proj NAME PROJ WANT ARGS...
+expect_proj() {
+  local name=$1 proj=$2 want=$3; shift 3
+  local got; got=$("$proj" "$@")
+  if [ "$got" = "$want" ]; then note "$name" "$(printf '%s' "$got" | wc -l) rows"
+  else bad "$name" "got [$got] wanted [$want]"; fi
+}
+
+echo
+echo "16a. the emitter -- \`largest\` labels against the LOADED CORPUS"
+
+# Sizes, by hand: `structured` spans 6..10 (5 lines) in each of the three
+# `Base`es; `shared` 4..5 (2, the blank line 5 belongs to it); beta's `b_pad`
+# 4..5 and `b_owner` 6..7 likewise; the three one-line lemmas are 1.  Ties keep
+# load order (alpha, beta, solo -- ROOTs sorted by path).
+expect "largest, every colliding name qualified and `Unique` bare" 0 \
+'Top 11 largest entries:
+
+ Lines  Tag       Name                                        Theory  (span)
+------  --------  ------------------------------------------  ------
+     5  LEMMA     structured                                  alpha/Base  (6..10)
+     5  LEMMA     structured                                  beta/Base  (6..10)
+     5  LEMMA     structured                                  solo/Base  (6..10)
+     2  LEMMA     shared                                      alpha/Base  (4..5)
+     2  LEMMA     shared                                      beta/Base  (4..5)
+     2  LEMMA     b_pad                                       beta/Examples  (4..5)
+     2  LEMMA     b_owner                                     beta/Examples  (6..7)
+     2  LEMMA     shared                                      solo/Base  (4..5)
+     1  LEMMA     a_owner                                     alpha/Examples  (4..4)
+     1  LEMMA     b_after                                     beta/Examples  (8..8)
+     1  LEMMA     only_one                                    Unique  (4..4)' "" largest
+
+# Scope FIRST, label second.  After `largest -N 3 beta/Examples` the loaded
+# list IS that one theory, so nothing collides and the label is bare -- the
+# scope is the corpus, and the corpus is what the label is computed over.  A
+# label scoped to the ROWS instead would have been `beta/Examples` here and
+# `Examples` in a `-N 3` that happened to show only one; that is the reading
+# upstream rejected, and the reason is on this line.
+expect "a theory scope makes the label bare again" 0 \
+'Top 3 largest entries:
+
+ Lines  Tag       Name                                        Theory  (span)
+------  --------  ------------------------------------------  ------
+     2  LEMMA     b_pad                                       Examples  (4..5)
+     2  LEMMA     b_owner                                     Examples  (6..7)
+     1  LEMMA     b_after                                     Examples  (8..8)' "" \
+  largest -N 3 beta/Examples
+
+# The label is a LOCUS, not a name: `format_name_line` still prints the
+# theory as declared, here and in `find --names`, exactly as the oracle does.
+expect "a --names line still names the theory as declared" 0 \
+'shared (LEMMA) — Base [src 4..5, body 4..4, 1/2 lines]
+structured (LEMMA) — Base [src 6..10, 5 lines]' "" theory solo/Base --names
+
+echo
+echo "16b. the resolver -- the label is valid input, and only if UNIQUE"
+
+# beta's `Examples` has three entries, alpha's has one.  Before the
+# unique-suffix step this answered 1: `beta/Examples` fell past the exact-name
+# match to the stem and resolved, silently, to alpha's.
+expect "theory beta/Examples -c -- beta's three, not alpha's one" 0 "3" "" \
+  theory beta/Examples -c
+expect "theory alpha/Examples.thy -c -- the suffix, .thy stripped" 0 "1" "" \
+  theory alpha/Examples.thy -c
+expect "theory alpha/Base.thy -c" 0 "2" "" theory alpha/Base.thy -c
+# A bare name never reaches the suffix step; it is the exact-name branch, and
+# first-in-load-order wins, which is alpha's.
+expect "theory Examples -c -- a bare name is first-wins, as before" 0 "1" "" \
+  theory Examples -c
+# `Base.thy` DOES reach it (it carries a suffix) and matches three sections,
+# so it is ambiguous and falls THROUGH to the stem fallback -- which is
+# first-wins again.  Only a unique hit counts.
+expect "theory Base.thy -c -- ambiguous, so it falls through to the stem" 0 "2" "" \
+  theory Base.thy -c
+
+# ==========================================================================
+echo
+echo "17. [disambig-loci] -- every printed theory:line carries the label"
+# ==========================================================================
+#
+# The eight emitters that were still printing a bare name, on the same
+# fixture.  Two things are being pinned at once and both matter: the LABEL
+# (the locus names one theory) and the ALIGNMENT (`loc_w` is computed over the
+# labels, so the column is as wide as the widest qualified locus).
+
+echo
+echo "17a. callers -- the locus, the owner, and the context line"
+
+# `shared` is declared in all three `Base`es and cited once in each of the
+# three theories that import one.  The owner column and the `-U` context are
+# read from the hit's OWN section: alpha's `Examples` is five lines, so line 5
+# is its `end`, while beta's line 7 is blank.  Reading either out of the other
+# file would show here.
+expect "callers shared -- three loci, three owners, one column" 0 \
+'3 caller(s) of shared:
+
+  alpha/Examples:4  a_owner (LEMMA) 4..4  lemma a_owner: "True" using shared by simp
+  beta/Examples:6   b_owner (LEMMA) 6..7  lemma b_owner: "True" using shared by simp
+  Unique:4          only_one (LEMMA) 4..4  lemma only_one: "True" using shared by simp' \
+  "" callers shared
+
+expect_proj "callers shared -U 1 -- the context line keeps the label" loci \
+'alpha/Examples:4
+alpha/Examples:5-
+beta/Examples:6
+beta/Examples:7-
+Unique:4
+Unique:5-' callers shared -U 1
+
+echo
+echo "17b. methods -- both modes"
+
+# 13 `simp` introducers: four per `Base` (line 4, and lines 8 and 9 inside
+# `structured`) is three each = 9, plus alpha:4, beta:4, beta:6 and Unique:4.
+expect "methods simp" 0 \
+'13 use(s) of method '"'"'simp'"'"':
+
+  alpha/Base:4      shared (LEMMA) 4..5  lemma shared: "True" by simp
+  alpha/Base:8      structured (LEMMA) 6..10  show "True" by simp
+  alpha/Base:9      structured (LEMMA) 6..10  show "True" by simp
+  alpha/Examples:4  a_owner (LEMMA) 4..4  lemma a_owner: "True" using shared by simp
+  beta/Base:4       shared (LEMMA) 4..5  lemma shared: "True" by simp
+  beta/Base:8       structured (LEMMA) 6..10  show "True" by simp
+  beta/Base:9       structured (LEMMA) 6..10  show "True" by simp
+  beta/Examples:4   b_pad (LEMMA) 4..5  lemma b_pad: "True" by simp
+  beta/Examples:6   b_owner (LEMMA) 6..7  lemma b_owner: "True" using shared by simp
+  solo/Base:4       shared (LEMMA) 4..5  lemma shared: "True" by simp
+  solo/Base:8       structured (LEMMA) 6..10  show "True" by simp
+  solo/Base:9       structured (LEMMA) 6..10  show "True" by simp
+  Unique:4          only_one (LEMMA) 4..4  lemma only_one: "True" using shared by simp' \
+  "" methods simp
+
+expect "methods simp --names" 0 \
+'  alpha/Base:4      shared (LEMMA) 4..5
+  alpha/Base:8      structured (LEMMA) 6..10
+  alpha/Base:9      structured (LEMMA) 6..10
+  alpha/Examples:4  a_owner (LEMMA) 4..4
+  beta/Base:4       shared (LEMMA) 4..5
+  beta/Base:8       structured (LEMMA) 6..10
+  beta/Base:9       structured (LEMMA) 6..10
+  beta/Examples:4   b_pad (LEMMA) 4..5
+  beta/Examples:6   b_owner (LEMMA) 6..7
+  solo/Base:4       shared (LEMMA) 4..5
+  solo/Base:8       structured (LEMMA) 6..10
+  solo/Base:9       structured (LEMMA) 6..10
+  Unique:4          only_one (LEMMA) 4..4' "" methods simp --names
+
+echo
+echo "17c. grep and sorry -- a FILE locus, so the suffix comes back"
+
+expect "grep -- the label with .thy restored" 0 \
+'3 live match(es) for '"'"'using shared'"'"':
+
+  alpha/Examples.thy:4  a_owner (LEMMA)
+    lemma a_owner: "True" using shared by simp
+  beta/Examples.thy:6   b_owner (LEMMA)
+    lemma b_owner: "True" using shared by simp
+  Unique.thy:4          only_one (LEMMA)
+    lemma only_one: "True" using shared by simp' "" grep 'using shared'
+
+expect "grep --names" 0 \
+'3 live match(es) for '"'"'using shared'"'"':
+
+  alpha/Examples.thy:4  a_owner (LEMMA)
+  beta/Examples.thy:6   b_owner (LEMMA)
+  Unique.thy:4          only_one (LEMMA)' "" grep 'using shared' --names
+
+# The only `sorry` is beta's, at line 8 -- a bare `Examples.thy:8` would have
+# named alpha's five-line file, which has no line 8 at all.
+expect "sorry" 0 \
+'  beta/Examples.thy:8  b_after (LEMMA)
+1 sorry' "" sorry
+
+# `file_locus` is label + the path's own suffix, so a non-`.thy` positional
+# reports its actual filename.  It has no theory to qualify and must not
+# acquire one.
+expect "a non-.thy positional stays itself" 0 \
+'1 live match(es) for '"'"'shared'"'"':
+
+  notes.md:1  a note mentioning shared' "" grep shared "$FIXC/notes.md"
+
+echo
+echo "17d. enclosing -- the ECHO is the label, not the token typed"
+
+expect "enclosing beta/Examples:6" 0 \
+'beta/Examples:6 → b_owner (LEMMA) — beta/Examples [src 6..7, body 6..6, 1/2 lines]  (in proof)' \
+  "" enclosing beta/Examples:6
+# A bare `Examples` resolves first-wins to ALPHA's, which is five lines -- so
+# the past-end message must say `alpha/Examples`, naming what was actually
+# resolved rather than echoing what was typed.  That is the whole argument for
+# echoing the label.
+expect "enclosing Examples:6 -- past the end of ALPHA's five lines" 0 \
+"alpha/Examples:6 → (past end of alpha/Examples — 5 lines)" "" enclosing Examples:6
+expect "enclosing Examples:99" 0 \
+"alpha/Examples:99 → (past end of alpha/Examples — 5 lines)" "" enclosing Examples:99
+# An absolute path comes back in the house `theory:line` form.
+expect "an absolute path echoes as the label" 0 \
+'beta/Examples:6 → b_owner (LEMMA) — beta/Examples [src 6..7, body 6..6, 1/2 lines]  (in proof)' \
+  "" enclosing "$FIXC/beta/Examples.thy:6"
+# The range form labels both the locus and the scope column, on every row.
+expect "enclosing beta/Examples:4..6 -- both overlapping entries" 0 \
+'beta/Examples:4..6 → b_pad (LEMMA) — beta/Examples [src 4..5, body 4..4, 1/2 lines]
+beta/Examples:4..6 → b_owner (LEMMA) — beta/Examples [src 6..7, body 6..6, 1/2 lines]' \
+  "" enclosing beta/Examples:4..6
+
+echo
+echo "17e. shape -- steps, widest, lemma"
+
+# `shape steps` labels per PROOF.  Only `structured` has a real proof body, so
+# the goal rows are Base:8 and Base:9 in each entry; the rest are the one-line
+# proofs' plumbing/closing steps.
+expect_proj "shape steps -a -- every locus qualified" col1 \
+'location
+--------------------
+alpha/Base:4
+alpha/Base:8
+alpha/Base:9
+alpha/Base:10
+alpha/Examples:4
+beta/Base:4
+beta/Base:8
+beta/Base:9
+beta/Base:10
+beta/Examples:4
+beta/Examples:6
+solo/Base:4
+solo/Base:8
+solo/Base:9
+solo/Base:10
+Unique:4' shape steps -a
+
+# UPSTREAM RESIDUE, matched deliberately: `shape steps <theory>` filters by
+# theory NAME, so scoping to `beta/Examples` also lists alpha's `Examples:4`.
+# The oracle does this too (verified), and the port mirrors it rather than
+# quietly diverging -- the label is right, the FILTER is the open question.
+expect_proj "a theory scope still filters by NAME (upstream residue)" col1 \
+'location
+--------------------
+alpha/Examples:4
+beta/Examples:4
+beta/Examples:6' shape steps -a beta/Examples
+
+# The sort key stays the theory NAME and the line, so the six equal-width rows
+# come out Base:8 x3 then Base:9 x3 -- alpha, beta, solo within each.  A sort
+# on the LABEL would interleave them differently for no visible reason.
+expect "shape widest -- labelled rows, sorted by the NAME" 0 \
+'Top 6 widest steps by w2:
+
+   w2 location               lemma                     statement
+----- ---------------------- ------------------------  ---------
+    1 alpha/Base:8           structured                True
+    1 beta/Base:8            structured                True
+    1 solo/Base:8            structured                True
+    1 alpha/Base:9           structured                True
+    1 beta/Base:9            structured                True
+    1 solo/Base:9            structured                True' "" shape widest
+
+# The header line only: the table below it pads an empty statement preview
+# with trailing blanks.
+hdr=$(isabelle query -R "$FIXC" shape lemma b_owner 2>/dev/null | head -1)
+if [ "$hdr" = "b_owner  (LEMMA beta/Examples:6..7)" ]; then
+  note "shape lemma names the theory it found the entry in" "$hdr"
+else
+  bad "shape lemma names the theory it found the entry in" "$hdr"
+fi
+
+# ==========================================================================
+echo
+echo "18. [bare-provenance] -- why a goal step states no proposition"
+# ==========================================================================
+#
+# Fixture D: upstream's own 31-line BARE theory, every step a real AFP
+# spelling.  The classification, applied by hand to each goal line -- the rule
+# reads the COMMAND PREFIX (a cited cartouche already blanked), drops the goal
+# command and any label, and then:
+#
+#   7  have a: "True" by simp        stated       -> ""
+#   8  also                          in _NO_PROPOSITION_CMDS -> construction
+#   9  have "True" by simp           stated       -> ""
+#   10 interpret dummy_locale        in _NO_PROPOSITION_CMDS -> construction
+#   11 finally show ?thesis by simp  rest is `?thesis ...`   -> construction
+#   16 have nf: "\<not> False" ...   stated       -> ""
+#   17 hence False by simp           head `False` is one term, tail head `by`
+#                                    is a proof-tail word -> undelimited
+#   18 with <cartouche> show False .. the citation is BLANKED in the prefix, so
+#                                    the rest is `False ..`, tail head `..`
+#                                    -> undelimited  (off the RAW line this
+#                                    would find a cartouche and say unfound)
+#   19 thus ?thesis by simp          -> construction
+#   24 obtain x where                nothing after the command -> unfound
+#   26 have (statement on line 27)   read by `statement_wrapped` -> "" (NOT
+#                                    bare at all: the half of the wrapped-
+#                                    statement fault that is fixed)
+#   28 thus ?thesis by simp          -> construction
+#
+# which sums per proof to the three histograms below.  `n_bare` is unchanged
+# and is exactly that sum -- the field is REFINED, not redefined, so a census
+# row written before the split still compares with one written after.
+
+FIXD="$OUT/fixD"
+mkdir -p "$FIXD" || exit 2
+
+cat >"$FIXD/ROOT" <<'ROOT'
+session Bare = HOL +
+  theories
+    Bare
+ROOT
+
+cat >"$FIXD/Bare.thy" <<'THY'
+theory Bare
+imports Main
+begin
+
+lemma by_construction: "True \<and> True"
+proof -
+  have a: "True" by simp
+  also
+  have "True" by simp
+  interpret dummy_locale
+  finally show ?thesis by simp
+qed
+
+lemma undelimited: "True"
+proof -
+  have nf: "\<not> False" by simp
+  hence False by simp
+  with \<open>\<not> False\<close> show False ..
+  thus ?thesis by simp
+qed
+
+lemma unfound: "True"
+proof -
+  obtain x where
+    "x = (0::nat)" by simp
+  have
+    "True" by simp
+  thus ?thesis by simp
+qed
+
+end
+THY
+
+ROOT_DIR="$FIXD"
+
+echo
+echo "18a. the three histograms, per record"
+
+kinds=$(isabelle query -R "$FIXD" shape summary --json 2>/dev/null |
+  sed -n 's/.*"lemma": "\([^"]*\)".*"n_bare": \([0-9]*\).*"bare_kinds": {\([^}]*\)}.*/\1 n_bare=\2 {\3}/p')
+want_kinds='by_construction n_bare=3 {"construction": 3, "undelimited": 0, "unfound": 0}
+undelimited n_bare=3 {"construction": 1, "undelimited": 2, "unfound": 0}
+unfound n_bare=2 {"construction": 1, "undelimited": 0, "unfound": 1}'
+if [ "$kinds" = "$want_kinds" ]; then
+  note "bare_kinds, hand-computed per proof" "3 records"
+else
+  bad "bare_kinds, hand-computed per proof" "got [$kinds] wanted [$want_kinds]"
+fi
+
+# Every key present even at zero (a uniform schema is what makes the column
+# joinable), in BARE_KINDS order, and immediately after `method_kinds` --
+# which is where a reader of the record finds the field it refines.
+n_adj=$(isabelle query -R "$FIXD" shape summary --json 2>/dev/null |
+  grep -c '"method_kinds": {[^}]*}, "bare_kinds": {"construction": [0-9]*, "undelimited": [0-9]*, "unfound": [0-9]*}, "n_induct"')
+if [ "$n_adj" = "3" ]; then
+  note "all three keys, in order, right after method_kinds" "3/3 records"
+else
+  bad "all three keys, in order, right after method_kinds" "$n_adj/3"
+fi
+
+echo
+echo "18b. what did NOT change"
+
+# A per-STEP record carries no provenance: `bare` is a property of the step
+# that the per-proof histogram aggregates, and adding it to three more record
+# shapes would be a schema change nothing asked for.
+if isabelle query -R "$FIXD" shape steps --json 2>/dev/null | grep -q 'bare'; then
+  bad "step records carry no bare key" "found one"
+else
+  note "step records carry no bare key" "steps --json"
+fi
+
+# The human views are untouched: `n_bare` is the same number it always was.
+expect_line() { isabelle query -R "$FIXD" shape lemma "$1" 2>/dev/null | grep -c "$2"; }
+if [ "$(expect_line by_construction '^5 goals (3 bare)')" = "1" ]; then
+  note "shape lemma still says '5 goals (3 bare)'" "n_bare unchanged"
+else
+  bad "shape lemma still says '5 goals (3 bare)'" \
+    "$(isabelle query -R "$FIXD" shape lemma by_construction 2>/dev/null | grep 'goals')"
+fi
+
+# ==========================================================================
+echo
 echo "99. failability -- the harness must be able to say no"
 # ==========================================================================
 #
@@ -1848,6 +2347,23 @@ if [ "$perturbed" = "1" ]; then
   note "a wrong expectation is rejected by \`expect\`" "1 failure, discarded"
 else
   bad "a wrong expectation is rejected by \`expect\`" "$perturbed failures"
+fi
+
+# `expect_proj` is a second comparator (§16/§17 use it where a row's tail
+# carries trailing blanks), so it needs its own perturbation: a projection
+# helper that silently returned nothing would make every one of those cases
+# green against an empty expectation.
+ROOT_DIR="$FIXC"
+saved_fail=$fail saved_checks=$checks
+fail=0; checks=0
+expect_proj "(perturbed) the locus column is NOT bare" loci 'Examples:4' \
+  callers shared >/dev/null
+perturbed=$fail
+fail=$saved_fail; checks=$saved_checks
+if [ "$perturbed" = "1" ]; then
+  note "a wrong expectation is rejected by \`expect_proj\`" "1 failure, discarded"
+else
+  bad "a wrong expectation is rejected by \`expect_proj\`" "$perturbed failures"
 fi
 
 echo
