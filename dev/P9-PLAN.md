@@ -1,6 +1,7 @@
 # P9 — sync the port with upstream 0.8.1
 
-**Status: in progress.** This is the task list for bringing the Scala engine
+**Status: DONE** (2026-09-02; the closing measurements are in
+`dev/P9-STATUS.md`). This is the task list for bringing the Scala engine
 to parity with upstream isabelle-query **0.8.1** (from 0.7.0), and for
 retiring every divergence upstream has since fixed. It is the plan; the
 per-step evidence goes into commit messages under the tags below, and the
@@ -288,31 +289,58 @@ In this order; entrydiff after each commit.
       component jar and the shim jar; p7probe 87/0, p7cprobe 45/0, p9probe
       140/0.
 
-### S5 — close out `[p9-status]`
+### S5 — close out `[p9-status]` — **DONE**
 
-- [ ] difftest on all seven corpora: **0 failing, 0 stale**; the only pins
-      left are D8 (three) and the demo's D8/D2. Then the warm run
-      (`QUERY_DIFFTEST_WARM=1`) once.
-- [ ] entrydiff over the **whole AFP** and the **whole distribution**
-      against 0.8.1; re-take the corpus-scale numbers in
-      `dev/DIVERGENCES.md`'s preamble.
-- [ ] `dev/DIVERGENCES.md`: D1, D3, D7, D10 → resolved upstream (keep the
-      evidence, mark the release); D2, D6 → closed on both sides; D5, D4,
-      D9, D11, D12 stay; D8 rewritten (the port is 0-under-~8 KB / 141
-      above, upstream now documents 0-under-64 KB as the contract — a
-      documented difference in threshold, not a defect on either side); D13
-      rewritten for the flag; D14 new.
-- [ ] Docs: README (`--reach`, exit status, loci qualification, `bare_kinds`),
-      SCANNING (the merged upstream sections now true of the port),
-      MIGRATING (breaking exit contract, the env var's removal), CONTRIBUTING
-      (the reachability paragraph: flag, not env), CLAUDE.md (release status,
-      the frozen tree is 0.8.1), `todo.md` (remove what shipped; keep
-      `[theory-name-leaf]` — upstream did not change the naming either).
-- [ ] `CLI.version` → `0.8.1-scala`: the suffix says which oracle the port
-      matches, and this is the release where that became 0.8.1. Note in
-      CLAUDE.md that the version tracks the matched upstream release.
-- [ ] `dev/P9-STATUS.md`: the before/after table, the whole-corpus numbers,
-      what the next phase inherits. Push.
+- [x] difftest on all seven corpora: **2,149 cases — 2,146 clean, 3 pinned, 0
+      failing, 0 stale**; the three pins left are D8's. The warm run
+      (`QUERY_DIFFTEST_WARM=1`) was taken at S4 on `Abstract_Completeness`.
+      The DEMO corpora were re-run too, and they had moved: the
+      `cwd-discovery Demo_Core` **D2 pin is stale** (D2 closed on both sides)
+      and `Demo_Extras` earns a D8 pin instead (12,739 bytes, over this
+      engine's 8 KB writer buffer and under the oracle's 64 KB pipe). After
+      that: 614 cases — 611 clean, 3 pinned, 0 failing, 0 stale.
+- [x] entrydiff over the **whole AFP** and the **whole distribution** against
+      0.8.1. **AFP: 10,262 theories, 411,181 records on each side, ONE
+      differing record** (D5, in the `--spans` variant only). **Distribution
+      `src`: 1,818 theories, 101,388 records, byte-identical in all four
+      variants.** The seven standard corpora: 28 of 28 dumps identical.
+      Corpus-scale figures re-taken and written into `dev/DIVERGENCES.md`'s
+      preamble, D11, D13 and `SCANNING.md`: whole-AFP `callers mono -c`
+      1,363 → 634, `unused -c` 97,568 → 101,154, citation edges 2,291,456 →
+      1,355,188.
+- [x] `dev/DIVERGENCES.md`: preamble rewritten around the P9 measurement;
+      D1, D3, D7, D10 → resolved upstream (evidence kept, release named);
+      D2, D6 → closed on both sides; **D4 → no longer a divergence at all**,
+      a shared weakness since upstream's `[keyword-kind-quoted]` gave the
+      oracle the same keyword table (the plan expected it to stay, and the
+      measurement says otherwise — the phantom is line 203,558 of BOTH
+      dumps); D5 stays and is now the ONLY differing record; D9, D11, D12
+      stay, D11's "4 differing lines, all of them D1" residual re-measured to
+      0; D8 rewritten (both tools are 0 under a threshold and 141 above it,
+      and the thresholds differ — 8 KB here, 64 KB there — with the oracle's
+      120 the one real defect left); D13 carries the re-taken figures; D14 as
+      S3 wrote it.
+- [x] Docs: README, SCANNING, MIGRATING, CONTRIBUTING (the harness table
+      gains `p9probe`/`p7cprobe` and the closed-stdout contract paragraph),
+      CLAUDE.md, `todo.md` (`[index-footprint]` rewritten to what is left of
+      it; `[theory-name-leaf]` kept — upstream did not change the naming
+      either), PLAN.md's oracle line, `demo/DEMO.md`'s version. Every
+      "lands in P9 S4" note is gone and every whole-AFP number is this
+      corpus's.
+- [x] `CLI.version` → `0.8.1-scala`, with the policy recorded at the constant
+      and in CLAUDE.md's "Release status": the NUMBER names the upstream
+      release whose contract the port matches, the SUFFIX is what tells the
+      two tools apart. Nothing asserts the string but `p7probe.py`'s
+      `endswith("-scala")`.
+- [x] One engine fix fell out of the close-out and is NOT a doc change: the
+      "did you mean …?" hint ranked over the sections and so named the FIRST
+      of two same-named theories where the reference's
+      `{s.theory: s for s in sections}` names the LAST. Verified on the
+      collision fixture, fixed to match, and recorded as an upstream defect
+      the port now reproduces rather than as a divergence.
+- [x] `dev/P9-STATUS.md`: the before/after tables, the whole-corpus numbers,
+      the three upstream defects worth reporting, and what the next phase
+      inherits.
 
 ## Not in scope
 

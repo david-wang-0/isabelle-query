@@ -380,8 +380,12 @@ are what say so: `shape-census-pipe` differs on `Abstract_Completeness` and
 `Abstract_Completeness` alone, and the difftest reports **3 pinned, 0 stale**,
 so none of them has rotted.
 
-**The 120 is still a defect, and it is still the oracle's.**  `closed-stdout
-Abstract_Completeness` (`find . . . . -a -V | head -3`) is unchanged at 0.8.1:
+**The 120 is still a defect, and it is still the oracle's** — which is worth
+saying plainly, because upstream's own
+`scripts/probe_scala_port_findings.py` files D8 as *"NOT ours — the contract
+was wrong, not the code"*.  Half of that is right (the 0) and half is not.
+`closed-stdout Abstract_Completeness` (`find . . . . -a -V | head -3`) is
+unchanged at 0.8.1:
 the answer is over the pipe buffer, so a write does fail, but the first one to
 fail is the interpreter's shutdown flush — outside the `except
 BrokenPipeError` around the command body — and Python exits 120 after printing
