@@ -398,6 +398,9 @@ fi
 #
 # Each brings its own fixture (write it into "$OUT", as §1-§3 do) and its own
 # hand-computed table.  Keep the failability section LAST.
+#
+# S3's four fixtures each set `ROOT_DIR` to their own root; §99 sets it back
+# to §1's before it perturbs anything.
 # ==========================================================================
 
 # --------------------------------------------------------------------------
@@ -1302,6 +1305,515 @@ if [ "$viol" = "0" ]; then
 else
   bad "and no body reaches past its own thy_end" "$viol violations"
 fi
+
+# --------------------------------------------------------------------------
+# S3 -- the citation graph.  Four fixtures, one per item, each its own ROOT so
+# a count in one cannot be moved by an edit to another.
+# --------------------------------------------------------------------------
+
+# ==========================================================================
+echo
+echo "12. [symbol-body-tokens] -- a \\<...> token's body is not a fact name"
+# ==========================================================================
+#
+# `[\w']+` reaches straight into an Isabelle symbol: `\<lambda>` yields
+# `lambda`, `\<le>` yields `le`, `\<^sub>` yields `sub`, `\<close>` yields
+# `close` -- and the AFP declares 7 entries named `lambda`, 37 named `le` and
+# 27 named `sub`, so every lambda written anywhere in the corpus was recorded
+# as a citation of all seven.  The graph now runs its word pass over the
+# symbol-BLANKED line and `Commands.isa_word_pattern` grows the two matching
+# lookbehinds, so `callers` and `unused` cannot disagree about the same lemma.
+#
+# The GUARD half is the one that matters: the word pass was added for a
+# reason, and narrowing it must not undo that reason.  Blanking the delimiters
+# must not blank what they contain.
+#
+# Upstream's Sym / Guard theories verbatim.  Sym declares four entries named
+# after symbol bodies and cites none of them; Guard writes the three shapes
+# the word pass exists for.  Line numbers are part of the expectation.
+
+SYMFIX="$OUT/symbols"
+mkdir -p "$SYMFIX" || exit 2
+
+cat >"$SYMFIX/ROOT" <<'ROOT'
+session P9_Sym = HOL +
+  options [document = false]
+  theories
+    Sym
+    Guard
+ROOT
+
+cat >"$SYMFIX/Sym.thy" <<'THY'
+theory Sym
+imports Main
+begin
+
+definition lambda :: "nat" where "lambda = 0"
+definition le :: "nat" where "le = 1"
+definition sub :: "nat" where "sub = 2"
+definition close :: "nat" where "close = 3"
+
+lemma writes_symbols: "\<forall>x\<^sub>1. (\<lambda>y. y) x\<^sub>1 \<le> x\<^sub>1"
+  using \<open>True\<close> by simp
+
+end
+THY
+
+cat >"$SYMFIX/Guard.thy" <<'THY'
+theory Guard
+imports Main
+begin
+
+definition iso_transaction :: "nat" where "iso_transaction = 0"
+definition "merge_rt_F\<^sub>m" :: "nat" where "merge_rt_F\<^sub>m = 1"
+definition inside :: "nat" where "inside = 2"
+
+lemma abuts: "iso_transaction\<^sub>h = iso_transaction\<^sub>h" by simp
+lemma symbolic: "merge_rt_F\<^sub>m = merge_rt_F\<^sub>m" by simp
+lemma in_cartouche: \<open>inside = inside\<close> by simp
+
+end
+THY
+
+ROOT_DIR="$SYMFIX"
+
+echo
+echo "12a. the symbol bodies cite nothing"
+
+# Sym:10 writes a lambda, a subscript and a le, and Sym:11 a cartouche.  None
+# of the four is a citation, so each of the four entries named after one has
+# no caller at all -- and `writes_symbols` cites nothing.
+for name in lambda le sub close; do
+  expect "callers $name" 0 "No callers found for '$name'." "" callers "$name"
+done
+expect "callees writes_symbols" 0 \
+  "No references found in writes_symbols's body." "" callees writes_symbols
+
+echo
+echo "12b. and the three shapes the word pass exists for still work"
+
+expect "a name ABUTTING a symbol is still a maximal run" 0 \
+  '1 caller(s) of iso_transaction:
+
+  Guard:9  abuts (LEMMA) 9..9  lemma abuts: "iso_transaction\<^sub>h = iso_transaction\<^sub>h" by simp' \
+  "" callers iso_transaction
+expect "a SYMBOLIC name is still one sym_re token" 0 \
+  '1 caller(s) of merge_rt_F\<^sub>m:
+
+  Guard:10  symbolic (LEMMA) 10..10  lemma symbolic: "merge_rt_F\<^sub>m = merge_rt_F\<^sub>m" by simp' \
+  "" callers 'merge_rt_F\<^sub>m'
+expect "a name INSIDE a cartouche is still cited" 0 \
+  '1 caller(s) of inside:
+
+  Guard:11  in_cartouche (LEMMA) 11..11  lemma in_cartouche: \<open>inside = inside\<close> by simp' \
+  "" callers inside
+
+echo
+echo "12c. the graph agrees, in BOTH reach modes"
+
+# 11 declared names, 3 of them cited (the three guards): 8 dead.  Asked in
+# both modes on purpose -- this is not a visibility artefact, and could not be
+# fixed by one.  Before the blanking it was 4, because the four symbol-named
+# entries looked cited from Sym:10 and Sym:11.
+expect "unused -c, closure"        0 "8" "" unused -c
+expect "unused -c, --reach name"   0 "8" "" unused --reach name -c
+
+# ==========================================================================
+echo
+echo "13. [name-is-not-identity] -- a theory NAME is not a section's identity"
+# ==========================================================================
+#
+# Upstream's alpha/beta fixture verbatim: two entries, each with its own ROOT,
+# each declaring a `Base` and a `Preliminaries`.  Alpha's lines 5..8 are a
+# `text` block that MENTIONS the cited name; beta's line 6 is a LIVE citation
+# of it, at the line alpha calls prose.  One fixture, both directions:
+#
+#   name-keyed, alpha winning   beta's live citation is masked as alpha's prose
+#   name-keyed, beta winning    alpha's prose is unmasked and counted as a use
+#
+# and either way the OWNER of a line comes from the wrong file.  Keyed by
+# `sec.path` there is one right answer and it does not depend on load order,
+# which is why every expectation below is stated as "the owner is an entry of
+# the file the row names".
+
+NIFIX="$OUT/collide"
+mkdir -p "$NIFIX/alpha" "$NIFIX/beta" || exit 2
+
+for e in Alpha Beta; do
+  d=$(printf '%s' "$e" | tr 'AB' 'ab')
+  printf 'session %s = HOL +\n  theories\n    Base\n    Preliminaries\n' \
+    "$e" >"$NIFIX/$d/ROOT"
+  printf 'theory Base\nimports Main\nbegin\nlemma target: "True" by simp\nend\n' \
+    >"$NIFIX/$d/Base.thy"
+done
+
+cat >"$NIFIX/alpha/Preliminaries.thy" <<'THY'
+theory Preliminaries
+imports Base
+begin
+lemma a_head: "True" by simp
+text \<open>
+  a paragraph about target
+  still prose
+\<close>
+lemma a_tail: "True" by simp
+end
+THY
+
+cat >"$NIFIX/beta/Preliminaries.thy" <<'THY'
+theory Preliminaries
+imports Base
+begin
+lemma b_head: "True" by simp
+
+lemma b_cites: "True" using target by simp
+
+lemma b_tail: "True" by simp
+end
+THY
+
+ROOT_DIR="$NIFIX"
+
+echo
+echo "13a. one citation, from the file that makes it"
+
+# ONE live citation of `target` in the whole fixture: beta's line 6.  Alpha's
+# line 6 says the word inside a `text` block, which is documentation.  The
+# owner is `b_cites`, beta's own entry -- not `a_tail`, which owns line 6 of
+# the OTHER file.
+expect "callers target" 0 \
+  '1 caller(s) of target:
+
+  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
+  "" callers target
+expect "and --external skips the FILES that declare it, not the name" 0 \
+  '1 caller(s) of target:
+
+  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
+  "" callers target --external
+# Not a visibility artefact either: both `Preliminaries` really do import a
+# `Base` that declares `target`, so the closure drops nothing here.
+expect "and the same under --reach name" 0 "1" "" callers target --reach name -c
+
+echo
+echo "13b. the graph, and the phantom edge that is not there"
+
+# One edge.  Under a name-keyed def-site map, alpha's `lemma a_head` line has
+# no def site (beta's map is in force), so `b_head` read as citing `a_head`.
+expect "graph citation has exactly the one real edge" 0 \
+  'digraph citation {
+  rankdir=LR;
+  "a_head";
+  "a_tail";
+  "b_cites";
+  "b_head";
+  "b_tail";
+  "target";
+  "b_cites" -> "target";
+}' "" graph -f dot
+# 6 entries, one of them cited: 5 dead.  It was 3 with the collapse, because
+# the phantom edge and the prose mention kept two alive.
+expect "unused -c" 0 "5" "" unused -c
+
+echo
+echo "13c. the LINE INDEX: every owner is an entry of its own file"
+
+# `grep` and `methods` read the same index, and it is the index the collapse
+# moved 381,710 AFP lines in.  Owners in load order: alpha's Base, alpha's
+# Preliminaries (a_head at 4, a_tail at 9 -- the prose block belongs to the
+# entry it introduces), then beta's.
+expect "grep True names the right owner for each file" 0 \
+  '7 live match(es) for '"'"'True'"'"':
+
+  Base.thy:4           target (LEMMA)
+    lemma target: "True" by simp
+  Preliminaries.thy:4  a_head (LEMMA)
+    lemma a_head: "True" by simp
+  Preliminaries.thy:9  a_tail (LEMMA)
+    lemma a_tail: "True" by simp
+  Base.thy:4           target (LEMMA)
+    lemma target: "True" by simp
+  Preliminaries.thy:4  b_head (LEMMA)
+    lemma b_head: "True" by simp
+  Preliminaries.thy:6  b_cites (LEMMA)
+    lemma b_cites: "True" using target by simp
+  Preliminaries.thy:8  b_tail (LEMMA)
+    lemma b_tail: "True" by simp' \
+  "" grep True
+expect "and so does methods, which reads the same index" 0 \
+  "7 use(s) of method 'simp':
+
+  Base:4           target (LEMMA) 4..4  lemma target: \"True\" by simp
+  Preliminaries:4  a_head (LEMMA) 4..4  lemma a_head: \"True\" by simp
+  Preliminaries:9  a_tail (LEMMA) 5..9  lemma a_tail: \"True\" by simp
+  Base:4           target (LEMMA) 4..4  lemma target: \"True\" by simp
+  Preliminaries:4  b_head (LEMMA) 4..5  lemma b_head: \"True\" by simp
+  Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: \"True\" using target by simp
+  Preliminaries:8  b_tail (LEMMA) 8..8  lemma b_tail: \"True\" by simp" \
+  "" methods simp
+
+# (The LOCUS column is still the bare stem on both sides of every row above --
+# `beta/Preliminaries:6` is [disambig-names] / [disambig-loci], S4, and is why
+# these rows are not yet byte-identical with the oracle's.)
+
+# ==========================================================================
+echo
+echo "14. [import-leaf] -- a token the resolver cannot map is a hole"
+# ==========================================================================
+#
+# Upstream's LeafFixture: one session, one subdirectory, both spellings of the
+# same rule.  The ROOT names a theory `"Sub/Leaf"`, so that IS its name here;
+# `Sub/Leaf` reaches its sibling with `imports "../Base"`, and `Bare` reaches
+# `Sub/Leaf` by its LEAF.  Neither resolves by an exact name or by the tail
+# after the last `.` -- that rule finds the `.` of `..` -- so before the leaf
+# rule both were `[out-of-project]` and the closure had a hole across them.
+#
+# `Alien` is the counterweight: the leaf rules must not invent a local theory
+# out of a genuinely external import.
+
+LEAFFIX="$OUT/leaf"
+mkdir -p "$LEAFFIX/Sub" || exit 2
+
+printf 'session Demo = HOL +\n  theories\n    Base\n    "Sub/Leaf"\n    Bare\n    Alien\n' \
+  >"$LEAFFIX/ROOT"
+printf 'theory Base\nimports Main\nbegin\ndefinition base :: "nat" where "base = 0"\nend\n' \
+  >"$LEAFFIX/Base.thy"
+printf 'theory Leaf\nimports "../Base"\nbegin\nlemma leaf_uses: "base = base" by simp\nend\n' \
+  >"$LEAFFIX/Sub/Leaf.thy"
+printf 'theory Bare\nimports Leaf\nbegin\nlemma bare_uses: "base = base" by simp\nend\n' \
+  >"$LEAFFIX/Bare.thy"
+printf 'theory Alien\nimports "../nowhere/Absent" "HOL-Library.FuncSet"\nbegin\nlemma alien_uses: "base = base" by simp\nend\n' \
+  >"$LEAFFIX/Alien.thy"
+
+ROOT_DIR="$LEAFFIX"
+
+echo
+echo "14a. deps / uses resolve both spellings"
+
+expect "deps Bare -- by the leaf of a path-spelled THEORY" 0 \
+  'Direct imports of Bare:
+  Sub/Leaf  (5 src lines, 1 entries)  [direct]' "" deps Bare
+expect "deps -r Bare -- and on through the ../ import" 0 \
+  'Import-transitive dependencies of Bare:
+  Sub/Leaf  (5 src lines, 1 entries)  [direct]
+  Base  (5 src lines, 1 entries)  [depth 1]
+  Main  [out-of-project]' "" deps -r Bare
+expect "uses -r Base -- the same edges, reversed" 0 \
+  'Theories that import Base (transitively):
+  Sub/Leaf  (5 src lines, 1 entries)  [direct]
+  Bare  (5 src lines, 1 entries)  [depth 1]' "" uses -r Base
+
+echo
+echo "14b. external stays external"
+
+# Neither rule fires without a `/` in the token or in a loaded name, and an
+# external session-qualified import has none.  A leaf rule that invented a
+# local theory here would be worse than the hole it fixes.
+expect "deps Alien -- both tokens keep the raw spelling" 0 \
+  'Direct imports of Alien:
+  ../nowhere/Absent  [out-of-project]
+  HOL-Library.FuncSet  [out-of-project]' "" deps Alien
+
+echo
+echo '14c. the closure crosses the edge, and `graph imports` has no phantom'
+
+# `base` is cited on three lines; the two that can SEE `Base` are attributed
+# and Alien's is not, because Alien's closure is itself alone.  `--reach name`
+# is the counterweight: all three, which is what makes the 2 a filter result
+# rather than a hole.
+expect "callers base -c, closure" 0 "2" "" callers base -c
+expect "callers base -c, --reach name" 0 "3" "" callers base -c --reach name
+expect "refs Bare -- the citation reaches past the direct import" 0 \
+  'Bare references 1 name(s) from 1 theory/theories:
+
+  Base  [import depth 1]  1
+      base  (1)
+
+  Direct imports no citation reaches (1): Sub/Leaf
+  Cited but not directly imported (1): Base' "" refs Bare
+expect "graph imports -- Sub/Leaf is a node, not an external token" 0 \
+  'digraph imports {
+  rankdir=LR;
+  "Alien";
+  "Bare";
+  "Base";
+  "Sub/Leaf";
+  "../nowhere/Absent" [style=dashed];
+  "HOL-Library.FuncSet" [style=dashed];
+  "Main" [style=dashed];
+  "Alien" -> "../nowhere/Absent";
+  "Alien" -> "HOL-Library.FuncSet";
+  "Bare" -> "Sub/Leaf";
+  "Base" -> "Main";
+  "Sub/Leaf" -> "Base";
+}' "" graph imports -f dot
+
+echo
+echo "14d. a shared theory name UNIONS its edges"
+
+# Upstream's UnionFixture: two entries, one `Dup` each, importing different
+# targets.  `Cite` imports `Dup` and cites both targets.  A last-wins
+# adjacency would carry one of the two and delete the other's citation --
+# silently, and which one depends on load order, so this asserts BOTH rather
+# than one.  `deps -r`, which prints ONE dependency per clause, keeps the
+# last-wins section on both implementations.
+
+UNIONFIX="$OUT/union"
+mkdir -p "$UNIONFIX/alpha" "$UNIONFIX/beta" || exit 2
+
+printf 'session Alpha = HOL +\n  theories\n    A_Target\n    Dup\n    Cite\n' \
+  >"$UNIONFIX/alpha/ROOT"
+printf 'theory A_Target\nimports Main\nbegin\ndefinition a_target :: "nat" where "a_target = 0"\nend\n' \
+  >"$UNIONFIX/alpha/A_Target.thy"
+printf 'theory Dup\nimports A_Target\nbegin\nend\n' >"$UNIONFIX/alpha/Dup.thy"
+printf 'theory Cite\nimports Dup\nbegin\nlemma cites_a: "a_target = a_target" by simp\nlemma cites_b: "b_target = b_target" by simp\nend\n' \
+  >"$UNIONFIX/alpha/Cite.thy"
+printf 'session Beta = HOL +\n  theories\n    B_Target\n    Dup\n' >"$UNIONFIX/beta/ROOT"
+printf 'theory B_Target\nimports Main\nbegin\ndefinition b_target :: "nat" where "b_target = 0"\nend\n' \
+  >"$UNIONFIX/beta/B_Target.thy"
+printf 'theory Dup\nimports B_Target\nbegin\nend\n' >"$UNIONFIX/beta/Dup.thy"
+
+ROOT_DIR="$UNIONFIX"
+
+expect "cites_a is attributed"  0 "1" "" callers a_target -c
+expect "cites_b is attributed too -- the union, not a tiebreak" 0 "1" "" callers b_target -c
+expect "deps -r Cite keeps the last-wins section, as both engines do" 0 \
+  'Import-transitive dependencies of Cite:
+  Dup  (4 src lines, 0 entries)  [direct]
+  B_Target  (5 src lines, 1 entries)  [depth 1]
+  Main  [out-of-project]' "" deps -r Cite
+
+# ==========================================================================
+echo
+echo "15. [citation-reach] -- a declaration is an entry of ANY tag"
+# ==========================================================================
+#
+# The declared set the filter consults is not the graph's NODE set.  The nodes
+# are facts, so a `locale rev` is not one; but a theory that declares `rev` as
+# a LOCALE can plainly see the `rev` a line there names, and scoping the
+# declared set to the citable tags dropped the edge whenever the only visible
+# same-name entry carried another tag.
+#
+#   X   datatype colour = Bar | Baz   (line 4)   locale rev   (line 5)
+#   Y   lemma rev                     (line 4)
+#   Z   imports X; cites rev at 4, mentions Bar at 5
+#   W   imports Main only; mentions Bar at 4
+#
+# Z's `rev` can only be X's LOCALE -- Y is not in Z's closure -- so an edge
+# that exists at all proves the tag is not consulted.
+
+DECLFIX="$OUT/declared"
+mkdir -p "$DECLFIX" || exit 2
+
+cat >"$DECLFIX/ROOT" <<'ROOT'
+session P9_Decl = HOL +
+  options [document = false]
+  theories
+    X
+    Y
+    Z
+    W
+ROOT
+
+cat >"$DECLFIX/X.thy" <<'THY'
+theory X
+imports Main
+begin
+datatype colour = Bar | Baz
+locale rev = fixes r :: nat
+end
+THY
+
+cat >"$DECLFIX/Y.thy" <<'THY'
+theory Y
+imports Main
+begin
+lemma rev: "True" by simp
+end
+THY
+
+cat >"$DECLFIX/Z.thy" <<'THY'
+theory Z
+imports X
+begin
+lemma z_cites_rev: "True" using rev by simp
+lemma z_mentions_bar: "Bar = Bar" by simp
+end
+THY
+
+cat >"$DECLFIX/W.thy" <<'THY'
+theory W
+imports Main
+begin
+lemma w_mentions_bar: "Bar = Bar" by simp
+end
+THY
+
+ROOT_DIR="$DECLFIX"
+
+echo
+echo "15a. the edge a citable-tag-only declared set deleted"
+
+expect "callees z_cites_rev -- the LOCALE is what it can see" 0 \
+  '1 callee(s) of z_cites_rev:
+
+  rev (LOCALE) — X [L5]' "" callees z_cites_rev
+expect "callers -r rev -- the same edge, read backwards" 0 \
+  '1 transitive caller(s) of rev:
+
+    z_cites_rev (LEMMA) — Z [L4]' "" callers -r rev
+expect "graph citation carries it" 0 \
+  'digraph citation {
+  rankdir=LR;
+  "rev";
+  "w_mentions_bar";
+  "z_cites_rev";
+  "z_mentions_bar";
+  "z_cites_rev" -> "rev";
+}' "" graph -f dot
+expect "and refs rolls it up to X" 0 \
+  'Z references 1 name(s) from 1 theory/theories:
+
+  X  [direct import]  1
+      rev  (1)' "" refs Z
+# 4 citable names, one of them cited: 3 dead.  It was 4 before, because the
+# only edge in the fixture was the one being dropped.
+expect "unused -c" 0 "3" "" unused -c
+
+echo
+echo "15b. D14 -- a BOUND name is a declaration too (deliberate, see DIVERGENCES)"
+
+# `Bar` is no ENTRY: it is a name `datatype colour` BINDS, in X.  Upstream
+# consults entries only, so `declared_in["Bar"]` is empty there and the filter
+# declines to constrain anything -- oracle 0.8.1 answers 2 here, Z:5 and W:4.
+#
+# This port counts a bound name as a declaration, so `Bar` IS declared, in X,
+# and W imports only Main: W:4 cannot be naming X's constructor.  1 is
+# therefore the answer, and it is D13's rule applied to a constructor rather
+# than an exception to it.  `codeqs Cons` -- a verb whose whole subject is a
+# bound name -- needs the same reading, so `callers` uses it too rather than
+# carrying two answers to one question.
+expect "callers Bar -- the port drops W (upstream: 2)" 0 \
+  '1 caller(s) of Bar:
+
+  Z:5  z_mentions_bar (LEMMA) 5..5  lemma z_mentions_bar: "Bar = Bar" by simp' \
+  "" callers Bar
+# And the compatibility mode agrees with upstream exactly, which is what makes
+# the line above a FILTER decision rather than a missing hit.
+expect "callers Bar --reach name -- both, as the oracle has it" 0 \
+  '2 caller(s) of Bar:
+
+  Z:5  z_mentions_bar (LEMMA) 5..5  lemma z_mentions_bar: "Bar = Bar" by simp
+  W:4  w_mentions_bar (LEMMA) 4..4  lemma w_mentions_bar: "Bar = Bar" by simp' \
+  "" callers Bar --reach name
+
+echo
+echo "15c. the modes are the same where nothing is out of reach"
+
+# Everything else in this fixture is inside its own closure, so the two modes
+# must agree -- a filter that moved these would be dropping something real.
+expect "unused -c, --reach name"  0 "3" "" unused --reach name -c
+expect "callees z_cites_rev -c, --reach name" 0 "1" "" callees z_cites_rev --reach name -c
 
 # ==========================================================================
 echo
