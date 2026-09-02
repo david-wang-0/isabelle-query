@@ -261,7 +261,19 @@ object Commands {
      mean …?" hint, and stderr-only.  The similarity measure is a longest
      common subsequence rather than `difflib`'s matching-block ratio: the two
      agree on which candidate is closest in every case a hint is worth giving,
-     and the exact score is never printed. */
+     and the exact score is never printed.
+
+     The candidate set is one section per NAME, last-wins, which is the
+     reference's `{s.theory: s for s in sections}` — and it is load-bearing on a
+     corpus, not a transcription detail.  498 AFP theory names name more than
+     one theory, so ranking over the sections instead would score the same name
+     once per file and hand back whichever came FIRST; the reference hands back
+     whichever came last.  Both choices are arbitrary (the hint is a guess about
+     a token that resolved to nothing, and the token cannot say which `Examples`
+     it meant), so there is nothing here to be right about and a byte to be
+     equal about.  Ties between distinct names go to the larger name, which is
+     what `heapq.nlargest` over `(ratio, name)` does inside
+     `difflib.get_close_matches`. */
   def suggest_theory(sections: List[Theory_Section], name: String): Option[String] = {
     val key = stem_of(name)
     def ratio(a: String, b: String): Double = {
@@ -284,12 +296,15 @@ object Commands {
         2.0 * prev(b.length) / (a.length + b.length)
       }
     }
+    val by_name = new mutable.LinkedHashMap[String, Theory_Section]
+    for (s <- sections) by_name(s.theory) = s
     val best =
-      sections.map(s => (ratio(key, s.theory), s))
+      by_name.toList.map { case (nm, s) => (ratio(key, nm), nm, s) }
         .filter(_._1 >= 0.6)
-        .sortBy(-_._1)
+        .sortBy { case (r, nm, _) => (-r, nm) }(
+          Ordering.Tuple2(Ordering.Double.TotalOrdering, Ordering.String.reverse))
         .headOption
-    best.map { case (_, sec) =>
+    best.map { case (_, _, sec) =>
       val cwd = Paths.get("").toAbsolutePath
       val p = real(sec.path)
       if (p.startsWith(cwd)) cwd.relativize(p).toString else p.toString
