@@ -28,11 +28,14 @@ entry index already has, and is deliberately not built here.
 Two deliberate approximations, both on the permissive side, because the filter
 must never remove an attribution that could be real:
 
-  * an import spelled as a PATH resolves by its leaf name (`import_target`),
-    which `deps` deliberately does not do — and so, symmetrically, does a
-    THEORY whose ROOT declares it by path (`theories "Nested/Nested_Fix"`),
-    which is carried under that spelling and would otherwise be unreachable
-    from any import that resolves by leaf;
+  * an import spelled as a PATH resolves by its leaf name
+    (`import_candidates`) — and so, symmetrically, does a THEORY whose ROOT
+    declares it by path (`theories "Nested/Nested_Fix"`), which is carried
+    under that spelling and would otherwise be unreachable from any import
+    that resolves by leaf.  `deps` / `uses` / `graph imports` take the same
+    rule through `resolve_import`, narrowed to one candidate: a token the
+    resolver cannot map is not a missing feature but a HOLE, and a hole
+    prunes [import-leaf];
   * the graph is keyed by theory NAME, and where a corpus declares the same
     theory name twice (the AFP has many a `Misc`) the adjacency is the UNION of
     every section of that name.  `Usage.import_depths`, which `deps` / `refs`
@@ -87,57 +90,97 @@ object Reach {
   /* import resolution                                                  */
   /* ------------------------------------------------------------------ */
 
-  /* A raw `imports`-clause token mapped to the bare in-project theory it
-     denotes, or `None` if it is external.  Same-session imports are written
-     bare and match directly; cross-session imports are session-qualified and
-     resolve by their tail after the last `.`.  A genuinely external import
-     (`HOL-Library.FuncSet`) names no in-project theory by either spelling.
+  /* The last path segment of a theory name or an `imports` token — what
+     `Thy_Header.import_name` keeps.  `"../BV/Altern"` and `"Altern"` denote
+     the same theory to Isabelle, and so must here [import-leaf]. */
+  def theory_leaf(name: String): String = {
+    val s = name.replace('\\', '/')
+    val i = s.lastIndexOf('/')
+    if (i < 0) s else s.substring(i + 1)
+  }
+
+  /* `{leaf -> the theory names carrying a path}`, for resolving an import
+     written BARE against a theory a ROOT spelled with a directory.
+
+     Only names that are not already their own leaf go in, so this can never
+     shadow a plain name — an exact match is tried first and always wins.  It
+     stays small for that reason: 56 of `src/HOL`'s 1,451 theories.  Build it
+     once per resolving loop; deriving it per call is a pass over every theory
+     name, inside a BFS. */
+  def leaf_index(known: Iterable[String]): Map[String, List[String]] = {
+    val m = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[String]]
+    for (name <- known) {
+      val leaf = theory_leaf(name)
+      if (leaf != name) m.getOrElseUpdate(leaf, new mutable.ListBuffer) += name
+    }
+    m.view.mapValues(_.toList).toMap
+  }
+
+  /* Every in-project theory an `imports` token could denote, most specific
+     spelling first; empty when the token is external.
+
+     `Discovery.thy_imports` returns tokens verbatim, but the section index is
+     keyed by theory NAME.  Four spellings reach a loaded theory, tried in
+     order:
+
+       * bare, matching directly (`Substrate`);
+       * session-qualified, by the tail after the last `.`
+         (`Proj_Base.Substrate`);
+       * PATH-SPELLED, by its leaf — `imports "../WFair"` in
+         `HOL-UNITY`, `imports "variants/a_norreqid/A_Aodv_Loop_Freedom"` in
+         AODV.  The `.` rule alone cannot map either, because it finds the `.`
+         of `..` and yields `/WFair`;
+       * bare against a path-spelled THEORY — a ROOT that says `theories
+         "Simple/Reach"` gives the section that name, so a sibling's `imports
+         Reach` matches nothing without `by_leaf`.
+
+     The last two are the same rule seen from either end, and it is Isabelle's
+     own (`Thy_Header.import_name` takes the last segment).  Without them the
+     token is classified external — cosmetic for `deps`, but a HOLE in the
+     visibility closure, which may only DROP and so deletes every citation
+     across the edge in silence: 2,803 over `src/HOL` and 65,745 over the AFP
+     [import-leaf].
+
+     A genuinely external import (`HOL-Library.FuncSet`) names no in-project
+     theory by any of the four, so the list is empty and the caller keeps the
+     RAW token for the `[out-of-project]` line.  The leaf rules add no new way
+     to mistake one for a local theory: they fire only when the token or a
+     loaded name contains `/`, which an external session-qualified import never
+     does.
+
+     Several candidates come back only from the last rule, where two ROOTs
+     spelled distinct theories with the same leaf.  A caller that must print
+     ONE dependency takes `resolve_import`; the visibility closure takes them
+     all, because it may only drop and a union is the safe side. */
+  def import_candidates(imp: String, known: String => Boolean,
+    by_leaf: Map[String, List[String]]
+  ): List[String] =
+    if (known(imp)) List(imp)
+    else {
+      val dot = imp.lastIndexOf('.')
+      val tail = if (dot >= 0) imp.substring(dot + 1) else ""
+      if (dot >= 0 && known(tail)) List(tail)
+      else {
+        val leaf0 = theory_leaf(imp)
+        val d = leaf0.lastIndexOf('.')
+        val leaf = if (d >= 0) leaf0.substring(d + 1) else leaf0
+        if (leaf != imp && known(leaf)) List(leaf)
+        else by_leaf.getOrElse(leaf, Nil).sorted
+      }
+    }
+
+  /* The one in-project theory an `imports` token denotes, or `None`.
+
+     `import_candidates` narrowed to a single answer for the verbs that print a
+     dependency (`deps`, `uses`, `graph imports`), which need one edge per
+     import clause rather than a set.  Where the token is genuinely ambiguous
+     the first candidate in name order is taken, deterministically.
 
      THE one definition — `Usage.resolve_import` is this function with the
      membership test spelled as a map, because `deps` needs the section too. */
-  def resolve_import(imp: String, known: String => Boolean): Option[String] =
-    if (known(imp)) Some(imp)
-    else {
-      val i = imp.lastIndexOf('.')
-      if (i < 0) None
-      else {
-        val tail = imp.substring(i + 1)
-        if (known(tail)) Some(tail) else None
-      }
-    }
-
-  /* The same question asked for VISIBILITY, and deliberately broader in the
-     one place the two differ: an import written as a PATH.
-
-     `imports ../BV/Altern` is how `HOL-MicroJava` reaches across its own
-     subdirectories, and `Discovery.classify_import` follows it — those
-     theories are in the index.  The rule above cannot map it, because its `.`
-     rule finds the `.` of `..` and yields `/BV/Altern`, so `deps` prints the
-     token verbatim as `[out-of-project]`.  That is the reference tool's
-     behaviour and stays; here it would be a HOLE IN THE CLOSURE, and a hole
-     prunes.  `callers rev` over the distribution lost 60 genuine MicroJava
-     hits to exactly this before the leaf rule was added.
-
-     The rule is symmetric in a way its `known` argument has to supply: the
-     leaf is taken off the IMPORT here, and `build` feeds this predicate the
-     leaf of every known THEORY as well, because a theory name can carry a
-     directory prefix too (see the alias table there).  It has to be both
-     sides, or the two spellings of one theory never meet.
-
-     Strictly one-directional, like everything else in this file: it can only
-     make more theories visible, never fewer. */
-  def import_target(imp0: String, known: String => Boolean): Option[String] = {
-    val imp = Py.strip(imp0).stripPrefix("\"").stripSuffix("\"")
-    if (known(imp)) Some(imp)
-    else {
-      val slash = imp.lastIndexOf('/')
-      if (slash >= 0) {
-        val leaf = imp.substring(slash + 1)
-        if (known(leaf)) Some(leaf) else None
-      }
-      else resolve_import(imp, known)
-    }
-  }
+  def resolve_import(imp: String, known: String => Boolean,
+    by_leaf: Map[String, List[String]]
+  ): Option[String] = import_candidates(imp, known, by_leaf).headOption
 
 
   /* ------------------------------------------------------------------ */
@@ -184,8 +227,8 @@ object Reach {
     val id_map = ids.toMap
     val n = ids.size
 
-    /* The OTHER half of the leaf rule, and the half `import_target` cannot
-       reach on its own.  A ROOT may declare a theory by PATH —
+    /* The OTHER half of the leaf rule, and the half a leaf taken off the
+       IMPORT cannot reach on its own.  A ROOT may declare a theory by PATH —
 
            theories "Nested/Nested_Fix"
 
@@ -198,30 +241,19 @@ object Reach {
        PREFIXED names misses.  That is a hole, and a hole prunes silently:
        `codeqs quad` answered 2 where the source has 3.
 
-       So import resolution runs against the theory ids PLUS one alias per
-       prefixed name, its own leaf.  A leaf that several theories answer to
-       keeps ALL of them, because this map may only widen the closure; the
-       `Closure` itself is built from `id_map` alone, so no alias is ever
-       visible to a lookup by theory name.  On a corpus whose ROOTs declare no
-       path-qualified theory — four of the seven difftest corpora — the table
-       is the id map and this costs nothing.
+       `leaf_index` is that half, and the closure takes EVERY candidate the
+       resolver offers rather than the first: this may only WIDEN, and a
+       closure that is too large is merely weak where one that is too small
+       deletes real citations.  On a corpus whose ROOTs declare no
+       path-qualified theory — four of the seven difftest corpora — the index
+       is empty and this costs nothing.
 
        The theory NAME is deliberately left alone: correcting it is a
        `Discovery` change that would move `Locale_Test/Locale_Test` (FOL),
        `LK/Propositional` (Sequents) and `ex/Typechecking` (CTT) off byte
        parity with the reference, which spells them the same way.  See
        `todo.md`, `[theory-name-leaf]`. */
-    val resolve: Map[String, List[Int]] = {
-      val m = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Int]]
-      def add(key: String, i: Int): Unit =
-        m.getOrElseUpdate(key, new mutable.ListBuffer[Int]) += i
-      for ((name, i) <- ids) add(name, i)
-      for ((name, i) <- ids) {
-        val slash = name.lastIndexOf('/')
-        if (slash >= 0) add(name.substring(slash + 1), i)
-      }
-      m.view.mapValues(_.toList.distinct).toMap
-    }
+    val by_leaf = leaf_index(ids.keys)
 
     /* One file read and one header parse per section, and over the whole AFP
        there are ten thousand of them — the only part of this that touches the
@@ -231,7 +263,8 @@ object Reach {
     val kids = Array.fill(n)(mutable.LinkedHashSet.empty[Int])
     for ((sec, imps) <- sections.zip(headers)) {
       val src = id_map(sec.theory)
-      for (imp <- imps; name <- import_target(imp, resolve.contains); dst <- resolve(name)) {
+      for (imp <- imps; name <- import_candidates(imp, id_map.contains, by_leaf)) {
+        val dst = id_map(name)
         if (dst != src) kids(src) += dst
       }
     }

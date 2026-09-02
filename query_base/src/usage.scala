@@ -103,9 +103,12 @@ object Usage {
 
      The rule itself lives in `Reach`, which needs it before this file exists;
      this is the section-map spelling of the same membership test, kept because
-     `deps` wants the section it resolved to. */
-  def resolve_import(imp: String, by_theory: Map[String, Theory_Section]): Option[String] =
-    Reach.resolve_import(imp, by_theory.contains)
+     `deps` wants the section it resolved to.  `by_leaf` is
+     `Reach.leaf_index` of the same map — pass it, because deriving it per call
+     inside a BFS is a pass over every theory name [import-leaf]. */
+  def resolve_import(imp: String, by_theory: Map[String, Theory_Section],
+    by_leaf: Map[String, List[String]]
+  ): Option[String] = Reach.resolve_import(imp, by_theory.contains, by_leaf)
 
   /* `{theory: depth}` over the in-project imports graph from `start`; depth 0
      is a DIRECT import, and `start` itself is excluded.  Every import that does
@@ -115,13 +118,18 @@ object Usage {
   def import_depths(start: String, by_theory: Map[String, Theory_Section],
     out_of_project: Option[mutable.Set[String]] = None
   ): Map[String, Int] = {
+    /* SINGLE-VALUED, like the `deps` output it feeds: where a theory name is
+       declared twice this walks the last-wins section, and where a leaf is
+       ambiguous it takes one candidate.  The visibility FILTER cannot afford
+       either narrowing and does not make them — see `Reach.build`. */
+    val by_leaf = Reach.leaf_index(by_theory.keys)
     def imports_of(name: String): List[String] =
       by_theory.get(name) match {
         case None => Nil
         case Some(sec) =>
           val children = new mutable.ListBuffer[String]
           for (imp <- Discovery.thy_imports(sec.path))
-            resolve_import(imp, by_theory) match {
+            resolve_import(imp, by_theory, by_leaf) match {
               case None => out_of_project.foreach(_ += imp)
               case Some(child) => children += child
             }
@@ -137,6 +145,7 @@ object Usage {
       case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
         val by_theory = Usage_Graph.sections_by_theory(sections)
+        val by_leaf = Reach.leaf_index(by_theory.keys)
 
         def emit(found: Map[String, Int]): Unit =
           for ((name, depth) <- found.toList.sortBy(kv => (kv._2, kv._1))) {
@@ -155,7 +164,7 @@ object Usage {
           val rev = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[String]]
           for (s <- sections) rev(s.theory) = new mutable.ListBuffer[String]
           for (s <- sections; imp <- Discovery.thy_imports(s.path))
-            resolve_import(imp, by_theory).foreach(r => rev(r) += s.theory)
+            resolve_import(imp, by_theory, by_leaf).foreach(r => rev(r) += s.theory)
           val found =
             if (recursive)
               Usage_Graph.bfs_depths(n => rev.get(n).map(_.toList).getOrElse(Nil),
@@ -178,7 +187,7 @@ object Usage {
             in_project ++= import_depths(target.theory, by_theory, Some(out_of_project))
           else
             for (imp <- Discovery.thy_imports(target.path))
-              resolve_import(imp, by_theory) match {
+              resolve_import(imp, by_theory, by_leaf) match {
                 case None => out_of_project += imp
                 case Some(r) => if (r != target.theory) in_project(r) = 0
               }
@@ -831,6 +840,7 @@ object Usage {
      though it does not load their sources. */
   private def import_graph_data(sections: List[Theory_Section]): Graph_Data = {
     val by_theory = Usage_Graph.sections_by_theory(sections)
+    val by_leaf = Reach.leaf_index(by_theory.keys)
     val nodes = new mutable.ListBuffer[Json.Obj]
     for (s <- sections.sortBy(_.theory))
       nodes += Json.Obj(List("name" -> Json.Str(s.theory), "external" -> Json.Bool(false),
@@ -838,7 +848,7 @@ object Usage {
     val edges = new mutable.ListBuffer[(String, String)]
     val external = mutable.LinkedHashSet.empty[String]
     for (sec <- sections; imp <- Discovery.thy_imports(sec.path))
-      resolve_import(imp, by_theory) match {
+      resolve_import(imp, by_theory, by_leaf) match {
         case None => external += imp; edges += ((sec.theory, imp))
         case Some(r) => edges += ((sec.theory, r))
       }
