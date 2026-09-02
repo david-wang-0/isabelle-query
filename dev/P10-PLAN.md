@@ -15,9 +15,11 @@ the code match, and let the harnesses say whether anything else moved.
 - Dev loop is the scratch home: `USER_HOME="$FORK/.dev"`. Never register into
   the real `$ISABELLE_HOME_USER`, never touch `~/.isabelle`, never launch
   jEdit or build heaps. Another session is using the real installation, and
-  jEdit is running against it. (The orchestrator comments the fork's line out
-  of the real `etc/components` for the duration of P10 and restores it at the
-  close — a mid-edit compile error must not break `isabelle` for that session.)
+  jEdit is running against it — and the fork IS registered there, so a
+  compile error left in the tree breaks every `isabelle` command that session
+  runs. (Parking the registration for the duration of P10, as P8 did, was
+  blocked by the permission classifier; instead:) edit, build, fix, and commit
+  compiling states only. Never leave the tree broken while you go and think.
 - Corpora come from `.dev/corpora.env`; the oracle is
   `QUERY_ORACLE=.dev/oracle/bin/query`. The matrix is
   `QUERY_ORACLE=.dev/oracle/bin/query dev/difftest.sh`; a targeted subset is
@@ -187,4 +189,3 @@ earns every record it moves.
       every probe's count. What each step established and what it left.
 - [ ] `CLAUDE.md`: the verification table's case and check counts; the
       status-doc row; `todo.md` reconciled.
-- [ ] Restore the fork's line in the real `etc/components`.
