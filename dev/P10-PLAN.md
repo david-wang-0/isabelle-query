@@ -189,7 +189,7 @@ step. And `CLI.resolve_namespace` is still called with the literal verb
 but reads as a magic string; a named constant for "a verb that reads the
 table" would be an improvement nobody needs yet.
 
-### S4 — a theory is named by its leaf `[p10-theory-leaf]`
+### S4 — a theory is named by its leaf `[p10-theory-leaf]` — **DONE**
 
 A ROOT may address a theory in a subdirectory by path —
 `theories "Nested/Nested_Fix"` — and both this engine and the reference then
@@ -205,7 +205,7 @@ half is closed (`Reach.leaf_index`, `dev/p7cprobe.sh` §8b); the NAME is not.
 This is the one step that moves oracle-shared output, so it is last and it
 earns every record it moves.
 
-- [ ] `Discovery.session_theories` offers the leaf: the last `/`-separated
+- [x] `Discovery.session_theories` offers the leaf: the last `/`-separated
       segment of the declared name, exactly `Thy_Header.import_name`'s rule
       (read `$ISABELLE_HOME/src/Pure/Thy/thy_header.scala` and cite the
       line). Resolution to a path is unchanged. Then follow the name through:
@@ -213,15 +213,44 @@ earns every record it moves.
       alias for slash-spelled names may become an identity — leave it if it
       is still load-bearing for IMPORT spellings (`imports "ex/Foo"` in a
       header), delete it only if the probe proves it dead.
-- [ ] `dev/DIVERGENCES.md`: a new entry, D15, with the Isabelle evidence
+      **`Discovery.import_name` is the one definition of the rule** and
+      `Reach.theory_leaf` delegates to it. It is `Url.get_base_name` — the
+      substring after the last of `":/\\"` — so `:` and a backslash separate
+      as `/` does and a `.` does not; the two spellings Isabelle ERRORS on (a
+      trailing separator, a base name still ending `.thy`) keep the declared
+      string, since a query tool gains nothing by refusing to answer.
+      **`leaf_index` is DELETED**, and it was provably dead rather than merely
+      unused: it only ever indexed names for which `theory_leaf(name) != name`,
+      and no loaded name carries a separator any more — every one is a file
+      stem or `import_name` of a declared string. The IMPORT spellings never
+      went through it (`import_candidates`' third rule takes the leaf off the
+      TOKEN), which `dev/p7cprobe.sh` §8b proves: `imports "ex/Foo"`,
+      `imports "../Nested/Nested_Fix"` and a bare `imports Leaf` all still
+      resolve with the table gone. `Usage.resolve_import` and
+      `Reach.import_candidates` / `resolve_import` lose a parameter each.
+- [x] `dev/DIVERGENCES.md`: a new entry, D15, with the Isabelle evidence
       above, the before/after on the fixture, and the oracle's spelling —
       and the note that upstream defect 1 closes with it on this side.
-- [ ] Fixtures: `dev/p9probe.sh` fixture B addresses a theory by path — its
+      The citations are `sessions.scala:650` / `:658`,
+      `thy_header.scala:78-82` and `url.scala:117,122-125`; the oracle's half
+      is `isabelle-layout` 0.2.2 `theories.py:326` (the declared string) against
+      `:339` (the leaf), the two halves of one function disagreeing.
+- [x] Fixtures: `dev/p9probe.sh` fixture B addresses a theory by path — its
       hand-computed expectations were derived under the OLD naming, so
       re-derive them from the new rule (the ones that change are exactly the
       records this step claims). Add the round trip: `summary` names it,
       `theory <name>` finds it, `enclosing <locus>` returns.
-- [ ] Gates: the FULL difftest. The corpora that contain a path-spelled
+      §3 re-derived (fixture B is now a NAME collision, `Propositional` twice,
+      so the label carries the round trip: `LK/Propositional` and
+      `fixB/Propositional` each land on their own file); §3b re-derived on the
+      real corpus, where BOTH `Typechecking` and `ex/Typechecking` now resolve;
+      §3c is new — fixture **P**, two roots each declaring `"ex/Foo"`, which is
+      upstream defect 1 at its smallest and now labels `one/ex/Foo` /
+      `two/ex/Foo`, the directory once. §14's `Sub/Leaf` expectations are
+      `Leaf` (`deps`, `uses -r`, `refs`, `graph imports -f dot`), and
+      `dev/p7cprobe.sh` §8b's are `Nested_Fix` / `Down_Fix`. Every value was
+      hand-computed from the rule first and matched on the first run.
+- [x] Gates: the FULL difftest. The corpora that contain a path-spelled
       ROOT theory (`FOL`: `Locale_Test/Locale_Test`; `Sequents`:
       `LK/Propositional` and three more; `CTT`: `ex/Typechecking` and three
       more) will move; pin each differing case under D15 with a glob that
@@ -229,9 +258,35 @@ earns every record it moves.
       `dev/entrydiff.sh` over the seven standard corpora: every moved record
       must be a path-spelled ROOT theory and nothing else — print the
       moved set and say so. `dev/p7cprobe.sh` §8b must still pass.
-- [ ] `todo.md`: delete `[theory-name-leaf]`. `MIGRATING.md`: a line under
+      **178 cases moved, all three of them on the three corpora named and
+      none anywhere else** (FOL 33, Sequents 47, CTT 98). Every one is
+      accounted for mechanically: 134 are the oracle's stdout with leaf
+      substituted for declared string, byte for byte; 41 are the same after
+      collapsing runs of spaces (the locus column is sized to the widest
+      locus); 2 are the same as sets of lines (`graph imports` sorts by name);
+      1 is `shape census --resume` from a prefix the ORACLE wrote, whose keys
+      are the ROOT spellings. Pinned by EXPLICIT id — no family fails whole,
+      so every glob would over-reach. **`dev/entrydiff.sh` moved NOTHING**, 28
+      of 28 dumps identical: both dump verbs key every record by PATH
+      (`Query_Tool.theory_key`), which is `[name-is-not-identity]`'s own
+      choice, so a rename cannot reach them.
+- [x] `todo.md`: delete `[theory-name-leaf]`. `MIGRATING.md`: a line under
       "What is deliberately different". `SCANNING.md` §session discovery:
       how a theory is named.
+      Plus `README.md` (fourteen entries → fifteen, and which one is
+      deliberate), `CLAUDE.md` (the discovery paragraph, and the difftest and
+      p9probe rows of the verification table) and `dev/DIVERGENCES.md`'s D13,
+      whose `[theory-name-leaf]` pointer now names D15.
+
+Found on the way: `SCANNING.md`'s "498 AFP theory names are used by more than
+one theory, covering 1,349 of its 10,262" was a LEAF-name figure all along and
+so did not describe the tool that printed it — under the declared-string naming
+the corpus has 468 shared names covering 1,250, plus 910 theories whose name
+carried a directory. The sentence is true now. Four `src/HOL` names newly
+collide by leaf (`Deadlock`, `Greatest_Common_Divisor`, `Lift`, `Sqrt`), which
+widens the name-keyed import adjacency there — `Reach`'s second documented
+approximation, and it may only widen; `callers rev` over `src/HOL` is 670 on
+both engines either way.
 
 ### Close — `dev/P10-STATUS.md` `[p10-status]`
 

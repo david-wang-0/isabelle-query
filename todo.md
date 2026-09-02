@@ -302,26 +302,6 @@ on the containment measurement) and `[axiom-untyped]` (the port took
       condition is a fixture per case, and the whole-corpus delta measured
       before and after — the same shape of evidence D13 itself carries.
 
-- [ ] `[theory-name-leaf]` A ROOT may address a theory in a subdirectory by
-      PATH — `theories "Nested/Nested_Fix"`, there being no per-theory `in`
-      clause in the grammar — and both this engine and the reference then call
-      the theory `Nested/Nested_Fix`.  Isabelle does not: `Thy_Header`'s
-      `import_name` takes the last path segment, and `Sessions`' own
-      `global_theories` check spells it `Path.explode(thy).file_name`.  So the
-      name in a `summary` row, in a locus and in `theory`'s "Known theories"
-      list is one Isabelle would not recognise — and `theory
-      "Nested/Nested_Fix"` then fails to find a theory it has just listed, on
-      BOTH implementations.  The reachability filter's half of this is closed
-      (`Reach.leaf_index`, `dev/p7cprobe.sh` §8b); the NAME is not.
-      What stops it being a one-word change in `Discovery.session_theories` is
-      parity: the reference spells them the same way, and three difftest
-      corpora contain one — `Locale_Test/Locale_Test` (FOL),
-      `LK/Propositional` and three more (Sequents), `ex/Typechecking` and
-      three more (CTT).  Entry condition is therefore a D-series entry, its
-      own pins, and `dev/entrydiff.sh` re-run over the seven standard corpora
-      — which are byte-identical today, so the change would have to earn every
-      record it moves.
-
 - [ ] `[index-footprint]` **Two of the three targets shipped and the third was
       measured and rejected**, so what is left under this tag is the server's
       admission rule, not the index's layout. The resident index is now **~110

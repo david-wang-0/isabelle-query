@@ -82,3 +82,225 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 # case agrees and a pin on it is a stale pin, which fails the run by design.
 # The comment stays because the fixture was designed around it.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# D15 -- a theory a ROOT addresses by PATH is named by its LEAF
+#
+# `theories "ex/Typechecking"` declares a theory Isabelle calls
+# `Typechecking` (`Thy_Header.import_name`, cited in dev/DIVERGENCES.md D15);
+# the reference prints the ROOT's own spelling.  This is the one deliberate
+# difference in oracle-shared STDOUT, and these are all 178 cases it moves --
+# every one of them on a corpus whose ROOT declares a theory by path, and
+# nothing else on any corpus moved at all:
+#
+#   FOL       33   "Locale_Test/Locale_Test"
+#   Sequents  47   "LK/Propositional", "LK/Quantifiers",
+#                  "LK/Hard_Quantifiers", "LK/Nat"
+#   CTT       98   "ex/Typechecking", "ex/Elimination", "ex/Equality",
+#                  "ex/Synthesis"
+#
+# Four shapes of difference, and the reason column names which:
+#
+#   the theory name          134 cases.  Substituting leaf for declared string
+#                            in the ORACLE's stdout gives this engine's, byte
+#                            for byte.
+#   the locus column width    41 cases.  `grep`, `methods`, `shape steps` size
+#                            the locus column to the widest locus, and the
+#                            widest one got shorter.  Identical after collapsing
+#                            runs of spaces.
+#   the name-sorted order      2 cases.  `graph imports` sorts nodes and edges
+#                            by name, and the names moved.  Identical as sets
+#                            of lines.
+#   an oracle-written prefix   1 case.  `shape census --resume` skips records
+#                            already present, keyed by (session, theory) -- and
+#                            dev/difftest.sh derives the prefix from the ORACLE,
+#                            so its keys are the ROOT spellings and this engine
+#                            re-emits the eleven CTT records they name.  A
+#                            prefix this engine wrote resumes to nothing.
+#
+# EXPLICIT ids, no globs, on purpose.  Not one command family fails WHOLE here
+# -- `grep-anchored` moves on FOL and `grep-count` does not, because only the
+# first prints a locus -- so every family glob would over-reach, and a case
+# added to a family later must not be pinned by inheritance.
+# ---------------------------------------------------------------------------
+
+graph-imports                   FOL       D15  the theory name
+graph-imports-dot               FOL       D15  the theory name
+grep-alternation                FOL       D15  the locus column width
+grep-anchored                   FOL       D15  the locus column width
+grep-cartouche                  FOL       D15  the locus column width
+methods-alias                   FOL       D15  the locus column width
+methods-named                   FOL       D15  the locus column width
+methods-named-names             FOL       D15  the locus column width
+shape-census                    FOL       D15  the theory name
+shape-census-resume             FOL       D15  the theory name
+shape-census-resume-garbage     FOL       D15  the theory name
+shape-census-resume-missing     FOL       D15  the theory name
+shape-root-after-view           FOL       D15  the theory name
+shape-root-before-view          FOL       D15  the theory name
+shape-root-equals-view          FOL       D15  the theory name
+shape-root-glued-group          FOL       D15  the theory name
+shape-steps-all                 FOL       D15  the locus column width
+shape-steps-all-long            FOL       D15  the locus column width
+shape-steps-json-all            FOL       D15  the theory name
+shape-summary                   FOL       D15  the theory name
+shape-summary-content-code      FOL       D15  the theory name
+shape-summary-content-prose     FOL       D15  the theory name
+shape-summary-json              FOL       D15  the theory name
+shape-summary-json-scope        FOL       D15  the theory name
+shape-summary-scope-content     FOL       D15  the theory name
+shape-summary-scope-entry       FOL       D15  the theory name
+shape-summary-scope-equals      FOL       D15  the theory name
+shape-summary-scope-proof       FOL       D15  the theory name
+summary-by-session-v            FOL       D15  the theory name
+summary-default                 FOL       D15  the theory name
+uses-batch                      FOL       D15  the theory name
+uses-last                       FOL       D15  the theory name
+uses-recursive                  FOL       D15  the theory name
+
+graph-citation                  Sequents  D15  the theory name
+graph-default                   Sequents  D15  the theory name
+graph-drop0                     Sequents  D15  the theory name
+graph-imports                   Sequents  D15  the name-sorted order
+graph-imports-dot               Sequents  D15  the name-sorted order
+graph-reach-name                Sequents  D15  the theory name
+grep-alternation                Sequents  D15  the locus column width
+grep-anchored                   Sequents  D15  the locus column width
+grep-cartouche                  Sequents  D15  the locus column width
+largest-default                 Sequents  D15  the theory name
+methods-least-used              Sequents  D15  the theory name
+shape-census                    Sequents  D15  the theory name
+shape-census-resume             Sequents  D15  the theory name
+shape-census-resume-garbage     Sequents  D15  the theory name
+shape-census-resume-missing     Sequents  D15  the theory name
+shape-root-after-view           Sequents  D15  the theory name
+shape-root-before-view          Sequents  D15  the theory name
+shape-root-equals-view          Sequents  D15  the theory name
+shape-root-glued-group          Sequents  D15  the theory name
+shape-steps-all                 Sequents  D15  the locus column width
+shape-steps-all-long            Sequents  D15  the locus column width
+shape-steps-json-all            Sequents  D15  the theory name
+shape-summary                   Sequents  D15  the theory name
+shape-summary-content-code      Sequents  D15  the theory name
+shape-summary-content-prose     Sequents  D15  the theory name
+shape-summary-json              Sequents  D15  the theory name
+shape-summary-json-scope        Sequents  D15  the theory name
+shape-summary-scope-content     Sequents  D15  the theory name
+shape-summary-scope-entry       Sequents  D15  the theory name
+shape-summary-scope-equals      Sequents  D15  the theory name
+shape-summary-scope-proof       Sequents  D15  the theory name
+summary-by-session-v            Sequents  D15  the theory name
+summary-default                 Sequents  D15  the theory name
+unused-by-theory                Sequents  D15  the locus column width
+unused-by-theory-abbrev         Sequents  D15  the locus column width
+unused-default                  Sequents  D15  the theory name
+unused-drop2                    Sequents  D15  the theory name
+unused-keep                     Sequents  D15  the theory name
+unused-keep-list                Sequents  D15  the theory name
+unused-keep-repeat              Sequents  D15  the theory name
+unused-keep-unknown             Sequents  D15  the theory name
+unused-recursive                Sequents  D15  the theory name
+unused-recursive-by-theory      Sequents  D15  the locus column width
+unused-roots                    Sequents  D15  the theory name
+uses-batch                      Sequents  D15  the theory name
+uses-default                    Sequents  D15  the theory name
+uses-recursive                  Sequents  D15  the theory name
+
+deps-batch                      CTT       D15  the theory name
+deps-last                       CTT       D15  the theory name
+enclosing-alias-at              CTT       D15  the theory name
+enclosing-batch                 CTT       D15  the theory name
+enclosing-blocks                CTT       D15  the theory name
+enclosing-entry                 CTT       D15  the theory name
+enclosing-mid                   CTT       D15  the theory name
+enclosing-open-lo               CTT       D15  the theory name
+enclosing-open-range            CTT       D15  the theory name
+enclosing-range                 CTT       D15  the theory name
+enclosing-rg-marker             CTT       D15  the theory name
+find-batch                      CTT       D15  the theory name
+graph-citation                  CTT       D15  the theory name
+graph-default                   CTT       D15  the theory name
+graph-drop0                     CTT       D15  the theory name
+graph-imports                   CTT       D15  the theory name
+graph-imports-dot               CTT       D15  the theory name
+graph-reach-name                CTT       D15  the theory name
+grep-alternation                CTT       D15  the locus column width
+grep-anchored                   CTT       D15  the locus column width
+grep-cartouche                  CTT       D15  the locus column width
+largest-default                 CTT       D15  the theory name
+largest-top-glued               CTT       D15  the theory name
+largest-top-long                CTT       D15  the theory name
+largest-top3                    CTT       D15  the theory name
+methods-alias                   CTT       D15  the locus column width
+methods-least-used              CTT       D15  the theory name
+methods-named                   CTT       D15  the locus column width
+methods-named-names             CTT       D15  the locus column width
+outline-last                    CTT       D15  the theory name
+refs-batch                      CTT       D15  the theory name
+refs-last                       CTT       D15  the theory name
+shape-census                    CTT       D15  the theory name
+shape-census-resume             CTT       D15  resuming an oracle-written census prefix
+shape-census-resume-garbage     CTT       D15  the theory name
+shape-census-resume-missing     CTT       D15  the theory name
+shape-lemma                     CTT       D15  the theory name
+shape-lemma-batch               CTT       D15  the theory name
+shape-lemma-config              CTT       D15  the theory name
+shape-lemma-json                CTT       D15  the theory name
+shape-lemma-substring           CTT       D15  the theory name
+shape-root-after-view           CTT       D15  the theory name
+shape-root-before-view          CTT       D15  the theory name
+shape-root-equals-view          CTT       D15  the theory name
+shape-root-glued-group          CTT       D15  the theory name
+shape-steps                     CTT       D15  the locus column width
+shape-steps-all                 CTT       D15  the locus column width
+shape-steps-all-long            CTT       D15  the locus column width
+shape-steps-config              CTT       D15  the theory name
+shape-steps-config-corpus       CTT       D15  the theory name
+shape-steps-config-equals       CTT       D15  the theory name
+shape-steps-config-multi-pick   CTT       D15  the theory name
+shape-steps-config-multi-pick2  CTT       D15  the theory name
+shape-steps-config-plain        CTT       D15  the locus column width
+shape-steps-json                CTT       D15  the theory name
+shape-steps-json-all            CTT       D15  the theory name
+shape-steps-locus               CTT       D15  the locus column width
+shape-steps-locus-json          CTT       D15  the theory name
+shape-steps-open-hi             CTT       D15  the locus column width
+shape-summary                   CTT       D15  the theory name
+shape-summary-content-code      CTT       D15  the theory name
+shape-summary-content-prose     CTT       D15  the theory name
+shape-summary-json              CTT       D15  the theory name
+shape-summary-json-scope        CTT       D15  the theory name
+shape-summary-scope-content     CTT       D15  the theory name
+shape-summary-scope-entry       CTT       D15  the theory name
+shape-summary-scope-equals      CTT       D15  the theory name
+shape-summary-scope-proof       CTT       D15  the theory name
+shape-widest                    CTT       D15  the locus column width
+shape-widest-fanin              CTT       D15  the locus column width
+shape-widest-huge               CTT       D15  the locus column width
+shape-widest-json               CTT       D15  the theory name
+shape-widest-live               CTT       D15  the locus column width
+shape-widest-metric-equals      CTT       D15  the locus column width
+shape-widest-n-glued            CTT       D15  the locus column width
+shape-widest-n3                 CTT       D15  the locus column width
+shape-widest-top-long           CTT       D15  the locus column width
+shape-widest-w1                 CTT       D15  the locus column width
+shape-widest-w2                 CTT       D15  the locus column width
+show-batch                      CTT       D15  the theory name
+summary-by-session-v            CTT       D15  the theory name
+summary-default                 CTT       D15  the theory name
+theory-last                     CTT       D15  the theory name
+unused-by-theory                CTT       D15  the locus column width
+unused-by-theory-abbrev         CTT       D15  the locus column width
+unused-default                  CTT       D15  the theory name
+unused-drop2                    CTT       D15  the theory name
+unused-keep                     CTT       D15  the theory name
+unused-keep-list                CTT       D15  the theory name
+unused-keep-repeat              CTT       D15  the theory name
+unused-keep-unknown             CTT       D15  the theory name
+unused-recursive                CTT       D15  the theory name
+unused-recursive-by-theory      CTT       D15  the locus column width
+unused-roots                    CTT       D15  the theory name
+uses-batch                      CTT       D15  the theory name
+uses-default                    CTT       D15  the theory name
+uses-last                       CTT       D15  the theory name
+uses-recursive                  CTT       D15  the theory name

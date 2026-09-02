@@ -98,7 +98,12 @@ belongs in `COLD_ONLY_COMMANDS` and nowhere else.
 **Discovery loads what `isabelle build` compiles:** each session's ROOT-declared
 theories *plus the transitive closure of their in-entry `imports`*. Imports of
 other AFP entries and of the base library (`HOL-*`, `Pure`) are not followed;
-orphan `.thy` files are excluded.
+orphan `.thy` files are excluded. And it **names** them the way the build does:
+a ROOT that addresses a theory by path (`theories "LK/Propositional"`) declares
+a theory called `Propositional` — `Discovery.import_name` is
+`Thy_Header.import_name`'s rule, and the declared string only ever resolves the
+file. The oracle prints the declared string, which is the one deliberate
+difference in shared output (D15, `[p10-theory-leaf]`).
 
 **The method/attribute table is a VALUE, resolved once per request — there is
 no process state left in the engine.** `Namespace.Table` is immutable;
@@ -167,9 +172,9 @@ all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 
 | harness | what it establishes |
 |---|---|
-| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. The oracle's version is pinned to the frozen tree's (0.8.1) and a mismatch is a refusal |
+| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. 181 are pinned to a `dev/DIVERGENCES.md` entry — 178 of them to D15, the deliberate one. The oracle's version is pinned to the frozen tree's (0.8.1) and a mismatch is a refusal |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
-| `dev/p9probe.sh` | 140 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on a fixture of three ROOTs that collide by theory name |
+| `dev/p9probe.sh` | 153 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on fixtures of ROOTs that collide by theory name, bare and path-spelled |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter and `--reach name` |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display |
 | `dev/p7probe.sh` | the warm server and the thin client |

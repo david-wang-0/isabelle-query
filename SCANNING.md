@@ -220,6 +220,17 @@ Isabelle base library (`HOL-*`, `Pure`) are not followed, and orphan `.thy` file
 that no declared root imports are excluded: exactly the set `isabelle build`
 would process.
 
+**A theory is named by its leaf.** A `ROOT` may address a theory in a
+subdirectory *by path* — `theories "LK/Propositional"`, the session grammar
+having no per-theory `in` clause — and the theory is still called
+`Propositional`, because Isabelle names a ROOT-declared theory by
+`Thy_Header.import_name`: the last segment after any of `:`, `/`, `\`. So the
+name `query` prints is the name `isabelle build`, `isabelle jedit` and every
+`imports` clause use. The declared spelling stays valid input, as that
+theory's *label* (below). The Python tool prints the declared string instead —
+that is the one deliberate difference in shared output, `dev/DIVERGENCES.md`
+D15.
+
 The call graph behind the usage scans is constructed only when needed, so most
 commands stay fast.
 
@@ -235,9 +246,10 @@ that names one theory — `Virtual_Substitution/QE`,
 `JinjaDCI/Compiler/Correctness2` — and no further, because a shared prefix
 distinguishes nothing and the label has to be typeable back in. A name used
 once stays bare, so a single-session run looks exactly as it always did. Over
-the whole AFP 1,349 labels grow a prefix; a further 910 already carry one,
-because their `ROOT` declares them that way (`theories "While/HoareTotal"`) and
-the label is then just the theory's own name.
+the whole AFP 1,349 labels grow a prefix and no *name* carries one to begin
+with: a `ROOT` that says `theories "While/HoareTotal"` names the theory
+`HoareTotal` (910 AFP theories are declared by path like that), so a directory
+appears in the label when the label needs it and never otherwise.
 
 The qualification is decided against the **whole loaded corpus, not the rows on
 screen**. Whether `Examples:11` names one theory is a fact about the corpus

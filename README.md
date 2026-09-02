@@ -379,13 +379,18 @@ diffing stdout byte-for-byte and comparing exit statuses, and
 and the entire distribution `src`.
 
 Where the two differ, the difference is recorded in
-[dev/DIVERGENCES.md](dev/DIVERGENCES.md) with the evidence — fourteen entries,
+[dev/DIVERGENCES.md](dev/DIVERGENCES.md) with the evidence — fifteen entries,
 most of them now closed. Six of them (D1, D2, D3, D6, D7, D10) were defects
 this port found in the Python implementation, and upstream has since fixed all
 six on its own side, so what began as 1,904 AFP declarations and 509
 distribution declarations the reference could not see is now **agreement**:
 over the whole AFP and the whole distribution `src` the two engines report the
 same `theory:line:tag:name` set, and exactly one record's span differs (D5).
+
+Exactly one entry changes shared output *on purpose*: **D15** names a theory a
+`ROOT` addresses by path (`theories "ex/Typechecking"`) the way Isabelle does,
+by its leaf — `Typechecking` — where the Python tool prints the declared
+string, which no Isabelle command answers to.
 
 Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
 

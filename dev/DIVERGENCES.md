@@ -744,17 +744,21 @@ The leaf rule has to hold on BOTH sides, and the other side is the same
 divergence seen from the theory end.  A ROOT may address a theory in a
 subdirectory by path — `"Locale_Test/Locale_Test"` (FOL),
 `"LK/Propositional"` (Sequents), `"ex/Typechecking"` (CTT),
-`"Simple/Reach"` (`HOL-UNITY`) — and both implementations then carry it under
-that spelling.  Isabelle does not: `Thy_Header.import_name` takes the last
-segment.  The reference's naming is reproduced here all the same, so only the
-resolution is corrected — an import is matched against the theory ids PLUS the
-leaf index, one entry per prefixed name.  Without it a sibling that imports
-`"../Simple/Reach"`, or simply `Reach`, resolves to a leaf no known name
-matches, and every attribution across that edge is pruned in silence: over
-`src/HOL` that was one entry (`UNITY/WFair`'s `is`, reported dead and not
-dead).  `dev/p7cprobe.sh` §8b is the fixture; `todo.md`'s
-`[theory-name-leaf]` is the handle for the naming half, which is held back by
-parity with the reference and nothing else.
+`"Simple/Reach"` (`HOL-UNITY`) — and at P7c both implementations carried it
+under that spelling.  Isabelle does not: `Thy_Header.import_name` takes the
+last segment.  Only the RESOLUTION was corrected then — an import was matched
+against the theory ids PLUS a leaf index, one entry per prefixed name — because
+correcting the NAME meant leaving byte parity with the reference.  Without the
+resolution half a sibling that imports `"../Simple/Reach"`, or simply `Reach`,
+resolves to a leaf no known name matches, and every attribution across that
+edge is pruned in silence: over `src/HOL` that was one entry (`UNITY/WFair`'s
+`is`, reported dead and not dead).  `dev/p7cprobe.sh` §8b is the fixture.
+
+The naming half closed in P10 (`[p10-theory-leaf]`) and is **D15**: the theory
+is now called `Reach`, so no loaded name carries a directory and the leaf index
+is an identity — the four spellings `Reach.import_candidates` maps are down to
+the three that concern the IMPORT token, which is where the rule always
+belonged.
 
 **The compatibility mode.**  `--reach name` restores name-only attribution
 exactly, on `callers`, `callees`, `refs`, `unused` and `graph` — every verb the
@@ -825,3 +829,171 @@ for the port's reading rather than against it.
 Everything else about the declared set now agrees: an entry of ANY tag counts
 (a `comp` that is a TYPE, a `rev` that is a LOCALE), which is
 `[citation-reach]`'s own rule and was the port's last gap in it.
+
+---
+
+## D15 — a theory a ROOT addresses by PATH is named by its LEAF
+
+**Cost: 178 of `dev/difftest.sh`'s 2,149 cases, on the three gate corpora whose
+ROOT addresses a theory by path (FOL 33, Sequents 47, CTT 98) and on no other;
+0 records on `dev/entrydiff.sh`, whose dumps key by path.  Every case is pinned
+below, by id.**  It is the only deliberate difference in oracle-shared STDOUT
+that this port carries by choice rather than by defect, and it is here because
+Isabelle's own name for a theory is not the reference's.
+
+### What Isabelle calls it
+
+A session ROOT may address a theory in a subdirectory by path — the grammar
+has no per-theory `in` clause, so `theories "LK/Propositional"` is how it is
+done, and the distribution does it in `FOL`, `Sequents`, `CTT`, `HOL-UNITY`
+and a dozen more.  The declared string RESOLVES the file; it does not NAME the
+theory:
+
+```scala
+// $ISABELLE_HOME/src/Pure/Build/sessions.scala:650  (the illegal-name check)
+val thy_name = Thy_Header.import_name(thy)
+
+// $ISABELLE_HOME/src/Pure/Build/sessions.scala:658  (global_theories)
+val thy_name = Path.explode(thy).file_name
+
+// $ISABELLE_HOME/src/Pure/Thy/thy_header.scala:78-82
+def import_name(s: String): String =
+  Url.get_base_name(s) match {
+    case Some(name) if !File.is_thy(name) => name
+    case _ => error("Malformed theory import: " + quote(s))
+  }
+
+// $ISABELLE_HOME/src/Pure/General/url.scala:117,122-125
+private val separators2 = ":/\\"
+def get_base_name(s: String, suffix: String = ""): Option[String] = {
+  val i = s.lastIndexWhere(separators2.contains)
+  if (i + 1 >= s.length) None else Library.try_unsuffix(suffix, s.substring(i + 1))
+}
+```
+
+So the theory `theories "LK/Propositional"` declares is called
+`Propositional`, `:` and a backslash separate as `/` does, and a `.` does not
+(a session-qualified `HOL.List` is one name, not two).  Isabelle raises an
+error in the two degenerate cases — a string ending in a separator, and a base
+name still ending in `.thy`; a query tool has nothing to gain by refusing to
+answer, so `Discovery.import_name` keeps the declared string in those two and
+resolution is unchanged.
+
+### What the oracle calls it
+
+The declared string, verbatim.  Upstream 0.8.1 reads its layout through
+`isabelle-layout` 0.2.2, whose `session_theories` appends `entry[0]` — the
+ROOT's own spelling — for a declared theory and `q.stem` — the leaf — for one
+reached through the import closure (`isabelle_layout/theories.py:326` against
+`:339`).  The two halves of one function disagree, and the ROOT half is the
+one that disagrees with `isabelle build`.  This engine had the same split and
+now offers `Discovery.import_name(name)` on the ROOT side, which is what
+`theory_stem` was already doing on the closure side.
+
+### Before and after
+
+```
+$ isabelle query -R $QUERY_TEST_DISTRO/CTT summary
+| Theory          | Src | D | L | T | Key Exports          |     ORACLE 0.8.1
+| CTT             | 945 | 12 | 55 | 0 | Arrow, Times, ...   |
+| ex/Typechecking |  80 |  0 |  1 | 0 |                     |     <-- moves
+| ex/Elimination  | 227 |  0 |  2 | 0 | Axiom_of_Choice     |     <-- moves
+| ex/Equality     |  67 |  0 |  8 | 0 | split_eq, when_eq   |     <-- moves
+| ex/Synthesis    | 104 |  0 |  0 | 0 |                     |     <-- moves
+
+| CTT             | 945 | 12 | 55 | 0 | Arrow, Times, ...   |     THIS ENGINE
+| Typechecking    |  80 |  0 |  1 | 0 |                     |
+| Elimination     | 227 |  0 |  2 | 0 | Axiom_of_Choice     |
+| Equality        |  67 |  0 |  8 | 0 | split_eq, when_eq   |
+| Synthesis       | 104 |  0 |  0 | 0 |                     |
+```
+
+The name the oracle prints is one no Isabelle command answers to, and the tool
+disagrees with its own output: `theory ex/Typechecking` works on the oracle
+because the string happens to be the name, and `theory Typechecking` — the
+name `isabelle build`, `isabelle jedit` and every `imports` clause use — does
+not.  Here both work: the leaf is the NAME and `ex/Typechecking` is the LABEL,
+which is the same tuple matched as a suffix, so the round trip closes from
+either end.
+
+### Upstream defect 1 closes on this side with it
+
+`dev/P9-STATUS.md` §"Upstream defects found", item 1: the label tuple is the
+resolved parent's path components plus the DECLARED name, so a colliding
+path-spelled theory labels with its directory TWICE and no verb takes the
+label back.  On a two-root fixture — `one/ex/Foo.thy` and `two/ex/Foo.thy`,
+each declared `theories "ex/Foo"`:
+
+```
+$ query -R FIX largest                              ORACLE 0.8.1
+     2  LEMMA     two_pad          two/ex/ex/Foo  (4..5)
+     1  LEMMA     one_side         one/ex/ex/Foo  (4..4)
+     1  LEMMA     two_side         two/ex/ex/Foo  (6..6)
+$ query -R FIX enclosing one/ex/ex/Foo:4
+one/ex/ex/Foo:4: no such theory 'one/ex/ex/Foo' (did you mean .../two/ex/Foo.thy?)
+
+$ isabelle query -R FIX largest                     THIS ENGINE
+     2  LEMMA     two_pad          two/ex/Foo  (4..5)
+     1  LEMMA     one_side         one/ex/Foo  (4..4)
+     1  LEMMA     two_side         two/ex/Foo  (6..6)
+$ isabelle query -R FIX enclosing one/ex/Foo:4
+one/ex/Foo:4 → one_side (LEMMA) — one/ex/Foo [src 4..4, 1 lines]  (in proof)
+```
+
+The label arithmetic did not change: with the NAME on the end of the tuple
+instead of the declared string, depth 1 is `Foo` twice, depth 2 `ex/Foo`
+twice, and depth 3 settles at `one/ex/Foo` / `two/ex/Foo` — the directory
+once, and a label whose `name_parts` match a tuple suffix, which is what makes
+it valid input.  The fixture is `dev/p9probe.sh` §3c; §3 is the same shape
+inside one root, and `dev/p7cprobe.sh` §8b is the import-resolution half.
+
+### What did NOT change
+
+Resolution: the declared string still names the file, and every theory the
+engine loaded before it loads now.  `dev/entrydiff.sh`'s four dumps key every
+record by PATH (`Query_Tool.theory_key`), not by theory name — deliberately,
+`[name-is-not-identity]` — so the entry set and the theory set over the whole
+AFP and the whole distribution `src` are unmoved by this, and were verified so.
+`Reach`'s import resolution is untouched: a header may still write
+`imports "ex/Foo"` for a theory called `Foo`, and `Reach.import_candidates`
+maps that spelling by its leaf as it always did.
+
+### The pinned cases
+
+**178 of the 2,149 matrix cases, and not one on a corpus without a
+path-declared theory.**  The other four gate corpora (`Abstract_Completeness`,
+`AODV`, `Category3`, `ZF`) and both demo corpora are byte-identical, as they
+were.  Each case is pinned by its own id in `dev/difftest-pins` — no family
+glob, because not one command family moves whole: `grep-anchored` moves on FOL
+and `grep-count` does not, since only the first prints a locus.
+
+**FOL** — 33 cases; the ROOT declares `"Locale_Test/Locale_Test"`.
+
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (25):
+  `graph-imports`, `graph-imports-dot`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `uses-batch`, `uses-last`, `uses-recursive`
+
+- **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
+  `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps-all`, `shape-steps-all-long`
+
+**Sequents** — 47 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
+
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (37):
+  `graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`, `largest-default`, `methods-least-used`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-recursive`
+
+- **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
+  `grep-alternation`, `grep-anchored`, `grep-cartouche`, `shape-steps-all`, `shape-steps-all-long`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
+
+- **the name-sorted order** — `graph imports` sorts nodes and edges by name; identical as sets of lines (2):
+  `graph-imports`, `graph-imports-dot`
+
+**CTT** — 98 cases; the ROOT declares `"ex/Typechecking"`, `"ex/Elimination"`, `"ex/Equality"`, `"ex/Synthesis"`.
+
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (72):
+  `deps-batch`, `deps-last`, `enclosing-alias-at`, `enclosing-batch`, `enclosing-blocks`, `enclosing-entry`, `enclosing-mid`, `enclosing-open-lo`, `enclosing-open-range`, `enclosing-range`, `enclosing-rg-marker`, `find-batch`, `graph-citation`, `graph-default`, `graph-drop0`, `graph-imports`, `graph-imports-dot`, `graph-reach-name`, `largest-default`, `largest-top-glued`, `largest-top-long`, `largest-top3`, `methods-least-used`, `outline-last`, `refs-batch`, `refs-last`, `shape-census`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-lemma`, `shape-lemma-batch`, `shape-lemma-config`, `shape-lemma-json`, `shape-lemma-substring`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-config`, `shape-steps-config-corpus`, `shape-steps-config-equals`, `shape-steps-config-multi-pick`, `shape-steps-config-multi-pick2`, `shape-steps-json`, `shape-steps-json-all`, `shape-steps-locus-json`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `shape-widest-json`, `show-batch`, `summary-by-session-v`, `summary-default`, `theory-last`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-last`, `uses-recursive`
+
+- **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (25):
+  `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps`, `shape-steps-all`, `shape-steps-all-long`, `shape-steps-config-plain`, `shape-steps-locus`, `shape-steps-open-hi`, `shape-widest`, `shape-widest-fanin`, `shape-widest-huge`, `shape-widest-live`, `shape-widest-metric-equals`, `shape-widest-n-glued`, `shape-widest-n3`, `shape-widest-top-long`, `shape-widest-w1`, `shape-widest-w2`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
+
+- **an oracle-written resume prefix** — `shape census --resume` skips records keyed by (session, theory), and `dev/difftest.sh` derives the prefix from the ORACLE, so this engine re-emits the eleven CTT records its keys name.  A prefix this engine wrote resumes to nothing (1):
+  `shape-census-resume`
+

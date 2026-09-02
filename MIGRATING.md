@@ -81,14 +81,15 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
 
 ## What is deliberately different
 
-Fourteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`
+Fifteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`
 — and **most of them are closed**. Most were cases where the Python
 implementation disagreed with Isabelle's own lexer or header parser; upstream
 has since fixed six of those on its own side, from this port's findings, so the
 two tools now agree on the whole AFP and the whole distribution `src` down to a
 single record's span (D5).
 
-Six entries still describe something you would notice.
+Seven entries still describe something you would notice, and **D15 is the only
+one that changes a byte of shared output on purpose**.
 
 | | what changes for you |
 |---|---|
@@ -98,6 +99,7 @@ Six entries still describe something you would notice.
 | **D11** | The method/attribute table is the **committed** one, not one resolved from whichever heaps happen to be built on your machine — so two machines give the same answer. Step down to the Pure floor happens by base logic, as before. |
 | **D12** | `\w` is Java's, not Python's: `²`/`½` are word characters to the oracle and not here; a combining mark is one here and not there. 1 record in 306,525 over the whole AFP, in two derived count fields. **Not fixed** — see `dev/DIVERGENCES.md` for why the fix is a lexer-level change needing its own gate. |
 | **D14** | For the visibility filter below, a name an entry *binds* (a datatype constructor, a `shows` conjunct, a `.simps`) counts as a declaration of that name. Upstream consults entries only, so `callers <constructor>` can differ on a corpus where the name is mentioned outside the binder's import cone. |
+| **D15** | A theory a `ROOT` addresses by path — `theories "ex/Typechecking"` — is called `Typechecking`, which is what `Thy_Header.import_name` calls it and what `isabelle build` compiles. The Python tool prints `ex/Typechecking`, a name no Isabelle command answers to, and then `theory Typechecking` finds nothing. Here both spellings resolve: the leaf is the name, `ex/Typechecking` is the label. |
 
 The rest are history, kept with their evidence: **D1** (a cartouche whose body
 is a backslash), **D2** (`definition\<^marker>\<open>tag …\<close> name`),
