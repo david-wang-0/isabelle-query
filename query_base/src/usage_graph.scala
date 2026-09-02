@@ -628,7 +628,11 @@ object Usage_Graph {
   def leading_method(line: String): String =
     Py.search(METHOD_INTRO_RE, line).map(_.group(1)).getOrElse("")
 
-  final case class Method_Use(theory: String, line_no: Int, owner: Option[Entry],
+  /* The section's PATH rather than its theory name: 461 AFP theory names are
+     shared, and the printed locus has to name one theory.  `Render.locus_labels`
+     turns it into the label, which is a layer this module sits below
+     [disambig-loci]. */
+  final case class Method_Use(path: JPath, line_no: Int, owner: Option[Entry],
     text: String)
 
   /* `(counts, located)`: the tally over every `by` / `apply` / `proof`
@@ -667,7 +671,7 @@ object Usage_Graph {
             if (only.contains(tok)) hit_only = true
           }
           if (hit_only)
-            located += Method_Use(sec.theory, line_no, entry_at_line(idx, line_no),
+            located += Method_Use(sec.path, line_no, entry_at_line(idx, line_no),
               Py.rstrip(raw(line_no - 1)))
         }
         line_no += 1

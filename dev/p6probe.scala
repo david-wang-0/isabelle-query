@@ -276,7 +276,7 @@ object P6_Probe {
     /* A line INSIDE the declaration peeks the declaration. */
     val inside = e.thy_line + 1
     check("peeking a line inside a declaration shows the declaration",
-      Query_Peek.of_line(snapshot, sec.theory, inside)
+      Query_Peek.of_line(snapshot, sec.path, inside)
         .exists(_.caption == Render.format_name_line(sec, e)), inside.toString)
   }
 
@@ -292,13 +292,14 @@ object P6_Probe {
   check("the corpus has a line no declaration owns", orphan.isDefined,
     orphan.map(p => p._1.theory + ":" + p._2.toString).getOrElse("<none>"))
   for ((sec, line) <- orphan) {
-    val content = Query_Peek.of_line(snapshot, sec.theory, line)
+    val content = Query_Peek.of_line(snapshot, sec.path, line)
     check("an unowned line peeks its own neighbourhood",
       content.exists(c =>
         c.rows.map(_._1) == ((line - Query_Peek.CONTEXT) to (line + Query_Peek.CONTEXT)).toList),
       content.map(_.rows.map(_._1).mkString(",")).getOrElse("<none>"))
     check("and is captioned with the locus",
-      content.exists(_.caption == sec.theory + ".thy:" + line.toString),
+      content.exists(_.caption ==
+        Render.file_locus(snapshot.labels, sec.path) + ":" + line.toString),
       content.map(_.caption).getOrElse(""))
   }
 

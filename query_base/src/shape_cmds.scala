@@ -548,18 +548,25 @@ object Shape_Cmds {
     corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
   ): Unit = {
     val (theory, lo, hi) = resolve_span(out, err, sections, span)
-    val triples = new mutable.ListBuffer[(Shape.Step, Shape.Classify_Ctx, Array[String])]
+    /* The label, not `step.theory`: a `Step` carries a theory NAME, which is
+       the JSON record's position key and must stay one, but the human table
+       prints a locus and 461 AFP theory names are shared [disambig-loci]. */
+    val labels = Render.locus_labels(sections)
+    val triples =
+      new mutable.ListBuffer[(Shape.Step, Shape.Classify_Ctx, Array[String], String)]
     Shape.analyze_sections(sections, corpus_consts) { pm =>
       if (theory.isEmpty || pm.theory == theory.get) {
         val lines = pm.ctx.lines
+        val label = labels.getOrElse(pm.sec.path, pm.theory)
         for (s <- pm.steps) {
           if ((lo < 0 || (lo <= s.line && s.line <= hi)) && (all_steps || s.kind == "goal"))
-            triples += ((s, pm.cctx, lines))
+            triples += ((s, pm.cctx, lines, label))
         }
       }
     }
     if (as_json) {
-      for ((s, ctx, lines) <- triples) out.println(Jsonl.render(step_record(s, ctx, lines, cfg)))
+      for ((s, ctx, lines, _) <- triples)
+        out.println(Jsonl.render(step_record(s, ctx, lines, cfg)))
       return
     }
     if (triples.isEmpty) {
@@ -570,8 +577,8 @@ object Shape_Cmds {
       padl("w1", 4) + " " + padl("fan", 4) + " " + padl("live", 4) + "  statement")
     out.println(padr("-" * 20, 20) + " " + padr("-" * 8, 8) + " " + padl("-" * 4, 4) + " " +
       padl("-" * 4, 4) + " " + padl("-" * 4, 4) + " " + padl("-" * 4, 4) + "  " + "-" * 9)
-    for ((s, ctx, _) <- triples) {
-      val loc = s.theory + ":" + s.line
+    for ((s, ctx, _, label) <- triples) {
+      val loc = label + ":" + s.line
       val w1 = Shape.w1_est(s, ctx).free
       out.println(padr(loc, 20) + " " + padr(s.kind, 8) + " " + padl(Shape.w2_src(s), 4) +
         " " + padl(w1, 4) + " " + padl(s.fanin, 4) + " " + padl(s.live, 4) + "  " +
@@ -609,7 +616,8 @@ object Shape_Cmds {
             }
             else {
               val ps = Shape.summarize(pm)
-              out.println(s"${entry.name}  (${entry.tag} ${sec.theory}:${entry.src_start}.." +
+              val thy = Render.locus_labels(sections).getOrElse(sec.path, sec.theory)
+              out.println(s"${entry.name}  (${entry.tag} $thy:${entry.src_start}.." +
                 s"${entry.thy_end})\n")
               out.println(padl("line", 5) + " " + padr("kind", 8) + " " + padl("w2", 4) + " " +
                 padl("w1", 4) + " " + padl("fan", 4) + " " + padl("live", 4) + "  statement")
@@ -656,13 +664,20 @@ object Shape_Cmds {
   def cmd_shape_widest(out: Out, sections: List[Theory_Section], top: Int, metric: String,
     as_json: Boolean, corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
   ): Unit = {
+    val labels = Render.locus_labels(sections)
     val rows = new mutable.ListBuffer[(Int, String, Int, Shape.Step, Shape.Classify_Ctx,
-      Array[String])]
+      Array[String], String)]
     Shape.analyze_sections(sections, corpus_consts) { pm =>
       val lines = pm.ctx.lines
+      val label = labels.getOrElse(pm.sec.path, pm.theory)
       for (s <- pm.goals)
-        rows += ((metric_value(metric, s, pm.cctx), s.theory, s.line, s, pm.cctx, lines))
+        rows += ((metric_value(metric, s, pm.cctx), s.theory, s.line, s, pm.cctx, lines,
+          label))
     }
+    /* Widest first; ties by (theory, line) ascending for a stable order.  The
+       sort key stays the theory NAME, not the label: the tie-break is about
+       determinism, and a qualified label would reorder equal-width rows for no
+       reason a reader could see [disambig-loci]. */
     val ranked =
       rows.toList.sortBy(r => (-r._1, r._2, r._3)).take(top max 0)
     if (as_json) {
@@ -678,8 +693,8 @@ object Shape_Cmds {
       "  statement")
     out.println(padl("-" * 5, 5) + " " + padr("-" * 22, 22) + " " + padr("-" * 24, 24) +
       "  " + "-" * 9)
-    for ((value, theory, line, s, _, _) <- ranked)
-      out.println(padl(value, 5) + " " + padr(theory + ":" + line, 22) + " " +
+    for ((value, _, line, s, _, _, label) <- ranked)
+      out.println(padl(value, 5) + " " + padr(label + ":" + line, 22) + " " +
         padr(s.lemma, 24) + "  " + preview(s.stmt_text))
   }
 

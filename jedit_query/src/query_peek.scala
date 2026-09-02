@@ -71,9 +71,16 @@ object Query_Peek {
 
   /* The declaration owning a LINE — what "peek at a result row" shows.  A row
      inside a proof peeks the lemma it is in, which is the useful answer; a row
-     no declaration owns falls back to its own neighbourhood. */
-  def of_line(snapshot: Query_Index.Snapshot, theory: String, line: Int): Option[Content] =
-    snapshot.section(theory).map { sec =>
+     no declaration owns falls back to its own neighbourhood.
+
+     Keyed by the row's PATH, which every caller has.  Through the theory NAME
+     it was doubly wrong: `Discovery.theory_stem` cannot spell a theory a ROOT
+     addressed by directory, and the name-keyed lookup opened the LAST section
+     of that name, so a peek on one of two files called `Misc` showed the
+     other's source [name-is-not-identity].  The fallback caption is the same
+     locus `grep` prints, label and all [disambig-loci]. */
+  def of_line(snapshot: Query_Index.Snapshot, path: JPath, line: Int): Option[Content] =
+    snapshot.section_of(path).map { sec =>
       Commands.enclosing_entry(sec, line) match {
         case Some(e) =>
           Content(Render.format_name_line(sec, e),
@@ -81,7 +88,7 @@ object Query_Peek {
         case None =>
           val lo = (line - CONTEXT) max 1
           val hi = (line + CONTEXT) min sec.lines.length
-          Content(theory + ".thy:" + line.toString,
+          Content(Render.file_locus(snapshot.labels, sec.path) + ":" + line.toString,
             (for ((text, i) <- sec.slice(lo, hi).zipWithIndex.toList)
               yield (lo + i, Symbol.decode(text))),
             Some((sec.path, line)))
@@ -164,11 +171,9 @@ object Query_Peek {
   }
 
   /* Peek a result row in the panel. */
-  def at_line(view: View, origin: Component, point: Point, path: JPath, theory: String,
-    line: Int
-  ): Unit = {
+  def at_line(view: View, origin: Component, point: Point, path: JPath, line: Int): Unit = {
     GUI_Thread.require {}
-    request(view, origin, point, path)(snapshot => of_line(snapshot, theory, line))
+    request(view, origin, point, path)(snapshot => of_line(snapshot, path, line))
   }
 
 

@@ -780,9 +780,16 @@ object Commands {
     blocks.filter(b => b.start <= line_no && line_no <= b.end)
       .sortBy(b => (b.start, -b.end))
 
+  /* The echoed locus is the theory's LABEL, not the token the user typed: one
+     that came in as a path (`thys/Foo/Bar.thy:12`) goes back out in the house
+     `theory:line` form, and one that came in bare goes back out qualified when
+     the corpus holds two theories of that name.  Echoing the input verbatim
+     would be the easy answer and the wrong one — the point of the echo is to
+     say which theory the tool actually resolved to [disambig-loci]. */
   def cmd_enclosing(out: Out, err: Out, sections: List[Theory_Section],
     loci: List[String], block_mode: String
   ): Unit = {
+    val labels = Render.locus_labels(sections)
     for (token <- loci) {
       parse_locus(token) match {
         case None =>
@@ -804,10 +811,10 @@ object Commands {
                  and never mistaken for a single line. */
               val hi_eff = hi.getOrElse(sec.thy_lines)
               val point = hi.contains(lo)
-              val loc =
-                if (point) s"${sec.theory}:$lo" else s"${sec.theory}:$lo..$hi_eff"
+              val thy = labels.getOrElse(sec.path, sec.theory)
+              val loc = if (point) s"$thy:$lo" else s"$thy:$lo..$hi_eff"
               if (lo > sec.thy_lines)
-                out.println(s"$loc $ARROW (past end of ${sec.theory} " +
+                out.println(s"$loc $ARROW (past end of $thy " +
                   s"$EM_DASH ${sec.thy_lines} lines)")
               else if (point) {
                 enclosing_entry(sec, lo) match {
@@ -819,7 +826,7 @@ object Commands {
                     val suffix = if (role.nonEmpty) s"  ($role)" else ""
                     val target = Render.format_target(entry)
                     val scope =
-                      if (target.nonEmpty) s"${sec.theory} $TRIANGLE $target" else sec.theory
+                      if (target.nonEmpty) s"$thy $TRIANGLE $target" else thy
                     val base = s"$loc $ARROW ${entry.name} (${entry.tag}) $EM_DASH " +
                       s"$scope ${Render.format_extent(entry)}"
                     val blocks =
@@ -850,7 +857,7 @@ object Commands {
                   for (e <- overlap) {
                     val target = Render.format_target(e)
                     val scope =
-                      if (target.nonEmpty) s"${sec.theory} $TRIANGLE $target" else sec.theory
+                      if (target.nonEmpty) s"$thy $TRIANGLE $target" else thy
                     out.println(s"$loc $ARROW ${e.name} (${e.tag}) $EM_DASH $scope " +
                       Render.format_extent(e))
                   }
@@ -865,7 +872,13 @@ object Commands {
   /* grep / sorry                                                       */
   /* ------------------------------------------------------------------ */
 
-  final case class Hit(loc_name: String, line_no: Int, text: String,
+  /* The section's PATH, not a display name: these two verbs report a FILE, and
+     a bare file name is ambiguous over a corpus in exactly the way a bare
+     theory name is (nineteen AFP files are called `Examples.thy`).
+     `Render.file_locus` turns the path into the printed locus — the label with
+     its suffix restored, so a non-`.thy` positional still reports its actual
+     filename rather than `<stem>.thy` [disambig-loci]. */
+  final case class Hit(path: JPath, line_no: Int, text: String,
     owner: Option[Entry], is_live: Boolean, is_thy: Boolean)
 
   /* One record per matching line.  `is_live` is decided on the REDACTED copy,
@@ -893,7 +906,7 @@ object Commands {
             val is_live =
               !(line_no < noise.length && noise(line_no)) &&
                 Py.found(pat, live_lines(line_no - 1))
-            out += Hit(sec.path.getFileName.toString, line_no, Py.rstrip(line),
+            out += Hit(sec.path, line_no, Py.rstrip(line),
               Usage_Graph.entry_at_line(idx, line_no), is_live, sec.is_thy)
           }
         }
@@ -922,9 +935,10 @@ object Commands {
           s"(${live_hits.length} live, ${dead_hits.length} in comments/text):\n")
       else out.println(s"${live_hits.length} live match(es) for '$pattern':\n")
 
-      val loc_w = hits.map(h => s"${h.loc_name}:${h.line_no}".length).max
-      for (h <- hits) {
-        val loc = s"${h.loc_name}:${h.line_no}"
+      val labels = Render.locus_labels(sections)
+      val loci = hits.map(h => s"${Render.file_locus(labels, h.path)}:${h.line_no}")
+      val loc_w = loci.map(_.length).max
+      for ((h, loc) <- hits.zip(loci)) {
         val marker = if (h.is_live) "" else "  [in comment/text]"
         if (!h.is_thy) out.println(s"  ${pad_right(loc, loc_w)}  ${Py.strip(h.text)}$marker")
         else {
@@ -967,9 +981,11 @@ object Commands {
     if (count_only) out.println(hits.length.toString)
     else if (hits.isEmpty) out.println("No sorries.")
     else {
-      val loc_w = hits.map(h => s"${h.loc_name}:${h.line_no}".length).max
-      for (h <- hits)
-        out.println(s"  ${pad_right(s"${h.loc_name}:${h.line_no}", loc_w)}  " +
+      val labels = Render.locus_labels(sections)
+      val loci = hits.map(h => s"${Render.file_locus(labels, h.path)}:${h.line_no}")
+      val loc_w = loci.map(_.length).max
+      for ((h, loc) <- hits.zip(loci))
+        out.println(s"  ${pad_right(loc, loc_w)}  " +
           owner_field(h.owner, span = false))
       out.println(s"${hits.length} sorr${if (hits.length == 1) "y" else "ies"}")
     }

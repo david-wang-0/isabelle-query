@@ -98,12 +98,22 @@ object Query_Search {
   /* `label`, when set, replaces the bare theory name in the caption: a
      declaration's group says what the ENGINE says about it
      (`Render.format_name_line`), extent and all, rather than repeating the
-     theory a third time. */
+     theory a third time.
+
+     `theory_label` is the weaker form — the theory name qualified only as far
+     as it needs to name ONE theory, which is what every `theory:line` the CLI
+     prints now carries [disambig-loci].  It is what the caption falls back to,
+     so two files called `Misc` are two visibly different nodes rather than two
+     nodes reading the same.  Empty (and therefore invisible) whenever the
+     name is already unique, which is every single-session project. */
   final case class Group(theory: String, path: Option[JPath], hits: List[Hit],
-    label: String = ""
+    label: String = "", theory_label: String = ""
   ) {
     def count: Int = hits.length
-    def caption: String = if (label.nonEmpty) label else theory
+    def caption: String =
+      if (label.nonEmpty) label
+      else if (theory_label.nonEmpty) theory_label
+      else theory
   }
 
 
@@ -234,7 +244,9 @@ object Query_Search {
       val hits = buf.getOrElseUpdate(sec.path, (sec, new mutable.ListBuffer[Hit]))._2
       hits += Hit(sec.theory, Some(sec.path), line, text)
     }
-    (for ((_, (sec, hits)) <- buf) yield Group(sec.theory, Some(sec.path), hits.toList)).toList
+    (for ((_, (sec, hits)) <- buf)
+      yield Group(sec.theory, Some(sec.path), hits.toList,
+        theory_label = snapshot.label_of(sec.path))).toList
   }
 
   private def source_line(snapshot: Query_Index.Snapshot, theory: String, line: Int,
@@ -408,8 +420,11 @@ object Query_Search {
             Hit(site.theory, snapshot.path_of(site.theory), site.line, site.text,
               tag = site.kind, name = site.name, sorts = site.sorts)
         val groups =
-          (for ((theory, hits) <- buf)
-            yield Group(theory, snapshot.path_of(theory), hits.toList)).toList
+          (for ((theory, hits) <- buf) yield {
+            val path = snapshot.path_of(theory)
+            Group(theory, path, hits.toList,
+              theory_label = path.map(snapshot.label_of).getOrElse(""))
+          }).toList
         val how = if (subject.how.isEmpty) "" else " " + Render.EM_DASH + " " + subject.how
         Result(kind, noun + " of " + name + kind_of(snapshot, name) + how, name, groups,
           definition_hit(snapshot, name), note)

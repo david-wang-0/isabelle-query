@@ -456,24 +456,29 @@ object Usage {
       else {
         val n_after = 0 max flags.context
         /* Align the loci into a column; each is a clean `theory:line` that
-           pastes into `enclosing` / `lines` / an editor.  The owner and the
-           context lines come from the hit's OWN section, never from a
-           name-keyed lookup [name-is-not-identity]. */
-        val loc_w = hits.map(h => s"${h._1.theory}:${h._2}".length).max
+           pastes into `enclosing` / `lines` / an editor — and is qualified far
+           enough to name ONE theory, so what pastes back is the theory the row
+           was found in [disambig-loci].  The owner and the context lines come
+           from the hit's OWN section, never from a name-keyed lookup
+           [name-is-not-identity]. */
+        val labels = Render.locus_labels(sections)
+        val loci =
+          hits.map(h => s"${labels.getOrElse(h._1.path, h._1.theory)}:${h._2}")
+        val loc_w = loci.map(_.length).max
         out.println(s"${hits.length} caller(s) of $name:\n")
-        for ((sec, line_no, text) <- hits) {
-          val theory = sec.theory
+        for (((sec, line_no, text), loc) <- hits.zip(loci)) {
           val encl = Commands.enclosing_entry(sec, line_no)
-          out.println(s"  ${pad_right(s"$theory:$line_no", loc_w)}  " +
+          out.println(s"  ${pad_right(loc, loc_w)}  " +
             s"${Commands.owner_field(encl)}  ${Py.strip(text)}")
           if (n_after > 0) {
             val src = sec.source
+            val label = loc.substring(0, loc.lastIndexOf(':'))
             /* The context lines keep ripgrep's `-` marker: it flags the line as
                context rather than a match, and `parse_locus` strips it so the
                locus still round-trips. */
             var off = 1
             while (off <= n_after && line_no - 1 + off < src.length) {
-              out.println(s"  $theory:${line_no + off}-  ${Py.rstrip(src(line_no - 1 + off))}")
+              out.println(s"  $label:${line_no + off}-  ${Py.rstrip(src(line_no - 1 + off))}")
               off += 1
             }
           }
@@ -588,15 +593,17 @@ object Usage {
         else if (flags.mode == "count") out.println(located.length.toString)
         else if (located.isEmpty) out.println(s"No uses of method '$m' found.")
         else {
-          val loc_w = located.map(u => s"${u.theory}:${u.line_no}".length).max
+          val labels = Render.locus_labels(sections)
+          val loci =
+            located.map(u => s"${Render.theory_locus(labels, u.path)}:${u.line_no}")
+          val loc_w = loci.map(_.length).max
           if (flags.mode == "names")
-            for (u <- located)
-              out.println(s"  ${pad_right(s"${u.theory}:${u.line_no}", loc_w)}  " +
-                Commands.owner_field(u.owner))
+            for ((u, loc) <- located.zip(loci))
+              out.println(s"  ${pad_right(loc, loc_w)}  " + Commands.owner_field(u.owner))
           else {
             out.println(s"${located.length} use(s) of method '$m':\n")
-            for (u <- located)
-              out.println(s"  ${pad_right(s"${u.theory}:${u.line_no}", loc_w)}  " +
+            for ((u, loc) <- located.zip(loci))
+              out.println(s"  ${pad_right(loc, loc_w)}  " +
                 s"${Commands.owner_field(u.owner)}  ${Py.strip(u.text)}")
           }
         }

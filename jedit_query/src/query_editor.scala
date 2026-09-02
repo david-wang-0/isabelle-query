@@ -125,13 +125,13 @@ object Query_Editor {
     GUI_Thread.require {}
 
     if (policy == Open_Policy.Peek) {
-      /* The theory NAME the index knows this file by is its stem, by the
-         engine's own rule — so a peek needs no extra argument at the call
-         site, and the gesture table stays a table of policies. */
+      /* The PATH is the whole of it: a peek needs no theory name at the call
+         site, so the gesture table stays a table of policies — and the stem
+         this used to derive was not a name the index could always look up
+         [name-is-not-identity]. */
       val (component, point) =
         origin.orElse(caret_anchor(view)).getOrElse((view, new java.awt.Point(0, 0)))
-      Query_Peek.at_line(view, component, point, path,
-        isabelle.query.Discovery.theory_stem(path), line)
+      Query_Peek.at_line(view, component, point, path, line)
     }
     else if (policy != Open_Policy.Nothing) {
       val name = buffer_name(path)

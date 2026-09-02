@@ -53,8 +53,8 @@ package isabelle.jedit_query
 
 
 import isabelle.*
-import isabelle.query.{CLI, Discovery, Entry, Namespace, Out, Theory, Theory_Section,
-  Usage_Graph}
+import isabelle.query.{CLI, Discovery, Entry, Namespace, Out, Render, Theory,
+  Theory_Section, Usage_Graph}
 
 import java.io.Writer
 import java.nio.file.{Files, Path => JPath}
@@ -141,6 +141,22 @@ object Query_Index {
     def section(theory: String): Option[Theory_Section] = by_theory.get(theory)
 
     def path_of(theory: String): Option[JPath] = by_theory.get(theory).map(_.path)
+
+    /* By PATH, for every lookup that has one: a theory NAME is unique in a
+       session and not in a corpus, so `by_theory` above (last wins) opens
+       another file's section whenever two theories share a name — and it
+       cannot find a path-spelled theory at all [name-is-not-identity]. */
+    lazy val by_path: Map[JPath, Theory_Section] =
+      sections.iterator.map(sec => sec.path -> sec).toMap
+
+    def section_of(path: JPath): Option[Theory_Section] = by_path.get(path)
+
+    /* The qualified theory label the CLI prints, for the panel and the peek
+       popup: one map per snapshot, not one per row [disambig-loci]. */
+    lazy val labels: Map[JPath, String] = Render.locus_labels(sections)
+
+    def label_of(path: JPath): String =
+      labels.getOrElse(path, Discovery.theory_stem(path))
 
     def theory_names: List[String] = sections.map(_.theory)
 
