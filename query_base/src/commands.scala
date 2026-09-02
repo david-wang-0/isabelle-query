@@ -920,13 +920,24 @@ object Commands {
      Isabelle allows `'` inside identifiers and `\b` does not; a name written
      with `\<...>` tokens must not glue onto a neighbouring symbol; and a name
      carrying a character that must be QUOTED in source matches only between
-     the quotes. */
+     the quotes.
+
+     A PLAIN identifier gets two more lookbehinds, because a plain run sits
+     between non-`[\w']` characters when it is the inside of a `\<...>` token
+     too: `lambda` matched within `\<lambda>`, `le` within `\<le>` and `sub`
+     within `\<^sub>` [symbol-body-tokens].  They are the single-name form of
+     what `Usage_Graph.build_call_graph` does by blanking symbol tokens before
+     its word pass — a symbol's body is that symbol's name, never a fact's —
+     and applying it to one and not the other would make `callers` and
+     `unused` disagree about the same lemma.  (A name that itself STARTS with
+     `\<` is a symbolic spelling and keeps its own `(?<!>)` guard instead.) */
   private val SPECIAL_NAME_RE: Pattern = Py.compile("""[^\w'\\<>^]""")
 
   def isa_word_pattern(name: String): String =
     if (Py.found(SPECIAL_NAME_RE, name)) """(?<=")""" + Py.re_escape(name) + """(?=")"""
     else {
-      val left = """(?<![\w'])""" + (if (name.startsWith("""\<""")) "(?<!>)" else "")
+      val left = """(?<![\w'])""" +
+        (if (name.startsWith("""\<""")) "(?<!>)" else """(?<!\\<)(?<!\\<\^)""")
       val right = (if (name.endsWith(">")) """(?!\\<)""" else "") + """(?![\w'])"""
       left + Py.re_escape(name) + right
     }

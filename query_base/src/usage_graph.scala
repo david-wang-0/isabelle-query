@@ -395,6 +395,18 @@ object Usage_Graph {
      so whole quoted spellings are looked up too. */
   private val SYM_RE: Pattern = Py.compile(s"${Entries.ISA_WORD_CHAR}+")
   private val QUOTED_RE: Pattern = Py.compile("\"([^\"]+)\"")
+  /* The LEXICAL symbol atom, for blanking those tokens before the `[\w']+`
+     pass.  A `\<...>` token's body is that SYMBOL's name and never a fact's,
+     but `[\w']+` reaches straight into it: `\<lambda>` yields `lambda`,
+     `\<le>` yields `le`, `\<^sub>` yields `sub` — and the AFP declares 7
+     entries named `lambda`, 37 named `le` and 27 named `sub`, so every
+     lambda written anywhere in the corpus was recorded as a citation of all
+     seven [symbol-body-tokens].  Blanking loses nothing the word pass exists
+     for: `iso_transaction` in `iso_transaction\<^sub>h` is still a maximal
+     run, and the symbolic spelling is `SYM_RE`'s job — which is why only the
+     word pass reads the blanked line and `SYM_RE` / `QUOTED_RE` keep the raw
+     one. */
+  private val SYM_TOKEN_RE: Pattern = Py.compile(Entries.ISA_SYMBOL)
 
   private def add_matches(pat: Pattern, s: String, group: Int,
     names: Set[String], into: mutable.Set[String]
@@ -483,11 +495,19 @@ object Usage_Graph {
         if (!text_mask(line_no)) {
           val line = lines(line_no - 1)
           val stripped = if (line.contains("@{")) ANTIQ_RE.matcher(line).replaceAll("") else line
+          /* The word pass reads the SYMBOL-BLANKED line, not the raw one
+             [symbol-body-tokens].  Only lines that carry a `\<` pay the
+             substitution, and the derived-key pass reads the same string —
+             the two are one tokenisation of the same line, so a spelling one
+             of them can see and the other cannot would be a bug. */
+          val worded =
+            if (stripped.contains("""\<""")) SYM_TOKEN_RE.matcher(stripped).replaceAll(" ")
+            else stripped
           cand.clear()
-          add_matches(WORD_RE, stripped, 0, names, cand)
+          add_matches(WORD_RE, worded, 0, names, cand)
           if (derived_base.nonEmpty) {
             val dv = mutable.LinkedHashSet.empty[String]
-            add_matches(WORD_RE, stripped, 0, derived_keys, dv)
+            add_matches(WORD_RE, worded, 0, derived_keys, dv)
             for (d <- dv) cand += derived_base(d)
           }
           if (stripped.contains("""\<""")) add_matches(SYM_RE, stripped, 0, names, cand)
