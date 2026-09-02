@@ -71,10 +71,13 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
   alone, so setting one in your shell means what it means cold — the server
   never consults its own environment for them.
-- **`-V/--version`** reports `0.8.1-scala`, not `0.8.1`. Deliberately: the
-  number names the upstream release whose contract this port matches, and the
-  `-scala` suffix is what lets a script that pins a version tell the two tools
-  apart.
+- **`-V/--version`** reports `0.8.1-scala.0.1`, not `0.8.1`. Deliberately:
+  the number in front of `-scala` names the upstream release whose contract
+  this port matches, the `-scala` marker is what lets a script that pins a
+  version tell the two tools apart, and the `MINOR.PATCH` after it is the
+  port's own release counter for changes that leave that contract alone. A
+  script that wants "the same contract as `0.8.1`" should compare the prefix
+  up to `-scala`.
 
 ## What is deliberately different
 

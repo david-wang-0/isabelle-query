@@ -216,13 +216,19 @@ does not.
 `pyproject.toml` tracks the **Python** package — now **0.8.1**, still frozen:
 the reference tree is upstream's 0.8.1 release, and it is the oracle every
 harness here compares against. The Scala tool's version is `CLI.version` — now
-**0.8.1-scala**. The two halves of that string do different jobs: the NUMBER
+**0.8.1-scala.0.1**, two axes in one string. The NUMBER in front of `-scala`
 names the upstream release whose contract this port matches (P9 is where that
-became 0.8.1), and the `-scala` suffix is what lets a script tell the two tools
-apart, since they answer to the same verbs. So the number tracks the oracle
-rather than this tree's own release history — it is a policy, not a semver
-argument. Versioning is otherwise alpha: a breaking change takes the minor
-slot, patch bumps stay additive.
+became 0.8.1); it moves only when the oracle moves, and `dev/difftest.sh`
+refuses to run if it differs from the oracle version the matrix pins, so the
+policy is a checked invariant rather than a convention. The `-scala` marker is
+what lets a script tell the two tools apart, since they answer to the same
+verbs. The `MINOR.PATCH` after it is this tree's own release history: port-side
+changes that leave the oracle's contract alone (the plugin, the server, the
+rewrite-only verbs, a fix the oracle does not share). A breaking one takes the
+minor slot, an additive one the patch slot, and the counter is monotone — it
+does not reset when the number in front of it moves. Dots rather than a second
+hyphen so a semver comparison reads the identifiers numerically. P10 is where
+the counter started, at `0.1`.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.

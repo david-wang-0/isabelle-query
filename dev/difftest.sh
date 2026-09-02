@@ -220,6 +220,22 @@ if [ "$oracle_version" != "$ORACLE_VERSION" ]; then
   exit 2
 fi
 
+# The PORT's version names the oracle too: `CLI.version` is
+# `UPSTREAM-scala.MINOR.PATCH`, and the number in front of `-scala` is a claim
+# that this tree matches that upstream release's contract.  This matrix is the
+# evidence for the claim, so the two numbers must agree -- a port that says
+# 0.8.1 while the oracle pinned here is something else is either a stale
+# constant or a stale pin, and either way the run would be certifying the
+# wrong thing.  Refuse, the same way and for the same reason as above.
+port_version=$(run_scala --version 2>/dev/null | awk '{print $NF}')
+case "$port_version" in
+  "$ORACLE_VERSION-scala" | "$ORACLE_VERSION-scala."*) ;;
+  *)
+    echo "difftest: the port reports '$port_version', which does not name oracle $ORACLE_VERSION" >&2
+    echo "difftest: CLI.version's number must equal \$ORACLE_VERSION (query_base/src/cli.scala)" >&2
+    exit 2 ;;
+esac
+
 # --------------------------------------------------------------------------
 # Fixtures — the roots and streams the global-behaviour cases need.  Built
 # here rather than named in the matrix so the script owns nothing outside its

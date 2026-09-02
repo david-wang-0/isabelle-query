@@ -36,10 +36,20 @@ import scala.collection.mutable
 
 
 object CLI {
-  /* The NUMBER names the upstream release whose contract this port matches
-     (P9 is where that became 0.8.1); the `-scala` suffix is what lets a script
-     tell the two tools apart, since they answer to the same verbs. */
-  val version = "0.8.1-scala"
+  /* Two axes in one string, `UPSTREAM-scala.MINOR.PATCH`.
+
+     The NUMBER before `-scala` names the upstream release whose contract this
+     port matches (P9 is where that became 0.8.1), and it moves only when the
+     oracle moves: `dev/difftest.sh` refuses to run if it differs from the
+     oracle version the matrix pins.  The `-scala` marker is what lets a script
+     tell the two tools apart, since they answer to the same verbs.  The
+     MINOR.PATCH after it is this tree's OWN release history — port-side
+     changes that leave the oracle's contract where it was: a breaking one
+     takes the minor slot, an additive one the patch slot, and the counter is
+     monotone, never reset when the number in front of it moves.  Dots, not a
+     second hyphen, so a semver comparison reads the identifiers numerically
+     (`scala.0.10` after `scala.0.9`; `scala-10` would sort before `scala-9`). */
+  val version = "0.8.1-scala.0.1"
   val prog = "query"
 
   /* Exit statuses, as the CLI contract fixes them: 0 ran, 1 an unresolved

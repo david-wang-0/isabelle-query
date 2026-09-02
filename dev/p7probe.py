@@ -28,6 +28,7 @@ Usage:  p7probe.py SERVER_NAME AFP_ENTRY ZF_CORPUS SCRATCH_DIR
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -97,7 +98,7 @@ def main(argv):
     check(head == "OK", "query_version answers OK", head)
     check(body.get("protocol") == Q.PROTOCOL,
           "protocol number matches the client's", str(body.get("protocol")))
-    check(str(body.get("version", "")).endswith("-scala"),
+    check(re.search(r"-scala(\.\d+\.\d+)?$", str(body.get("version", ""))) is not None,
           "version is the fork's", str(body.get("version")))
     stamp = Q.jar_stamp()
     check(body.get("component_id") == stamp,

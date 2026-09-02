@@ -91,9 +91,12 @@ The Scala tool must be a drop-in replacement for the Python CLI:
 - **Same exit codes** (0 ran / 1 unresolved subject / 2 usage or unreadable
   root / 141 SIGPIPE-equivalent on closed stdout).
 - stderr: must be non-empty exactly where Python's is; wording may differ.
-- `-V/--version`: report the fork's own version. The NUMBER names the upstream
-  release whose contract the port matches (`0.8.1-scala` since P9); the
-  `-scala` suffix is what lets a script tell the two tools apart.
+- `-V/--version`: report the fork's own version, `UPSTREAM-scala.MINOR.PATCH`.
+  The NUMBER names the upstream release whose contract the port matches
+  (`0.8.1` since P9, and `dev/difftest.sh` refuses to run if it differs from
+  the oracle version it pins); the `-scala` marker is what lets a script tell
+  the two tools apart; the `MINOR.PATCH` after it counts the port's own
+  releases (`0.8.1-scala.0.1` since P10).
 
 Regex dialect: user patterns are Python `re` in the oracle, `java.util.regex`
 in Scala. For the pattern subset that appears in docs/tests (literals,
