@@ -367,7 +367,7 @@ in the Scala engine is a translation — it is a reimplementation checked agains
 the original's output.
 
 Verification is **differential**, not unit: `dev/difftest.sh` runs both tools
-over a matrix of 2,107 (corpus × invocation) cases across seven corpora,
+over a matrix of 2,113 (corpus × invocation) cases across seven corpora,
 diffing stdout byte-for-byte and comparing exit statuses, and
 `dev/entrydiff.sh` diffs the whole entry set and theory set over the entire AFP
 and the entire distribution `src`.

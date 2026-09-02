@@ -227,7 +227,7 @@ a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 | harness | what it establishes | when |
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
-| `dev/difftest.sh` | 2,107 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
+| `dev/difftest.sh` | 2,113 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
 | `dev/p7probe.sh` | the warm server, the thin client, and the decline protocol that joins them to the cold path (§15, §16) | any change to `server.scala`, `cli.scala`, `lib/Tools/query`, or the client |
 

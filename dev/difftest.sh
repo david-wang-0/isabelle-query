@@ -112,7 +112,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,107-case matrix, taken through
+# answers the oracle gives?  It is the same 2,113-case matrix, taken through
 # the socket.  The server is probe-private and stopped on the way out, for the
 # reason dev/p7probe.sh gives at greater length.
 #
@@ -143,29 +143,24 @@ if [ "${QUERY_DIFFTEST_WARM:-${QUERY_DIFFTEST_DELEGATE:-0}}" = "1" ]; then
 else
   SCALA_SERVER_FLAG=(--no-server)
 fi
-# IMPORT REACHABILITY is pinned OFF on the REWRITE side only, and unlike the
-# namespace pin this one is deliberately ASYMMETRIC, because the oracle has no
-# such notion to pin.
+# IMPORT REACHABILITY IS NOT PINNED, and that is new in P9 S3.
 #
-# Since P7c a citation site in theory T is attributed to a declaration in
-# theory D only when T can SEE D -- D is T's own theory or in its transitive
-# `imports` closure (dev/DIVERGENCES.md D13).  It is a deliberate improvement,
-# not a parity defect: it can only DROP an attribution the citing theory could
-# not have made, and on a whole-corpus root it drops thousands of them
-# (`callers mono` over the AFP: 1,361 hits without it, 566 with).
+# A citation site in theory T is attributed to a declaration in theory D only
+# when T can SEE D -- D is T's own theory or in its transitive `imports`
+# closure (dev/DIVERGENCES.md D13).  P7c shipped that here and upstream
+# shipped it in 0.8.0 as [citation-reach], so BOTH engines now default to
+# `closure` and there is nothing asymmetric left to pin: the matrix compares
+# the same question on both sides by running neither of them in a special
+# mode.
 #
-# A differential matrix cannot measure an improvement, only a difference, so
-# the gate runs the rewrite in the compatibility mode where the two engines
-# answer the same question.  `off` restores the name-only attribution the
-# reference implements, and with it the standard totals are unchanged -- which
-# is the statement this pin exists to make: NOTHING ELSE moved.
-#
-# The improvement itself is verified where it can be: by the unit-level fixture
-# cases in dev/p7cprobe.sh, and by the whole-AFP with/without measurement
-# recorded in dev/P7C-STATUS.md.  Drop the pin here and the usage family
-# diverges on every corpus that declares a name twice in disjoint import trees.
+# Until S3 this file exported ISABELLE_QUERY_REACHABILITY=off on the rewrite
+# side alone, because a differential matrix can only measure a difference and
+# the oracle had no such notion.  The variable no longer exists; the
+# compatibility mode is `--reach name`, spelled identically on both sides, and
+# the `*-reach-name` cases below take it -- which is a better pin than the old
+# one, because it is visible in the case id rather than in the environment.
 run_scala() {
-  ISABELLE_QUERY_NAMESPACE=committed ISABELLE_QUERY_REACHABILITY=off \
+  ISABELLE_QUERY_NAMESPACE=committed \
     USER_HOME="$repo/.dev" isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
 }
 
@@ -602,6 +597,7 @@ emit_cases() {
   c refs-drop0             refs "$THY1" --drop-names-upto 0
   c refs-batch             refs "$THY1" "$THYLAST"
   c refs-unknown           refs No_Such_Theory_Xyz
+  c refs-reach-name        refs "$THY1" --reach name
 
   # -- callers -------------------------------------------------------------
   c callers-default        callers "$NAME1"
@@ -619,6 +615,9 @@ emit_cases() {
   c callers-batch          callers "$NAME1" "$NAME2"
   c callers-unknown        callers zzz_no_such_name_zzz
   c callers-bad-drop       callers "$NAME1" --drop-names-upto abc
+  # [citation-reach]: the compatibility mode, spelled the same on both sides.
+  c callers-reach-name     callers "$NAME1" --reach name
+  c callers-bad-reach      callers "$NAME1" --reach bogus
 
   # -- callees -------------------------------------------------------------
   c callees-default        callees "$NAME1"
@@ -629,6 +628,7 @@ emit_cases() {
   c callees-recursive-names callees -r "$NAME1" --names
   c callees-batch          callees "$NAME1" "$NAME2"
   c callees-unknown        callees zzz_no_such_name_zzz
+  c callees-reach-name     callees "$NAME1" --reach name
 
   # -- unused --------------------------------------------------------------
   c unused-default         unused
@@ -645,6 +645,7 @@ emit_cases() {
   c unused-keep-repeat     unused --keep "$NAME1" --keep "$NAME2"
   c unused-keep-unknown    unused --keep zzz_no_such_name_zzz
   c unused-drop2           unused --drop-names-upto 2
+  c unused-reach-name      unused --reach name -c
   c ambiguous-unused-r     unused --r
 
   # -- methods / method ----------------------------------------------------
@@ -674,6 +675,7 @@ emit_cases() {
   c graph-drop0            graph --drop-names-upto 0
   c graph-bad-kind         graph no_such_kind
   c graph-bad-format       graph -f xml
+  c graph-reach-name       graph --reach name
 
   # -- shape summary -------------------------------------------------------
   c shape-summary          shape summary
