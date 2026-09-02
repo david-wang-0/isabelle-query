@@ -36,7 +36,10 @@ import scala.collection.mutable
 
 
 object CLI {
-  val version = "0.8.0-scala"
+  /* The NUMBER names the upstream release whose contract this port matches
+     (P9 is where that became 0.8.1); the `-scala` suffix is what lets a script
+     tell the two tools apart, since they answer to the same verbs. */
+  val version = "0.8.1-scala"
   val prog = "query"
 
   /* Exit statuses, as the CLI contract fixes them: 0 ran, 1 an unresolved
