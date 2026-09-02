@@ -29,11 +29,10 @@ Two deliberate approximations, both on the permissive side, because the filter
 must never remove an attribution that could be real:
 
   * an import spelled as a PATH resolves by its leaf name
-    (`import_candidates`) — and so, symmetrically, does a THEORY whose ROOT
-    declares it by path (`theories "Nested/Nested_Fix"`), which is carried
-    under that spelling and would otherwise be unreachable from any import
-    that resolves by leaf.  `deps` / `uses` / `graph imports` take the same
-    rule through `resolve_import`, narrowed to one candidate: a token the
+    (`import_candidates`) — Isabelle's own rule, and since [p10-theory-leaf]
+    the same rule that NAMES a theory a ROOT declares by path, so the two ends
+    meet at the leaf and neither side needs an alias table.  `deps` / `uses` /
+    `graph imports` take the rule through `resolve_import`: a token the
     resolver cannot map is not a missing feature but a HOLE, and a hole
     prunes [import-leaf];
   * the graph is keyed by theory NAME, and where a corpus declares the same
@@ -91,35 +90,17 @@ object Reach {
 
   /* The last path segment of a theory name or an `imports` token — what
      `Thy_Header.import_name` keeps.  `"../BV/Altern"` and `"Altern"` denote
-     the same theory to Isabelle, and so must here [import-leaf]. */
-  def theory_leaf(name: String): String = {
-    val s = name.replace('\\', '/')
-    val i = s.lastIndexOf('/')
-    if (i < 0) s else s.substring(i + 1)
-  }
+     the same theory to Isabelle, and so must here [import-leaf].
 
-  /* `{leaf -> the theory names carrying a path}`, for resolving an import
-     written BARE against a theory a ROOT spelled with a directory.
-
-     Only names that are not already their own leaf go in, so this can never
-     shadow a plain name — an exact match is tried first and always wins.  It
-     stays small for that reason: 56 of `src/HOL`'s 1,451 theories.  Build it
-     once per resolving loop; deriving it per call is a pass over every theory
-     name, inside a BFS. */
-  def leaf_index(known: Iterable[String]): Map[String, List[String]] = {
-    val m = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[String]]
-    for (name <- known) {
-      val leaf = theory_leaf(name)
-      if (leaf != name) m.getOrElseUpdate(leaf, new mutable.ListBuffer) += name
-    }
-    m.view.mapValues(_.toList).toMap
-  }
+     ONE definition of Isabelle's rule, in `Discovery`, which is also where a
+     ROOT-declared theory is named by it [p10-theory-leaf]. */
+  def theory_leaf(name: String): String = Discovery.import_name(name)
 
   /* Every in-project theory an `imports` token could denote, most specific
      spelling first; empty when the token is external.
 
      `Discovery.thy_imports` returns tokens verbatim, but the section index is
-     keyed by theory NAME.  Four spellings reach a loaded theory, tried in
+     keyed by theory NAME.  Three spellings reach a loaded theory, tried in
      order:
 
        * bare, matching directly (`Substrate`);
@@ -127,33 +108,33 @@ object Reach {
          (`Proj_Base.Substrate`);
        * PATH-SPELLED, by its leaf — `imports "../WFair"` in
          `HOL-UNITY`, `imports "variants/a_norreqid/A_Aodv_Loop_Freedom"` in
-         AODV.  The `.` rule alone cannot map either, because it finds the `.`
-         of `..` and yields `/WFair`;
-       * bare against a path-spelled THEORY — a ROOT that says `theories
-         "Simple/Reach"` gives the section that name, so a sibling's `imports
-         Reach` matches nothing without `by_leaf`.
+         AODV, `imports "Nested/Nested_Fix"` from a sibling.  The `.` rule
+         alone cannot map the first, because it finds the `.` of `..` and
+         yields `/WFair`.
 
-     The last two are the same rule seen from either end, and it is Isabelle's
-     own (`Thy_Header.import_name` takes the last segment).  Without them the
-     token is classified external — cosmetic for `deps`, but a HOLE in the
-     visibility closure, which may only DROP and so deletes every citation
-     across the edge in silence: 2,803 over `src/HOL` and 65,745 over the AFP
-     [import-leaf].
+     The third is Isabelle's own rule (`Thy_Header.import_name` takes the last
+     segment), and it is the same rule that NAMES a ROOT-declared theory
+     (`Discovery.import_name`, D15).  Without it the token is classified
+     external — cosmetic for `deps`, but a HOLE in the visibility closure,
+     which may only DROP and so deletes every citation across the edge in
+     silence: 2,803 over `src/HOL` and 65,745 over the AFP [import-leaf].
 
      A genuinely external import (`HOL-Library.FuncSet`) names no in-project
-     theory by any of the four, so the list is empty and the caller keeps the
-     RAW token for the `[out-of-project]` line.  The leaf rules add no new way
-     to mistake one for a local theory: they fire only when the token or a
-     loaded name contains `/`, which an external session-qualified import never
-     does.
+     theory by any of the three, so the list is empty and the caller keeps the
+     RAW token for the `[out-of-project]` line.  The leaf rule adds no new way
+     to mistake one for a local theory: it fires only when the TOKEN contains a
+     separator, which an external session-qualified import never does.
 
-     Several candidates come back only from the last rule, where two ROOTs
-     spelled distinct theories with the same leaf.  A caller that must print
-     ONE dependency takes `resolve_import`; the visibility closure takes them
-     all, because it may only drop and a union is the safe side. */
-  def import_candidates(imp: String, known: String => Boolean,
-    by_leaf: Map[String, List[String]]
-  ): List[String] =
+     There was a fourth rule until [p10-theory-leaf], and its disappearance is
+     a consequence of D15 rather than a change of mind: a `by_leaf` alias table
+     mapped a bare `imports Reach` onto a section a ROOT had spelled
+     `"Simple/Reach"`.  No loaded name carries a separator any more — every one
+     is a file stem or `Discovery.import_name` of a declared string — so that
+     table was empty on every corpus, and a rule that cannot fire is worse than
+     no rule.  The list therefore has at most one element now; the callers that
+     took several are unchanged, because "at most one" is not something to
+     encode twice. */
+  def import_candidates(imp: String, known: String => Boolean): List[String] =
     if (known(imp)) List(imp)
     else {
       val dot = imp.lastIndexOf('.')
@@ -163,8 +144,7 @@ object Reach {
         val leaf0 = theory_leaf(imp)
         val d = leaf0.lastIndexOf('.')
         val leaf = if (d >= 0) leaf0.substring(d + 1) else leaf0
-        if (leaf != imp && known(leaf)) List(leaf)
-        else by_leaf.getOrElse(leaf, Nil).sorted
+        if (leaf != imp && known(leaf)) List(leaf) else Nil
       }
     }
 
@@ -172,14 +152,12 @@ object Reach {
 
      `import_candidates` narrowed to a single answer for the verbs that print a
      dependency (`deps`, `uses`, `graph imports`), which need one edge per
-     import clause rather than a set.  Where the token is genuinely ambiguous
-     the first candidate in name order is taken, deterministically.
+     import clause rather than a set.
 
      THE one definition — `Usage.resolve_import` is this function with the
      membership test spelled as a map, because `deps` needs the section too. */
-  def resolve_import(imp: String, known: String => Boolean,
-    by_leaf: Map[String, List[String]]
-  ): Option[String] = import_candidates(imp, known, by_leaf).headOption
+  def resolve_import(imp: String, known: String => Boolean): Option[String] =
+    import_candidates(imp, known).headOption
 
 
   /* ------------------------------------------------------------------ */
@@ -240,33 +218,20 @@ object Reach {
     val id_map = ids.toMap
     val n = ids.size
 
-    /* The OTHER half of the leaf rule, and the half a leaf taken off the
-       IMPORT cannot reach on its own.  A ROOT may declare a theory by PATH —
+    /* THE LEAF RULE'S OTHER HALF, retired.  A ROOT may declare a theory by
+       path — `theories "Nested/Nested_Fix"` — and until [p10-theory-leaf] this
+       engine carried it under that spelling, so a sibling's
+       `imports "../Nested/Nested_Fix"` resolved to a leaf no known name
+       matched: a hole, and a hole prunes silently (`codeqs quad` answered 2
+       where the source has 3).  A `by_leaf` alias table closed it from the
+       theory end.  Since D15 the theory IS `Nested_Fix`, so the import's own
+       leaf rule reaches it and the table was empty on every corpus; it is
+       gone, and `dev/p7cprobe.sh` §8b is the fixture that says so.
 
-           theories "Nested/Nested_Fix"
-
-       — and both this engine and the reference then carry it under that
-       spelling, `Nested/Nested_Fix`, which is not what Isabelle calls the
-       theory (`Thy_Header.import_name` takes the last segment, and so does
-       `Sessions`' own `global_theories` check).  A site-bearing theory that
-       imports it across a directory writes `imports "../Nested/Nested_Fix"`,
-       whose leaf is `Nested_Fix` — and a leaf tested against a set of
-       PREFIXED names misses.  That is a hole, and a hole prunes silently:
-       `codeqs quad` answered 2 where the source has 3.
-
-       `leaf_index` is that half, and the closure takes EVERY candidate the
-       resolver offers rather than the first: this may only WIDEN, and a
-       closure that is too large is merely weak where one that is too small
-       deletes real citations.  On a corpus whose ROOTs declare no
-       path-qualified theory — four of the seven difftest corpora — the index
-       is empty and this costs nothing.
-
-       The theory NAME is deliberately left alone: correcting it is a
-       `Discovery` change that would move `Locale_Test/Locale_Test` (FOL),
-       `LK/Propositional` (Sequents) and `ex/Typechecking` (CTT) off byte
-       parity with the reference, which spells them the same way.  See
-       `todo.md`, `[theory-name-leaf]`. */
-    val by_leaf = leaf_index(ids.keys)
+       The closure still takes EVERY candidate `import_candidates` offers
+       rather than the first: it may only WIDEN, and a closure that is too
+       large is merely weak where one that is too small deletes real
+       citations. */
 
     /* One file read and one header parse per section, and over the whole AFP
        there are ten thousand of them — the only part of this that touches the
@@ -288,7 +253,7 @@ object Reach {
     for ((sec, (readable, imps)) <- sections.zip(headers)) {
       val src = id_map(sec.theory)
       if (!readable) unreadable.set(src)
-      for (imp <- imps; name <- import_candidates(imp, id_map.contains, by_leaf)) {
+      for (imp <- imps; name <- import_candidates(imp, id_map.contains)) {
         val dst = id_map(name)
         if (dst != src) kids(src) += dst
       }
