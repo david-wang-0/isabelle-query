@@ -544,11 +544,239 @@ echo "6. real corpora -- spot checks verified by hand"
 }
 
 # --------------------------------------------------------------------------
+# The COLLISION fixture (P10 S2): a printed locus must name ONE theory.
+#
+# Everything above this point runs on a fixture whose five theory names are
+# distinct, where a label and a bare name are the same string -- so it could
+# not see that these two verbs were printing `site.theory` while the other
+# nine emitters had printed `Render.theory_locus` since [disambig-loci].
+#
+# Two entries, each with its own ROOT, each declaring a theory called
+# `Examples`; that is upstream's own shape (461 AFP theory names are shared)
+# and the smallest one in which the defect is visible.  Each `Examples`
+# declares a locale `L` and a constant `f`, and holds one instantiation site
+# of `L` and one `[code]` lemma about `f`.
+#
+# THE RULE, applied by hand.  A section's tuple is its resolved parent
+# directory's components with its declared name on the end; the label is the
+# shortest SUFFIX of that tuple which is unique among the sections loaded:
+#
+#   depth 1   Examples, Examples          -> neither settles
+#   depth 2   alpha/Examples, beta/Examples -> both settle
+#
+# so the labels are `alpha/Examples` and `beta/Examples`, and the shared
+# prefix (this probe's own $OUT) never appears, being on both tuples.
+#
+# The line numbers below are the expectation.  Do not insert a line without
+# moving them.
+# --------------------------------------------------------------------------
+
+echo
+echo "7. two theories of one name -- the locus qualifies [p10-sites-locus]"
+
+COLL="$OUT/collide"
+mkdir -p "$COLL/alpha" "$COLL/beta" || exit 2
+
+# alpha:  locale L 5, definition f 8, interpretation 11, lemma a_eq 13.
+cat >"$COLL/alpha/Examples.thy" <<'THY'
+theory Examples
+imports Main
+begin
+
+locale L =
+  fixes g :: "'a \<Rightarrow> 'a"
+
+definition f :: "nat \<Rightarrow> nat" where
+  "f n = n + 1"
+
+interpretation a_inst: L id ..
+
+lemma a_eq [code]: "f n = Suc n"
+  by (simp add: f_def)
+
+end
+THY
+
+# beta:  the same four declarations, PADDED so that only line 8 (`definition
+# f`) coincides -- interpretation 15, lemma b_eq 17.  The asymmetry is the
+# point: a row attributed to the wrong file is then visible rather than
+# plausible, and line 8 is the one place where the OLD bare spelling printed
+# the very same string, `Examples:8`, for two different files.
+cat >"$COLL/beta/Examples.thy" <<'THY'
+theory Examples
+imports Main
+begin
+
+locale L =
+  fixes g :: "'a \<Rightarrow> 'a"
+
+definition f :: "nat \<Rightarrow> nat" where
+  "f n = n + 2"
+
+lemma b_pad: "True" by simp
+
+lemma b_pad2: "True" by simp
+
+interpretation b_inst: L id ..
+
+lemma b_eq [code]: "f n = Suc (Suc n)"
+  by (simp add: f_def)
+
+end
+THY
+
+cat >"$COLL/alpha/ROOT" <<'ROOT'
+session Alpha = HOL +
+  theories
+    Examples
+ROOT
+
+cat >"$COLL/beta/ROOT" <<'ROOT'
+session Beta = HOL +
+  theories
+    Examples
+ROOT
+
+c() { isabelle query -R "$COLL" "$@" 2>"$OUT/cerr.txt"; }
+
+expect_c() {  # expect_c NAME EXPECTED ARGS...
+  local name=$1 want=$2; shift 2
+  local got; got=$(c "$@")
+  if [ "$got" = "$want" ]; then note "$name" "$(printf '%s' "$got" | grep -c .) lines"
+  else bad "$name" "got [$got], wanted [$want]"; fi
+}
+
+# --names.  Sections load in ROOT-path order, alpha then beta; sites within a
+# theory in line order.
+expect_c "instances --names prints the qualified locus" \
+'alpha/Examples:11
+beta/Examples:15' instances L --names
+
+# Four rows: each `definition f` registers a DEFAULT equation, each `[code]`
+# lemma an attributed one.
+expect_c "codeqs --names prints the qualified locus" \
+'alpha/Examples:8
+alpha/Examples:13
+beta/Examples:8
+beta/Examples:17' codeqs f --names
+
+expect_c "the counts are unchanged by the spelling" "2" instances L -c
+expect_c "and likewise for codeqs" "4" codeqs f -c
+
+# The ROWS, hand-computed: the locus column is widened to the longest LABEL
+# (17 for `alpha/Examples:11`), the name and kind columns to their own
+# longest, and nothing but the locus cell has moved.
+expect_c "the instances table, column widths and all" \
+'2 instantiation(s) of L:
+
+  alpha/Examples:11  a_inst  interpretation  interpretation a_inst: L id ..
+  beta/Examples:15   b_inst  interpretation  interpretation b_inst: L id ..' \
+  instances L
+
+expect_c "the codeqs table, column widths and all" \
+'4 code equation(s) of f:
+
+  alpha/Examples:8   f     default  definition f :: "nat \<Rightarrow> nat" where
+  alpha/Examples:13  a_eq  [code]   lemma a_eq [code]: "f n = Suc n"
+  beta/Examples:8    f     default  definition f :: "nat \<Rightarrow> nat" where
+  beta/Examples:17   b_eq  [code]   lemma b_eq [code]: "f n = Suc (Suc n)"' \
+  codeqs f
+
+# The old spelling is GONE, not merely joined.  `alpha/Examples:11` contains
+# `Examples:11` as a substring, so this is anchored on the whole line.
+c instances L --names >"$OUT/coll-inst.txt"
+c codeqs f --names >"$OUT/coll-code.txt"
+if ! grep -qxE 'Examples:(8|11|13|15|17)' "$OUT/coll-inst.txt" "$OUT/coll-code.txt"; then
+  note "no row prints the bare, ambiguous \`Examples:N\`"
+else
+  bad "no row prints the bare, ambiguous \`Examples:N\`" \
+    "$(grep -hxE 'Examples:[0-9]+' "$OUT/coll-inst.txt" "$OUT/coll-code.txt" | tr '\n' ' ')"
+fi
+
+# The round trip, which is what the qualification is FOR: every printed locus
+# fed back names the declaration at that site, in the file that site is in.
+# `a_eq` and `b_eq` are declared at lines that do not coincide, so a locus
+# resolved to the wrong `Examples` cannot answer with the right name.
+round_trip() {  # round_trip LOCUS WANT
+  local locus=$1 want=$2
+  if c enclosing "$locus" >"$OUT/coll-encl.txt" 2>/dev/null &&
+     grep -q "$want" "$OUT/coll-encl.txt" &&
+     grep -q "^$locus " "$OUT/coll-encl.txt"; then
+    note "\`enclosing $locus\` names $want"
+  else
+    bad "\`enclosing $locus\` names $want" "$(head -1 "$OUT/coll-encl.txt")"
+  fi
+}
+round_trip "alpha/Examples:13" "a_eq (LEMMA)"
+round_trip "beta/Examples:17"  "b_eq (LEMMA)"
+
+# And EVERY printed locus resolves -- both verbs, all six rows, fed back in one
+# go.  What is checked is that none of them is refused ("no such theory") and
+# none lands past the end of a file it does not belong to: the two ways a
+# spelling that names the wrong theory shows up.  The instantiation rows are
+# not lemma lines, so what they enclose is the engine's business, not this
+# check's.
+# shellcheck disable=SC2046
+if c enclosing $(cat "$OUT/coll-inst.txt" "$OUT/coll-code.txt") >"$OUT/coll-all.txt" 2>"$OUT/coll-all-err.txt" &&
+   [ "$(grep -c . "$OUT/coll-all.txt")" = 6 ] &&
+   [ ! -s "$OUT/coll-all-err.txt" ] &&
+   ! grep -q "past end of" "$OUT/coll-all.txt"; then
+  note "all six printed loci paste back into \`enclosing\`" "6 loci"
+else
+  bad "all six printed loci paste back into \`enclosing\`" \
+    "$(head -2 "$OUT/coll-all.txt" "$OUT/coll-all-err.txt" | tr '\n' ' ')"
+fi
+
+# `at` is the same verb under its other name, so it must answer identically.
+if [ "$(c at beta/Examples:17)" = "$(c enclosing beta/Examples:17)" ] &&
+   c at beta/Examples:17 | grep -q "b_eq (LEMMA)"; then
+  note "\`at\` answers the printed locus the same way"
+else
+  bad "\`at\` answers the printed locus the same way" "$(c at beta/Examples:17)"
+fi
+
+# WHY it had to change.  A bare name resolves to the FIRST section of that
+# name (`Commands.resolve_theory`), which is alpha's -- 16 lines long.  So the
+# spelling this verb used to print for beta's `[code]` lemma resolved into
+# alpha's file and fell off the end of it: confidently, and to the wrong
+# theory.  This is the defect, pinned so it cannot come back unnoticed.
+#
+# `enclosing` says so in the answer, because it echoes the LABEL it resolved
+# to rather than the token it was handed [disambig-loci]: `Examples:17` comes
+# back as `alpha/Examples:17`, which is the tool naming the file it chose.
+if c enclosing Examples:17 2>/dev/null | grep -q "past end of alpha/Examples"; then
+  note "and the old spelling would have resolved into the OTHER file" \
+    "$(c enclosing Examples:17 2>/dev/null)"
+else
+  bad "and the old spelling would have resolved into the OTHER file" \
+    "$(c enclosing Examples:17 2>/dev/null)"
+fi
+
+# --sorts touches the NAME cell only: the locus column is the same four
+# strings with or without it, and the row order is the engine's.
+if [ "$(c codeqs f --sorts | sed -n 's/^  \([^ ][^ ]*\) .*/\1/p' | tr '\n' ' ')" = \
+     "alpha/Examples:8 alpha/Examples:13 beta/Examples:8 beta/Examples:17 " ]; then
+  note "--sorts leaves the locus column and the row order alone"
+else
+  bad "--sorts leaves the locus column and the row order alone" \
+    "$(c codeqs f --sorts | sed -n 's/^  \([^ ][^ ]*\) .*/\1/p' | tr '\n' ' ')"
+fi
+
+# The exit contract is the family's and does not move with the spelling.
+if c instances no_such_locale_xyz >/dev/null 2>&1; then
+  bad "an unknown subject still exits 1 on a collision corpus" "exit 0"
+else
+  rc=$?
+  if [ "$rc" = 1 ]; then note "an unknown subject still exits 1 on a collision corpus"
+  else bad "an unknown subject still exits 1 on a collision corpus" "exit $rc"; fi
+fi
+
+# --------------------------------------------------------------------------
 # Failability: a probe that has never failed has not been tested.
 # --------------------------------------------------------------------------
 
 echo
-echo "7. failability -- the harness must be able to say no"
+echo "8. failability -- the harness must be able to say no"
 
 P6BPROBE_FAILDEMO=1 CLASSPATH="$CLASSES" isabelle java isabelle.jedit_query_dev.P6B_Probe \
   >"$OUT/faildemo.log" 2>&1

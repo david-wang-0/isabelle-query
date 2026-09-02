@@ -55,9 +55,19 @@ object Sites {
      puts its owning entry in, so the two verbs read like the rest of the tool.
      `sorts` is the type or sort text written THERE and nowhere else -- shown
      only under `--sorts`, because for most rows there is none and a column of
-     blanks is worse than no column. */
-  final case class Site(theory: String, line: Int, kind: String, text: String,
-    name: String = UNNAMED, sorts: String = ""
+     blanks is worse than no column.
+
+     `path` and `theory` are BOTH carried, and they do different jobs.  `path`
+     is the section's stored path, which is the key `Render.locus_labels` is
+     keyed by and therefore the only thing from which the printed locus can be
+     made: a theory NAME is not a section's identity, and on a corpus where two
+     theories share one the label is exactly what tells them apart
+     [name-is-not-identity, disambig-loci].  `theory` is the bare declared
+     name, kept because it is a DISPLAY key -- the name a jEdit panel group and
+     each of its rows carries, which the panel shows where a qualified one
+     would say nothing extra. */
+  final case class Site(theory: String, path: JPath, line: Int, kind: String,
+    text: String, name: String = UNNAMED, sorts: String = ""
   ) {
     /* The name cell.  `--sorts` re-spells it as the source does, `c :: T`;
        with nothing written there it is the bare name, never an inferred type. */
@@ -521,7 +531,7 @@ object Sites {
           if (arity) {
             if (arity_classes(body_live, body_outer).exists(denotes(_, name))) {
               val (ctor, sorts) = arity_parts(body_live, body_outer)
-              out += Site(sec.theory, i, command, Py.rstrip(raw(i - 1)),
+              out += Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)),
                 if (ctor.nonEmpty) ctor else UNNAMED, sorts)
             }
           }
@@ -551,7 +561,7 @@ object Sites {
                   val ctx = enclosing_name(i)
                   if (ctx.nonEmpty) ctx else UNNAMED
                 }
-              out += Site(sec.theory, i, command, Py.rstrip(raw(i - 1)), label)
+              out += Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)), label)
             }
           }
         }
@@ -998,7 +1008,7 @@ object Sites {
                 /* The PROVIDING fact, which for a declaration is its own name
                    -- the `lemma` carrying the attribute, or the `definition`
                    when the attribute sits on the defining equation. */
-                found += Site(sec.theory, e.thy_line, "[" + attr.spelling + "]",
+                found += Site(sec.theory, sec.path, e.thy_line, "[" + attr.spelling + "]",
                   Py.rstrip(raw(e.thy_line - 1)), entry_name, signature)
               }
             }
@@ -1011,7 +1021,7 @@ object Sites {
               `default` and once as `[code]`, would say there are two. */
         if (!attributed && default_code_tags(e.tag) &&
           (e.name == name || e.bound_names.contains(name)))
-          found += Site(sec.theory, e.thy_line, "default", Py.rstrip(raw(e.thy_line - 1)),
+          found += Site(sec.theory, sec.path, e.thy_line, "default", Py.rstrip(raw(e.thy_line - 1)),
             entry_name, signature)
       }
 
@@ -1046,7 +1056,7 @@ object Sites {
                 val label =
                   if (attr.config) dropped.head
                   else cited.headOption.getOrElse(UNNAMED)
-                found += Site(sec.theory, i, "[" + attr.spelling + "]",
+                found += Site(sec.theory, sec.path, i, "[" + attr.spelling + "]",
                   Py.rstrip(raw(i - 1)), label)
               }
             }
@@ -1073,26 +1083,39 @@ object Sites {
      and what `--names` prints on its own.  It is one name per row, not
      `code_thms`' name-then-block layout: the flat row is what pastes.
 
-     `--names` prints the bare loci, one per line, because for a SITE list the
+     `--names` prints the loci, one per line, because for a SITE list the
      identity of a hit IS its locus -- and `theory:line` is the tool's own span
-     grammar, so the output pipes straight into `enclosing` / `lines`. */
-  private def emit(out: Out, sites: List[Site], name: String, noun: String,
-    flags: Flags
+     grammar, so the output pipes straight into `enclosing` / `lines`.
+
+     The locus is the QUALIFIED one every other located verb prints since
+     [disambig-loci]: `Render.theory_locus` of the site's own path, computed
+     from one label map per run rather than one per row.  The `methods`
+     spelling -- the label with no `.thy` restored -- because a site is
+     reported at a THEORY, the way a caller is, and not at a file the way
+     `grep` is.  Bare `site.theory` was the last spelling that could name more
+     than one theory, which cost the two verbs the round trip their own
+     `--names` mode exists for: on a corpus with two `Examples`, the locus a
+     row printed was not one `enclosing` could resolve back to that row. */
+  private def emit(out: Out, sections: List[Theory_Section], sites: List[Site],
+    name: String, noun: String, flags: Flags
   ): Unit = {
     if (flags.mode == "count") out.println(sites.length.toString)
-    else if (flags.mode == "names") for (s <- sites) out.println(s"${s.theory}:${s.line}")
-    else if (sites.isEmpty) out.println(s"No ${noun}s found for '$name'.")
     else {
-      val labels = sites.map(_.label(flags.sorts))
-      val loc_w = sites.map(s => s"${s.theory}:${s.line}".length).max
-      val name_w = labels.map(_.length).max
-      val kind_w = sites.map(_.kind.length).max
-      out.println(s"${sites.length} $noun(s) of $name:\n")
-      for ((s, label) <- sites.zip(labels)) {
-        val loc = s"${s.theory}:${s.line}"
-        out.println(s"  ${loc + " " * (loc_w - loc.length)}  " +
-          s"${label + " " * (name_w - label.length)}  " +
-          s"${s.kind + " " * (kind_w - s.kind.length)}  ${Py.strip(s.text)}")
+      val thy_labels = Render.locus_labels(sections)
+      val loci = sites.map(s => s"${Render.theory_locus(thy_labels, s.path)}:${s.line}")
+      if (flags.mode == "names") for (loc <- loci) out.println(loc)
+      else if (sites.isEmpty) out.println(s"No ${noun}s found for '$name'.")
+      else {
+        val labels = sites.map(_.label(flags.sorts))
+        val loc_w = loci.map(_.length).max
+        val name_w = labels.map(_.length).max
+        val kind_w = sites.map(_.kind.length).max
+        out.println(s"${sites.length} $noun(s) of $name:\n")
+        for (((s, label), loc) <- sites.zip(labels).zip(loci)) {
+          out.println(s"  ${loc + " " * (loc_w - loc.length)}  " +
+            s"${label + " " * (name_w - label.length)}  " +
+            s"${s.kind + " " * (kind_w - s.kind.length)}  ${Py.strip(s.text)}")
+        }
       }
     }
   }
@@ -1120,13 +1143,13 @@ object Sites {
     flags: Flags
   ): Unit =
     with_subject(out, err, sections, name, locale_tags, "a locale or class") { _ =>
-      emit(out, find_instantiations(sections, name), name, "instantiation", flags)
+      emit(out, sections, find_instantiations(sections, name), name, "instantiation", flags)
     }
 
   def cmd_codeqs(out: Out, err: Out, sections: List[Theory_Section], name: String,
     flags: Flags
   ): Unit =
     with_subject(out, err, sections, name, constant_tags, "a constant") { _ =>
-      emit(out, find_code_equations(sections, name), name, "code equation", flags)
+      emit(out, sections, find_code_equations(sections, name), name, "code equation", flags)
     }
 }

@@ -786,12 +786,19 @@ object P6B_Probe {
 
   /* --- what the shell script cross-checks against the CLI --- */
 
-  Files.write(out_dir.resolve("panel-inst.txt"),
-    inst_result.groups.flatMap(_.hits)
-      .map(h => h.theory + ":" + h.line.toString).mkString("", "\n", "\n").getBytes("UTF-8"))
-  Files.write(out_dir.resolve("panel-code.txt"),
-    code_result.groups.flatMap(_.hits)
-      .map(h => h.theory + ":" + h.line.toString).mkString("", "\n", "\n").getBytes("UTF-8"))
+  /* The locus a row would be PASTED as, which since [p10-sites-locus] is the
+     qualified label on both sides -- the group's `theory_label` here, the
+     CLI's `Render.theory_locus` there.  On this fixture every theory name is
+     unique, so both spell the bare name and the comparison is the one it
+     always was; on a corpus where two theories collide it is the comparison
+     that would catch one side qualifying and the other not. */
+  def panel_loci(result: Query_Search.Result): Array[Byte] =
+    (for (g <- result.groups; h <- g.hits)
+      yield (if (g.theory_label.nonEmpty) g.theory_label else h.theory) + ":" +
+        h.line.toString).mkString("", "\n", "\n").getBytes("UTF-8")
+
+  Files.write(out_dir.resolve("panel-inst.txt"), panel_loci(inst_result))
+  Files.write(out_dir.resolve("panel-code.txt"), panel_loci(code_result))
 
   println()
   println(if (failures == 0) "P6BPROBE OK" else "P6BPROBE FAILURES: " + failures.toString)

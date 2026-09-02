@@ -414,17 +414,24 @@ object Query_Search {
         Result(kind, noun + " of " + name, name, Nil, definition_hit(snapshot, name),
           note, refused = refused)
       case Right(subject) =>
-        val buf = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Hit]]
-        for (site <- scan(snapshot.sections, name))
-          buf.getOrElseUpdate(site.theory, new mutable.ListBuffer[Hit]) +=
-            Hit(site.theory, snapshot.path_of(site.theory), site.line, site.text,
-              tag = site.kind, name = site.name, sorts = site.sorts)
+        /* Keyed by the site's OWN path, exactly as `group` above keys a usages
+           set, and for the same reason: `Sites.Site` carries the section's
+           path since [p10-sites-locus], and resolving the FILE by theory NAME
+           through `path_of` opened whichever file the name last mapped to --
+           so on a corpus with two `Examples` one group's rows navigated into
+           the other's source, and the two collapsed into one node besides.
+           The directory level (P6d) is unaffected: `directory_of` was already
+           path arithmetic, and it now gets a path that is right. */
+        val buf = mutable.LinkedHashMap.empty[JPath, (String, mutable.ListBuffer[Hit])]
+        for (site <- scan(snapshot.sections, name)) {
+          val hits = buf.getOrElseUpdate(site.path, (site.theory, new mutable.ListBuffer[Hit]))._2
+          hits += Hit(site.theory, Some(site.path), site.line, site.text,
+            tag = site.kind, name = site.name, sorts = site.sorts)
+        }
         val groups =
-          (for ((theory, hits) <- buf) yield {
-            val path = snapshot.path_of(theory)
-            Group(theory, path, hits.toList,
-              theory_label = path.map(snapshot.label_of).getOrElse(""))
-          }).toList
+          (for ((path, (theory, hits)) <- buf)
+            yield Group(theory, Some(path), hits.toList,
+              theory_label = snapshot.label_of(path))).toList
         val how = if (subject.how.isEmpty) "" else " " + Render.EM_DASH + " " + subject.how
         Result(kind, noun + " of " + name + kind_of(snapshot, name) + how, name, groups,
           definition_hit(snapshot, name), note)
