@@ -48,7 +48,7 @@ slot. Dots rather than a second hyphen so semver reads the identifiers
 numerically. `dev/p7probe.py` accepts the optional counter. Recorded in
 `CLAUDE.md` §"Release status", `PLAN.md`, `MIGRATING.md`.
 
-### S2 — `instances` / `codeqs` print a qualified locus `[p10-sites-locus]`
+### S2 — `instances` / `codeqs` print a qualified locus `[p10-sites-locus]` — **DONE**
 
 P9's S4 qualified the nine oracle-shared emitters through
 `Render.locus_labels` (`[disambig-loci]`): on a corpus where two theories
@@ -58,25 +58,38 @@ bare `site.theory` (`sites.scala`, the `names` mode and the table's `loc`
 column), so on a collision corpus their locus is ambiguous where every other
 verb's is not — and the round trip through `enclosing`/`at` is lost.
 
-- [ ] `Sites.cmd_instances` / `cmd_codeqs` compute `Render.locus_labels`
+- [x] `Sites.cmd_instances` / `cmd_codeqs` compute `Render.locus_labels`
       over the sections once and print `Render.theory_locus(labels, path)`
       for each site — the `methods` spelling (label, no suffix), because a
       site is reported at a theory the way a caller is. `Site` carries what
       it needs to do that (the section's stored path); the plugin's grouping
       (`jedit_query`) must keep resolving the FILE by path, never by name —
       check it, and check `--sorts` and the name column are untouched.
-- [ ] Hand-computed fixture in `dev/p6bprobe.sh`: a root with two theories
+      **`Sites.Site` gained `path`, `theory` stayed** (it is the panel's
+      display key). The plugin was NOT resolving by path: `Query_Search.sites`
+      grouped on `site.theory` and called `snapshot.path_of(site.theory)`,
+      the last-wins name map [name-is-not-identity], so on a collision corpus
+      two files' sites collapsed into one node opening at one file. It now
+      keys on `site.path`, as the usages `group` already did; P6d's directory
+      level is untouched (it was always path arithmetic).
+- [x] Hand-computed fixture in `dev/p6bprobe.sh`: a root with two theories
       of one name in different directories, each holding an instantiation
       site and a code-equation site of the same subject. Derive the expected
       rows from the rule (label = shortest distinguishing suffix), then run.
       Pin that the old spelling is NOT printed. Pin the round trip: the
       printed locus fed to `enclosing` names the site's declaration.
-- [ ] Gates: `dev/p6bprobe.sh`, `dev/p9probe.sh` (its fixture B is a
+      §7, 14 checks; the rows, the widths and the exit contract all matched
+      the hand computation first time.
+- [x] Gates: `dev/p6bprobe.sh`, `dev/p9probe.sh` (its fixture B is a
       collision corpus), `dev/p6probe.sh`, `dev/p5probe.sh`; difftest is
       unaffected by construction (no oracle for these verbs) but run the
       three smallest corpora as a canary.
-- [ ] Docs: the `instances`/`codeqs` rows in `README.md` / `SCANNING.md` if
+- [x] Docs: the `instances`/`codeqs` rows in `README.md` / `SCANNING.md` if
       they show a locus; `dev/P9-STATUS.md` is history and stays.
+      README's three sample rows carried loci the tool did not print
+      (`Category3/DualCategory:66`, `HOL/List:3249`); they are now one real
+      listing. `SCANNING.md` gains the clause that puts the two verbs on the
+      theory side of the file/theory split.
 
 ### S3 — the namespace table is a value, not process state `[p10-namespace-value]`
 
