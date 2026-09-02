@@ -861,7 +861,7 @@ object Commands {
       val lines = sec.source
       val live_lines = sec.live_source
       val noise = Entries.line_mask(lines.length, Usage_Graph.noise_spans(sec))
-      val idx = line_index.getOrElse(sec.theory, Array.empty[(Int, Int, Entry)])
+      val idx = line_index.getOrElse(sec.path, Array.empty[(Int, Int, Entry)])
       val (win_lo, win_hi) = sec.line_window match {
         case Some((lo, hi)) => (lo, hi.getOrElse(lines.length))
         case None => (1, lines.length)

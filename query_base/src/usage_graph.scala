@@ -30,6 +30,7 @@ package isabelle.query
 
 import isabelle.*
 
+import java.nio.file.{Path => JPath}
 import java.util.regex.Pattern
 
 import scala.collection.mutable
@@ -40,14 +41,17 @@ object Usage_Graph {
   /* indices                                                            */
   /* ------------------------------------------------------------------ */
 
-  /* Keyed by theory NAME, last section wins — the reference implementation's
-     dict-comprehension semantics.  Right per session, coarse over a corpus
-     where two entries both declare a `Misc`; the call graph is the first
-     consumer that sees a whole corpus, and it reads THIS map for the masks of
-     the section it is scanning, so a duplicate name means one of the two
-     sections is masked with the other's prose ranges.  Reproduced rather than
-     fixed: it is observable in `callers` output, and changing it is a change
-     to what the tool reports, not an implementation detail. */
+  /* Keyed by theory NAME, last section wins.  A NAME is not a section's
+     identity — it is unique in a session and not in a corpus, and 461 AFP
+     theory names are shared — so this map is only ever right for a question
+     that is genuinely about the name rather than about a file.  Two are left:
+     `deps` / `uses` / `refs` / `graph imports` walk the IMPORT graph, whose
+     nodes really are names (an `imports` clause names a theory, not a path),
+     and `entry_by_name` below answers "where is this name declared".
+     Everything that indexes a SECTION — the line index, the prose mask, the
+     declaration sites, and `callers`' hits — is keyed by `sec.path`
+     [name-is-not-identity]; a name key there silently handed 758 of the AFP's
+     sections another file's spans. */
   def sections_by_theory(sections: List[Theory_Section]): Map[String, Theory_Section] = {
     val m = mutable.LinkedHashMap.empty[String, Theory_Section]
     for (s <- sections) m(s.theory) = s
@@ -70,21 +74,32 @@ object Usage_Graph {
     sec.text_blocks ::: sec.heading_spans ::: sec.nonisar_ranges :::
       sec.entries.flatMap(_.preamble)
 
-  def noise_ranges(sections: List[Theory_Section]): Map[String, List[(Int, Int)]] = {
-    val m = mutable.LinkedHashMap.empty[String, List[(Int, Int)]]
-    for (sec <- sections) m(sec.theory) = noise_spans(sec)
+  /* Keyed by PATH, like the other two per-section indexes.  This one decides
+     prose-vs-live, so a collapsed key does not merely misattribute a hit: it
+     SUPPRESSES a real one (another file's `text` block blanks a live line) and
+     admits a fake one (a prose mention the real mask covers).  38,068 lines of
+     the AFP were classified the wrong way round [name-is-not-identity]. */
+  def noise_ranges(sections: List[Theory_Section]): Map[JPath, List[(Int, Int)]] = {
+    val m = mutable.LinkedHashMap.empty[JPath, List[(Int, Int)]]
+    for (sec <- sections) m(sec.path) = noise_spans(sec)
     m.toMap
   }
 
-  /* Per theory, the entry spans sorted for a binary search on a line.  Sorted
+  /* Per SECTION, the entry spans sorted for a binary search on a line.  Sorted
      by the two integers ONLY: the reference sorts `(src_start, thy_end, Entry)`
      triples and dies with a TypeError where one `axiomatization a b where …`
-     line yields two entries with identical spans (`dev/DIVERGENCES.md`, D7). */
+     line yields two entries with identical spans (`dev/DIVERGENCES.md`, D7).
+
+     Keyed by `sec.path`: this map is written by one loop over the sections and
+     read back by another, so a theory-name key handed 758 of the AFP's 9,910
+     sections another FILE's spans — 381,710 of the 449,860 lines in them got a
+     different owner [name-is-not-identity].  The sections are in hand at both
+     ends, so the name was never doing work a path could not. */
   def build_line_index(sections: List[Theory_Section]
-  ): Map[String, Array[(Int, Int, Entry)]] = {
-    val index = mutable.LinkedHashMap.empty[String, Array[(Int, Int, Entry)]]
+  ): Map[JPath, Array[(Int, Int, Entry)]] = {
+    val index = mutable.LinkedHashMap.empty[JPath, Array[(Int, Int, Entry)]]
     for (sec <- sections)
-      index(sec.theory) =
+      index(sec.path) =
         sec.entries.filter(_.thy_line > 0).map(e => (e.src_start, e.thy_end, e))
           .sortBy(t => (t._1, t._2)).toArray
     index.toMap
@@ -105,8 +120,11 @@ object Usage_Graph {
     }
   }
 
-  /* Per-theory definition-site line spans, keyed by entry name, so a search for
-     references to a name can exclude the declaration itself.
+  /* Per-section definition-site line spans, keyed by entry name, so a search
+     for references to a name can exclude the declaration itself.  By PATH, for
+     the reason `build_line_index` gives and with the same suppressing effect
+     as `noise_ranges`: another file's def sites exclude lines that are genuine
+     citations here [name-is-not-identity].
 
      With `names` given, only those names are tracked AND each entry's extra
      bound names (a `shows … and C:` conjunct, a `| r1: "…"` rule) are charged
@@ -114,8 +132,8 @@ object Usage_Graph {
      as a citation of itself.  The broad pass (`names = None`) deliberately does
      not do this, so bound names never leak into the call-graph universe. */
   def build_def_sites(sections: List[Theory_Section], names: Option[Set[String]]
-  ): Map[String, Map[String, List[(Int, Int)]]] = {
-    val out = mutable.LinkedHashMap.empty[String, Map[String, List[(Int, Int)]]]
+  ): Map[JPath, Map[String, List[(Int, Int)]]] = {
+    val out = mutable.LinkedHashMap.empty[JPath, Map[String, List[(Int, Int)]]]
     for (sec <- sections) {
       /* A buffer, not a set: the reference de-duplicates identical spans, and
          the only question ever asked of the result is whether a line falls in
@@ -133,7 +151,7 @@ object Usage_Graph {
             for (c <- e.bound_names if ns(c)) add(c, span)
         }
       }
-      out(sec.theory) = site_map.view.mapValues(_.toList).toMap
+      out(sec.path) = site_map.view.mapValues(_.toList).toMap
     }
     out.toMap
   }
@@ -482,9 +500,9 @@ object Usage_Graph {
          redaction preserves every line and column, so the mask below and the
          1-indexed arithmetic still address the same characters. */
       val lines = sec.live_source
-      val t_ranges = text_ranges.getOrElse(sec.theory, Nil)
-      val d_map = def_sites.getOrElse(sec.theory, Map.empty[String, List[(Int, Int)]])
-      val idx = line_index.getOrElse(sec.theory, Array.empty[(Int, Int, Entry)])
+      val t_ranges = text_ranges.getOrElse(sec.path, Nil)
+      val d_map = def_sites.getOrElse(sec.path, Map.empty[String, List[(Int, Int)]])
+      val idx = line_index.getOrElse(sec.path, Array.empty[(Int, Int, Entry)])
       val text_mask = Entries.line_mask(lines.length, t_ranges)
       /* What THIS theory can see: its import closure and itself.  Bound once
          per section — the row is a bit test per candidate name. */
@@ -620,7 +638,7 @@ object Usage_Graph {
       val lines = sec.live_source
       val raw = sec.source
       val noise_mask = Entries.line_mask(lines.length, noise_spans(sec))
-      val idx = line_index.getOrElse(sec.theory, Array.empty[(Int, Int, Entry)])
+      val idx = line_index.getOrElse(sec.path, Array.empty[(Int, Int, Entry)])
       var line_no = 1
       while (line_no <= lines.length) {
         val line = lines(line_no - 1)

@@ -220,16 +220,21 @@ object Query_Search {
 
   /* Group in the order the engine emitted them — section load order, which is
      the build's own order and therefore stable between runs. */
+  /* Grouped by the hit's OWN section, not by a name-keyed lookup: a theory
+     name is unique in a session and not in a corpus, so two files called
+     `Misc` would otherwise share one group and one of them would be opened at
+     the other's path [name-is-not-identity].  `find_callers` hands over the
+     section for exactly this reason. */
   private def group(
     snapshot: Query_Index.Snapshot,
-    triples: List[(String, Int, String)]
+    triples: List[(Theory_Section, Int, String)]
   ): List[Group] = {
-    val buf = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Hit]]
-    for ((theory, line, text) <- triples) {
-      val path = snapshot.path_of(theory)
-      buf.getOrElseUpdate(theory, new mutable.ListBuffer[Hit]) += Hit(theory, path, line, text)
+    val buf = mutable.LinkedHashMap.empty[JPath, (Theory_Section, mutable.ListBuffer[Hit])]
+    for ((sec, line, text) <- triples) {
+      val hits = buf.getOrElseUpdate(sec.path, (sec, new mutable.ListBuffer[Hit]))._2
+      hits += Hit(sec.theory, Some(sec.path), line, text)
     }
-    (for ((theory, hits) <- buf) yield Group(theory, snapshot.path_of(theory), hits.toList)).toList
+    (for ((_, (sec, hits)) <- buf) yield Group(sec.theory, Some(sec.path), hits.toList)).toList
   }
 
   private def source_line(snapshot: Query_Index.Snapshot, theory: String, line: Int,

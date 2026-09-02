@@ -31,6 +31,7 @@ package isabelle.query
 
 import isabelle.*
 
+import java.nio.file.{Path => JPath}
 import java.util.regex.Pattern
 
 import scala.collection.mutable
@@ -907,16 +908,28 @@ object Sites {
                   the constant, or a `[[code drop:]]` naming it outright. */
   def find_code_equations(sections: List[Theory_Section], name: String): List[Site] = {
     val by_name = Usage_Graph.entry_by_name(sections)
-    val by_theory = Usage_Graph.sections_by_theory(sections)
+    /* The SECTION each name resolves to, first-wins in exactly the order
+       `entry_by_name` uses, so the two always agree about which declaration
+       is meant.  A theory name would not: it is unique in a session and not in
+       a corpus, and reading a statement out of another file of the same name
+       is the collapse [name-is-not-identity] moved the three shared indexes
+       off. */
+    val sec_by_name = {
+      val m = mutable.LinkedHashMap.empty[String, Theory_Section]
+      for (s <- sections; e <- s.entries if !m.contains(e.name)) m(e.name) = s
+      m.toMap
+    }
 
     /* `live_source` is a `def` by design (model.scala: a cached view is a
-       second copy of the corpus), so the one theory being scanned holds its
-       view in a local and a CROSS-THEORY lookup memoises only the theories a
+       second copy of the corpus), so the one section being scanned holds its
+       view in a local and a CROSS-THEORY lookup memoises only the sections a
        `declare` actually reaches into -- a handful, not the corpus. */
-    val live_cache = mutable.LinkedHashMap.empty[String, Array[String]]
-    def live_of(theory: String): Array[String] =
-      live_cache.getOrElseUpdate(theory,
-        by_theory.get(theory).map(_.live_source).getOrElse(Array.empty[String]))
+    val live_cache = mutable.LinkedHashMap.empty[JPath, Array[String]]
+    def live_of(sec: Option[Theory_Section]): Array[String] =
+      sec match {
+        case None => Array.empty[String]
+        case Some(s) => live_cache.getOrElseUpdate(s.path, s.live_source)
+      }
 
     /* The statement of a declaration, in the LIVE view: a superseded equation
        left behind in a `(* ... *)` note must not supply a head. */
@@ -931,8 +944,8 @@ object Sites {
        `declare card_set [code]` for `card_set: "card (set xs) = ..."`. */
     def fact_denotes(token: String): Boolean =
       spells(token, name) || (by_name.get(token) match {
-        case Some((theory, e)) if e.tag == "LEMMA" || e.tag == "THEOREM" =>
-          equation_heads(statement(live_of(theory), e)).contains(name)
+        case Some((_, e)) if e.tag == "LEMMA" || e.tag == "THEOREM" =>
+          equation_heads(statement(live_of(sec_by_name.get(token)), e)).contains(name)
         case _ => false
       })
 
@@ -946,7 +959,7 @@ object Sites {
       val live = sec.live_source
       val outer = sec.outer_source
       val raw = sec.source
-      live_cache(sec.theory) = live
+      live_cache(sec.path) = live
       val found = new mutable.ListBuffer[Site]
 
       /* 1. Declarations: the entry grammar already knows where a statement

@@ -330,36 +330,43 @@ object Usage {
      method or attribute — a line that merely INVOKES it, which is the method
      doing its job and not a reference to the entry that shares its name.
 
-     `external` additionally skips every line in the theory that defines the
-     name, for the "is anything OUTSIDE Foo using Foo's primitives?" audit.
+     `external` additionally skips every FILE that defines the name, for the
+     "is anything OUTSIDE Foo using Foo's primitives?" audit — the file, not
+     every file that happens to share its theory name [name-is-not-identity].
 
      And a theory that cannot SEE any declaration of the name is skipped
      outright (`Reach`): over a corpus that declares one word many times, a
-     match in a tree that imports none of them is a different `rev`. */
+     match in a tree that imports none of them is a different `rev`.
+
+     A hit carries its OWN section, not just the theory name.  Everything
+     downstream wants the file — the owner column, the context lines, the
+     locus label — and re-deriving it from the name through
+     `sections_by_theory` is the fourth instance of the collapse the three
+     indexes above just moved off [name-is-not-identity]. */
   def find_callers(sections: List[Theory_Section], name: String,
     external: Boolean = false
-  ): List[(String, Int, String)] = {
+  ): List[(Theory_Section, Int, String)] = {
     val word_re = Py.compile(Commands.isa_word_pattern(name))
     val antiq_re =
       Py.compile("""@\{(?:text|thm|term|const)\s+["']?""" + Py.re_escape(name) + """["']?\}""")
 
     val all_def_sites = Usage_Graph.build_def_sites(sections, Some(Set(name)))
-    val def_theories = all_def_sites.filter(_._2.nonEmpty).keySet
+    val def_paths = all_def_sites.filter(_._2.nonEmpty).keySet
     val text_ranges = Usage_Graph.noise_ranges(sections)
     /* Read late: the namespace table is bound by the CLI after start-up. */
     val shadowed = Namespace.non_citation(name)
     val reachable = Reach.site_filter(sections, name)
 
-    val results = new mutable.ListBuffer[(String, Int, String)]
-    for (sec <- sections if !(external && def_theories(sec.theory)) && reachable(sec.theory)) {
+    val results = new mutable.ListBuffer[(Theory_Section, Int, String)]
+    for (sec <- sections if !(external && def_paths(sec.path)) && reachable(sec.theory)) {
       /* Decide on the redacted view, report the raw one: a mention inside a
          comment / `\<^cancel>` / inline ML body is not a use even when live
          proof text shares its line, but the hit we print is the user's line. */
       val lines = sec.live_source
       val raw = sec.source
-      val t_mask = Entries.line_mask(lines.length, text_ranges.getOrElse(sec.theory, Nil))
+      val t_mask = Entries.line_mask(lines.length, text_ranges.getOrElse(sec.path, Nil))
       val d_ranges =
-        all_def_sites.getOrElse(sec.theory, Map.empty).getOrElse(name, Nil)
+        all_def_sites.getOrElse(sec.path, Map.empty).getOrElse(name, Nil)
       var line_no = 1
       while (line_no <= lines.length) {
         val line = lines(line_no - 1)
@@ -369,7 +376,7 @@ object Usage {
           val stripped = antiq_re.matcher(line).replaceAll("")
           if (Py.found(word_re, stripped) &&
             !(shadowed && Usage_Graph.shadowed_uses_on_line(line, Set(name)).isEmpty))
-            results += ((sec.theory, line_no, Py.rstrip(raw(line_no - 1))))
+            results += ((sec, line_no, Py.rstrip(raw(line_no - 1))))
         }
         line_no += 1
       }
@@ -435,19 +442,20 @@ object Usage {
       if (flags.mode == "count") out.println(hits.length.toString)
       else if (hits.isEmpty) out.println(s"No callers found for '$name'.")
       else {
-        val by_theory = Usage_Graph.sections_by_theory(sections)
         val n_after = 0 max flags.context
         /* Align the loci into a column; each is a clean `theory:line` that
-           pastes into `enclosing` / `lines` / an editor. */
-        val loc_w = hits.map(h => s"${h._1}:${h._2}".length).max
+           pastes into `enclosing` / `lines` / an editor.  The owner and the
+           context lines come from the hit's OWN section, never from a
+           name-keyed lookup [name-is-not-identity]. */
+        val loc_w = hits.map(h => s"${h._1.theory}:${h._2}".length).max
         out.println(s"${hits.length} caller(s) of $name:\n")
-        for ((theory, line_no, text) <- hits) {
-          val sec = by_theory.get(theory)
-          val encl = sec.flatMap(Commands.enclosing_entry(_, line_no))
+        for ((sec, line_no, text) <- hits) {
+          val theory = sec.theory
+          val encl = Commands.enclosing_entry(sec, line_no)
           out.println(s"  ${pad_right(s"$theory:$line_no", loc_w)}  " +
             s"${Commands.owner_field(encl)}  ${Py.strip(text)}")
-          if (n_after > 0) sec.foreach { s =>
-            val src = s.source
+          if (n_after > 0) {
+            val src = sec.source
             /* The context lines keep ripgrep's `-` marker: it flags the line as
                context rather than a match, and `parse_locus` strips it so the
                locus still round-trips. */
