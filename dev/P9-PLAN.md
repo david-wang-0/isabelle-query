@@ -243,27 +243,50 @@ In this order; entrydiff after each commit.
       extra name-level `mono` lines D13 already recorded, both predating P9.
       S5 re-takes the corpus-scale figures.
 
-### S4 — loci and shape (`.dev/gap-G4-render-shape.md`)
+### S4 — loci and shape (`.dev/gap-G4-render-shape.md`) — **DONE**
 
-- [ ] `[disambig-names]` — `Render.theory_labels` / `locus_labels` /
-      `file_locus` (shortest unique path suffix over the **loaded corpus**,
-      BFS by depth, exhaustion rule); `cmd_largest` prints the label; the
-      resolver's unique-suffix step after S1's exact-name step.
-- [ ] `[disambig-loci]` — the other eight emitters: `enclosing` (locus,
-      scope, past-end), `callers` (+ context lines, owner from the hit's OWN
-      section), `methods`, `grep`, `sorry` (label + suffix), `shape steps`,
+- [x] `[disambig-names]` — `Render.theory_labels` / `locus_labels` /
+      `file_locus` (shortest unique suffix of *directory chain + declared
+      name*, over the **loaded corpus**, BFS by depth, exhaustion rule);
+      `cmd_largest` prints the label; the resolver's unique-suffix step after
+      S1's exact-name step. `Theory_Section.real_path` caches the one
+      `toRealPath` per section a resident index would otherwise pay per
+      request (`Discovery.real`'s two lines moved down to `Model` with it);
+      measured on the whole AFP, `largest` is 19.0/19.4 s after against
+      20.0/19.6 s before — inside the noise. Upstream's own defect around a
+      COLLIDING path-spelled ROOT name (`two/ex/ex/Foo`, which no verb
+      accepts back) is reproduced byte-for-byte, verified on a fixture; no
+      gate corpus hits it and it is worth reporting upstream, not diverging
+      over.
+- [x] `[disambig-loci]` — the other eight emitters: `enclosing` (locus,
+      scope, past-end; the echo is the LABEL, not the typed token), `callers`
+      (+ context lines, owner from the hit's OWN section), `methods`, `grep`,
+      `sorry` (label + suffix, so `notes.md` stays itself), `shape steps`,
       `shape lemma`, `shape widest` (sort key unchanged). `--json` and
-      `census` unchanged. jEdit: `Group.caption` / peek use the label; the
-      plugin's `sections_by_theory` last-wins lookup goes by path.
-- [ ] `[bare-provenance]` — `Step.bare` classified `construction` /
+      `census` unchanged. `Usage_Graph.Method_Use` and `Commands.Hit` carry
+      the section's PATH. jEdit: `Group.theory_label` feeds `Group.caption`,
+      `Snapshot` gains a by-path section map and one label map, and
+      `Query_Peek.of_line` is keyed by the row's path (`Query_Editor.goto`
+      sheds the theory-stem argument it was deriving).
+- [x] `[bare-provenance]` — `Step.bare` classified `construction` /
       `undelimited` / `unfound` by upstream's rule; `bare_kinds` object after
       `method_kinds` in `summary_record` (census, `summary --json`), keys in
-      that order, all present, sum = `n_bare`. METRICS.md paragraph (already
-      merged in S0). Delete the todo item.
-- [ ] `dev/p9probe.sh` §16–§18 (the alpha/beta/solo collision root; the
-      31-line BARE theory).
-- [ ] Gate: difftest (`shape-census*`, `shape-summary-json*`, CTT
-      `enclosing-*` clear), p5/p6/p6b, p7probe.
+      that order, all present, sum = `n_bare`. METRICS.md's "lands in P9 S4"
+      note is gone, and so is `todo.md`'s head-note about the three upstream
+      items being ported.
+- [x] `dev/p9probe.sh` §16–§18 (the alpha/beta/solo collision root; the
+      31-line BARE theory): 110 → **140 checks, 0 failing**, with a second
+      failability perturbation for the second comparator. §13's four
+      `[name-is-not-identity]` expectations move to the qualified label,
+      cross-checked against the oracle.
+- [x] Gate: `dev/difftest.sh` against oracle 0.8.1 — **2,149 cases: 2,146
+      clean, 3 pinned, 0 failing, 0 stale**, down from 54 failing at S3 with
+      no case newly red (the 45 `bare_kinds` and the 9 locus-width `grep-*`
+      all cleared). Warm run on `Abstract_Completeness`
+      (`QUERY_DIFFTEST_WARM=1`): 307 cases, 305 clean, 2 pinned, 0 failing,
+      and no server left registered. p5/p6/p6b green after rebuilding the
+      component jar and the shim jar; p7probe 87/0, p7cprobe 45/0, p9probe
+      140/0.
 
 ### S5 — close out `[p9-status]`
 
