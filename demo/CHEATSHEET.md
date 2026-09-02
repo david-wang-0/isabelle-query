@@ -35,7 +35,7 @@
 ## Demo_Legacy.thy — the uncited import
 - `Demo_Legacy:15` paragraph, `:26` subparagraph — `Q outline Demo_Legacy` → exit 1, oracle parity
 - `Demo_Legacy:28` legacy_scale — `Q deps Demo_Proofs` lists it, `Q refs Demo_Proofs` never reaches it
-- `Demo_Legacy:48` legacy_twice — `Q callers twice` → 3 rows; `ISABELLE_QUERY_REACHABILITY=off` → 4.
+- `Demo_Legacy:48` legacy_twice — `Q callers twice` → 3 rows; `--reach name` → 4.
   The arrow runs `Demo_Extras` → `Demo_Core`, so this `twice` is a bound variable and cannot cite `Demo_Code`'s
 
 ## Demo_Proofs.thy — proofs, chain, wide step, open goal

@@ -131,9 +131,6 @@ citing it every time it writes a λ.
 The AFP declares 7 entries named `lambda`, 37 named `le` and 27 named `sub`, so
 this was not hypothetical: `callers sub` counted every `\<^sub>` in the corpus.
 
-*(P9 S3, see [dev/P9-PLAN.md](dev/P9-PLAN.md): this engine still reads inside
-the symbol, so `callers sub` over a corpus is inflated here until it lands.)*
-
 ## A citation must be reachable
 
 A cited token is matched by name, and over one session that is enough:
@@ -161,9 +158,7 @@ across it disappears. So an import is matched by the same rule Isabelle uses —
 its **last path segment** — which is what lets `imports "../WFair"` and a ROOT
 that spells a theory `"Simple/Reach"` reach each other. For the same reason,
 where a corpus declares one theory name twice the closure takes the **union**
-of both sections' imports rather than picking one. *(The last-path-segment rule
-and the union land in P9 S3; this engine still resolves an import by exact name,
-so a path-spelled import is a hole here — see [dev/P9-PLAN.md](dev/P9-PLAN.md).)*
+of both sections' imports rather than picking one.
 
 **Position inside a theory is not consulted** — a citation written above the
 declaration it names is still attributed to it. That is deliberate: `lemmas`
@@ -173,9 +168,7 @@ prune real citations. `dev/p7cprobe.sh` §2 pins it, and `[reach-position]` in
 `todo.md` is where the refinement would go.
 
 `--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
-`graph` and `refs` — every verb the scoping moves. *(P9 S3 again: this engine
-spells that `ISABELLE_QUERY_REACHABILITY=off` today, and the flag replaces the
-env var outright.)*
+`graph` and `refs` — every verb the scoping moves.
 
 ## Locale scope
 
@@ -268,9 +261,9 @@ entry that actually makes them and restores 43,912 that were suppressed;
 `unused` grows accordingly. A single-session run is unaffected, because within
 a session Isabelle already requires the names to be distinct.
 
-*(Both halves are P9 work in this engine: the labels in S4, the path-keyed
-indexes in S3. Until then a printed theory name is the bare stem and the three
-per-file indexes are keyed by name. See [dev/P9-PLAN.md](dev/P9-PLAN.md).)*
+*(The path-keyed indexes are in this engine; the printed LABELS are P9 S4, so a
+printed theory name is still the bare stem here. See
+[dev/P9-PLAN.md](dev/P9-PLAN.md).)*
 
 ## Aggregating across a corpus
 

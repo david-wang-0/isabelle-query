@@ -10,8 +10,13 @@
 # to the compatibility mode, and says why).  Every expectation here is
 # HAND-COMPUTED off the fixture theories this script writes -- read them, they
 # are the spec -- and each is asked twice: once with the filter, which is the
-# default, and once with `$ISABELLE_QUERY_REACHABILITY=off`, which must give
-# the unfiltered answer the oracle gives.
+# default, and once with `--reach name`, which must give the unfiltered answer
+# the oracle gives.  (P7c shipped that second mode as
+# `$ISABELLE_QUERY_REACHABILITY=off`; P9 S3 made it a flag on the five
+# attributing verbs and deleted the variable, so the mode is now visible in the
+# invocation rather than in the environment.  `instances` and `codeqs` have no
+# such flag -- upstream pins it to the attributing verbs -- so where they
+# appear below they are asked once, in the default mode.)
 #
 # The fixtures are a real Isabelle session and every theory in them BUILDS.
 # That is a constraint worth naming: the coincidences the filter removes are
@@ -21,11 +26,13 @@
 # than for pruning: no compilable `interpretation L` can name an L its theory
 # cannot see.
 #
-# This file also discharges watch-out 3 of dev/P7B-STATUS.md for
-# `$ISABELLE_QUERY_REACHABILITY` -- the third place a new engine variable has
-# to be checked is "over the socket", and §6 does that here rather than in
-# dev/p7probe.sh §9b because the fixture that makes the variable observable at
-# all lives in this file.
+# §6 is what is left of watch-out 3 of dev/P7B-STATUS.md.  A request-scoped
+# ENGINE VARIABLE had three places to go and the third was "over the socket";
+# a FLAG is argv, which the client and the server already forward verbatim, so
+# there is nothing new to forward -- but the answer still has to be the same
+# warm as cold, and that is what §6 now asserts, here rather than in
+# dev/p7probe.sh §9b because the fixture that makes the mode observable at all
+# lives in this file.
 #
 # Usage:
 #   dev/p7cprobe.sh [CORPUS]
@@ -217,10 +224,11 @@ echo
 
 isabelle scala_build || exit $?
 
-# `on` is the default and says nothing; `off` is the compatibility mode
-# dev/difftest.sh pins the whole matrix to.  Both go through the ONE switch.
+# `on` is the default and says nothing; `off` appends `--reach name`, the
+# compatibility mode dev/difftest.sh compares in.  The flag goes LAST, after
+# the verb's own positionals, which is where a user would type it.
 on()  { isabelle query -R "$FIX" "$@" 2>"$OUT/err.txt"; }
-off() { ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$FIX" "$@" 2>"$OUT/err.txt"; }
+off() { isabelle query -R "$FIX" "$@" --reach name 2>"$OUT/err.txt"; }
 
 # expect NAME WANT_ON WANT_OFF ARGS...
 expect() {
@@ -235,6 +243,15 @@ expect() {
   fi
 }
 
+# same NAME WANT ARGS...  -- one mode only, for a verb that has no `--reach`.
+same() {
+  local name=$1 want=$2; shift 2
+  local got
+  got=$(on "$@")
+  if [ "$got" = "$want" ]; then note "$name" "$got"
+  else bad "$name" "[$got] wanted [$want]"; fi
+}
+
 # --------------------------------------------------------------------------
 echo "0. the fixture is the set \`isabelle build\` would compile"
 # --------------------------------------------------------------------------
@@ -247,7 +264,7 @@ if [ "$head" = "12 entries across 5 theories  (parsed live from .thy files)" ]; 
 else
   bad "3 declared theories, Left and Base by import, 12 entries" "$head"
 fi
-expect "and Lonely is one of them, with its two lemmas" 2 2 theory Lonely -c
+same "and Lonely is one of them, with its two lemmas" 2 theory Lonely -c
 
 # --------------------------------------------------------------------------
 echo
@@ -345,19 +362,29 @@ echo "5. the site verbs share the filter, and it does not over-prune"
 # `gizmo` is declared twice, in disjoint trees, and interpreted once in each.
 # Top's site sees Left's `gizmo`; Right's sees its own.  Both are possible, so
 # both stay -- and this is the canary for a site filter that prunes too hard.
-expect "instances gizmo: two sites in two trees, both kept" 2 2 instances gizmo -c
-expect "codeqs widget: the default equations of both, both kept" 2 2 codeqs widget -c
+#
+# Asked once each: the site verbs take the closure rule from the engine's own
+# default (`Reach.DEFAULT_MODE`) and carry no `--reach` of their own, because
+# upstream puts the flag on the five ATTRIBUTING verbs and these two have no
+# oracle to be compatible with.  What is under test here is the same thing
+# either way -- that the filter does not over-prune.
+same "instances gizmo: two sites in two trees, both kept" 2 instances gizmo -c
+same "codeqs widget: the default equations of both, both kept" 2 codeqs widget -c
 
 # --------------------------------------------------------------------------
 echo
-echo "6. the switch is per REQUEST, over the socket as well"
+echo "6. the flag rides through the socket, and answers what the cold run does"
 # --------------------------------------------------------------------------
 
-# P7b watch-out 3: an engine variable has three places to go, and the third is
-# a check that it survives the socket.  The defect this guards is the one
-# dev/p7probe.sh §9b records for the namespace table -- a resident server
-# reading its OWN environment, or keeping the first client's, and answering
-# every later client with a pin they never asked for.
+# A flag is argv, and argv is what the thin client forwards and the server
+# parses through `CLI.run_result` -- so there is no second channel to keep in
+# step, which is most of why P9 S3 replaced the variable with it.  What is left
+# to check is that the warm path AGREES: the mode must reach the engine, and it
+# must not persist past the request that carried it.  The defect that shape
+# guards is the one dev/p7probe.sh §9b records for the namespace table -- a
+# resident server answering a later client with a pin they never asked for --
+# and a flag cannot have it by construction, which is worth demonstrating
+# rather than asserting.
 
 client() {
   env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SERVER" \
@@ -371,53 +398,82 @@ else
   bad "the probe-private server is up" "$(head -2 "$OUT/status.txt" | tr '\n' ' ')"
 fi
 
-warm_off=$(ISABELLE_QUERY_REACHABILITY=off client -R "$FIX" callers widget -c 2>/dev/null)
+warm_off=$(client -R "$FIX" callers widget -c --reach name 2>/dev/null)
 warm_on=$(client -R "$FIX" callers widget -c 2>/dev/null)
 if [ "$warm_off" = "5" ]; then
-  note "a client that sets it gets the unfiltered answer (forwarded)" "$warm_off"
+  note "a client that passes --reach name gets the unfiltered answer" "$warm_off"
 else
-  bad "a client that sets it gets the unfiltered answer (forwarded)" "$warm_off"
+  bad "a client that passes --reach name gets the unfiltered answer" "$warm_off"
 fi
-# Ordered deliberately: the `off` request runs FIRST, so this one fails if the
-# server keeps a request's value past that request.
+# Ordered deliberately: the `--reach name` request runs FIRST, so this one
+# fails if anything about that request outlives it on the resident index.
 if [ "$warm_on" = "4" ]; then
   note "and the NEXT client, on that same server, gets the default back" "$warm_on"
 else
   bad "and the NEXT client, on that same server, gets the default back" "$warm_on"
 fi
 
-# The delegating CLI reads `CLI.request_env` directly, so it forwards the
-# variable with no list of its own -- P7b's reason for putting the contract
-# there.  Same server, no `--no-server`.
+# And through the shim's own route to the same server, no `--no-server`: the
+# argv is what travels, so this needs no list of variables anywhere.
 deleg_off=$(env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SERVER" \
-  ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$FIX" callers widget -c 2>/dev/null)
+  isabelle query -R "$FIX" callers widget -c --reach name 2>/dev/null)
 deleg_on=$(env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SERVER" \
   isabelle query -R "$FIX" callers widget -c 2>/dev/null)
 if [ "$deleg_off" = "5" ] && [ "$deleg_on" = "4" ]; then
-  note "the delegating CLI forwards it too, and not stickily" "off $deleg_off / on $deleg_on"
+  note "the warm answer equals the cold answer in both modes" "name $deleg_off / closure $deleg_on"
 else
-  bad "the delegating CLI forwards it too, and not stickily" "off $deleg_off / on $deleg_on"
+  bad "the warm answer equals the cold answer in both modes" "name $deleg_off / closure $deleg_on"
 fi
 
 cleanup
 
 # --------------------------------------------------------------------------
 echo
-echo "7. one spelling turns it off, and only one"
+echo "7. the flag grammar: two spellings, and nothing else"
 # --------------------------------------------------------------------------
 
-# `off` is matched case-insensitively; every other value, including the empty
-# one, leaves the default alone.  A second spelling would be a second thing for
-# a harness to get wrong.
-for value in OFF Off off; do
-  got=$(ISABELLE_QUERY_REACHABILITY="$value" isabelle query -R "$FIX" callers widget -c)
-  if [ "$got" = "5" ]; then note "\`$value\` turns it off" "$got"
-  else bad "\`$value\` turns it off" "$got"; fi
+# Two values and no third.  An unrecognised one is exit 2 with the choices
+# named -- never a silent fall back to the default, which would answer a
+# different question from the one asked.  `--reach closure` written out must
+# mean exactly the default, or the default is not what the help says it is.
+for spelling in "--reach closure" "--reach=closure"; do
+  # shellcheck disable=SC2086
+  got=$(isabelle query -R "$FIX" callers widget -c $spelling)
+  if [ "$got" = "4" ]; then note "\`$spelling\` is the default, written out" "$got"
+  else bad "\`$spelling\` is the default, written out" "$got"; fi
 done
-for value in "" 0 no maybe on; do
-  got=$(ISABELLE_QUERY_REACHABILITY="$value" isabelle query -R "$FIX" callers widget -c)
-  if [ "$got" = "4" ]; then note "\`$value\` does not" "$got"
-  else bad "\`$value\` does not" "$got"; fi
+for spelling in "--reach name" "--reach=name"; do
+  # shellcheck disable=SC2086
+  got=$(isabelle query -R "$FIX" callers widget -c $spelling)
+  if [ "$got" = "5" ]; then note "\`$spelling\` is the compatibility mode" "$got"
+  else bad "\`$spelling\` is the compatibility mode" "$got"; fi
+done
+for value in "" 0 off no closures Name; do
+  got=$(isabelle query -R "$FIX" callers widget -c --reach "$value" 2>"$OUT/err.txt")
+  rc=$?
+  msg=$(cat "$OUT/err.txt")
+  want="isabelle query: error: argument --reach: invalid choice: '$value' (choose from 'closure', 'name')"
+  if [ "$rc" = "2" ] && [ -z "$got" ] && [ "$msg" = "$want" ]; then
+    note "\`--reach $value\` is refused, exit 2, stdout untouched" "rc $rc"
+  else
+    bad "\`--reach $value\` is refused, exit 2, stdout untouched" "rc $rc out [$got] err [$msg]"
+  fi
+done
+
+# The flag is on the five ATTRIBUTING verbs and nowhere else, which upstream
+# pins too: `deps` / `uses` read the `imports` clause and attribute nothing,
+# `methods` identifies a method by POSITION, and `shape` counts cited TOKENS
+# without ever asking which entry one denotes.  A flag on them would be a
+# switch with nothing to switch.
+for verb in "deps Left" "uses Left" "methods simp" "instances gizmo" "codeqs widget"; do
+  # shellcheck disable=SC2086
+  isabelle query -R "$FIX" $verb --reach name >"$OUT/o.txt" 2>"$OUT/err.txt"
+  rc=$?
+  if [ "$rc" = "2" ] && grep -q 'unrecognized argument: --reach' "$OUT/err.txt"; then
+    note "\`$verb\` has no --reach, and says so" "rc $rc"
+  else
+    bad "\`$verb\` has no --reach, and says so" "rc $rc  $(head -1 "$OUT/err.txt")"
+  fi
 done
 
 # --------------------------------------------------------------------------
@@ -430,10 +486,10 @@ echo "8. a real corpus: inside ONE import tree the filter removes nothing"
 # This is the canary for a closure built wrong -- an import spelling the
 # resolver fails to map is a hole, and a hole silently PRUNES.  It caught one:
 # `HOL-MicroJava` reaches across its own subdirectories with `imports
-# ../BV/Altern`, and before `Reach.import_target` learned the leaf rule this
-# check was 608 against 668.
+# ../BV/Altern`, and before the resolver learned the leaf rule this check was
+# 608 against 668.
 hol_on=$(isabelle query -R "$CORPUS" callers rev -c 2>/dev/null)
-hol_off=$(ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$CORPUS" callers rev -c 2>/dev/null)
+hol_off=$(isabelle query -R "$CORPUS" callers rev -c --reach name 2>/dev/null)
 if [ -n "$hol_on" ] && [ "$hol_on" = "$hol_off" ]; then
   note "callers rev over the corpus is unchanged by the filter" "$hol_on"
 else
@@ -550,17 +606,26 @@ THY
 
 : >"$OUT/nest-err.txt"
 
-# expect_nest NAME WANT_ON WANT_OFF ARGS...
+# expect_nest NAME WANT_ON WANT_OFF ARGS...   (a verb that has `--reach`)
 expect_nest() {
   local name=$1 want_on=$2 want_off=$3; shift 3
   local got_on got_off
   got_on=$(isabelle query -R "$NEST" "$@" 2>>"$OUT/nest-err.txt")
-  got_off=$(ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$NEST" "$@" 2>>"$OUT/nest-err.txt")
+  got_off=$(isabelle query -R "$NEST" "$@" --reach name 2>>"$OUT/nest-err.txt")
   if [ "$got_on" = "$want_on" ] && [ "$got_off" = "$want_off" ]; then
     note "$name" "on $got_on / off $got_off"
   else
     bad "$name" "on [$got_on] wanted [$want_on]; off [$got_off] wanted [$want_off]"
   fi
+}
+
+# same_nest NAME WANT ARGS...                 (a verb that does not)
+same_nest() {
+  local name=$1 want=$2; shift 2
+  local got
+  got=$(isabelle query -R "$NEST" "$@" 2>>"$OUT/nest-err.txt")
+  if [ "$got" = "$want" ]; then note "$name" "$got"
+  else bad "$name" "[$got] wanted [$want]"; fi
 }
 
 # The fixture, before anything is asked of it: 3 declared theories, Helper_Fix
@@ -585,30 +650,42 @@ else
 fi
 
 # THE hole.  Deep/Down_Fix:5 is the row that used to vanish.
-expect_nest "codeqs quad -- all three sites, filter or no filter" 3 3 codeqs quad -c
+same_nest "codeqs quad -- all three sites" 3 codeqs quad -c
 expect_nest "callers quad -- both citations survive" 2 2 callers quad -c
 
 nest_want='Nested/Nested_Fix:5
 Deep/Down_Fix:5
 Plain_Fix:5'
-for mode in on off; do
-  if [ "$mode" = off ]; then
-    loci=$(ISABELLE_QUERY_REACHABILITY=off isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
+loci=$(isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
+if [ "$loci" = "$nest_want" ]; then
+  note "the relative-path site is reported" "$(printf '%s' "$loci" | tr '\n' ' ')"
+else
+  bad "the relative-path site is reported" "$(printf '%s' "$loci" | tr '\n' ' ')"
+fi
+# The same question through a verb that HAS the flag, so the closure is
+# exercised in both modes on this fixture too: the hole was in the closure,
+# and `--reach name` does not use one.
+# `quad` is cited on `Deep/Down_Fix:5` and `Plain_Fix:5` and nowhere else:
+# `Nested/Nested_Fix` holds only the declaration, which the scan excludes, and
+# the `quad_def` on each proof line is a different token.  The locus column is
+# what the hole ate, so it is the column asserted.
+nest_callers_want='Deep/Down_Fix:5
+Plain_Fix:5'
+for mode in closure name; do
+  loci=$(isabelle query -R "$NEST" callers quad --reach "$mode" -U 0 \
+    2>>"$OUT/nest-err.txt" | tail -n +3 | awk '{print $1}')
+  if [ "$loci" = "$nest_callers_want" ]; then
+    note "and its citations are reported, --reach $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
   else
-    loci=$(isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
-  fi
-  if [ "$loci" = "$nest_want" ]; then
-    note "the relative-path site is reported, filter $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
-  else
-    bad "the relative-path site is reported, filter $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
+    bad "and its citations are reported, --reach $mode" "$(printf '%s' "$loci" | tr '\n' ' ')"
   fi
 done
 
 # The two near-misses, which resolved before this fix and must still.
-expect_nest "codeqs cube -- a bare-named theory reached by \`../\` and by prefix" 3 3 codeqs cube -c
+same_nest "codeqs cube -- a bare-named theory reached by \`../\` and by prefix" 3 codeqs cube -c
 expect_nest "callers cube -- same, through the citation router" 2 2 callers cube -c
 
-# Nothing is said on stderr either way: the whole point of the finding is that
+# Nothing is said on stderr in any mode: the whole point of the finding is that
 # a hole in the closure prunes SILENTLY, so a probe that only counted rows
 # would not have noticed had the fix traded one silence for another.
 if [ ! -s "$OUT/nest-err.txt" ]; then

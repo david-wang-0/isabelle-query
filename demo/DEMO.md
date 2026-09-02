@@ -438,7 +438,7 @@ name-level scan cannot tell from a citation:
 
 ```sh
 isabelle query -R demo callers twice
-ISABELLE_QUERY_REACHABILITY=off isabelle query -R demo callers twice
+isabelle query -R demo callers twice --reach name
 ```
 
 ```
@@ -466,7 +466,7 @@ verb, `graph citation`, `instances` and `codeqs` read — and it is why
 `legacy_twice` is listed as dead in §2.3: without it, `Demo_Code` looked like
 its caller.
 
-`ISABELLE_QUERY_REACHABILITY=off` restores name-only attribution, which is what
+`--reach name` restores name-only attribution, which is the mode
 `dev/difftest.sh` compares against the Python oracle.
 
 ## 2.7 The graphs

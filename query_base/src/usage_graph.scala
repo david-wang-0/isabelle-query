@@ -437,7 +437,8 @@ object Usage_Graph {
   }
 
   def build_call_graph(sections: List[Theory_Section],
-    drop_upto: Int = DROP_NAMES_UPTO, derived: Boolean = false
+    drop_upto: Int = DROP_NAMES_UPTO, derived: Boolean = false,
+    reach: String = Reach.DEFAULT_MODE
   ): Call_Graph = {
     /* 1. Candidate names.  A name too short to tell from a term variable, or a
           bare numeral, is not a citable fact, so the universal variable `x`
@@ -446,17 +447,17 @@ object Usage_Graph {
           below.  Dropping it outright stopped `by simp` minting edges to a
           `definition simp` — and erased every genuine citation of any entry
           whose name collides with the bound table. */
-    /* Import visibility, when it is on: the closure is shared corpus-wide
-       (`Reach.closure` memoises it), and `declared_at` is built in THIS pass
-       rather than a second one — the loop that mints the name universe already
-       knows which theory each name came from. */
-    val reach = if (Reach.enabled) Reach.closure(sections) else null
+    /* Import visibility, under `--reach closure`: the closure is shared
+       corpus-wide (`Reach.closure` memoises it), and `declared_at` is built in
+       THIS pass rather than a second one — the loop that mints the name
+       universe already knows which theory each name came from. */
+    val closure = if (reach == "closure") Reach.closure(sections) else null
     val declared_at = mutable.HashMap.empty[String, List[Int]]
 
     val name_set = mutable.LinkedHashSet.empty[String]
     val shadowed = mutable.LinkedHashSet.empty[String]
     for (sec <- sections) {
-      val tid = if (reach != null) reach.id(sec.theory) else -1
+      val tid = if (closure != null) closure.id(sec.theory) else -1
       for (e <- sec.entries) {
         /* A DECLARATION of the name, for the visibility question, is an entry
            of ANY tag [citation-reach].  The graph's NODES are the citable tags
@@ -469,7 +470,7 @@ object Usage_Graph {
            citing theory positively CANNOT see, and a tag is no evidence about
            that.  (The `"?"` anchor name goes in too, harmlessly: it is never a
            candidate.) */
-        if (reach != null) {
+        if (closure != null) {
           val seen = declared_at.getOrElse(e.name, Nil)
           if (!seen.contains(tid)) declared_at(e.name) = tid :: seen
         }
@@ -517,7 +518,7 @@ object Usage_Graph {
       val text_mask = Entries.line_mask(lines.length, t_ranges)
       /* What THIS theory can see: its import closure and itself.  Bound once
          per section — the row is a bit test per candidate name. */
-      val visible: Int => Boolean = if (reach != null) reach.visible_from(sec.theory) else null
+      val visible: Int => Boolean = if (closure != null) closure.visible_from(sec.theory) else null
       var line_no = 1
       val cand = mutable.LinkedHashSet.empty[String]
       while (line_no <= lines.length) {

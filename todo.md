@@ -292,7 +292,7 @@ the frozen Python reference, and several (`[keyword-scope]` = D4,
       list is one Isabelle would not recognise — and `theory
       "Nested/Nested_Fix"` then fails to find a theory it has just listed, on
       BOTH implementations.  The reachability filter's half of this is closed
-      (`Reach.build`'s alias table, `dev/p7cprobe.sh` §8b); the NAME is not.
+      (`Reach.leaf_index`, `dev/p7cprobe.sh` §8b); the NAME is not.
       What stops it being a one-word change in `Discovery.session_theories` is
       parity: the reference spells them the same way, and three difftest
       corpora contain one — `Locale_Test/Locale_Test` (FOL),

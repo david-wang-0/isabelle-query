@@ -156,11 +156,10 @@ is HOL's own `Orderings.mono` arriving through an `imports Main` that `query`
 does not follow. The same filter is what `callers`, `callees`, `refs`,
 `unused`, `graph citation`, `instances` and `codeqs` all read.
 
-`ISABELLE_QUERY_REACHABILITY=off` turns it off, restoring name-only
-attribution. *(P9 S3 replaces that channel with a `--reach {closure,name}`
-flag on `callers`, `callees`, `refs`, `unused` and `graph` — one switch, on
-every front door, and the env var goes away. See
-[dev/P9-PLAN.md](dev/P9-PLAN.md).)*
+`--reach name` turns it off, restoring name-only attribution. The flag is on
+`callers`, `callees`, `refs`, `unused` and `graph` — every verb the scoping
+moves — and `closure` is the default for the CLI, the warm server, the plugin
+and a library caller alike.
 
 Both exit `1` when the subject is not a locale/class (resp. not a constant)
 declared in the project, rather than reporting zero sites.
@@ -285,9 +284,8 @@ ISABELLE_QUERY_ALWAYS_BUILD=1 …      # run scala_build always, not only when s
 
 `$ISABELLE_QUERY_CLIENT_SERVER` names the server (default `isabelle_query`).
 The variables the *tool* reads — `$ISABELLE_QUERY_ROOT`,
-`$ISABELLE_LAYOUT_ROOT`, `$ISABELLE_QUERY_NAMESPACE`,
-`$ISABELLE_QUERY_REACHABILITY` — travel in the request and are bound for that
-request only, so one set in your shell means the same thing warm as cold,
+`$ISABELLE_LAYOUT_ROOT`, `$ISABELLE_QUERY_NAMESPACE` — travel in the request
+and are bound for that request only, so one set in your shell means the same thing warm as cold,
 whoever happened to start the server.
 
 ## What it reads

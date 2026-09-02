@@ -238,7 +238,8 @@ object Usage {
     Commands.resolve_theory(sections, theory) match {
       case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
-        val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
+        val g =
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
         val by_theory = Usage_Graph.sections_by_theory(sections)
         val own = target.theory
         val closure = import_depths(own, by_theory)
@@ -353,7 +354,7 @@ object Usage {
      `sections_by_theory` is the fourth instance of the collapse the three
      indexes above just moved off [name-is-not-identity]. */
   def find_callers(sections: List[Theory_Section], name: String,
-    external: Boolean = false
+    external: Boolean = false, reach: String = Reach.DEFAULT_MODE
   ): List[(Theory_Section, Int, String)] = {
     val word_re = Py.compile(Commands.isa_word_pattern(name))
     val antiq_re =
@@ -364,7 +365,7 @@ object Usage {
     val text_ranges = Usage_Graph.noise_ranges(sections)
     /* Read late: the namespace table is bound by the CLI after start-up. */
     val shadowed = Namespace.non_citation(name)
-    val reachable = Reach.site_filter(sections, name)
+    val reachable = Reach.site_filter(sections, name, reach)
 
     val results = new mutable.ListBuffer[(Theory_Section, Int, String)]
     for (sec <- sections if !(external && def_paths(sec.path)) && reachable(sec.theory)) {
@@ -426,7 +427,8 @@ object Usage {
   ): Unit = {
     var name = name0
     if (flags.recursive) {
-      val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
+      val g =
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
       if (!g.all_names(name)) {
         Commands.resolve_binding(sections, name) match {
           case Some((parent, how)) =>
@@ -447,7 +449,8 @@ object Usage {
       render_graph_results(out, sections, reachable, "caller", name, flags)
     }
     else {
-      val hits = find_callers(sections, name, external = flags.external)
+      val hits = find_callers(sections, name, external = flags.external,
+        reach = flags.reach)
       if (flags.mode == "count") out.println(hits.length.toString)
       else if (hits.isEmpty) out.println(s"No callers found for '$name'.")
       else {
@@ -483,7 +486,8 @@ object Usage {
     flags: Flags
   ): Unit = {
     var name = name0
-    val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
+    val g =
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
     if (!g.all_names(name)) {
       Commands.resolve_binding(sections, name) match {
         case Some((parent, how)) =>
@@ -766,7 +770,8 @@ object Usage {
        `definition foo` breaks every proof citing `foo_def`, so such a proof keeps
        `foo` alive.  Asking the fact-level question here would report live
        definitions as dead. */
-    val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto, derived = true)
+    val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto, derived = true,
+      reach = flags.reach)
 
     val keep = flags.keep
     if (keep.nonEmpty) {
@@ -816,7 +821,8 @@ object Usage {
 
   /* Nodes = indexed entries; edges = caller -> callee. */
   private def citation_graph_data(sections: List[Theory_Section], flags: Flags): Graph_Data = {
-    val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto)
+    val g =
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
     val by_name = Usage_Graph.entry_by_name(sections)
     val known = g.all_names.toList.sorted.filter(by_name.contains)
     val nodes =

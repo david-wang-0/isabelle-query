@@ -45,12 +45,12 @@ must never remove an attribution that could be real:
     tag.  A `rev` that is a LOCALE in one theory therefore keeps a `rev`
     citation alive there even though the citation graph's node is a lemma.
 
-`ISABELLE_QUERY_REACHABILITY=off` restores the unfiltered, name-only
-attribution — the semantics the Python reference implements, which is what
-`dev/difftest.sh` compares against.  There is ONE default and every front end
-gets it (CONTRIBUTING.md, "a configurable global that moves a measurement gets
-ONE default"): the CLI, the warm server and a direct library or plugin caller
-all read the switch through this object, and only the CLI ever writes it.
+`--reach name` restores the unfiltered, name-only attribution — the semantics
+the Python reference implements, and the mode `dev/difftest.sh` compares in.
+It is a VALUE threaded from the CLI (`Flags.reach`) rather than a process
+global: there is ONE default (`DEFAULT_MODE`, below) and every front end gets
+it, the CLI, the warm server, the jEdit plugin and a direct library caller
+alike, with nothing to rebind per request.
 */
 
 package isabelle.query
@@ -68,24 +68,21 @@ object Reach {
   /* the switch                                                         */
   /* ------------------------------------------------------------------ */
 
-  /* THE one default.  A library caller that never touches the CLI gets this,
-     and so does the plugin; `CLI.configure_reachability` binds the same
-     variable per request from `$ISABELLE_QUERY_REACHABILITY`, in BOTH
-     directions, so a warm server cannot inherit one client's pin.  Late-bound
-     and volatile for the same reason `Namespace`'s table is. */
-  val DEFAULT_ENABLED: Boolean = true
+  /* THE one default, and it is a VALUE, not a global.  `closure` scopes
+     attribution by what the citing theory can see; `name` matches by name
+     alone, which is the compatibility mode and what the Python reference
+     implements.
 
-  @volatile private var enabled_flag: Boolean = DEFAULT_ENABLED
-
-  def enabled: Boolean = enabled_flag
-
-  def set_enabled(b: Boolean): Unit = { enabled_flag = b }
-
-  /* The one spelling that turns it off, matched case-insensitively; anything
-     else — including an empty value — leaves the default alone.  A second
-     spelling would be a second thing to get wrong in a harness. */
-  def env_disables(value: Option[String]): Boolean =
-    value.exists(v => Py.strip(v).toLowerCase == "off")
+     It travels as `Flags.reach`, from `--reach {closure,name}` on the five
+     attributing verbs, and every engine entry point takes it as a parameter
+     defaulting to this constant.  So the CLI, the warm server, the jEdit
+     plugin and a direct library caller all get the same default with nothing
+     to rebind — one process-global fewer than P7c shipped, and the flag rides
+     through the server and the thin client verbatim because it is argv.
+     (CONTRIBUTING.md, "a configurable global that moves a measurement gets ONE
+     default": the default is here, and the one channel is the flag.) */
+  val MODES: List[String] = List("closure", "name")
+  val DEFAULT_MODE: String = "closure"
 
 
   /* ------------------------------------------------------------------ */
@@ -396,7 +393,7 @@ object Reach {
   }
 
   /* Which theories a single-name scan (`callers`, `instances`, `codeqs`) may
-     report a hit in.  Everything, when the filter is off — and equally when the
+     report a hit in.  Everything under `--reach name` — and equally when the
      project declares the name NOWHERE: `callers` answers for any token, and a
      token this project does not declare is a mention of something external,
      which no import closure has an opinion about.
@@ -406,8 +403,10 @@ object Reach {
      building the closure reads every theory header in the corpus, and
      `callers <some token>` — the plugin's commonest call, on whatever word is
      under the caret — is exactly the case that needs none of it. */
-  def site_filter(sections: List[Theory_Section], name: String): String => Boolean =
-    if (!enabled) (_ => true)
+  def site_filter(sections: List[Theory_Section], name: String,
+    reach: String = DEFAULT_MODE
+  ): String => Boolean =
+    if (reach != "closure") (_ => true)
     else {
       val theories = declaring_theories(sections, name)
       if (theories.isEmpty) (_ => true)

@@ -45,12 +45,11 @@ export ISABELLE_QUERY_NO_SERVER=1
 # by one table on every machine.
 export ISABELLE_QUERY_NAMESPACE=committed
 
-# The citation-reachability filter is pinned OFF for the same reason
-# dev/difftest.sh pins it: until S3 turns it into a flag with one default on
-# both sides, the port's default answer is not the oracle's, and a count in
-# this file must mean the same thing in both columns.  S3 deletes this line
-# along with the variable.
-export ISABELLE_QUERY_REACHABILITY=off
+# Citation reachability needs no pin.  S3 turned it into `--reach
+# {closure,name}` with `closure` the default on BOTH sides, so a count here
+# means the same thing in both columns without a variable; where a fixture
+# wants the compatibility mode it says `--reach name` in the invocation, which
+# is visible in the case rather than in the environment.
 
 # .dev/corpora.env is where this repository records its two corpora.  Read it
 # only for what the environment has not already supplied, so a caller can

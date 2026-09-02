@@ -132,16 +132,22 @@ has to differ by context, make each context bind what it wants — a branch that
 relies on "the default is already right" stops being right the moment the default
 moves, and nothing fails when it does.
 
-The Scala port has a **second** global of this shape, and it was built to that
-rule from the start: import-visibility filtering of citation attribution
-(`Reach.enabled`, `dev/DIVERGENCES.md` D13). The default is on, it is the same
-default for the CLI, the warm server, the jEdit plugin and a direct `Reach`
-caller, and the only writer is `CLI.configure_reachability` — which binds it per
-request, in BOTH directions and unconditionally, so a resident server cannot
-hand one client's pin to the next. It also gets ONE **channel**:
-`$ISABELLE_QUERY_REACHABILITY`, no argv flag. A flag would exist on exactly one
-of those four front doors, and a switch that only one caller can reach is the
-same defect in a different place.
+Import-visibility filtering of citation attribution (`dev/DIVERGENCES.md` D13)
+is the other measurement-moving setting, and it shows what "one channel" is
+really asking for. It shipped in P7c as a process global with an environment
+variable, on the argument that a flag would exist on exactly one of the four
+front doors — the CLI has an argv, the warm server, the jEdit plugin and a
+direct `Reach` caller do not — and that a switch only one caller can reach is
+the same defect in a different place. That argument was wrong about the server
+and the client: argv is exactly what those two forward, verbatim, so a flag
+rides through both without a second channel. The channel is now
+`--reach {closure,name}` on `callers`, `callees`, `refs`, `unused` and `graph`,
+threaded as a VALUE (`Flags.reach` → `build_call_graph` / `find_callers` /
+`Reach.site_filter`), and `Reach.DEFAULT_MODE` is the one default every caller
+starts from — the plugin and the library included, with no global to rebind and
+nothing for a resident server to restore between requests. One process-global
+fewer than P7c shipped, and the rule survives intact: ONE default, ONE
+channel.
 
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
@@ -195,8 +201,9 @@ re-deriving its hit's section — all now keyed by path. The two suppressing
 indexes are the worst, because a dropped citation leaves nothing to notice:
 over the AFP the collapse gave 381,710 lines a different owner, classified
 38,068 the wrong side of prose-vs-live, and moved 48,177 citation edges onto
-the wrong entry while hiding 43,912 real ones. *(Scala: the same four sites
-are name-keyed here; they move to `sec.path` in P9 S3.)*
+the wrong entry while hiding 43,912 real ones. *(Scala: the same four
+sites are keyed by `sec.path` here too, and `Usage.find_callers` hands its
+caller the section rather than a name.)*
 
 The fifth instance, the import closure, is a genuine graph node rather than a
 per-section lookup, so it took a different answer: not a better tiebreak among

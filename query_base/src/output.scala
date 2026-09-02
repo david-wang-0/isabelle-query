@@ -76,5 +76,10 @@ final case class Flags(
   by_theory: Boolean = false,      // --by-theory (unused)
   roots: Boolean = false,          // --roots (unused)
   keep: Set[String] = Set.empty,   // --keep (unused: live roots)
-  drop_names_upto: Int = Usage_Graph.DROP_NAMES_UPTO  // --drop-names-upto (call graph)
+  drop_names_upto: Int = Usage_Graph.DROP_NAMES_UPTO,  // --drop-names-upto (call graph)
+  /* --reach: `closure` scopes citation attribution by what the citing theory
+     can SEE, `name` matches by name alone.  A VALUE rather than a global, so
+     the library caller, the plugin and the warm server all get the same
+     default without anything to rebind. */
+  reach: String = Reach.DEFAULT_MODE
 )

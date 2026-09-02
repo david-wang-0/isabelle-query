@@ -132,6 +132,18 @@ object CLI {
         "drop single-char variable collisions; 0 keeps all; 2 also drops 2-char names)")
   private val external_flag =
     flag("--external")("external", "cut at the defining theory's boundary")
+  /* Scope citation attribution by what a theory can SEE.  A cited token is
+     resolved by NAME, and over one session that is right — everything there
+     sees everything the session declares.  Over a corpus it is not: the AFP
+     has two dozen lemmas spelled `mono`, and a site whose closure declares
+     none of them was reported as a caller of all of them
+     (`dev/DIVERGENCES.md` D13).  ONE default, `closure`, for the CLI and for a
+     library caller alike; `name` is the compatibility mode. */
+  private val reach_flag =
+    Opt(List("--reach"), "reach", unary = true, choices = Reach.MODES,
+      help = "attribute a citation only to declarations the citing theory can see " +
+        "-- itself or its transitive in-project imports (default 'closure'); 'name' " +
+        "matches by name alone, as before")
   /* WRITTEN text only, and the help says so: this tool never runs a prover, so
      a type it printed that the source does not contain would be the one column
      nobody could check. */
@@ -263,7 +275,7 @@ object CLI {
     Cmd(List("graph"), "emit the whole citation or import graph as JSON or DOT",
       List(Opt(List("--format", "-f"), "format", unary = true,
         help = "json (default) or dot", choices = List("json", "dot")),
-        drop_names_flag, theory_scope_flag),
+        drop_names_flag, reach_flag, theory_scope_flag),
       List(Pos("kind", "?", "citation (entry names, from the call graph) or imports " +
         "(theories, from the `imports` clauses).  Default: citation",
         choices = List("citation", "imports"), default = Some("citation")))),
@@ -273,7 +285,8 @@ object CLI {
         drop_names_flag,
         external_flag.copy(help =
           "exclude names this theory declares itself, leaving only what it takes " +
-            "from elsewhere")),
+            "from elsewhere"),
+        reach_flag),
       List(Pos("theory", "+", "theory name(s) or .thy path(s)"))),
     Cmd(List("callers"), "find proof-body usages",
       List(count_flag, recursive_flag.copy(help = "transitive closure (all indirect callers)"),
@@ -281,14 +294,16 @@ object CLI {
         context_flag.copy(help = "show N trailing lines after each match (default 0)"),
         external_flag.copy(help =
           "exclude callers inside the theory that defines NAME.  Only affects the " +
-            "non-recursive form; transitive closure via -r ignores this flag.")),
+            "non-recursive form; transitive closure via -r ignores this flag."),
+        reach_flag),
       List(Pos("name", "+", "entry name(s)")), Nil, context_default = 0),
     Cmd(List("callees"), "entries this entry references; reverse is `callers`",
       List(count_flag, names_flag, drop_names_flag,
         recursive_flag.copy(help = "transitive closure (all indirect callees)"),
         external_flag.copy(help =
           "exclude callees defined in NAME's own theory, leaving only cross-theory " +
-            "dependencies.  Only affects the non-recursive form.")),
+            "dependencies.  Only affects the non-recursive form."),
+        reach_flag),
       List(Pos("name", "+", "entry name(s)"))),
     Cmd(List("unused"), "list entries with zero callers",
       List(count_flag,
@@ -298,7 +313,7 @@ object CLI {
         Opt(List("--keep"), "keep", unary = true, append = true,
           help = "treat these names as live roots (never flag as unused, and stop the " +
             "cascade at them).  Repeatable, or a comma-separated list."),
-        drop_names_flag),
+        drop_names_flag, reach_flag),
       Nil),
     Cmd(List("methods", "method"),
       "proof-method usage tally; `methods NAME` lists that method's uses",
@@ -609,14 +624,14 @@ object CLI {
   val root_env: List[String] = List("ISABELLE_LAYOUT_ROOT", "ISABELLE_QUERY_ROOT")
   private val env_roots = root_env
   val NAMESPACE_ENV: String = "ISABELLE_QUERY_NAMESPACE"
-  /* `off` turns import-visibility filtering off, restoring the name-only
-     attribution the Python reference implements (dev/DIVERGENCES.md D13).
-     Deliberately env-only, exactly as `$ISABELLE_QUERY_NAMESPACE` is: a global
-     that moves a measurement gets ONE channel as well as one default, and an
-     argv flag would be a second one the plugin and the library caller do not
-     have. */
-  val REACHABILITY_ENV: String = "ISABELLE_QUERY_REACHABILITY"
-  val request_env: List[String] = env_roots ::: List(NAMESPACE_ENV, REACHABILITY_ENV)
+  /* Import-visibility filtering used to have a variable here too.  It is now
+     `--reach {closure,name}`, a VALUE on the five attributing verbs, because a
+     flag is argv and argv already rides through the server and the thin client
+     verbatim — so the objection that made it env-only in P7c (a switch only
+     one of the four front doors can reach) does not apply: the plugin and a
+     library caller take the same default with no global to rebind.  One
+     process-global fewer, and one fewer request variable. */
+  val request_env: List[String] = env_roots ::: List(NAMESPACE_ENV)
 
   val process_env: String => Option[String] =
     k => Option(System.getenv(k)).filter(_.nonEmpty)
@@ -1007,7 +1022,11 @@ object CLI {
       sorts = ns.bool("sorts"),
       by_theory = ns.bool("by_theory"), roots = ns.bool("roots"), keep = keep,
       drop_names_upto =
-        int_arg(ns, "drop_names_upto", "--drop-names-upto", Usage_Graph.DROP_NAMES_UPTO))
+        int_arg(ns, "drop_names_upto", "--drop-names-upto", Usage_Graph.DROP_NAMES_UPTO),
+      /* The value the CLI hands the engine; a verb that has no `--reach` gets
+         the same default an engine caller does, so there is nothing to keep in
+         step with a verb list. */
+      reach = ns.str("reach").getOrElse(Reach.DEFAULT_MODE))
   }
 
   private def each[A](out: Out, subjects: List[A])(body: A => Unit): Unit = {
@@ -1054,18 +1073,6 @@ object CLI {
      `$ISABELLE_QUERY_NAMESPACE=committed` pins the default: it short-circuits
      even the step-down, which is what a caller who wants one fixed table across
      a mixed corpus asks for. */
-  /* Bind import-visibility filtering for this run, from THIS request's
-     environment, in BOTH directions and unconditionally.
-
-     Unconditional because the variable it writes is process-global and a warm
-     server serves many clients: binding it only when a client asks for `off`
-     would pin the switch for everyone after them — the defect
-     `configure_namespace` records at length, avoided here by construction
-     rather than by care.  It costs one environment lookup, so there is no verb
-     list to keep in step either. */
-  def configure_reachability(s: Session): Unit =
-    Reach.set_enabled(!Reach.env_disables(s.env(REACHABILITY_ENV)))
-
   def configure_namespace(s: Session, command: String, sub: String = ""): Unit = {
     /* `shape census` is special, and its binding is UNCONDITIONAL — independent
        of `$ISABELLE_QUERY_NAMESPACE` and of the project's base logic.  A
@@ -1359,10 +1366,6 @@ object CLI {
     try {
       val s = new Session(err, out)
       prepare(s)
-      /* Before any argument is read, because it is free and because the
-         alternative is a per-verb list: every verb that attributes a name to a
-         declaration reads this, and the ones that do not are unaffected. */
-      configure_reachability(s)
       /* The top level takes its own options until the first positional; from
          the command name on, everything belongs to the subparser — argparse's
          `nargs=PARSER`, which is why `-R` works on either side. */

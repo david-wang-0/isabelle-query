@@ -40,7 +40,7 @@ text \<open>
   spelling, which is the only kind of thing a name-level scan can mistake for a
   citation.
 
-  \<^verbatim>\<open>query callers twice\<close> does not report this line. \<^verbatim>\<open>ISABELLE_QUERY_REACHABILITY=off\<close>
+  \<^verbatim>\<open>query callers twice\<close> does not report this line. \<^verbatim>\<open>--reach name\<close>
   does, and that is the whole of the difference: attribution is filtered by what
   the citing theory can see.
 \<close>
