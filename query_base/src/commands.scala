@@ -224,10 +224,29 @@ object Commands {
       by_path
         /* Before the stem fallback: the whole argument may be a path-spelled
            theory NAME.  Exact-first matters — with a `Propositional` section
-           also present, the stem would otherwise capture `LK/Propositional`.
-           (`[disambig-names]`'s unique-suffix step goes between this and the
-           stem, when it lands.) */
+           also present, the stem would otherwise capture `LK/Propositional`. */
         .orElse(sections.find(_.theory == name))
+        /* A LABEL, as `Render.theory_labels` emits it: the shortest directory
+           qualification that names one theory, matched here as a suffix of the
+           same tuple the label was built from — the exact inverse, so the
+           emitter and the resolver cannot drift [disambig-names].  Without it
+           the emitter's half is worse than useless: nineteen AFP theories are
+           called `Examples`, and `beta/Examples` would fall to the stem
+           fallback and resolve to `alpha/Examples`, silently and confidently.
+           A label that looks paste-able and lands on a DIFFERENT theory is a
+           worse answer than a bare ambiguous name, which at least reads as
+           ambiguous.  Only a UNIQUE hit counts; anything else falls through. */
+        .orElse {
+          val want = Render.name_parts(name)
+          if (want.isEmpty) None
+          else {
+            val hits = sections.filter { s =>
+              val tuple = Render.path_parts(s.real_path.getParent) :+ s.theory
+              tuple.length >= want.length && tuple.takeRight(want.length) == want
+            }
+            if (hits.length == 1) Some(hits.head) else None
+          }
+        }
         .orElse {
           val stem = stem_of(name)
           sections.find(_.theory == stem)
@@ -1009,13 +1028,23 @@ object Commands {
     val ordered = rows.sortBy(-_._1)
     if (ordered.isEmpty) out.println("No entries found.")
     else {
+      /* Qualified against the LOADED CORPUS, not against the rows on screen
+         [disambig-names].  Scoping to the shown rows is the tempting reading
+         and it breaks the round-trip: whether `Examples:11` names one theory
+         is a fact about the corpus — nineteen AFP theories are called
+         `Examples` — not about which of them a `-N 8` happened to print.  A
+         label unique on screen and ambiguous on paste is worse than no label,
+         because it invites the paste.  A single-session run still shows bare
+         `Bla`, because the qualification is driven by actual collisions. */
+      val labels = Render.locus_labels(sections)
       out.println(s"Top ${top min ordered.length} largest entries:\n")
       out.println(s"${pad_left("Lines", 6)}  ${pad_right("Tag", 8)}  " +
         s"${pad_right("Name", 42)}  Theory  (span)")
       out.println(s"${"-" * 6}  ${"-" * 8}  ${"-" * 42}  ------")
       for ((size, e, s) <- ordered.take(top max 0))
         out.println(s"${pad_left(size.toString, 6)}  ${pad_right(e.tag, 8)}  " +
-          s"${pad_right(e.name, 42)}  ${s.theory}  (${e.src_start}..${e.thy_end})")
+          s"${pad_right(e.name, 42)}  ${labels.getOrElse(s.path, s.theory)}  " +
+          s"(${e.src_start}..${e.thy_end})")
     }
   }
 }

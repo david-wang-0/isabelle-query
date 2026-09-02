@@ -18,12 +18,138 @@ package isabelle.query
 
 import isabelle.*
 
+import java.nio.file.{Path => JPath}
 import java.util.regex.Pattern
 
 import scala.collection.mutable
 
 
 object Render {
+  /* --- qualifying a theory name far enough to name ONE theory --- */
+
+  /* Python's `PurePath.parts`: an absolute path leads with its root, and a
+     `.` component is dropped.  Written out rather than taken from
+     `JPath.getName`, because the root element is exactly what makes the two
+     spellings agree at the exhaustion case below. */
+  def path_parts(p: JPath): List[String] = {
+    val root = if (p == null) Nil else Option(p.getRoot).map(_.toString).toList
+    val names =
+      if (p == null) Nil
+      else (0 until p.getNameCount).iterator.map(p.getName(_).toString)
+        .filter(s => s.nonEmpty && s != ".").toList
+    root ::: names
+  }
+
+  /* The same, for a name the USER typed: `alpha/Examples.thy` →
+     `[alpha, Examples]`.  The trailing suffix is dropped from the last
+     component only, which is Python's `with_suffix("")`. */
+  def name_parts(name: String): List[String] = {
+    val abs = name.startsWith("/")
+    val segs = name.split("/", -1).toList.filter(s => s.nonEmpty && s != ".")
+    val stripped = segs match {
+      case Nil => Nil
+      case _ =>
+        val last = segs.last
+        val i = last.lastIndexOf('.')
+        val cut = if (i > 0 && i < last.length - 1) last.substring(0, i) else last
+        segs.init :+ cut
+    }
+    (if (abs) List("/") else Nil) ::: stripped
+  }
+
+  /* Python's `PurePath.stem` / `.suffix`: a leading dot is not a suffix, and
+     neither is a trailing one. */
+  private def stem_suffix(p: JPath): (String, String) = {
+    val n = p.getFileName.toString
+    val i = n.lastIndexOf('.')
+    if (i > 0 && i < n.length - 1) (n.substring(0, i), n.substring(i)) else (n, "")
+  }
+
+  /* `{resolved path: the shortest directory-qualified name unique here}`.
+
+     A theory prints as its bare name, which is right for a session and wrong
+     for a corpus: 461 AFP theory names are used by more than one theory,
+     covering 1,219 of its 9,910 — `Examples` names nineteen different files.
+     A `largest` run over the AFP was a wall of unqualified `Bla` with no way
+     to tell one from another [disambig-names].
+
+     Qualified by the MINIMAL distinguishing suffix, not by the full path.  A
+     shared root prefix carries no information — every row would gain the same
+     `thys/` — and the label is INPUT as well as output: `theory:line` is meant
+     to round-trip, so the emitter qualifies far enough for the resolver to get
+     back to one theory and no further.  `Commands.resolve_theory` matches this
+     same tuple, so the two cannot drift.
+
+     The label grows from the theory's DECLARED NAME with its directory chain
+     in front, not from the file's stem.  Isabelle requires the two to agree
+     on disk, and three things still follow: a section parsed from a jEdit
+     BUFFER stops labelling as its scratch file; a ROOT that spells a theory
+     with a directory (`theories "While/Hoare"`) labels as itself rather than
+     as a bare stem no verb accepts; and collisions are decided on the name a
+     reader could actually type. */
+  def theory_labels(sections: List[Theory_Section]): Map[JPath, String] = {
+    val by_path = mutable.LinkedHashMap.empty[JPath, List[String]]
+    for (sec <- sections) {
+      val p = sec.real_path
+      if (!by_path.contains(p)) by_path(p) = path_parts(p.getParent) :+ sec.theory
+    }
+    val labels = mutable.HashMap.empty[JPath, String]
+    var pending = by_path
+    var depth = 1
+    while (pending.nonEmpty) {
+      val groups = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[JPath]]
+      for ((p, parts) <- pending)
+        groups.getOrElseUpdate(parts.takeRight(depth).mkString("/"),
+          new mutable.ListBuffer[JPath]) += p
+      val nxt = mutable.LinkedHashMap.empty[JPath, List[String]]
+      for ((label, paths) <- groups) {
+        if (paths.length == 1) labels(paths.head) = label
+        else
+          for (p <- paths) {
+            /* Exhausted: the paths are equal, so no suffix separates them.
+               Settle rather than loop — a repeated label is a poor answer, an
+               infinite loop is not an answer. */
+            if (depth >= pending(p).length) labels(p) = label
+            else nxt(p) = pending(p)
+          }
+      }
+      pending = nxt
+      depth += 1
+    }
+    labels.toMap
+  }
+
+  /* `theory_labels` re-keyed by each section's path AS STORED — the emitter's
+     view.  `theory_labels` keys on the resolved path so two spellings of one
+     file are one theory and one label; a located hit carries the section's
+     path as the section holds it, and re-resolving that per ROW would be a
+     syscall per row (`grep obtain` over the AFP prints 73,296 of them).
+
+     A theory NAME cannot be the key: 461 AFP theory names are shared, which is
+     the whole reason the label exists [disambig-loci]. */
+  def locus_labels(sections: List[Theory_Section]): Map[JPath, String] = {
+    val labels = theory_labels(sections)
+    val out = mutable.LinkedHashMap.empty[JPath, String]
+    for (sec <- sections) out(sec.path) = labels(sec.real_path)
+    out.toMap
+  }
+
+  /* The `grep` / `sorry` locus for a path: its label, suffix restored.  Those
+     two verbs report a FILE, because a non-`.thy` positional has no theory
+     name to print — so `notes.md` stays `notes.md` as readily as `Examples.thy`
+     qualifies to `alpha/Examples.thy`.  Both spellings round-trip:
+     `Commands.resolve_theory` strips a trailing suffix before matching. */
+  def file_locus(labels: Map[JPath, String], path: JPath): String = {
+    val (stem, suffix) = stem_suffix(path)
+    labels.getOrElse(path, stem) + suffix
+  }
+
+  /* The `methods` locus: the label alone, with no suffix restored — a method
+     use is reported at a THEORY, the way `callers` is. */
+  def theory_locus(labels: Map[JPath, String], path: JPath): String =
+    labels.getOrElse(path, stem_suffix(path)._1)
+
+
   /* Lines carrying LaTeX figure / typesetting markup, skipped in a truncated
      preview of a document block: a tikzpicture is not a summary of anything. */
   val LATEX_LINE_RE: Pattern = Py.compile(

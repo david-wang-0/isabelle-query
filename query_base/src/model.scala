@@ -30,6 +30,14 @@ import scala.collection.mutable
 
 
 object Model {
+  /* Python's `Path.resolve()`: symlinks followed, made absolute, and a path
+     that does not exist normalised rather than refused.  It sits here, at the
+     bottom, because `Theory_Section` caches its own resolved path;
+     `Discovery.real` is the name the rest of the tree calls it by. */
+  def real(p: JPath): JPath =
+    try p.toRealPath()
+    catch { case _: Exception => p.toAbsolutePath.normalize }
+
   /* Length-preserving blanking: each half-open [lo, hi) column range becomes
      spaces.  Spans arrive sorted; the clamping is written not to rely on it. */
   def blank_spans(line: String, spans: List[(Int, Int)]): String = {
@@ -136,6 +144,13 @@ class Theory_Section(
      line matching with no owner column and no live/prose classification. */
   val is_thy: Boolean = true
 ) {
+  /* The path with symlinks resolved — the identity of the FILE, as against
+     `path`, which is the spelling this load reached it by.  Held here and
+     computed once because `Render.theory_labels` needs it per section on every
+     request, and a resident index answering out of a whole-AFP snapshot would
+     otherwise pay ~10k `toRealPath` syscalls each time. */
+  lazy val real_path: JPath = Model.real(path)
+
   /* An inclusive 1-indexed line window from a grep `PATH:A..B` positional, an
      open upper bound left for the section to resolve to its own length.  A
      property of THIS load of the section, not of the theory, so it is a var

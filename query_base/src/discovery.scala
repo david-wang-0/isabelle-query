@@ -32,9 +32,10 @@ import scala.jdk.CollectionConverters.*
 object Discovery {
   /* --- filesystem helpers --- */
 
-  def real(p: JPath): JPath =
-    try p.toRealPath()
-    catch { case _: Exception => p.toAbsolutePath.normalize }
+  /* The rule itself lives in `Model`, which is where `Theory_Section` caches
+     its own resolved path; this is the name the rest of the tree already
+     calls, kept so a reader does not have to learn two. */
+  def real(p: JPath): JPath = Model.real(p)
 
   /* Python's `sorted()` over Path objects compares the COMPONENT TUPLE, not
      the whole string: `/a/ab` sorts before `/a/b`, which sorts before `/a-x`.
