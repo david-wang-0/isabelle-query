@@ -33,7 +33,8 @@ hit looks like.
 package isabelle.jedit_query
 
 
-import isabelle.query.{Commands, Entry, Render, Sites, Theory_Section, Usage}
+import isabelle.query.{Commands, Entry, Namespace, Render, Sites, Theory_Section,
+  Usage}
 
 import java.nio.file.{Path => JPath}
 
@@ -335,21 +336,25 @@ object Query_Search {
     }
   }
 
-  /* Must run on the index's worker thread, inside `with_namespace`: whether a
-     line that says `auto` is a citation or a method invocation depends on the
-     table bound for THIS project. */
+  /* The only engine call in the plugin that reads a table: whether a line
+     that says `auto` is a citation or a method invocation depends on THIS
+     project's, so the caller resolves one with `Query_Index.with_table` and
+     passes it in. */
   def usages(
     snapshot: Query_Index.Snapshot,
     name: String,
     external: Boolean = false,
-    note: String = ""
+    note: String = "",
+    namespace: Namespace.Table = Namespace.census
   ): Result =
     Result(
       kind = Result_Kind.Usages,
       label = "usages of " + name + kind_of(snapshot, name) +
         (if (external) " [external]" else ""),
       name = name,
-      groups = group(snapshot, Usage.find_callers(snapshot.sections, name, external)),
+      groups =
+        group(snapshot,
+          Usage.find_callers(snapshot.sections, name, external, namespace = namespace)),
       definition = definition_hit(snapshot, name),
       note = note)
 

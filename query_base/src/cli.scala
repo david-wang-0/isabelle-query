@@ -752,6 +752,15 @@ object CLI {
        an accident of whoever started it. */
     var env: String => Option[String] = process_env
 
+    /* THE TABLE THIS RUN ROUTES AGAINST, resolved once at dispatch by
+       `resolve_namespace` and handed to every command that reads one.  A
+       per-request VALUE, not process state: a resident host (the warm server,
+       the jEdit plugin) builds one `Session` per request and so gets one table
+       per request, with nothing to restore afterwards [p10-namespace-value].
+       The committed broad union until something resolves otherwise, which is
+       also the answer for every verb that never asks the router anything. */
+    var namespace: Namespace.Table = Namespace.census
+
     /* The custom-command union in force for the NEXT parse.  It is state, and
        deliberately so: the reference implementation keeps one module-level
        table, cleared by a whole-root load and merged into by each directory
@@ -1070,9 +1079,11 @@ object CLI {
   private val namespace_commands: Set[String] =
     Set("callers", "callees", "unused", "methods", "method", "shape")
 
-  /* Bind the router's table for this run, at DISPATCH — after the arguments are
-     read and before the command runs, never at start-up, so a `find` or a `grep`
-     costs nothing for a table it never reads.
+  /* RESOLVE the router's table for this run, at DISPATCH — after the arguments
+     are read and before the command runs, never at start-up, so a `find` or a
+     `grep` costs nothing for a table it never reads.  The result is returned,
+     not bound: the caller stores it on the `Session` and it travels down by
+     parameter [p10-namespace-value].
 
      There is one committed default and both the CLI and a direct engine caller
      get it: the broad HOL-family union (`CONTRIBUTING.md`, "a configurable
@@ -1086,30 +1097,27 @@ object CLI {
      `$ISABELLE_QUERY_NAMESPACE=committed` pins the default: it short-circuits
      even the step-down, which is what a caller who wants one fixed table across
      a mixed corpus asks for. */
-  def configure_namespace(s: Session, command: String, sub: String = ""): Unit = {
-    /* `shape census` is special, and its binding is UNCONDITIONAL — independent
+  def resolve_namespace(s: Session, command: String, sub: String = ""): Namespace.Table = {
+    /* `shape census` is special, and its table is UNCONDITIONAL — independent
        of `$ISABELLE_QUERY_NAMESPACE` and of the project's base logic.  A
        whole-corpus run spans many logics with no single session to resolve
        against, and its output is meant to regenerate identically anywhere, so
        it takes the fixed broad union.  Inheriting whatever the project fallback
        picked would mean a census stops regenerating identically. */
-    if (command == "shape" && sub == "census") {
-      Namespace.use_census_namespace()
-      return
-    }
-    if (!namespace_commands(command)) return
+    if (command == "shape" && sub == "census") return Namespace.census
+    if (!namespace_commands(command)) return Namespace.census
     /* Read through the SESSION's environment, not the process's: in a resident
        server the process's is whatever the first client happened to export,
        and it would pin the table for everyone after them. */
-    if (s.env(NAMESPACE_ENV).exists(_.toLowerCase == "committed")) return
+    if (s.env(NAMESPACE_ENV).exists(_.toLowerCase == "committed")) return Namespace.census
     try {
       val sessions = Discovery.iter_sessions(s.active_root)
       val parents = sessions.map(si => si.name -> si.parent.getOrElse("")).toMap
       val nonhol =
         sessions.exists(si =>
           Namespace.is_known_nonhol_base(Namespace.resolve_base_logic(si.name, parents)))
-      if (nonhol) {
-        Namespace.use_pure_namespace()
+      if (!nonhol) Namespace.census
+      else {
         /* Silent for a Pure-only project — the floor is exact there, and there
            is nothing to warn about. */
         val bases =
@@ -1120,9 +1128,11 @@ object CLI {
             s"logic (${bases.mkString(", ")}) is not HOL, so the committed HOL " +
             "namespace table does not apply — using the minimal Pure table.")
         }
+        Namespace.pure
       }
     }
-    catch { case _: Throwable => () }   // binding a table must never fail a query
+    // resolving a table must never fail a query
+    catch { case _: Throwable => Namespace.census }
   }
 
 
@@ -1185,17 +1195,21 @@ object CLI {
           Usage.cmd_deps(out, err, sections, t, reverse = true, recursive = ns.bool("recursive")))
       case "refs" =>
         val sections = s.load_index()
-        each(out, ns.pos("theory"))(t => Usage.cmd_refs(out, err, sections, t, flags))
+        each(out, ns.pos("theory"))(t =>
+          Usage.cmd_refs(out, err, sections, t, flags, s.namespace))
       case "callers" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Usage.cmd_callers(out, err, sections, n, flags))
+        each(out, ns.pos("name"))(n =>
+          Usage.cmd_callers(out, err, sections, n, flags, s.namespace))
       case "callees" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Usage.cmd_callees(out, err, sections, n, flags))
+        each(out, ns.pos("name"))(n =>
+          Usage.cmd_callees(out, err, sections, n, flags, s.namespace))
       case "unused" =>
-        Usage.cmd_unused(out, err, s.load_index(), flags)
+        Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace)
       case "methods" =>
-        Usage.cmd_methods(out, err, s.load_index(), ns.pos("name").headOption, flags)
+        Usage.cmd_methods(out, err, s.load_index(), ns.pos("name").headOption, flags,
+          s.namespace)
       case "instances" =>
         val sections = s.load_index()
         each(out, ns.pos("name"))(n => Sites.cmd_instances(out, err, sections, n, flags))
@@ -1205,7 +1219,7 @@ object CLI {
       case "graph" =>
         val sections = scope_to_theories(s, ns, s.load_index())
         Usage.cmd_graph(out, sections, ns.pos("kind").headOption.getOrElse("citation"),
-          ns.str("format").getOrElse("json"), flags)
+          ns.str("format").getOrElse("json"), flags, s.namespace)
       case _ => usage_error(s"unknown command: $name")
     }
   }
@@ -1272,7 +1286,9 @@ object CLI {
       if (sessions.nonEmpty)
         sessions.iterator.map(si => (si.name, () => s.sections_for_session(si, seen)))
       else Iterator(("", () => s.load_index()))
-    val outcome = Shape_Cmds.cmd_shape_census(s.out, s.err, groups, ns.str("resume"))
+    val outcome =
+      Shape_Cmds.cmd_shape_census(s.out, s.err, groups, ns.str("resume"),
+        namespace = s.namespace)
     if (outcome.loaded == 0)
       s.fail_root(root, s"all ${outcome.sessions} session(s) failed to load — " +
         "no census records produced")
@@ -1290,11 +1306,12 @@ object CLI {
     view match {
       case "summary" =>
         Shape_Cmds.cmd_shape_summary(out, load_sections(s, ns), ns.bool("json"),
-          ns.str("scope").getOrElse("proof"), ns.str("content").getOrElse("all"))
+          ns.str("scope").getOrElse("proof"), ns.str("content").getOrElse("all"),
+          namespace = s.namespace)
       case "steps" =>
         Shape_Cmds.cmd_shape_steps(out, err, load_sections(s, ns),
           ns.pos("span").headOption, ns.bool("json"), ns.bool("all"),
-          load_shape_config(s, ns))
+          load_shape_config(s, ns), namespace = s.namespace)
       case "lemma" =>
         /* The config is resolved BEFORE the index is loaded, as the reference
            does: a bad `--config` is a usage-shaped error and must not be
@@ -1302,13 +1319,14 @@ object CLI {
         val cfg = load_shape_config(s, ns)
         val sections = load_sections(s, ns)
         each(out, ns.pos("name"))(n =>
-          Shape_Cmds.cmd_shape_lemma(out, sections, n, ns.bool("json"), cfg))
+          Shape_Cmds.cmd_shape_lemma(out, sections, n, ns.bool("json"), cfg,
+            namespace = s.namespace))
       case "widest" =>
         /* `widest` ranks STEPS by width — syntax-awareness is intrinsic — and it
            takes trailing PATH positionals like `largest`. */
         Shape_Cmds.cmd_shape_widest(out, load_sections(s, ns, parse_policy = "syntax"),
           int_arg(ns, "top", "-N/--top", 20), ns.str("metric").getOrElse("w2"),
-          ns.bool("json"))
+          ns.bool("json"), namespace = s.namespace)
       case "census" => run_census(s, ns)
       case _ => usage_error(s"unknown shape view: $view")
     }
@@ -1487,7 +1505,8 @@ object CLI {
                           else if (ns.bool("version")) out.println(s"$prog $version")
                           else {
                             apply_root(s, top_root.orElse(group_root).orElse(ns.str("root")))
-                            configure_namespace(s, group_cmd.names.head, sub.names.head)
+                            s.namespace =
+                              resolve_namespace(s, group_cmd.names.head, sub.names.head)
                             dispatch_shape(s, sub.names.head, ns)
                           }
                       }
@@ -1505,7 +1524,7 @@ object CLI {
                           "/") + ": not allowed with each other")
                     }
                     apply_root(s, top_root.orElse(ns.str("root")))
-                    configure_namespace(s, name)
+                    s.namespace = resolve_namespace(s, name)
                     dispatch(s, cmd.names.head, ns, cmd.context_default)
                   }
               }

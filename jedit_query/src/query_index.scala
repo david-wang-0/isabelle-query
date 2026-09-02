@@ -9,16 +9,14 @@ Three things are load-bearing here, and each is a decision:
     entry and a distribution session keeps two indexes and answers each from
     its own.
 
-  * ONE worker thread for every engine call.  The engine's method/attribute
-    table (`isabelle.query.Namespace`) is process-global mutable state: it
-    decides whether `auto` is a proof method or a fact, and it is bound per
-    PROJECT (a ZF session steps down to the Pure floor, a HOL one does not).
-    Two projects querying concurrently would silently share whichever table was
-    bound last.  Serialising all engine work through a single thread makes that
-    impossible by construction, and `with_namespace` binds the table
-    immediately before each call — using the CLI's own `configure_namespace`,
-    so there is exactly one definition of the policy.  It also keeps the EDT
-    free, which is the other half of the requirement.
+  * ONE worker thread for every engine call.  No longer for the namespace's
+    sake: since [p10-namespace-value] the method/attribute table is a VALUE
+    (`isabelle.query.Namespace.Table`), resolved per project by `with_table`
+    and handed to the call, so two indexes may hold two different tables at
+    once and nothing can inherit the other's.  What the single thread still
+    buys is the rest of the requirement: the EDT stays free, one index's parse
+    and per-file cache are never re-entered by a second query, and results
+    arrive in the order the user asked for them.
 
   * The section list is CACHED PER FILE, keyed by mtime+size (or, for a dirty
     buffer, by the buffer text itself).  Parsing is the expensive part; the
@@ -247,7 +245,7 @@ object Query_Index {
     catch { case _: java.util.concurrent.RejectedExecutionException => () }
 
 
-  /* A `Writer` that keeps what the engine wrote to it: `configure_namespace`
+  /* A `Writer` that keeps what the engine wrote to it: `resolve_namespace`
      reports "base logic is not HOL, using the minimal Pure table" on stderr,
      and in a GUI that belongs in the status line, not in a log nobody reads. */
   private class Capture extends Writer {
@@ -282,29 +280,34 @@ final class Query_Index private[jedit_query] (val root: JPath) {
   /* the namespace seam                                                 */
   /* ------------------------------------------------------------------ */
 
-  /* Bind the citation router's table for THIS project, then run the query.
-     The policy is not restated here: `CLI.configure_namespace` is the one
-     definition of it (including the `$ISABELLE_QUERY_NAMESPACE=committed`
-     pin), and it only ever steps DOWN from the committed default — so the
-     default has to be restored first for the binding to be idempotent across
-     projects.
+  /* THIS project's citation table, handed TO the query rather than bound
+     around it.  The policy is not restated here: `CLI.resolve_namespace` is
+     the one definition of it (including the `$ISABELLE_QUERY_NAMESPACE=
+     committed` pin and the step DOWN to the Pure floor for a positively
+     non-HOL base), and since [p10-namespace-value] it returns a value — so
+     there is nothing to restore, no monitor to hold, and two indexes may be
+     queried with two different tables at the same time.
 
-     `synchronized` is belt to `Query_Index.background`'s braces: today every
-     engine call runs on the one worker thread, and this keeps the invariant
-     true if a later feature ever adds a second. */
-  def with_namespace[A](body: => A): A =
-    Query_Index.synchronized {
-      val capture = new Query_Index.Capture
+     Resolved per call rather than cached, because it reads the project's ROOT
+     files and a `session … = ZF +` line may be edited under us; it costs about
+     ten milliseconds, which is why nothing on the keystroke path enters here
+     (`Query_Quick_Open`).
+
+     The stderr note the resolver writes for a non-HOL project is captured into
+     `_note`, which the panel shows, and is set BEFORE `body` runs so a result
+     may carry it. */
+  def with_table[A](body: Namespace.Table => A): A = {
+    val capture = new Query_Index.Capture
+    val table =
       try {
-        Namespace.use_census_namespace()
         val session = new CLI.Session(new Out(capture), new Out(capture))
         session.root_override = Some(root)
-        CLI.configure_namespace(session, "callers")
+        CLI.resolve_namespace(session, "callers")
       }
-      catch { case _: Throwable => () }
-      _note = capture.text
-      body
-    }
+      catch { case _: Throwable => Namespace.census }
+    _note = capture.text
+    body(table)
+  }
 
 
   /* ------------------------------------------------------------------ */

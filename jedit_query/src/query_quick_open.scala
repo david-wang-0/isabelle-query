@@ -6,7 +6,7 @@ The index already holds the answer — `Snapshot.entry_names` is every
 declaration in the project and `Snapshot.definition` resolves one to its entry
 — so this is a picker, not a search.  What matters is where each half runs.
 
-`with_namespace` re-runs the CLI's `configure_namespace`, which walks the
+`with_table` re-runs the CLI's `resolve_namespace`, which walks the
 project's ROOT files: about ten milliseconds, once, and exactly the wrong shape
 for something that would run per keystroke.  So NOTHING here enters the engine
 after the index is built.  A keystroke filters an already-materialised list of

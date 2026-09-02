@@ -43,19 +43,16 @@ Four decisions are load-bearing.
     is that a client which disconnects mid-query leaves the work running to
     completion; a `cancel`-able variant would need the task form back.
 
-  * **The namespace is rebound before every request, under one lock.**
-    `Namespace` is process-global mutable state (it decides whether `auto` is
-    a proof method or a fact) and `shape census` binds the broad HOL union
-    unconditionally, by design — a census must regenerate identically
-    anywhere.  In a process that exits, that is harmless; in a resident one it
-    would poison the next request, so every request starts by restoring the
-    committed default and then lets `CLI.configure_namespace` step down for
-    the project it is actually about.  Holding one lock across the whole run
-    is what makes "the table is the one this request bound" true rather than
-    hopeful.  It costs concurrency: two clients on two projects serialise.
-    That is the honest price of a global, and the real fix — threading the
-    table through as a value — is a change to every analysis signature in the
-    engine, not to this file.
+  * **The namespace table is a VALUE, so nothing has to be put back.**
+    Which table is in force — whether `auto` is a proof method or a fact —
+    is resolved per request by `CLI.resolve_namespace`, stored on that
+    request's `CLI.Session` and carried down by parameter, so `shape census`'s
+    unconditional broad union (a census must regenerate identically anywhere)
+    cannot reach the next request.  Until [p10-namespace-value] it was
+    process-global state, and this file restored the committed default before
+    every request to survive it; that restore is gone.  The lock below stays,
+    but it now guards the warm INDEX rather than a table — see
+    `engine_lock`.
 
   * **The environment is per REQUEST, never the server's own.**  The same
     argument as the namespace, one level up: a resident JVM's environment is
@@ -359,9 +356,18 @@ object Query_Server {
   /* running one request                                                */
   /* ------------------------------------------------------------------ */
 
-  /* Every engine call in this JVM, one at a time.  See the header: the
-     citation router's table is global, so "which table is bound" is only
-     answerable if exactly one request is in flight. */
+  /* Every engine call in this JVM, one at a time — and since
+     [p10-namespace-value] that is about the warm INDEX, not about a table.
+
+     What it guards: `refresh` then `provide` is ONE logical step.  `Index` has
+     its own monitor for its own fields, but a second request between the two
+     could reparse the root and hand this run sections whose fingerprint was
+     never the one this run checked — and `refresh_ms` / `used` are written
+     across the pair.  Holding it for the whole run also bounds peak memory at
+     one whole-corpus analysis rather than one per connected client, which for
+     a process meant to live for days is the difference between a cache and a
+     leak.  Two clients on two projects still serialise; nothing in the ENGINE
+     requires that any more. */
   private val engine_lock = new Object
 
   final case class Result(exit: Int, out: String, err: String, index: Option[Index],
@@ -387,10 +393,6 @@ object Query_Server {
     var refresh_ms = 0L
     val rc =
       engine_lock.synchronized {
-        /* Back to the state a fresh process starts in, so nothing an earlier
-           request bound — the corpus-wide shape view's unconditional broad
-           union above all — can be read by this one. */
-        Namespace.use_census_namespace()
         CLI.run_result(argv, new Out(out), new Out(err), s => {
           /* THE REQUEST'S environment, and only it.  The server's own is an
              accident of whoever started it — a client that happened to export

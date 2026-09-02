@@ -12,7 +12,8 @@ sits below the commands so the two cannot drift:
   * the prose and definition-site exclusion masks shared by single-name search
     and bulk graph construction (`noise_spans` / `noise_ranges` /
     `build_def_sites`);
-  * the citation router (`is_citation_name`, over `Namespace.non_citation`)
+  * the citation router (`is_citation_name`, over the resolved
+    `Namespace.Table`'s `non_citation`)
     and the single-pass call graph (`build_call_graph`);
   * the proof-method census (`scan_methods`) — the router's complement: the
     tokens the router rejects as fact edges are the method uses it tallies;
@@ -172,9 +173,11 @@ object Usage_Graph {
      variable in nearly every proof, so by default length-1 names are not
      citation nodes; `--drop-names-upto` moves the floor.  The
      method/keyword/numeral routing is independent of it. */
-  def is_citation_name(name: String, drop_upto: Int = DROP_NAMES_UPTO): Boolean =
+  def is_citation_name(name: String, drop_upto: Int = DROP_NAMES_UPTO,
+    namespace: Namespace.Table = Namespace.census
+  ): Boolean =
     name.codePointCount(0, name.length) > drop_upto &&
-      !Namespace.non_citation(name) && !is_all_digits(name)
+      !namespace.non_citation(name) && !is_all_digits(name)
 
 
   /* ------------------------------------------------------------------ */
@@ -436,9 +439,15 @@ object Usage_Graph {
     }
   }
 
+  /* `namespace` is the table this build routes against, and it is the ONE
+     thing here that a caller has to have resolved: whether `auto` is a method
+     or a fact decides which names go into `shadowed` below.  A value, with the
+     committed default, so a library caller and a CLI run agree without
+     anything to rebind [p10-namespace-value]. */
   def build_call_graph(sections: List[Theory_Section],
     drop_upto: Int = DROP_NAMES_UPTO, derived: Boolean = false,
-    reach: String = Reach.DEFAULT_MODE
+    reach: String = Reach.DEFAULT_MODE,
+    namespace: Namespace.Table = Namespace.census
   ): Call_Graph = {
     /* 1. Candidate names.  A name too short to tell from a term variable, or a
           bare numeral, is not a citable fact, so the universal variable `x`
@@ -477,7 +486,7 @@ object Usage_Graph {
         if (citable_tags(e.tag) && e.name != "?" &&
           e.name.codePointCount(0, e.name.length) > drop_upto && !is_all_digits(e.name)) {
           name_set += e.name
-          if (Namespace.non_citation(e.name)) shadowed += e.name
+          if (namespace.non_citation(e.name)) shadowed += e.name
         }
       }
     }

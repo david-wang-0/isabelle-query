@@ -93,7 +93,7 @@ object Query_Fuzzy {
   /* Best `limit` names for `query`, best first.  `names` is the index's
      `entry_names` snapshot — an already-materialised list, walked without
      touching the engine, which is what makes this safe to run per keystroke
-     (`with_namespace` re-reads the project's ROOT files and must not). */
+     (`with_table` re-reads the project's ROOT files and must not). */
   def filter(query: String, names: Iterable[String], limit: Int): List[Match] = {
     val hits = new mutable.ArrayBuffer[Match]
     for (name <- names) matching(query, name).foreach(hits += _)

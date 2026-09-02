@@ -460,10 +460,11 @@ object Shape_Cmds {
      however it needs. */
   def cmd_shape_summary(out: Out, sections: List[Theory_Section], as_json: Boolean,
     scope: String, content: String,
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Unit = {
     if (as_json) {
-      Shape.analyze_sections(sections, corpus_consts)(pm =>
+      Shape.analyze_sections(sections, corpus_consts, namespace)(pm =>
         out.println(Jsonl.render(summary_record(Shape.summarize(pm)))))
       return
     }
@@ -472,7 +473,7 @@ object Shape_Cmds {
        instead of the analysis of every proof in the archive. */
     var n_proofs = 0
     val by_theory = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[(Shape.Proof_Summary, Int)]]
-    Shape.analyze_sections(sections, corpus_consts) { pm =>
+    Shape.analyze_sections(sections, corpus_consts, namespace) { pm =>
       val ps = Shape.summarize(pm)
       n_proofs += 1
       by_theory.getOrElseUpdate(ps.theory, new mutable.ListBuffer) +=
@@ -547,7 +548,8 @@ object Shape_Cmds {
   def cmd_shape_steps(out: Out, err: Out, sections: List[Theory_Section],
     span: Option[String], as_json: Boolean, all_steps: Boolean,
     cfg: Option[Shape.Corpus_Config],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Unit = {
     val (theory, lo, hi) = resolve_span(out, err, sections, span)
     /* The label, not `step.theory`: a `Step` carries a theory NAME, which is
@@ -556,7 +558,7 @@ object Shape_Cmds {
     val labels = Render.locus_labels(sections)
     val triples =
       new mutable.ListBuffer[(Shape.Step, Shape.Classify_Ctx, Array[String], String)]
-    Shape.analyze_sections(sections, corpus_consts) { pm =>
+    Shape.analyze_sections(sections, corpus_consts, namespace) { pm =>
       if (theory.isEmpty || pm.theory == theory.get) {
         val lines = pm.ctx.lines
         val label = labels.getOrElse(pm.sec.path, pm.theory)
@@ -603,13 +605,14 @@ object Shape_Cmds {
 
   def cmd_shape_lemma(out: Out, sections: List[Theory_Section], name: String,
     as_json: Boolean, cfg: Option[Shape.Corpus_Config],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Unit = {
     resolve_lemma(sections, name) match {
       case None => out.println(s"No proof-bearing entry matching '$name'.")
       case Some((sec, entry)) =>
         val ctx = new Shape.Sec_Ctx(sec)
-        Shape.analyze_proof(ctx, entry, corpus_consts) match {
+        Shape.analyze_proof(ctx, entry, corpus_consts, namespace) match {
           case None => out.println(s"'${entry.name}' has no structured proof body.")
           case Some(pm) =>
             val lines = ctx.lines
@@ -664,12 +667,13 @@ object Shape_Cmds {
   /* The N widest goal steps in scope, ranked by `metric`.  Ties break by source
      position for determinism. */
   def cmd_shape_widest(out: Out, sections: List[Theory_Section], top: Int, metric: String,
-    as_json: Boolean, corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    as_json: Boolean, corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Unit = {
     val labels = Render.locus_labels(sections)
     val rows = new mutable.ListBuffer[(Int, String, Int, Shape.Step, Shape.Classify_Ctx,
       Array[String], String)]
-    Shape.analyze_sections(sections, corpus_consts) { pm =>
+    Shape.analyze_sections(sections, corpus_consts, namespace) { pm =>
       val lines = pm.ctx.lines
       val label = labels.getOrElse(pm.sec.path, pm.theory)
       for (s <- pm.goals)
@@ -722,7 +726,8 @@ object Shape_Cmds {
   def cmd_shape_census(out: Out, err: Out,
     groups: Iterator[(String, () => List[Theory_Section])],
     resume: Option[String],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Census_Outcome = {
     val done = resume.map(load_done).getOrElse(Set.empty[(String, String)])
     var sessions = 0
@@ -733,7 +738,7 @@ object Shape_Cmds {
       sessions += 1
       try {
         val sections = load()
-        Shape.analyze_sections(sections, corpus_consts) { pm =>
+        Shape.analyze_sections(sections, corpus_consts, namespace) { pm =>
           if (!done((pm.theory, pm.lemma))) {
             out.println(Jsonl.render(summary_record(Shape.summarize(pm))))
             records += 1

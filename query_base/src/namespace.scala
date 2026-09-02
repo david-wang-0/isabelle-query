@@ -8,7 +8,12 @@ argument modifier, or a numeral.  The tables below are the reference
 implementation's committed scans, ported as DATA (`PLAN.md`: "port tables as
 data, logic as logic"); the routing built on them is `Graph.is_citation_name`.
 
-Two committed tables, and which one is bound is a real decision:
+A resolved table is a VALUE (`Namespace.Table`), threaded from
+`CLI.resolve_namespace` down to the sites that read one.  It used to be four
+process-global `var`s with a `configure` that rebound them, which made "which
+table is in force" a property of the PROCESS rather than of the request.
+
+Two committed tables, and which one a request resolves is a real decision:
 
   * `CENSUS_*` — the broad HOL-family union (HOL, HOL-Library, HOL-Analysis,
     HOL-Eisbach, HOL-Decision_Procs over the Pure floor).  **The default**, for
@@ -267,45 +272,39 @@ object Namespace {
   val ARG_MODIFIERS: Set[String] = Set("add", "del", "only", "OF", "THEN")
 
 
-  /* --- the bound table --------------------------------------------------- */
+  /* --- the resolved table, as a value ------------------------------------ */
 
-  /* Late-bound, exactly as the reference implementation's module globals are:
-     one call reconfigures every consumer (the citation router, the `methods`
-     verb) coherently.  Nothing binds at class-init except the default below,
-     so constructing the engine spawns nothing and reads no cache. */
-  @volatile private var methods: Set[String] = CENSUS_METHODS
-  @volatile private var attributes: Set[String] = CENSUS_ATTRIBUTES
-  @volatile private var keywords: Set[String] = KEYWORDS
-  @volatile private var non_citation_set: Set[String] =
-    CENSUS_METHODS | CENSUS_ATTRIBUTES | KEYWORDS | ARG_MODIFIERS
+  /* ONE table, immutable, carried by parameter.  Until P10 this was four
+     `@volatile var`s and a `configure` that rebound them, and every resident
+     host had to work around that separately: the warm server restored the
+     committed default before each request under one lock, the jEdit plugin
+     rebound under its own monitor, and no two projects could be queried at
+     once in one JVM.  A value has none of those obligations — the same shape
+     P9 gave `Reach`'s mode [p10-namespace-value]. */
+  final case class Table(
+    methods: Set[String],
+    attributes: Set[String],
+    /* Held as its own field, and readable as one, because the shape width
+       classifier asks a DIFFERENT question from the router: "is this
+       identifier term syntax?" is methods ∪ attributes ∪ keywords, and
+       deliberately NOT `non_citation`, which also carries `ARG_MODIFIERS`
+       (`add`, `del`, `only`) — inline method arguments, which are not
+       constants. */
+    keywords: Set[String]
+  ) {
+    /* The router's reject-set.  Lazy, so resolving a table for a `find` or a
+       `grep` — a verb that never asks the router anything — costs nothing but
+       three field writes. */
+    lazy val non_citation: Set[String] = methods | attributes | keywords | ARG_MODIFIERS
+  }
 
-  def proof_methods: Set[String] = methods
-  def attribute_names: Set[String] = attributes
-  /* Exposed separately from `non_citation` because the shape width classifier
-     asks a DIFFERENT question: "is this identifier term syntax?" is
-     methods ∪ attributes ∪ keywords, and deliberately NOT the router's
-     reject-set, which also carries `ARG_MODIFIERS` (`add`, `del`, `only`) —
-     inline method arguments, which are not constants. */
-  def keyword_names: Set[String] = keywords
-  def non_citation: Set[String] = non_citation_set
+  /* The broad HOL-family union: THE default, for the CLI and for a direct
+     engine caller alike. */
+  val census: Table = Table(CENSUS_METHODS, CENSUS_ATTRIBUTES, KEYWORDS)
 
-  /* The one seam a resolved table reaches the router through. */
-  def configure(ms: Set[String], as: Set[String], ks: Set[String]): Unit =
-    synchronized {
-      methods = ms
-      attributes = as
-      keywords = ks
-      non_citation_set = ms | as | ks | ARG_MODIFIERS
-    }
-
-  /* Back to the default.  Exists so "put it back" is a supported operation
-     rather than reaching into the tables. */
-  def use_census_namespace(): Unit =
-    configure(CENSUS_METHODS, CENSUS_ATTRIBUTES, KEYWORDS)
-
-  /* Down to the Pure floor — for a positively non-HOL project only. */
-  def use_pure_namespace(): Unit =
-    configure(PURE_METHODS, PURE_ATTRIBUTES, KEYWORDS)
+  /* The minimal Pure floor — the one explicit step DOWN, for a project whose
+     base logic is positively not HOL. */
+  val pure: Table = Table(PURE_METHODS, PURE_ATTRIBUTES, KEYWORDS)
 
 
   /* --- base-logic classification ----------------------------------------- */

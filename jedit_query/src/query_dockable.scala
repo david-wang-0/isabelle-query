@@ -986,7 +986,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
               index.refreshed(overlay,
                 st => GUI_Thread.later { set_caption(index.name + ": " + st.message) })
             val result =
-              index.with_namespace {
+              index.with_table { table =>
                 req.kind match {
                   case Query_Search.Result_Kind.Definition =>
                     Query_Search.definition(snapshot, req.name, index.note)
@@ -995,7 +995,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
                   case Query_Search.Result_Kind.Code_Equations =>
                     Query_Search.code_equations(snapshot, req.name, index.note)
                   case _ =>
-                    Query_Search.usages(snapshot, req.name, req.external, index.note)
+                    Query_Search.usages(snapshot, req.name, req.external, index.note, table)
                 }
               }
             GUI_Thread.later { handle(index, result) }

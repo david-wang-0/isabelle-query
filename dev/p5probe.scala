@@ -144,16 +144,16 @@ object P5_Probe {
   /* The most-cited declared name that is not itself a proof method or
      attribute — a shadowed name answers a different question. */
   val (subject, expected) =
-    index.with_namespace {
-      val shadowed = Namespace.non_citation
+    index.with_table { table =>
+      val shadowed = table.non_citation
       snap3.entry_names.distinct.filterNot(shadowed)
-        .map(n => (n, Usage.find_callers(snap3.sections, n, false).length))
+        .map(n => (n, Usage.find_callers(snap3.sections, n, false, namespace = table).length))
         .maxBy(_._2)
     }
   check("a subject with usages exists", expected > 0,
     subject + " x " + expected.toString)
 
-  val result = index.with_namespace { Query_Search.usages(snap3, subject) }
+  val result = index.with_table(t => Query_Search.usages(snap3, subject, namespace = t))
   check("hit count matches the engine", result.hits == expected,
     result.hits.toString + " vs " + expected.toString)
   check("grouped by theory, no empty group",
@@ -197,7 +197,7 @@ object P5_Probe {
     else original.substring(0, cut + 1) + extra + original.substring(cut + 1)
 
   val snap4 = index.refreshed(Map(victim_path -> edited))
-  val result4 = index.with_namespace { Query_Search.usages(snap4, subject) }
+  val result4 = index.with_table(t => Query_Search.usages(snap4, subject, namespace = t))
 
   check("the overlaid buffer is reparsed, the rest reused",
     snap4.sections.length == snap3.sections.length &&
@@ -211,7 +211,7 @@ object P5_Probe {
       java.nio.charset.StandardCharsets.UTF_8) == original, "")
 
   val snap5 = index.refreshed(Map.empty)
-  val result5 = index.with_namespace { Query_Search.usages(snap5, subject) }
+  val result5 = index.with_table(t => Query_Search.usages(snap5, subject, namespace = t))
   check("dropping the overlay restores the on-disk answer",
     result5.hits == result.hits && snap5.definition("p5_probe_lemma").isEmpty,
     result5.hits.toString)
@@ -219,22 +219,33 @@ object P5_Probe {
 
   /* ---------------- 6. the per-project namespace ---------------- */
 
-  println("6. Namespace -- bound per index, not per process")
+  println("6. Namespace -- a VALUE per index, not process state")
 
   val nonhol = Query_Index(nonhol_root)
   nonhol.refreshed(Map.empty)
 
-  val hol_table = index.with_namespace { Namespace.proof_methods.size }
-  val nonhol_table = nonhol.with_namespace { Namespace.proof_methods.size }
-  val hol_again = index.with_namespace { Namespace.proof_methods.size }
+  val hol_table = index.with_table(_.methods.size)
+  val nonhol_table = nonhol.with_table(_.methods.size)
+  val hol_again = index.with_table(_.methods.size)
 
-  check("a HOL project binds the census union",
+  check("a HOL project resolves the census union",
     hol_table == Namespace.CENSUS_METHODS.size, hol_table.toString)
   check("a non-HOL project steps down to the Pure floor",
     nonhol_table == Namespace.PURE_METHODS.size, nonhol_table.toString)
   check("interleaving does not leak the other project's table",
     hol_again == hol_table,
     hol_again.toString + " after " + nonhol_table.toString)
+
+  /* The by-value invariant itself, which the old global could not state: both
+     projects' tables held at the SAME time, distinct, and each the committed
+     one for its base logic.  Under a rebinding global the second `with_table`
+     would have overwritten what the first returned. */
+  val held_hol = index.with_table(t => t)
+  val held_nonhol = nonhol.with_table(t => t)
+  check("both projects' tables are held at once, and differ",
+    (held_hol eq Namespace.census) && (held_nonhol eq Namespace.pure) &&
+      held_hol.methods.size != held_nonhol.methods.size,
+    held_hol.methods.size.toString + " vs " + held_nonhol.methods.size.toString)
   check("the two indexes stay distinct objects",
     !(Query_Index(hol_root) eq Query_Index(nonhol_root)) &&
       (Query_Index(hol_root) eq index), "")

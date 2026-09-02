@@ -27,7 +27,8 @@ reference in command position, not the statement.
 
 Depends on `model`, `entries` (tokenisation primitives), `usage_graph`
 (`noise_spans`, `cited_facts_on_line`, `leading_method`) and `namespace` (the
-bound method table, read late in `classify_identifier`).  Never on rendering or
+resolved method table, carried in `Classify_Ctx` and read by
+`classify_identifier`).  Never on rendering or
 the CLI: this file is pure computation, testable against hand-computed values.
 */
 
@@ -982,19 +983,21 @@ object Shape {
      a), context-bound variable names (bucket b), the harvested corpus constant
      list (bucket c). */
   final case class Classify_Ctx(entry_names: Set[String], context_vars: Set[String],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS)
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census)
 
   /* The layered classifier, in precedence order: a `fix`/`for`/binder-bound name
      is authoritatively a variable even when it shadows a global; proof
      method / keyword / attribute syntax is never an eigenvariable; a name in
      this theory's entry DB or in the corpus constant list is a constant; an
      unknown lowercase name confined to one lemma is most likely a variable.
-     Reads the LATE-BOUND namespace, so a CLI `configure_namespace` is seen here
-     and the shape classifier can never diverge from the citation router. */
+     Reads the table the CONTEXT carries — the one `CLI.resolve_namespace`
+     resolved for this run — so the shape classifier can never diverge from the
+     citation router. */
   def classify_identifier(name: String, ctx: Classify_Ctx): (String, String) = {
     if (ctx.context_vars(name)) ("var", "context")
-    else if (Namespace.keyword_names(name) || Namespace.proof_methods(name) ||
-      Namespace.attribute_names(name)) ("const", "syntax")
+    else if (ctx.namespace.keywords(name) || ctx.namespace.methods(name) ||
+      ctx.namespace.attributes(name)) ("const", "syntax")
     else if (ctx.entry_names(name)) ("const", "entry")
     else if (ctx.corpus_consts(name)) ("const", "corpus")
     else ("var", "default")
@@ -1130,14 +1133,15 @@ object Shape {
   }
 
   def build_ctx(ctx: Sec_Ctx, entry: Entry, steps: List[Step],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Classify_Ctx = {
     val entry_names = ctx.sec.entries.map(_.name).toSet
     var context_vars = header_fix_names(ctx, entry)
     val lines = ctx.lines
     for (s <- steps if s.kind == "context" && (s.kw == "fix" || s.kw == "obtain"))
       context_vars = context_vars | fix_line_names(Py.strip(lines(s.line - 1)))
-    Classify_Ctx(entry_names, context_vars, corpus_consts)
+    Classify_Ctx(entry_names, context_vars, corpus_consts, namespace)
   }
 
 
@@ -1492,11 +1496,13 @@ object Shape {
      proof DOES yield a record, via its lone closing step.
 
      NO axis here reads the method table: `Step.method` is whatever stands in
-     introducer position, so binding a different namespace cannot move a shape
-     record.  The bound table still matters for `classify_identifier`, which is
-     position-blind and genuinely needs one. */
+     introducer position, so a different namespace cannot move a shape record.
+     The resolved table still matters for `classify_identifier`, which is
+     position-blind and genuinely needs one — which is why it is carried into
+     the `Classify_Ctx` rather than read from anywhere. */
   def analyze_proof(ctx: Sec_Ctx, entry: Entry,
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   ): Option[Proof_Metrics] = {
     val steps = scan_steps(ctx, entry)
     if (steps.isEmpty) None
@@ -1504,7 +1510,7 @@ object Shape {
       val lines = ctx.lines
       annotate_fanin(steps, lines)
       val (live_max, live_mean) = live_fact_space(steps, lines)
-      val cctx = build_ctx(ctx, entry, steps, corpus_consts)
+      val cctx = build_ctx(ctx, entry, steps, corpus_consts, namespace)
       val ic = introduce_consume(steps, lines)
       val red = cross_step_redundancy(steps)
       val inductions = scan_inductions(ctx, entry)
@@ -1517,11 +1523,13 @@ object Shape {
      spine of every `shape` verb.  Entries with no proof are silently skipped,
      so a consumer sees only the measurable proofs. */
   def analyze_sections(sections: List[Theory_Section],
-    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS
+    corpus_consts: Set[String] = Shape_Data.CORPUS_CONSTANTS,
+    namespace: Namespace.Table = Namespace.census
   )(body: Proof_Metrics => Unit): Unit = {
     for (sec <- sections) {
       val ctx = new Sec_Ctx(sec)
-      for (entry <- sec.entries) analyze_proof(ctx, entry, corpus_consts).foreach(body)
+      for (entry <- sec.entries)
+        analyze_proof(ctx, entry, corpus_consts, namespace).foreach(body)
       ctx.release()
     }
   }

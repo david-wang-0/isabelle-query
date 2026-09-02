@@ -233,13 +233,14 @@ object Usage {
      One approximation remains, inherited from the name-level graph: counts are
      CITING ENTRIES, not citation sites. */
   def cmd_refs(out: Out, err: Out, sections: List[Theory_Section], theory: String,
-    flags: Flags
+    flags: Flags, namespace: Namespace.Table = Namespace.census
   ): Unit = {
     Commands.resolve_theory(sections, theory) match {
       case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
         val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+        namespace = namespace)
         val by_theory = Usage_Graph.sections_by_theory(sections)
         val own = target.theory
         val closure = import_depths(own, by_theory)
@@ -354,7 +355,8 @@ object Usage {
      `sections_by_theory` is the fourth instance of the collapse the three
      indexes above just moved off [name-is-not-identity]. */
   def find_callers(sections: List[Theory_Section], name: String,
-    external: Boolean = false, reach: String = Reach.DEFAULT_MODE
+    external: Boolean = false, reach: String = Reach.DEFAULT_MODE,
+    namespace: Namespace.Table = Namespace.census
   ): List[(Theory_Section, Int, String)] = {
     val word_re = Py.compile(Commands.isa_word_pattern(name))
     val antiq_re =
@@ -363,8 +365,9 @@ object Usage {
     val all_def_sites = Usage_Graph.build_def_sites(sections, Some(Set(name)))
     val def_paths = all_def_sites.filter(_._2.nonEmpty).keySet
     val text_ranges = Usage_Graph.noise_ranges(sections)
-    /* Read late: the namespace table is bound by the CLI after start-up. */
-    val shadowed = Namespace.non_citation(name)
+    /* The caller's table, not a global: whether `auto` is a method or a fact
+       is a property of the PROJECT this call is about. */
+    val shadowed = namespace.non_citation(name)
     val reachable = Reach.site_filter(sections, name, reach)
 
     val results = new mutable.ListBuffer[(Theory_Section, Int, String)]
@@ -423,12 +426,13 @@ object Usage {
   }
 
   def cmd_callers(out: Out, err: Out, sections: List[Theory_Section], name0: String,
-    flags: Flags
+    flags: Flags, namespace: Namespace.Table = Namespace.census
   ): Unit = {
     var name = name0
     if (flags.recursive) {
       val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+        namespace = namespace)
       if (!g.all_names(name)) {
         Commands.resolve_binding(sections, name) match {
           case Some((parent, how)) =>
@@ -450,7 +454,7 @@ object Usage {
     }
     else {
       val hits = find_callers(sections, name, external = flags.external,
-        reach = flags.reach)
+        reach = flags.reach, namespace = namespace)
       if (flags.mode == "count") out.println(hits.length.toString)
       else if (hits.isEmpty) out.println(s"No callers found for '$name'.")
       else {
@@ -488,11 +492,12 @@ object Usage {
   }
 
   def cmd_callees(out: Out, err: Out, sections: List[Theory_Section], name0: String,
-    flags: Flags
+    flags: Flags, namespace: Namespace.Table = Namespace.census
   ): Unit = {
     var name = name0
     val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+        namespace = namespace)
     if (!g.all_names(name)) {
       Commands.resolve_binding(sections, name) match {
         case Some((parent, how)) =>
@@ -548,7 +553,8 @@ object Usage {
        methods NAME   every live use of NAME with its location and owning
                       entry — the method analogue of `callers`. */
   def cmd_methods(out: Out, err: Out, sections: List[Theory_Section],
-    name: Option[String], flags: Flags
+    name: Option[String], flags: Flags,
+    namespace: Namespace.Table = Namespace.census
   ): Unit = {
     val (counts, located) = Usage_Graph.scan_methods(sections, name)
     val count_map = counts.toMap
@@ -585,7 +591,7 @@ object Usage {
            project happens not to use should answer "no uses", not "not a method".
            Failing both is the only real error, and it must stay one — a mistyped
            name would otherwise get an empty success for a question never asked. */
-        if (!count_map.contains(m) && !Namespace.proof_methods(m))
+        if (!count_map.contains(m) && !namespace.methods(m))
           Commands.fail_subject(out, err,
             s"'$m' is not used as a proof method here, and is not in the " +
               "resolved proof-method namespace.  Try `methods` for the list of " +
@@ -770,7 +776,9 @@ object Usage {
     }
   }
 
-  def cmd_unused(out: Out, err: Out, sections: List[Theory_Section], flags: Flags): Unit = {
+  def cmd_unused(out: Out, err: Out, sections: List[Theory_Section], flags: Flags,
+    namespace: Namespace.Table = Namespace.census
+  ): Unit = {
     /* `derived = true` here and NOWHERE else.  The citation graph is over FACTS,
        and `foo_def` is a different fact from `foo` — `callers foo` keeps meaning
        `foo`.  Deadness, though, is a question about the DECLARATION: deleting
@@ -778,7 +786,7 @@ object Usage {
        `foo` alive.  Asking the fact-level question here would report live
        definitions as dead. */
     val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto, derived = true,
-      reach = flags.reach)
+      reach = flags.reach, namespace = namespace)
 
     val keep = flags.keep
     if (keep.nonEmpty) {
@@ -827,9 +835,12 @@ object Usage {
   }
 
   /* Nodes = indexed entries; edges = caller -> callee. */
-  private def citation_graph_data(sections: List[Theory_Section], flags: Flags): Graph_Data = {
+  private def citation_graph_data(sections: List[Theory_Section], flags: Flags,
+    namespace: Namespace.Table
+  ): Graph_Data = {
     val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach)
+      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+        namespace = namespace)
     val by_name = Usage_Graph.entry_by_name(sections)
     val known = g.all_names.toList.sorted.filter(by_name.contains)
     val nodes =
@@ -871,10 +882,10 @@ object Usage {
   }
 
   def cmd_graph(out: Out, sections: List[Theory_Section], kind: String, fmt: String,
-    flags: Flags
+    flags: Flags, namespace: Namespace.Table = Namespace.census
   ): Unit = {
     val data =
-      if (kind == "citation") citation_graph_data(sections, flags)
+      if (kind == "citation") citation_graph_data(sections, flags, namespace)
       else import_graph_data(sections)
     if (fmt == "json")
       /* Sorted and indented: the output of two runs over the same tree must
