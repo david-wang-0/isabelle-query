@@ -276,18 +276,6 @@ took `[decl-body-comment]` and, like upstream, rejected the blank-line variant
 on the containment measurement) and `[axiom-untyped]` (the port took
 `[axiom-names]`; this half is a grammar, not a regex tweak, on either side).
 
-- [ ] `[namespace-by-value]` Thread the method/attribute table through as a
-      **value** instead of binding `isabelle.query.Namespace`'s process-global
-      state.  It decides whether `auto` is a proof method or a fact, and every
-      resident host has had to work around it separately: the jEdit plugin
-      serialises all engine calls through one worker thread, and the warm
-      server restores the committed default before every request under one
-      lock.  Both are correct and both cost the same thing — **no two projects
-      can be queried at once in one JVM**.  The fix changes the signature of
-      every analysis in `usage_graph`, `usage` and `shape`, so it needs the
-      full differential matrix plus both probes, not a spot check.  Removing
-      the lock is the only thing that lifts the server's throughput ceiling.
-
 - [ ] `[regex-dialect]` D12: `\w` is `java.util.regex`'s here and Python's in
       the oracle, so `²`/`½` are word characters to the oracle and not to us,
       and a combining mark is one to us and not to it.  One record differs

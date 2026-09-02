@@ -67,8 +67,8 @@ One component tree, chained through `etc/components`:
 
 - `py_text` — the Python-semantics primitives the port needs (`re` dialect
   bridging, `str.split`/`strip` edge cases). Nothing above it re-derives them.
-- `namespace` — the committed method/attribute/keyword tables, as DATA, and the
-  one seam that binds them. **Process-global mutable state**; see below.
+- `namespace` — the committed method/attribute/keyword tables, as DATA, plus
+  the immutable `Namespace.Table` a request resolves one of; see below.
 - `model` — `Entry`, `Theory_Section`, `Call_Graph`, plus the two redacted
   views every scanner reads: `live_source` (noise blanked, terms kept — a
   citation scan must see `mono` in `lemma "mono f"`) and `outer_source` (terms
@@ -100,14 +100,20 @@ theories *plus the transitive closure of their in-entry `imports`*. Imports of
 other AFP entries and of the base library (`HOL-*`, `Pure`) are not followed;
 orphan `.thy` files are excluded.
 
-**`Namespace` is process-global and mutable, and that is the one shared-state
-hazard in the tree.** It decides whether `auto` is a proof method or a fact, it
-is bound per project, and `shape census` binds the broad HOL union
-unconditionally by design. Every resident host therefore has to rebind: the
-jEdit plugin serialises engine calls through one worker thread
-(`Query_Index.with_namespace`), and the server restores the committed default
-before every request under one lock (`Query_Server.run`). A new resident caller
-must do the same or it will read whatever the last one left.
+**The method/attribute table is a VALUE, resolved once per request — there is
+no process state left in the engine.** `Namespace.Table` is immutable;
+`CLI.resolve_namespace` decides which one this run gets (the broad HOL union by
+default, the Pure floor for a positively non-HOL base, the union
+unconditionally for the corpus-wide `shape` view), the `CLI.Session` holds it,
+and it travels by parameter to the five sites that read one — the call-graph
+build, `find_callers`, `methods`' table check and the shape classifier's
+context. So a resident host passes a table and has nothing to rebind or
+restore: the jEdit plugin's `Query_Index.with_table` hands its project's table
+to the call, the warm server does not touch the subject at all, and two
+projects may be queried at once in one JVM. Until P10 this was four
+`@volatile var`s (`[p10-namespace-value]`, and `[p9-reach]` before it for
+`Reach.enabled`); the server's remaining lock now guards the warm index, not a
+table. **A new global here would undo that** — resolve a value and pass it.
 
 ## The dev loop
 

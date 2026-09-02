@@ -185,15 +185,18 @@ things:
   proposition is syntax; `auto` reads as a constant under the broad table and as a
   free variable under the Pure floor.
 
-**Using the engine as a library.** `isabelle.query.Namespace` starts bound to
-the broad committed table, the same one `census` uses, so a direct caller that
-configures nothing agrees with a census — and since the automation axis is
-positional, the axis agrees even if the binding is wrong. Two reasons to change
-it: call `Namespace.use_pure_namespace()` for a non-HOL project, or
-`Namespace.configure(methods, attributes, keywords)` to install a session-exact
-table you resolved yourself. The binding is **process-global**, so a resident
-host (the jEdit plugin, the warm server) must rebind per project rather than
-inherit whatever the last caller left.
+**Using the engine as a library.** A table is a **value** —
+`isabelle.query.Namespace.Table` — and every entry point that reads one takes
+it as a parameter defaulting to `Namespace.census`, the broad committed table
+`census` itself uses. So a direct caller that passes nothing agrees with a
+census, and since the automation axis is positional, the axis agrees even if
+the table is wrong. Two reasons to pass one: `Namespace.pure` for a positively
+non-HOL project, or `Namespace.Table(methods, attributes, keywords)` for a
+session-exact table you resolved yourself; `CLI.resolve_namespace(session,
+command)` is the tool's own policy, returning the table a command line would
+have used. Nothing is process-global, so a resident host (the jEdit plugin, the
+warm server) holds one table per project at the same time and has nothing to
+rebind.
 
 A second, smaller committed table backs `const_canon_est`: a notation table
 mapping operator glyphs to their Isabelle constant (`\<le>` → `less_eq`),

@@ -145,7 +145,11 @@ everything. The default is now the broad committed union both paths use
 (`graph.use_pure_namespace`), never an inherited default. When a global like this
 has to differ by context, make each context bind what it wants — a branch that
 relies on "the default is already right" stops being right the moment the default
-moves, and nothing fails when it does.
+moves, and nothing fails when it does. In the Scala port the global is gone
+altogether: `Namespace.Table` is an immutable value, `CLI.resolve_namespace`
+returns the one this request gets, and every reader takes it as a parameter
+defaulting to `Namespace.census` — the same ONE default, now with nothing to
+rebind (`[p10-namespace-value]`; the reach flag below is the same shape).
 
 Import-visibility filtering of citation attribution (`dev/DIVERGENCES.md` D13)
 is the other measurement-moving setting, and it shows what "one channel" is
@@ -161,8 +165,8 @@ threaded as a VALUE (`Flags.reach` → `build_call_graph` / `find_callers` /
 `Reach.site_filter`), and `Reach.DEFAULT_MODE` is the one default every caller
 starts from — the plugin and the library included, with no global to rebind and
 nothing for a resident server to restore between requests. One process-global
-fewer than P7c shipped, and the rule survives intact: ONE default, ONE
-channel.
+fewer than P7c shipped — and with `[p10-namespace-value]` there are none left
+in the engine — and the rule survives intact: ONE default, ONE channel.
 
 Shared-feature help text comes from one helper each, so wording can't
 drift command-to-command — always add a feature through its helper, never
