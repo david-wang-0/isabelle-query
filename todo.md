@@ -88,6 +88,37 @@ in `CONTRIBUTING.md`.
       real fix reports an unexpected success rather than going unnoticed.
       Low priority at 5 records: filed so the rejection is not re-litigated.
 
+- [ ] `[pide-mcp-tools]` Offer the engine to coding agents through Kevin
+      Kappelmann's PIDE MCP server (`isabelle pide_mcp`, the
+      `isabelle-pide-mcp` component).  Its README documents the hook: any
+      registered Scala component that requires `env:ISABELLE_PIDE_MCP_JAR`
+      and registers a `PIDE_MCP_Tools` service has its tools offered by the
+      server -- the same chaining `jedit_query` uses, so nothing on the MCP
+      side changes and no fork is needed.  The server's own `find_entities`
+      reads PIDE markup and needs loaded theories; this engine answers the
+      corpus-wide structural questions (callers, definition, instances,
+      code equations, outline, grep) cold, before anything is loaded --
+      complementary, not overlapping.  (I/Q, the other Isabelle MCP server,
+      has no cross-theory, usage or grep affordance at all.)
+      Design, decided 2026-09-02, to follow `[p10-namespace-value]`:
+      - An OPT-IN `pide_mcp_query/` component in this repo, registered
+        explicitly (`isabelle components -u <repo>/pide_mcp_query`), NOT
+        chained from the root `etc/components`: an unset `env:` requirement
+        compiles against nothing rather than failing (`Setup/src/Build.java`
+        `requirement_paths`), so an unconditional chain would break
+        `scala_build` for every user without the MCP component.
+      - ONE generic `query` tool taking the CLI argument list, returning
+        stdout/stderr text and the exit status, through `CLI.run_result` --
+        the single dispatch path the server uses; the CLI help is the
+        schema.  Default root from the MCP session's directories, overridable
+        per call.  Typed tools (usages, definition, sites) only once usage
+        shows which are worth a schema.
+      - A warm index in-process, the `Query_Server` cache pattern without the
+        socket; a per-request namespace VALUE is what makes that a resident
+        host without a rebinding dance, hence the ordering.
+      - Verified without a heap: the tools need a project root, not a PIDE
+        session, so a probe calls `handle` on a fixture directly.
+
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool
