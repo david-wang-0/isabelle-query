@@ -82,6 +82,30 @@ object Discovery {
     if (n.endsWith(".thy")) n.substring(0, n.length - 4) else n
   }
 
+  /* ISABELLE'S OWN NAME for a theory that is ADDRESSED by a path.
+
+     A ROOT may say `theories "Nested/Nested_Fix"` — there is no per-theory
+     `in` clause in the grammar — but the theory is not called that.
+     `Sessions.Base` names it `Thy_Header.import_name(thy)`
+     (`src/Pure/Build/sessions.scala:650`, the illegal-name check), and the
+     `global_theories` clause four lines further down spells the same rule
+     `Path.explode(thy).file_name` (`sessions.scala:658`).
+     `Thy_Header.import_name` (`src/Pure/Thy/thy_header.scala:78-82`) is
+     `Url.get_base_name`, which is the substring after the LAST character of
+     `":/\\"` (`src/Pure/General/url.scala:117,122-125`) — so `:` and a
+     backslash separate as `/` does, and a session-qualified spelling
+     (`HOL.List`) is NOT split, `.` being no separator.
+
+     Isabelle raises an error in the two degenerate cases: `get_base_name`
+     answers `None` when the string ends in a separator, and `import_name`
+     rejects a base name that still ends in `.thy`.  Neither is a reason for a
+     query tool to refuse to answer, so both keep the declared string here and
+     resolve — or fail to resolve — exactly as they did before [p10-theory-leaf]. */
+  def import_name(s: String): String = {
+    val i = s.lastIndexWhere(c => c == ':' || c == '/' || c == '\\')
+    if (i + 1 >= s.length) s else s.substring(i + 1)
+  }
+
 
   /* --- ROOT / ROOTS discovery --- */
 
@@ -280,7 +304,14 @@ object Discovery {
       if (!seen(rp)) { seen += rp; out += ((name, p)); frontier += p }
     }
 
-    for (name <- session.theories) resolve_session_theory(session, name).foreach(offer(name, _))
+    /* The declared string RESOLVES to a file; `import_name` NAMES the theory.
+       The two are the same for every theory a ROOT spells bare, and differ for
+       one it addresses by path — which Isabelle still calls by its leaf, so
+       this engine does too [p10-theory-leaf].  The import closure below has
+       always agreed with that: it offers `theory_stem(q)`, the file's own
+       stem. */
+    for (name <- session.theories)
+      resolve_session_theory(session, name).foreach(offer(import_name(name), _))
 
     while (frontier.nonEmpty) {
       val p = frontier.remove(frontier.length - 1)
