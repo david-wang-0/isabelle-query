@@ -30,13 +30,16 @@ shuts the server down.
 subcommands, same flags, same abbreviations, same positional grammar, same
 `-R/--root` on either side of the command name.
 
-Same **output, byte for byte** — 2,107 (corpus × invocation) cases across seven
+Same **output, byte for byte** — 2,149 (corpus × invocation) cases across seven
 corpora are diffed on every change, plus the whole entry set and theory set
-over the entire AFP and the entire distribution `src`.
+over the entire AFP and the entire distribution `src`. The oracle is the frozen
+`src/isabelle_query/` tree, and the harness **refuses to run** against a `query`
+of any other version.
 
 Same **exit statuses**: `0` ran, `1` unresolved subject, `2` usage error or an
-unreadable root, `141` closed stdout. Same rule that a root which cannot be
-read reports on stderr and never returns an empty success.
+unreadable root, `141` a write failed because a downstream reader closed the
+pipe. Same rule that a root which cannot be read reports on stderr and never
+returns an empty success.
 
 Same **semantics**: live-text scanning, locale scope, session discovery, the
 method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
@@ -68,33 +71,42 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
   alone, so setting one in your shell means what it means cold — the server
   never consults its own environment for them.
-- **`-V/--version`** reports `0.8.0-scala`, not `0.7.0`. Deliberately: a script
-  that pins a version must be able to tell the two apart.
+- **`-V/--version`** reports `0.8.1-scala`, not `0.8.1`. Deliberately: the
+  number names the upstream release whose contract this port matches, and the
+  `-scala` suffix is what lets a script that pins a version tell the two tools
+  apart.
 
 ## What is deliberately different
 
-Thirteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`.
-Eleven of them are cases where the Python implementation disagrees with
-Isabelle's own lexer or header parser, and reproducing it would mean shipping a
-known bug; D13 is the one that is neither a bug nor a fix but a **narrowing**,
-and it has a switch. **No entry is ever lost**: the set of declarations the
-oracle reports is a strict subset of what this engine reports, on both corpora.
+Fourteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`
+— and **most of them are closed**. Most were cases where the Python
+implementation disagreed with Isabelle's own lexer or header parser; upstream
+has since fixed six of those on its own side, from this port's findings, so the
+two tools now agree on the whole AFP and the whole distribution `src` down to a
+single record's span (D5).
+
+Six entries still describe something you would notice.
 
 | | what changes for you |
 |---|---|
-| **D1** | A cartouche whose body is a single backslash no longer swallows the rest of the file. 1,867 more records over 5 AFP entries. |
-| **D2** | `definition\<^marker>\<open>tag …\<close> name` is a declaration. 751 more records in the distribution, 16 in the AFP. |
-| **D3** | `keywords "cmd" :: "kind"` with a *quoted* kind is read as that kind. 37 more records over 2 entries. |
-| **D4** | The cross-session keyword union differs when the whole AFP is one root; each entry read on its own is byte-identical. 16 records over 4 entries. |
-| **D5** | A `\<comment>` whose cartouche opens on the next line is a comment. 1 record. |
-| **D6** | A structural marker inside a name is a shared weakness, **not** fixed — both implementations do the same thing, and it is recorded so nobody thinks it was checked. |
-| **D7** | `grep`, `sorry` and most of the usage family now run at all on a theory with a multi-name `axiomatization`; the oracle raises `TypeError` there. |
-| **D8** | A closed stdout is always exit `141`. The oracle sometimes says `120`, depending on whether the output fit in the pipe buffer. |
-| **D9** | Two Python-only regex spellings are *rejected with a diagnostic*, not silently misread. Neither appears in the docs or tests. |
-| **D10** | `unused -r`'s `[cascade depth N]` marker is not reproducible in the oracle even against itself; ours is deterministic. |
+| **D5** | A `\<comment>` whose cartouche opens on the next line is one comment. 1 record over both corpora, and the only one. |
+| **D8** | On a closed stdout both tools exit `0` below a threshold and `141` above it; the thresholds differ (8 KB here, 64 KB there), and the oracle additionally exits `120` with `Exception ignored while flushing sys.stdout` for one shape of large answer. |
+| **D9** | Two Python-only regex spellings — `(?P<n>…)` and `(?#…)` — are *rejected with a diagnostic*, not silently misread. Neither appears in the docs or tests. |
 | **D11** | The method/attribute table is the **committed** one, not one resolved from whichever heaps happen to be built on your machine — so two machines give the same answer. Step down to the Pure floor happens by base logic, as before. |
 | **D12** | `\w` is Java's, not Python's: `²`/`½` are word characters to the oracle and not here; a combining mark is one here and not there. 1 record in 306,525 over the whole AFP, in two derived count fields. **Not fixed** — see `dev/DIVERGENCES.md` for why the fix is a lexer-level change needing its own gate. |
-| **D13** | A citation is attributed only to a declaration the citing theory can **see** — its own, or one in its `imports` closure. Over the whole AFP `callers mono` drops from 1,361 to 566; `unused` may honestly grow. `--reach name` restores name-only attribution, on every verb the scoping moves. |
+| **D14** | For the visibility filter below, a name an entry *binds* (a datatype constructor, a `shows` conjunct, a `.simps`) counts as a declaration of that name. Upstream consults entries only, so `callers <constructor>` can differ on a corpus where the name is mentioned outside the binder's import cone. |
+
+The rest are history, kept with their evidence: **D1** (a cartouche whose body
+is a backslash), **D2** (`definition\<^marker>\<open>tag …\<close> name`),
+**D3** (a quoted `keywords` kind), **D6** (a structural marker inside a name),
+**D7** (the oracle's line index raising `TypeError` on a multi-name
+`axiomatization`) and **D10** (`unused -r`'s cascade depths depending on the
+hash seed) were all found here and are all fixed upstream now; **D4** (the
+whole-corpus keyword union) turned out to be a weakness both tools share; and
+**D13** — a citation is attributed only to a declaration the citing theory can
+**see** — is a rule both tools now apply by default, with `--reach name` on
+both to turn it off. Over the whole AFP that takes `callers mono` from 1,363
+hits to 634, and `unused` honestly **grows**.
 
 ## Things that move
 
@@ -118,6 +130,24 @@ oracle reports is a strict subset of what this engine reports, on both corpora.
   without `-r` is *not* in the list — it scans text, so zero mentions is an
   honest `0` — and `find zzz -c` / `show zzz -c` now print `0` rather than
   `No entries matching 'zzz'.`, with `--names` printing nothing at all.
+- **A printed `theory:line` is now qualified as far as it needs to be.** Over a
+  corpus 498 AFP theory names name more than one theory, so `largest`,
+  `enclosing`, `callers`, `methods`, `grep`, `sorry` and the `shape` views print
+  `Virtual_Substitution/QE:3495` rather than an ambiguous `QE:3495`. A name used
+  once is unchanged, so a single-session run looks exactly as it did. Both
+  spellings resolve, and the qualified one is the one a locus pastes back as.
+  This is the Python tool's own 0.8.1 behaviour; against **0.7.0** and against
+  earlier builds of this port it moves the first column of those verbs, so a
+  script that split on `:` still works and one that compared the theory field
+  against a bare name needs the suffix rule instead.
+- **`$ISABELLE_QUERY_REACHABILITY` is gone**, replaced by
+  `--reach {closure,name}` on `callers`, `callees`, `refs`, `unused` and
+  `graph`. It never existed in the Python tool — it was this port's own channel
+  from P7c to P9 — and the flag is what upstream 0.8.1 spells, so the two tools
+  now take the same word in the same place. `closure` is the default on both, so
+  only a caller that set the variable to `off` has anything to change:
+  `--reach name`, per invocation. Nothing reads the environment for it any more,
+  on the CLI, over the warm server, in the plugin, or from a library call.
 - **Installation** is `isabelle components -u`, not `pip install`. There is no
   PyPI package for the Scala tool and no Python runtime dependency.
 - **The program name** in diagnostics is `isabelle query`, not `query` or

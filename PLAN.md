@@ -49,8 +49,11 @@ conflicts with this file (e.g. "pure-Python", pytest habits), this file wins.
   dev/                         ← differential harness, benchmark scripts, dev notes
 ```
 
-The Python tree is **frozen**: never edit it, only read it. The runtime oracle
-is the installed `query` (v0.7.0, same code) on `PATH`.
+The Python tree is **frozen**: never edit it, only read it. It is upstream's
+0.8.1 release since `[p9-merge]`. The runtime oracle is a `query` built from
+*that* tree and named by `$QUERY_ORACLE`; `dev/difftest.sh` pins its version
+and refuses to run against any other, so a stale `query` on `PATH` is a
+refusal rather than a plausible red.
 
 ## Build / dev loop (verified mechanics)
 
@@ -88,7 +91,9 @@ The Scala tool must be a drop-in replacement for the Python CLI:
 - **Same exit codes** (0 ran / 1 unresolved subject / 2 usage or unreadable
   root / 141 SIGPIPE-equivalent on closed stdout).
 - stderr: must be non-empty exactly where Python's is; wording may differ.
-- `-V/--version`: report the fork's own version, starting at `0.8.0-scala`.
+- `-V/--version`: report the fork's own version. The NUMBER names the upstream
+  release whose contract the port matches (`0.8.1-scala` since P9); the
+  `-scala` suffix is what lets a script tell the two tools apart.
 
 Regex dialect: user patterns are Python `re` in the oracle, `java.util.regex`
 in Scala. For the pattern subset that appears in docs/tests (literals,

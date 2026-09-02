@@ -85,11 +85,10 @@ tool's output is valid input: a locus from `callers` / `sorry` / `instances`
 pastes into `enclosing`, and a span from `outline` / `largest` pastes into
 `lines`.
 
-A theory prints as its bare name, and — *once P9 S4 lands, see
-[dev/P9-PLAN.md](dev/P9-PLAN.md)* — only far enough qualified to name one
-theory. Over a corpus that matters: nineteen AFP theories are called
-`Examples`, so `largest` reports `Virtual_Substitution/QE` and `enclosing`
-takes it straight back. A name used once stays bare.
+A theory prints as its bare name, qualified only far enough to name one theory.
+Over a corpus that matters: 27 AFP theories are called `Examples`, so `largest`
+reports `Virtual_Substitution/QE` and `enclosing` takes it straight back. A name
+used once stays bare.
 
 ### `instances` and `codeqs`, and what they do not see
 
@@ -150,7 +149,7 @@ as one constant's equations.
 What *is* separated is the impossible case. A site is reported only in a theory
 that can **see** a declaration of the name — its own, or one in its transitive
 `imports` closure — so across disjoint trees the rows no longer run together.
-Over the whole AFP `callers mono` drops from 1,361 hits to 566: the 795 that go
+Over the whole AFP `callers mono` drops from 1,363 hits to 634: the 729 that go
 are in theories whose entire import closure declares no `mono`, where the token
 is HOL's own `Orderings.mono` arriving through an `imports Main` that `query`
 does not follow. The same filter is what `callers`, `callees`, `refs`,
@@ -341,11 +340,11 @@ $ echo $?
 1
 ```
 
-`141` is not promised for *every* `| head`. When the whole answer fits the pipe
-buffer no write ever fails and the status is `0` — the same as `seq 10 | head`,
-where `seq 200000 | head` dies of SIGPIPE. The producer wrote everything; the
-reader chose to stop. Either way stderr stays silent and the status is
-deterministic.
+`141` is not promised for *every* `| head`. When the whole answer leaves the
+process in one write no write ever fails and the status is `0` — the same as
+`seq 10 | head`, where `seq 200000 | head` dies of SIGPIPE. The producer wrote
+everything; the reader chose to stop. Either way stderr stays silent and the
+status is deterministic.
 
 A root that yields no theories is reported on stderr and never as an empty
 success, so a script can tell a broken run from an honestly empty one:
@@ -373,12 +372,13 @@ diffing stdout byte-for-byte and comparing exit statuses, and
 and the entire distribution `src`.
 
 Where the two differ, the difference is recorded in
-[dev/DIVERGENCES.md](dev/DIVERGENCES.md) with the evidence — twelve entries,
-and **no entry is ever lost**: over both corpora the set of
-`theory:line:tag:name` identities the oracle reports is a strict subset of this
-engine's. The rewrite finds 1,904 declarations across the AFP that the Python
-implementation misses, mostly `definition\<^marker>\<open>…\<close> name`
-(D2), because it uses Isabelle's lexer instead of a hand-rolled one.
+[dev/DIVERGENCES.md](dev/DIVERGENCES.md) with the evidence — fourteen entries,
+most of them now closed. Six of them (D1, D2, D3, D6, D7, D10) were defects
+this port found in the Python implementation, and upstream has since fixed all
+six on its own side, so what began as 1,904 AFP declarations and 509
+distribution declarations the reference could not see is now **agreement**:
+over the whole AFP and the whole distribution `src` the two engines report the
+same `theory:line:tag:name` set, and exactly one record's span differs (D5).
 
 Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
 

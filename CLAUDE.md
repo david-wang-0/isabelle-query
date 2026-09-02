@@ -147,14 +147,16 @@ USER_HOME="$FORK/.dev" isabelle scala -e '{ isabelle.Isabelle_System.init();
 
 ## Verification
 
-There is no pytest on the Scala side. Correctness comes from four harnesses,
+There is no pytest on the Scala side. Correctness comes from six harnesses,
 all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 `.dev/corpora.env`) and none from a hard-coded path:
 
 | harness | what it establishes |
 |---|---|
-| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence |
+| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. The oracle's version is pinned to the frozen tree's (0.8.1) and a mismatch is a refusal |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
+| `dev/p9probe.sh` | 140 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on a fixture of three ROOTs that collide by theory name |
+| `dev/p7cprobe.sh` | 45 checks on the import-visibility filter and `--reach name` |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display |
 | `dev/p7probe.sh` | the warm server and the thin client |
 
@@ -177,7 +179,7 @@ hand-compute a fixture value first, then make the code match.
 | `CONTRIBUTING.md` | **normative**: the CLI contract, the verification habits, where design decisions are recorded |
 | `query_base/src/shape.scala` + the Python `shape.py` | **authoritative** metric definitions |
 | `dev/DIVERGENCES.md` | every deliberate difference from the oracle, with its evidence |
-| `dev/P1..P8-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P1..P9-STATUS.md` | what each phase established, and what it left for the next |
 | `dev/BENCH.md` | the three-column benchmark and how it was taken |
 | `todo.md` | **open work only** — not a changelog |
 | `.claude/memory/` | granular working rules (written for the Python project) |
@@ -213,10 +215,14 @@ does not.
 
 `pyproject.toml` tracks the **Python** package — now **0.8.1**, still frozen:
 the reference tree is upstream's 0.8.1 release, and it is the oracle every
-harness here compares against. The Scala tool's version is `CLI.version` —
-still **0.8.0-scala** until P9 S5 bumps it, deliberately distinguishable so a
-script can tell the two apart. Versioning is alpha: a breaking change takes the
-minor slot, patch bumps stay additive.
+harness here compares against. The Scala tool's version is `CLI.version` — now
+**0.8.1-scala**. The two halves of that string do different jobs: the NUMBER
+names the upstream release whose contract this port matches (P9 is where that
+became 0.8.1), and the `-scala` suffix is what lets a script tell the two tools
+apart, since they answer to the same verbs. So the number tracks the oracle
+rather than this tree's own release history — it is a policy, not a semver
+argument. Versioning is otherwise alpha: a breaking change takes the minor
+slot, patch bumps stay additive.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.

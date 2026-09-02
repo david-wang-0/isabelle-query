@@ -147,10 +147,10 @@ nowhere is not filtered at all, and a theory whose imports cannot be read (a
 buffer, stdin) is not filtered either, since an unknown closure must not delete
 a real edge.
 
-Over the whole AFP that removes 40% of citation edges (2,409,977 → 1,440,680)
-and `callers mono` goes 1,263 → 561. `unused` **grows** by 3,516 entries, which
-is the point rather than a cost: an entry kept alive only by a citation its
-citer could never have meant is dead.
+Over the whole AFP that removes 41% of citation edges (2,291,456 → 1,355,188)
+and `callers mono` goes 1,363 → 634. `unused` **grows** by 3,586 entries
+(97,568 → 101,154), which is the point rather than a cost: an entry kept alive
+only by a citation its citer could never have meant is dead.
 
 Because the rule may only drop, an import query cannot *resolve* is worse than
 one it resolves wrongly: the edge simply is not there, and every citation
@@ -226,16 +226,16 @@ commands stay fast.
 ## Naming one theory out of a corpus
 
 A theory prints as the name it declares, which is unambiguous within a session
-and not across a corpus: **461 AFP theory names are used by more than one
-theory**, covering 1,219 of its 9,910. Nineteen files are called `Examples`,
-fifteen `Preliminaries`.
+and not across a corpus: **498 AFP theory names are used by more than one
+theory**, covering 1,349 of its 10,262. Twenty-seven files are called
+`Examples`, sixteen `Preliminaries`.
 
 So every printed `theory:line` is qualified by the shortest leading directory
 that names one theory — `Virtual_Substitution/QE`,
 `JinjaDCI/Compiler/Correctness2` — and no further, because a shared prefix
 distinguishes nothing and the label has to be typeable back in. A name used
 once stays bare, so a single-session run looks exactly as it always did. Over
-the whole AFP 1,219 labels grow a prefix; a further 902 already carry one,
+the whole AFP 1,349 labels grow a prefix; a further 910 already carry one,
 because their `ROOT` declares them that way (`theories "While/HoareTotal"`) and
 the label is then just the theory's own name.
 
@@ -256,14 +256,11 @@ theories sharing a name do not share an answer. That matters most for the
 citation graph: a line inside one file's `text` block is prose there and
 nowhere else, so a real citation in a same-named file is not dropped as
 documentation, and a prose mention in the other is not counted as a use.
-Over the whole AFP read as one root this moves 48,177 citation edges onto the
-entry that actually makes them and restores 43,912 that were suppressed;
-`unused` grows accordingly. A single-session run is unaffected, because within
-a session Isabelle already requires the names to be distinct.
-
-*(The path-keyed indexes are in this engine; the printed LABELS are P9 S4, so a
-printed theory name is still the bare stem here. See
-[dev/P9-PLAN.md](dev/P9-PLAN.md).)*
+Measured in the reference tree over the whole AFP read as one root, keying by
+path moves 48,177 citation edges onto the entry that actually makes them and
+restores 43,912 that were suppressed; `unused` grows accordingly. A
+single-session run is unaffected, because within a session Isabelle already
+requires the names to be distinct.
 
 ## Aggregating across a corpus
 

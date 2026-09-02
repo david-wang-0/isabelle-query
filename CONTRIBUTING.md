@@ -105,6 +105,21 @@ sides — `find zzz -c` is `0`, `find zzz --names` is nothing — with three
 deliberate exceptions the oracle shares: `unused --roots -c`, `defs -c`, and
 `callees`, which were already count-first.)*
 
+**A closed stdout is `141`, and `141` means a write FAILED — not that a reader
+went away.** The exit contract is `0` ran, `1` an unresolved subject, `2` a
+usage error or an unreadable root, `141` a write failed because a downstream
+reader closed the pipe, which is `128 + SIGPIPE` and so reads in a pipeline the
+way `yes | head` does. What must not be promised is `141` for *every* `| head`:
+when the whole answer leaves the process in one write, that write lands in a
+buffer nothing has closed yet, the run finishes normally and the status is `0`
+— exactly as `seq 10 | head` is `0` where `seq 200000 | head` dies of SIGPIPE.
+Both tools have that shape and the size at which they cross over is different
+(this engine's writer encodes 8 KB at a time; the reference fills a 64 KB pipe),
+so a doc that quotes a number is documenting a buffer. Write the failure, not
+the reader: *(Scala: `Out` wraps every write in `guard`, an `IOException` becomes
+`Broken_Pipe`, and `CLI.run_result` turns that into `EXIT_SIGPIPE` wherever it
+was raised.)* `dev/DIVERGENCES.md` D8 has the measurements on both sides.
+
 **A user-typed pattern goes through `commands._user_pattern`, never straight to
 `re.compile`.** This is the same rule one level down: a pattern that cannot
 match is a silent zero the caller has no reason to doubt. Two rewrites live
@@ -182,19 +197,19 @@ that `shape_cmds`, which sits below `cli`, can use it without closing a cycle.
 
 **A printed `theory:line` goes through one label helper, and a printed
 `file:line` through another.** Emitting a section's bare theory name is the
-obvious thing and it is ambiguous over a corpus: 461 AFP theory names name more
+obvious thing and it is ambiguous over a corpus: 498 AFP theory names name more
 than one theory, so the locus a verb hands you may not paste back to the theory
 it came from. Scope the label to the whole loaded corpus, never to the rows
 being shown — `largest` labels against every section it loaded, not against the
 `-N` rows it prints. *(Scala: `Render.theory_labels` / `locus_labels` /
-`file_locus` land in P9 S4, see `dev/P9-PLAN.md`; until then the port prints
-bare stems.)*
+`file_locus`, with the resolver's unique-suffix step built from the same tuple
+so the two cannot drift.)*
 
 The corollary is the sharper half, and it is not about labels: **a theory NAME
 is never a section's identity — key by the section's PATH and pass the section
 itself.** A name is unique in a session and not in a corpus, so any
 name-keyed map written by one loop over the sections and read back by another
-silently hands 758 of the AFP's 9,910 sections another file's data. In the
+silently hands 851 of the AFP's 10,262 sections another file's data. In the
 reference tree that was four instances — the line index (line → owning entry),
 the prose mask (live vs comment), the declaration sites, and `callers`
 re-deriving its hit's section — all now keyed by path. The two suppressing
@@ -220,7 +235,7 @@ missing feature but a hole, and a hole prunes `[import-leaf]`.
 
 There is no unit suite here, and that is a decision rather than an omission: the
 tool has an **oracle**, and a differential run says more about a scanner change
-than any number of hand-written assertions could. Four harnesses, in the order
+than any number of hand-written assertions could. Six harnesses, in the order
 a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 `$QUERY_TEST_DISTRO` (see `.dev/corpora.env`) and none from a hard-coded path.
 
@@ -228,6 +243,8 @@ a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
 | `dev/difftest.sh` | 2,149 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
+| `dev/p9probe.sh` | 140 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
+| `dev/p7cprobe.sh` | 45 checks on the import-visibility filter itself: the closure, the leaf rule, position-blindness, and `--reach name` as the compatibility mode | any change to `Reach` or to the citation router's candidate filter |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
 | `dev/p7probe.sh` | the warm server, the thin client, and the decline protocol that joins them to the cold path (§15, §16) | any change to `server.scala`, `cli.scala`, `lib/Tools/query`, or the client |
 
