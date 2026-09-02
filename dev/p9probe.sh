@@ -93,10 +93,19 @@ bad()  { checks=$((checks + 1)); fail=$((fail + 1)); echo "  FAIL  $1  [$2]"; }
 # B -- the same T, plus a theory the ROOT addresses BY PATH and a decoy of the
 # same bare name at the top level.  There is no per-theory `in` clause in the
 # session grammar, so `theories "LK/Propositional"` is how a subdirectory is
-# addressed, and both engines then carry the theory under that spelling.  The
-# decoy is the whole point of §3: a resolver that fell back to the stem would
-# answer about `Propositional` when asked about `LK/Propositional`, silently
-# and confidently.
+# addressed -- and Isabelle then calls that theory `Propositional`, because
+# `Sessions` names it `Thy_Header.import_name(thy)` (dev/DIVERGENCES.md D15,
+# [p10-theory-leaf]).  So the two files COLLIDE by name, which is the whole
+# point of §3: the printed name no longer distinguishes them and the printed
+# LABEL has to, and a locus that looks paste-able but lands on the other file
+# is a worse answer than an obviously ambiguous one.
+#
+# The two files are kept in ONE session, as P9 wrote them, so that the records
+# this fixture moves are exactly the ones the naming change moves.  It is a
+# resolver fixture, not a build target: `isabelle build` would reject a session
+# holding two theories of one name, and nothing here builds anything.  The
+# collision as it occurs in the wild -- across sessions, 461 times in the AFP
+# -- is fixture C's shape, and the path-spelled version of it is fixture P (§3c).
 #
 # Every count below was read off these files before any code ran; the line
 # numbers are part of the expectation, so do not insert lines without moving
@@ -128,6 +137,7 @@ mkdir -p "$FIXB/LK" || exit 2
 cat >"$FIXB/ROOT" <<'ROOT'
 session P9_Fix_B = HOL +
   options [document = false]
+  directories "LK"
   theories
     T
     "LK/Propositional"
@@ -320,68 +330,226 @@ echo
 echo "3. [name-roundtrip] -- the printed name resolves back"
 # ==========================================================================
 #
-# `summary` prints `LK/Propositional`; passing that string back must reach
-# THAT theory.  The decoy `Propositional` is what makes the check mean
-# something: a resolver that fell through to the stem would answer about the
-# top-level file, and a locus that looks paste-able but lands elsewhere is a
-# worse answer than an obviously ambiguous one.
+# THE NAME IS THE LEAF, THE LABEL IS WHAT DISAMBIGUATES.
+#
+# `theories "LK/Propositional"` declares a theory Isabelle calls
+# `Propositional`: `Sessions` names every ROOT-declared theory
+# `Thy_Header.import_name(thy)` (src/Pure/Build/sessions.scala:650), which is
+# `Url.get_base_name` -- the substring after the last of ":/\" -- and the
+# `global_theories` clause four lines on spells the same rule
+# `Path.explode(thy).file_name`.  Since [p10-theory-leaf] this engine agrees;
+# the reference still prints `LK/Propositional`, which is dev/DIVERGENCES.md
+# D15, the one deliberate difference in oracle-shared output.
+#
+# So `summary` prints `Propositional` TWICE here, and everything below is
+# about the two ways to say which one you mean:
+#
+#   the LABEL   `Render.theory_labels`: the shortest suffix of (resolved
+#               parent's components :+ NAME) that names one section.  Depth 1
+#               is `Propositional` for both, so both settle at depth 2 --
+#               `LK/Propositional` for the declared-by-path one and
+#               `fixB/Propositional` for the decoy.  Note the directory
+#               appears ONCE: before this item the tuple carried the DECLARED
+#               name, so the same shape labelled `two/ex/ex/Foo` (upstream
+#               defect 1, dev/P9-STATUS.md; §3c is that case).
+#   the NAME    a bare `Propositional` never reaches the suffix step; it is
+#               the exact-name branch, and first-in-load-order wins, which is
+#               the ROOT's first `Propositional` -- LK's.
+#
+# Hand-computed off the two files, both five lines: no definitions, one lemma,
+# no theorems, and the lemma as the key export.
 
 ROOT_DIR="$FIXB"
 
-# `summary` has no row filter, so the expectation is a grep for the one row.
-# Hand-computed: 5 source lines, no definitions, one lemma, no theorems, and
-# `triv` as the key export.
-if isabelle query -R "$FIXB" summary 2>/dev/null |
-     grep -qx '| LK/Propositional | 5 | 0 | 1 | 0 | triv |'; then
-  note "the path-spelled name is what \`summary\` prints" "LK/Propositional"
+# `summary` has no row filter, so the expectation is a grep for the two rows.
+sum_b=$(isabelle query -R "$FIXB" summary 2>/dev/null)
+if printf '%s\n' "$sum_b" | grep -qx '| Propositional | 5 | 0 | 1 | 0 | triv |' &&
+   printf '%s\n' "$sum_b" | grep -qx '| Propositional | 5 | 0 | 1 | 0 | also_triv |'; then
+  note "the path-declared theory is named by its LEAF, like the decoy" "Propositional x2"
 else
-  bad "the path-spelled name is what \`summary\` prints" \
-    "$(isabelle query -R "$FIXB" summary 2>/dev/null | grep Propositional | tr '\n' ' ')"
+  bad "the path-declared theory is named by its LEAF, like the decoy" \
+    "$(printf '%s\n' "$sum_b" | grep Propositional | tr '\n' ' ')"
+fi
+if printf '%s\n' "$sum_b" | grep -q 'LK/Propositional'; then
+  bad "and the ROOT's own spelling is nowhere in the table" "still printed"
+else
+  note "and the ROOT's own spelling is nowhere in the table" "no LK/ row"
 fi
 
+# The ROOT's spelling is still valid INPUT -- as a label, which is the same
+# tuple matched as a suffix.  That is new: before this item it resolved by
+# exact name, and `LK/Propositional` happened to BE the name.
 expect "theory LK/Propositional -c"        0 "1" "" theory LK/Propositional -c
 expect "and it is LK's lemma, not the decoy's" 0 \
-  "triv (LEMMA) — LK/Propositional [src 4..4, 1 lines]" "" \
+  "triv (LEMMA) — Propositional [src 4..4, 1 lines]" "" \
   theory LK/Propositional --names
-expect "the bare decoy still resolves to itself" 0 \
+expect "the decoy is reached by ITS label" 0 \
   "also_triv (LEMMA) — Propositional [src 4..4, 1 lines]" "" \
+  theory fixB/Propositional --names
+expect "a bare leaf resolves, first-in-load-order" 0 \
+  "triv (LEMMA) — Propositional [src 4..4, 1 lines]" "" \
   theory Propositional --names
 expect "defs, through the same resolver" 0 \
-  "No definitions found in 'LK/Propositional'." "" defs LK/Propositional
-expect "uses" 0 "No in-project theory imports LK/Propositional (directly)." "" \
+  "No definitions found in 'Propositional'." "" defs LK/Propositional
+expect "uses" 0 "No in-project theory imports Propositional (directly)." "" \
   uses LK/Propositional
 expect "refs -c" 0 "0" "" refs LK/Propositional -c
 expect "grep, which resolves a FILE positional" 0 "1" "" grep triv LK/Propositional -c
 
-# The rule is EXACT match on the printed name, not last-segment: upstream did
-# not add a last-segment rule and neither does this.  `Propositional` above
-# resolves because it is a section's exact name, not because it is a suffix of
-# `LK/Propositional` -- and a path that names nothing is §1's failure.
+# The printed LOCUS is the label, and it is valid input to `enclosing` -- the
+# round trip the locus grammar rests on, on the one theory whose name moved.
+# Line 4 is `lemma triv: "True" by simp`, so the proof starts on it.
+expect "the locus round trip: enclosing takes the label back" 0 \
+  "LK/Propositional:4 → triv (LEMMA) — LK/Propositional [src 4..4, 1 lines]  (in proof)" \
+  "" enclosing LK/Propositional:4
+expect "and the decoy's label lands on the decoy" 0 \
+  "fixB/Propositional:4 → also_triv (LEMMA) — fixB/Propositional [src 4..4, 1 lines]  (in proof)" \
+  "" enclosing fixB/Propositional:4
+
+# A path that names nothing is still §1's failure -- and the known-theory list
+# now spells both files the way Isabelle does, so it carries the name twice.
 expect "a path-spelled name that exists nowhere is §1's refusal" 1 "" \
-  "$(printf "%s: no theory 'LK/Nope'.  Known theories:\n  LK/Propositional\n  Propositional\n  T" "$PROG")" \
+  "$(printf "%s: no theory 'LK/Nope'.  Known theories:\n  Propositional\n  Propositional\n  T" "$PROG")" \
   theory LK/Nope
 
 echo
 echo "3b. the same round trip on a real corpus"
 
-# CTT declares `theories ex/Typechecking` and prints `ex/Typechecking`; before
-# this item every verb that took it back said "not found".  This is the case
-# the survey found (dev/difftest.sh's CTT `deps-last`, `refs-last`,
-# `deps-batch`, `refs-batch`, `uses-batch`), asked directly.
+# CTT declares `theories "ex/Typechecking"` and, since [p10-theory-leaf],
+# prints `Typechecking`.  Both spellings must resolve: the printed NAME,
+# because a tool that lists a theory must answer about it (this is the case
+# the P9 survey found -- dev/difftest.sh's CTT `deps-last`, `refs-last`,
+# `deps-batch`, `refs-batch`, `uses-batch`), and the ROOT's own spelling,
+# because `ex/Typechecking` is the label here (nothing else in CTT is called
+# `Typechecking`, so depth 1 settles it; the ROOT's spelling arrives at the
+# same section through the suffix rule).
 ROOT_DIR="$CORPUS"
-thy=$(isabelle query -R "$CORPUS" summary 2>/dev/null |
-        sed -n 's/^| \(ex\/[A-Za-z_]*\) |.*/\1/p' | head -1)
-if [ -n "$thy" ]; then
-  note "the corpus has a path-spelled theory to ask about" "$thy"
-  n=$(isabelle query -R "$CORPUS" theory "$thy" -c 2>"$OUT/e.txt")
-  rc=$?
-  if [ "$rc" = "0" ] && [ -n "$n" ] && [ "$n" -gt 0 ] 2>/dev/null; then
-    note "and \`theory\` on it answers with a count" "$n"
-  else
-    bad "and \`theory\` on it answers with a count" "rc $rc, [$n], $(cat "$OUT/e.txt")"
-  fi
+declared=$(sed -n 's/^ *"\(ex\/[A-Za-z_]*\)".*/\1/p' "$CORPUS/ROOT" | head -1)
+leaf=${declared##*/}
+if [ -n "$declared" ] && [ "$leaf" != "$declared" ]; then
+  note "the corpus ROOT declares a theory by PATH" "$declared"
 else
-  bad "the corpus has a path-spelled theory to ask about" "none in \`summary\`"
+  bad "the corpus ROOT declares a theory by PATH" "[$declared]"
+fi
+if isabelle query -R "$CORPUS" summary 2>/dev/null |
+     grep -q "^| $leaf |"; then
+  note "and \`summary\` names it by its leaf" "$leaf"
+else
+  bad "and \`summary\` names it by its leaf" \
+    "$(isabelle query -R "$CORPUS" summary 2>/dev/null | grep -c "$declared") rows spelled $declared"
+fi
+n_leaf=$(isabelle query -R "$CORPUS" theory "$leaf" -c 2>"$OUT/e.txt")
+rc=$?
+if [ "$rc" = "0" ] && [ -n "$n_leaf" ] && [ "$n_leaf" -gt 0 ] 2>/dev/null; then
+  note "and \`theory <leaf>\` answers with a count" "$n_leaf"
+else
+  bad "and \`theory <leaf>\` answers with a count" "rc $rc, [$n_leaf], $(cat "$OUT/e.txt")"
+fi
+n_decl=$(isabelle query -R "$CORPUS" theory "$declared" -c 2>"$OUT/e.txt")
+rc=$?
+if [ "$rc" = "0" ] && [ "$n_decl" = "$n_leaf" ]; then
+  note "and the ROOT's own spelling reaches the same theory" "$n_decl"
+else
+  bad "and the ROOT's own spelling reaches the same theory" \
+    "rc $rc, [$n_decl] vs [$n_leaf], $(cat "$OUT/e.txt")"
+fi
+
+# ==========================================================================
+echo
+echo "3c. [p10-theory-leaf] -- a COLLIDING path-spelled name, labelled once"
+# ==========================================================================
+#
+# Fixture P: two roots, each declaring `"ex/Foo"`, each holding `ex/Foo.thy`.
+# This is upstream defect 1 (dev/P9-STATUS.md) reduced to its smallest form.
+#
+# The rule, applied by hand.  Names are leaves, so both sections are `Foo`;
+# each tuple is its resolved parent's components with the NAME on the end:
+#
+#   depth 1   Foo, Foo                  -> collide
+#   depth 2   ex/Foo, ex/Foo            -> collide
+#   depth 3   one/ex/Foo, two/ex/Foo    -> settle
+#
+# so the directory `ex` appears ONCE.  With the DECLARED name on the end of
+# the tuple instead -- what both tools did before this item -- depth 1 was
+# `ex/Foo` twice, depth 2 `ex/ex/Foo` twice, and depth 3 `one/ex/ex/Foo` and
+# `two/ex/ex/Foo`: a label naming a directory that occurs once in the path
+# twice, and one no verb took back, because `name_parts` of it matches no
+# tuple suffix.
+#
+# Load order is `walk`'s: file names sorted per directory, so `one` before
+# `two`, which is what makes a bare `Foo` resolve to one's.
+
+FIXP="$OUT/fixP"
+mkdir -p "$FIXP/one/ex" "$FIXP/two/ex" || exit 2
+
+cat >"$FIXP/one/ROOT" <<'ROOT'
+session Fix_D_One = HOL +
+  options [document = false]
+  directories "ex"
+  theories
+    "ex/Foo"
+ROOT
+
+cat >"$FIXP/one/ex/Foo.thy" <<'THY'
+theory Foo
+imports Main
+begin
+lemma one_side: "True" by simp
+end
+THY
+
+cat >"$FIXP/two/ROOT" <<'ROOT'
+session Fix_D_Two = HOL +
+  options [document = false]
+  directories "ex"
+  theories
+    "ex/Foo"
+ROOT
+
+cat >"$FIXP/two/ex/Foo.thy" <<'THY'
+theory Foo
+imports Main
+begin
+lemma two_pad: "True" by simp
+
+lemma two_side: "True" by simp
+end
+THY
+
+ROOT_DIR="$FIXP"
+
+# One's file is 5 lines with one lemma; two's is 7 with two, the first of
+# which owns the blank line 5.
+sum_d=$(isabelle query -R "$FIXP" summary 2>/dev/null)
+if printf '%s\n' "$sum_d" | grep -qx '| Foo | 5 | 0 | 1 | 0 | one_side |' &&
+   printf '%s\n' "$sum_d" | grep -qx '| Foo | 7 | 0 | 2 | 0 | two_pad, two_side |'; then
+  note "both are named Foo" "2 rows"
+else
+  bad "both are named Foo" "$(printf '%s\n' "$sum_d" | grep '| Foo' | tr '\n' ' ')"
+fi
+
+# THE label check: `ex` once, and the label is valid input on the way back.
+expect "the label qualifies to one/ex/Foo -- the directory ONCE" 0 \
+  "one/ex/Foo:4 → one_side (LEMMA) — one/ex/Foo [src 4..4, 1 lines]  (in proof)" \
+  "" enclosing one/ex/Foo:4
+expect "and to two/ex/Foo for the other" 0 \
+  "two/ex/Foo:6 → two_side (LEMMA) — two/ex/Foo [src 6..6, 1 lines]  (in proof)" \
+  "" enclosing two/ex/Foo:6
+# The bare leaf is the exact-name branch: first in load order, which is one's.
+expect "a bare Foo is first-in-load-order, and echoes the label" 0 \
+  "one/ex/Foo:4 → one_side (LEMMA) — one/ex/Foo [src 4..4, 1 lines]  (in proof)" \
+  "" enclosing Foo:4
+expect "theory one/ex/Foo -c" 0 "1" "" theory one/ex/Foo -c
+expect "theory two/ex/Foo -c" 0 "2" "" theory two/ex/Foo -c
+
+# The doubled spelling is gone from every emitter, not just the one asked.
+dbl=$( { isabelle query -R "$FIXP" summary
+         isabelle query -R "$FIXP" largest
+         isabelle query -R "$FIXP" grep True; } 2>/dev/null | grep -c 'ex/ex/')
+if [ "$dbl" = "0" ]; then
+  note "no emitter prints the doubled directory" "0 lines with ex/ex/"
+else
+  bad "no emitter prints the doubled directory" "$dbl lines with ex/ex/"
 fi
 
 # ==========================================================================
@@ -1563,11 +1731,14 @@ echo "14. [import-leaf] -- a token the resolver cannot map is a hole"
 # ==========================================================================
 #
 # Upstream's LeafFixture: one session, one subdirectory, both spellings of the
-# same rule.  The ROOT names a theory `"Sub/Leaf"`, so that IS its name here;
-# `Sub/Leaf` reaches its sibling with `imports "../Base"`, and `Bare` reaches
-# `Sub/Leaf` by its LEAF.  Neither resolves by an exact name or by the tail
-# after the last `.` -- that rule finds the `.` of `..` -- so before the leaf
-# rule both were `[out-of-project]` and the closure had a hole across them.
+# same rule.  The ROOT addresses a theory as `"Sub/Leaf"`, so Isabelle -- and,
+# since [p10-theory-leaf], this engine -- calls it `Leaf` (§3, D15).  It
+# reaches its sibling with `imports "../Base"`, and `Bare` reaches it with a
+# bare `imports Leaf`.  The first resolves by no exact name and by no tail
+# after the last `.` -- that rule finds the `.` of `..` and yields `/Base` --
+# so before the leaf rule it was `[out-of-project]` and the closure had a hole
+# across it.  The second used to need an alias table on the THEORY side as
+# well; now both ends are leaves and the one rule serves.
 #
 # `Alien` is the counterweight: the leaf rules must not invent a local theory
 # out of a genuinely external import.
@@ -1591,25 +1762,25 @@ ROOT_DIR="$LEAFFIX"
 echo
 echo "14a. deps / uses resolve both spellings"
 
-expect "deps Bare -- by the leaf of a path-spelled THEORY" 0 \
+expect "deps Bare -- the path-declared theory answers to its leaf" 0 \
   'Direct imports of Bare:
-  Sub/Leaf  (5 src lines, 1 entries)  [direct]' "" deps Bare
+  Leaf  (5 src lines, 1 entries)  [direct]' "" deps Bare
 expect "deps -r Bare -- and on through the ../ import" 0 \
   'Import-transitive dependencies of Bare:
-  Sub/Leaf  (5 src lines, 1 entries)  [direct]
+  Leaf  (5 src lines, 1 entries)  [direct]
   Base  (5 src lines, 1 entries)  [depth 1]
   Main  [out-of-project]' "" deps -r Bare
 expect "uses -r Base -- the same edges, reversed" 0 \
   'Theories that import Base (transitively):
-  Sub/Leaf  (5 src lines, 1 entries)  [direct]
+  Leaf  (5 src lines, 1 entries)  [direct]
   Bare  (5 src lines, 1 entries)  [depth 1]' "" uses -r Base
 
 echo
 echo "14b. external stays external"
 
-# Neither rule fires without a `/` in the token or in a loaded name, and an
-# external session-qualified import has none.  A leaf rule that invented a
-# local theory here would be worse than the hole it fixes.
+# The rule does not fire without a separator in the TOKEN, and an external
+# session-qualified import has none.  A leaf rule that invented a local theory
+# here would be worse than the hole it fixes.
 expect "deps Alien -- both tokens keep the raw spelling" 0 \
   'Direct imports of Alien:
   ../nowhere/Absent  [out-of-project]
@@ -1630,23 +1801,23 @@ expect "refs Bare -- the citation reaches past the direct import" 0 \
   Base  [import depth 1]  1
       base  (1)
 
-  Direct imports no citation reaches (1): Sub/Leaf
+  Direct imports no citation reaches (1): Leaf
   Cited but not directly imported (1): Base' "" refs Bare
-expect "graph imports -- Sub/Leaf is a node, not an external token" 0 \
+expect "graph imports -- Leaf is a node, not an external token" 0 \
   'digraph imports {
   rankdir=LR;
   "Alien";
   "Bare";
   "Base";
-  "Sub/Leaf";
+  "Leaf";
   "../nowhere/Absent" [style=dashed];
   "HOL-Library.FuncSet" [style=dashed];
   "Main" [style=dashed];
   "Alien" -> "../nowhere/Absent";
   "Alien" -> "HOL-Library.FuncSet";
-  "Bare" -> "Sub/Leaf";
+  "Bare" -> "Leaf";
   "Base" -> "Main";
-  "Sub/Leaf" -> "Base";
+  "Leaf" -> "Base";
 }' "" graph imports -f dot
 
 echo

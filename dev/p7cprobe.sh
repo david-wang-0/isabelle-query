@@ -513,28 +513,35 @@ echo "8b. a theory the ROOT declares by PATH"
 #
 #     theories "Nested/Nested_Fix"
 #
-# and both this engine and the reference then carry the theory under THAT
-# spelling.  It is not what Isabelle calls it: `Thy_Header.import_name` takes
-# the last path segment, and `Sessions`' own `global_theories` check spells it
-# `Path.explode(thy).file_name`.  A theory in a sibling directory reaches it
-# with `imports "../Nested/Nested_Fix"`, whose leaf is `Nested_Fix` -- and a
-# leaf tested against a set of PREFIXED names misses.  Before the alias table
-# in `Reach.build`, `codeqs quad` here answered 2 where the source has 3, with
-# nothing on stderr.  (The wrong NAME is left alone on purpose; correcting it
-# would move FOL, Sequents and CTT off byte parity with the reference, which
-# spells them the same way.  See todo.md `[theory-name-leaf]`.)
+# and until [p10-theory-leaf] this engine carried the theory under THAT
+# spelling.  It is not what Isabelle calls it: `Sessions` names a
+# ROOT-declared theory `Thy_Header.import_name(thy)`
+# (src/Pure/Build/sessions.scala:650), the last segment, and the
+# `global_theories` check four lines on spells it
+# `Path.explode(thy).file_name`.  The theory is now `Nested_Fix` here, as it
+# is to `isabelle build`; the reference still says `Nested/Nested_Fix`, which
+# is dev/DIVERGENCES.md D15.
+#
+# The IMPORT side is older and is what §8b was written for.  A theory in a
+# sibling directory reaches this one with `imports "../Nested/Nested_Fix"`,
+# whose leaf is `Nested_Fix` -- and a leaf tested against a set of PREFIXED
+# names missed.  `Reach.import_candidates` maps the four spellings; before it,
+# `codeqs quad` here answered 2 where the source has 3, with nothing on
+# stderr.  Naming the theory by its leaf does not retire that rule (a header
+# may still write `imports "ex/Foo"` for a theory called `Foo`), so this
+# section is exactly as load-bearing as it was.
 #
 # Its OWN root, so every count in §0-§7 stays where it was.  Two constants,
 # both hand-computed off the four theories below:
 #
-#   quad  THE case.  Declared in `Nested/Nested_Fix`, which the ROOT spells
-#         with its directory, and cited from `Deep/Down_Fix`, which reaches it
-#         across directories with `../`.  Three sites; the one that vanished
-#         is `Deep/Down_Fix:5`.
-#   cube  the two NEAR-MISSES, which must go on working.  `Extra/Helper_Fix`
+#   quad  THE case.  Declared in the theory the ROOT spells
+#         `"Nested/Nested_Fix"` -- named `Nested_Fix` -- and cited from
+#         `Down_Fix`, which reaches it across directories with `../`.  Three
+#         sites; the one that vanished is `Down_Fix:5`.
+#   cube  the two NEAR-MISSES, which must go on working.  `Helper_Fix`
 #         is NOT declared in the ROOT -- it arrives through the import closure
 #         and so registers under its bare leaf -- and it is reached two ways:
-#         `../Extra/Helper_Fix` from `Deep/Down_Fix` (a `../` import of a
+#         `../Extra/Helper_Fix` from `Down_Fix` (a `../` import of a
 #         bare-named theory) and `Extra/Helper_Fix` from `Plain_Fix` (a
 #         prefixed spelling with no `../`).  Three sites, before and after.
 #
@@ -639,22 +646,24 @@ else
   bad "3 declared theories, Helper_Fix by import, 6 entries" "$nest_head"
 fi
 
-# The engine spells the path-declared theory the way the ROOT does, and the
-# reference spells it the same way (verified: the two `summary` tables are
-# byte-identical on this fixture).  Pinned so that correcting the NAME has to
-# be a deliberate act with its own parity evidence, not a side effect.
-if printf '%s\n' "$nest_sum" | grep -q '^| Nested/Nested_Fix |'; then
-  note "the path-declared theory keeps the ROOT's spelling (a known wart)" "Nested/Nested_Fix"
+# The engine names the path-declared theory the way `isabelle build` does --
+# by its leaf -- and the ROOT's own spelling appears nowhere in the table.
+# The reference still prints `Nested/Nested_Fix` here; that is D15, and it is
+# the only place this fixture and the oracle disagree.
+if printf '%s\n' "$nest_sum" | grep -q '^| Nested_Fix |' &&
+   ! printf '%s\n' "$nest_sum" | grep -q 'Nested/Nested_Fix'; then
+  note "the path-declared theory is named by its leaf" "Nested_Fix"
 else
-  bad "the path-declared theory keeps the ROOT's spelling (a known wart)" "not in summary"
+  bad "the path-declared theory is named by its leaf" \
+    "$(printf '%s\n' "$nest_sum" | grep Nested_Fix | tr '\n' ' ')"
 fi
 
-# THE hole.  Deep/Down_Fix:5 is the row that used to vanish.
+# THE hole.  Down_Fix:5 is the row that used to vanish.
 same_nest "codeqs quad -- all three sites" 3 codeqs quad -c
 expect_nest "callers quad -- both citations survive" 2 2 callers quad -c
 
-nest_want='Nested/Nested_Fix:5
-Deep/Down_Fix:5
+nest_want='Nested_Fix:5
+Down_Fix:5
 Plain_Fix:5'
 loci=$(isabelle query -R "$NEST" codeqs quad --names 2>>"$OUT/nest-err.txt")
 if [ "$loci" = "$nest_want" ]; then
@@ -665,11 +674,11 @@ fi
 # The same question through a verb that HAS the flag, so the closure is
 # exercised in both modes on this fixture too: the hole was in the closure,
 # and `--reach name` does not use one.
-# `quad` is cited on `Deep/Down_Fix:5` and `Plain_Fix:5` and nowhere else:
-# `Nested/Nested_Fix` holds only the declaration, which the scan excludes, and
+# `quad` is cited on `Down_Fix:5` and `Plain_Fix:5` and nowhere else:
+# `Nested_Fix` holds only the declaration, which the scan excludes, and
 # the `quad_def` on each proof line is a different token.  The locus column is
 # what the hole ate, so it is the column asserted.
-nest_callers_want='Deep/Down_Fix:5
+nest_callers_want='Down_Fix:5
 Plain_Fix:5'
 for mode in closure name; do
   loci=$(isabelle query -R "$NEST" callers quad --reach "$mode" -U 0 \
