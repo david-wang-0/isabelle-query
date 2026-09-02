@@ -112,7 +112,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,113-case matrix, taken through
+# answers the oracle gives?  It is the same 2,149-case matrix, taken through
 # the socket.  The server is probe-private and stopped on the way out, for the
 # reason dev/p7probe.sh gives at greater length.
 #

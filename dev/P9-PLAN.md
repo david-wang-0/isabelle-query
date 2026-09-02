@@ -180,43 +180,68 @@ In this order; entrydiff after each commit.
       `Sequents/closed-stdout` (D8) cleared on its own with the entry names.
       p5/p6/p6b/p7c/p7 probes all green.
 
-### S3 — the citation graph (`.dev/gap-G2-graph.md`)
+### S3 — the citation graph (`.dev/gap-G2-graph.md`) — **DONE**
 
-- [ ] `[symbol-body-tokens]` — blank `\<…>` symbols before the `[\w']+`
+- [x] `[symbol-body-tokens]` — blank `\<…>` symbols before the `[\w']+`
       citation scan in `build_call_graph`, and the two lookbehinds in
       `isa_word_pattern` (`callers`, and the plugin's word-under-caret).
-- [ ] `[name-is-not-identity]` — line index, prose mask and declaration
+- [x] `[name-is-not-identity]` — line index, prose mask and declaration
       sites keyed by `sec.path`, not `sec.theory`; readers follow
       (`build_call_graph`, `scan_methods`, `grep_sections`, `find_callers`,
       `find_code_equations`). `find_callers` returns the section (S4 needs
-      it; update `jedit_query/src/query_search.scala`).
-- [ ] `[import-leaf]` — `Usage.resolve_import` takes upstream's four-step
+      it; `jedit_query/src/query_search.scala` groups by path).
+- [x] `[import-leaf]` — `Usage.resolve_import` takes upstream's four-step
       candidate order (exact → dot-tail → leaf → sorted leaf candidates), so
       `deps`/`uses`/`refs`/`graph imports` stop printing a path-spelled
-      import as `[out-of-project]`.
-- [ ] `[citation-reach]` — `declared_at` over entries of **any** tag (the
-      `TYPE`/`LOCALE` gap that hides `COMP → comp` on Category3). **Decision
-      recorded here:** the port keeps counting *bound names* in the `callers`
+      import as `[out-of-project]`. `Reach.build` takes the union of the
+      candidates and its P7c alias table becomes `Reach.leaf_index`, so the
+      two resolvers are one rule again.
+- [x] `[citation-reach]` — `declared_at` over entries of **any** tag (the
+      `TYPE`/`LOCALE` gap that hid `COMP → comp` on Category3). **Decision
+      recorded:** the port keeps counting *bound names* in the `callers`
       visibility filter (upstream consults entries only); it drops only
       citations the citing theory cannot see, which is the D13 rule applied
       to a constructor. New entry **D14** in `dev/DIVERGENCES.md` with the
-      report's fixture as evidence. `instances`/`codeqs` unchanged.
-- [ ] `--reach {closure,name}` as a real flag on `callers`, `callees`,
+      report's fixture as evidence, and no pin — no gate corpus exercises it.
+      `instances`/`codeqs` unchanged. Also took 1c: an unreadable header is
+      "unknown", never "imports nothing", so a section parsed from a plugin
+      BUFFER is not filtered at all.
+- [x] `--reach {closure,name}` as a real flag on `callers`, `callees`,
       `refs`, `unused`, `graph` (help text and position per the report),
       threaded as a value through `build_call_graph` / `find_callers` /
-      `Reach.site_filter`; **delete** the `ISABELLE_QUERY_REACHABILITY`
-      channel everywhere (cli, server `request_env`, client, docs) — one
+      `Reach.site_filter`; **deleted** the `ISABELLE_QUERY_REACHABILITY`
+      channel everywhere (cli, `request_env`, client, docs, demo) — one
       default, one channel, and the flag rides through the server and the
-      client verbatim. Rewrite `dev/p7cprobe.sh` to use `--reach name`.
-- [ ] `dev/difftest.sh`: drop the asymmetric reachability pin and its
-      comment (both engines now default to closure); add
+      client verbatim, so `Reach.enabled` and the server's per-request
+      rebinding of it are gone. `dev/p7cprobe.sh` rewritten around
+      `--reach name`: **45 checks, 0 failing** (was 37).
+- [x] `dev/difftest.sh`: dropped the asymmetric reachability pin and its
+      comment (both engines default to closure); added
       `callers-reach-name`, `callees-reach-name`, `refs-reach-name`,
-      `unused-reach-name`, `graph-reach-name`, `callers-bad-reach`.
-- [ ] `dev/p9probe.sh` §12–§15 from the report's fixtures (Sym/Guard,
+      `unused-reach-name`, `graph-reach-name`, `callers-bad-reach` — six per
+      corpus, so 2,107 → **2,149** cases.
+- [x] `dev/p9probe.sh` §12–§15 from the report's fixtures (Sym/Guard,
       alpha/beta `Preliminaries`, LeafFixture/UnionFixture, the declared-set
-      fixture with the D14 case).
-- [ ] Gate: difftest (the graph/refs/unused/deps/uses families clear on all
-      seven), p7cprobe, p7probe, p5/p6/p6b.
+      fixture with the D14 case): 73 → **110 checks, 0 failing**,
+      failability shown.
+- [x] Gate: `dev/difftest.sh` against oracle 0.8.1 with the pin dropped:
+      **2,149 cases — 2,092 clean, 3 pinned, 54 failing, 0 stale**, down from
+      155 failing at S2 with **no case newly red** (case ids compared with
+      `comm`; the 101 that cleared are exactly the
+      `callees`/`deps`/`graph`/`refs`/`unused`/`uses` families, and the six
+      new cases are clean on all seven corpora). The 54 left are S4 alone:
+      45 `bare_kinds` in `shape-census*` / `shape-summary-json*`, and 9
+      `grep-{alternation,anchored,cartouche}` that differ only in the locus
+      column's width. p7cprobe 45/0, p7probe 87/0, p9probe 110/0, p5/p6/p6b
+      green after rebuilding the plugin and the shim jar.
+      Whole AFP, cold, committed namespace: `callers mono -c` 632 → **634**
+      (1,363 under `--reach name`), `unused -c` 93,058 → **101,154**. The
+      step deltas match upstream's (`unused` +8,332 for
+      `[name-is-not-identity]` there, +8,096 net here including the edges
+      `[citation-reach]` 1a puts back); the absolute gap to upstream's 97,747
+      and 561 is the port's ~1,900 extra AFP records (D1/D2/D5) and the ~100
+      extra name-level `mono` lines D13 already recorded, both predating P9.
+      S5 re-takes the corpus-scale figures.
 
 ### S4 — loci and shape (`.dev/gap-G4-render-shape.md`)
 

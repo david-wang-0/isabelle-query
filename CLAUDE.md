@@ -153,7 +153,7 @@ all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 
 | harness | what it establishes |
 |---|---|
-| `dev/difftest.sh` | 2,113 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence |
+| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display |
 | `dev/p7probe.sh` | the warm server and the thin client |
