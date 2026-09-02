@@ -248,7 +248,8 @@ Both spellings resolve: `enclosing Virtual_Substitution/QE:3495` answers about
 that theory, and a bare `QE:3495` still works when the name is unique. `grep`
 and `sorry` report a **file** rather than a theory, so they qualify the same way
 with the suffix kept (`alpha/Examples.thy:12`), which leaves a non-`.thy`
-positional's own filename intact.
+positional's own filename intact. `instances` and `codeqs` report a theory, and
+so print the label bare: a site is reported where a caller is.
 
 The same collision decides which entry owns a line, which lines are prose, and
 which are declaration sites — all three are answered per *file*, so two

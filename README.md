@@ -94,14 +94,21 @@ used once stays bare.
 
 Each row is `LOCUS  NAME  KIND  source`, one site per line — the name sits where
 `callers` puts its owning entry, and the locus stays first so a row still pastes
-into `enclosing`.
+into `enclosing`. The locus is a theory, qualified by exactly as much directory
+as it takes to name one of them and no more, the way every other located verb
+spells one.
 
 The **name** is what the source calls that site, never something inferred:
 
 ```
-Category3/DualCategory:66  dual_category  sublocale  sublocale dual_category \<subseteq> category comp
-HOL/Topological_Spaces:3644  prod  instantiation  instantiation prod :: (topological_space, ...
-HOL/List:3249  rev_conv_fold  [code]  lemma rev_conv_fold [code]: "rev xs = fold Cons xs []"
+$ isabelle query -R Isabelle/src/HOL codeqs rev
+5 code equation(s) of rev:
+
+  List:87                rev            default  primrec rev :: "'a list \<Rightarrow> 'a list" where
+  List:3249              rev_conv_fold  [code]   lemma rev_conv_fold [code]: "rev xs = fold Cons xs []"
+  Time_Functions:78      rev            default  time_fun rev
+  Imperative_Reverse:20  rev            default  fun rev :: "'a::heap array \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> unit Heap" where
+  Linked_Lists:539       rev            default  primrec rev :: "('a:: heap) node \<Rightarrow> 'a node Heap"
 ```
 
 - `instances` — the written qualifier (`Cop` in `sublocale Cop: dual_category C ..`),
