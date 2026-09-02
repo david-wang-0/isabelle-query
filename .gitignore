@@ -60,6 +60,7 @@ jedit_query/lib/classes/
 # Metals
 .metals/
 .scala-build/
+.bloop/
 
 # VSCode
 .vscode/

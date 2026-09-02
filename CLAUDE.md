@@ -145,6 +145,14 @@ USER_HOME="$FORK/.dev" isabelle scala -e '{ isabelle.Isabelle_System.init();
 
 `### Missing Isabelle component:` on stderr is pre-existing noise.
 
+An IDE's language server (Metals) knows none of this and, left alone, falls
+back to a loose-files build that reports every Isabelle symbol as missing.
+`dev/ide-bloop.sh` writes a `.bloop/` build definition (gitignored, machine
+paths) from the settings environment — the distribution's Scala 3, the
+component classpath, the jEdit jars — as three projects: `query_base`,
+`jedit_query`, `dev_probes`. Re-run it after a source list or Isabelle
+change, then reconnect the build server.
+
 ## Verification
 
 There is no pytest on the Scala side. Correctness comes from six harnesses,
