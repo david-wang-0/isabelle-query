@@ -17,11 +17,47 @@ package isabelle.query
 import isabelle.*
 
 import java.nio.file.{Path => JPath}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 import scala.collection.mutable
 
 
 object Theory {
+  /* Bound running parses and scheduled futures, without a barrier behind each
+     slow file. Workers claim distinct slots; only a successful join publishes
+     the ordered result. This still retains the final corpus, not a heap cap. */
+  val parallelism: Int = math.max(1, math.min(4, Runtime.getRuntime.availableProcessors()))
+
+  def map_bounded[A, B](f: A => B, xs: List[A]): List[B] = {
+    Exn.Interrupt.expose()
+    val input = xs.toVector
+    val result = new Array[Any](input.length)
+    val next = new AtomicInteger
+    val stopped = new AtomicBoolean
+    def work(worker: Int): Unit = {
+      try {
+        var done = false
+        while (!done && !stopped.get()) {
+          Exn.Interrupt.expose()
+          val i = next.getAndIncrement()
+          if (i >= input.length) done = true
+          else if (!stopped.get()) result(i) = f(input(i))
+        }
+      }
+      catch {
+        case exn: Throwable => stopped.set(true); throw exn
+      }
+    }
+    Par_List.map(work, (0 until math.min(parallelism, input.length)).toList)
+    Exn.Interrupt.expose()
+    result.iterator.map(_.asInstanceOf[B]).toList
+  }
+
+  /* Ordinary malformed/unreadable sources remain skippable. Wrapped fatal
+     errors and cancellation must not turn into a successful empty parse. */
+  private[isabelle] def recoverable(exn: Throwable): Boolean =
+    Model.recoverable(exn)
+
   /* A theory's own `keywords` clause, read by Isabelle's header parser.  Only
      the kinds that introduce a citable fact map to a tag; proof, diagnostic,
      document and load kinds must NOT create an entry. */
@@ -34,7 +70,7 @@ object Theory {
         tag <- Entries.kind_family.get(spec.kind)
       } yield name -> tag).toMap
     }
-    catch { case _: Throwable => Map.empty }
+    catch { case exn: Throwable if recoverable(exn) => Map.empty }
 
   def read(path: JPath): String = File.read(Path.explode(path.toString))
 
@@ -136,7 +172,7 @@ object Theory {
 
   def plan(root_dir: JPath): Plan = {
     val owned =
-      Par_List.map((f: Discovery.Found) =>
+      map_bounded((f: Discovery.Found) =>
         (f, if (f.path.getFileName.toString.endsWith(".thy")) header_keywords(f.path)
             else Map.empty[String, String]),
         Discovery.theories(root_dir))
@@ -147,11 +183,11 @@ object Theory {
      must not stop at a single unreadable file. */
   def parse(f: Discovery.Found, table: Map[String, String]): Option[Theory_Section] =
     try Some(parse_one(f.name, f.path, read(f.path), table, f.session))
-    catch { case _: Throwable => None }
+    catch { case exn: Throwable if recoverable(exn) => None }
 
   def parse_root(root_dir: JPath): List[Theory_Section] = {
     val p = plan(root_dir)
-    Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
+    map_bounded((fk: (Discovery.Found, Map[String, String])) =>
       parse(fk._1, p.table(fk._2)), p.found).flatten
   }
 }

@@ -25,11 +25,181 @@ package isabelle.query
 import isabelle.*
 
 import java.nio.file.{Path => JPath}
+import java.util.zip.{Deflater, Inflater}
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 
 object Model {
+  /* Shared by discovery, parsing and hosts: malformed/unreadable source is
+     recoverable, fatal failures and cancellation (including wrappers) are not. */
+  private[isabelle] def recoverable(exn: Throwable): Boolean = {
+    val seen = new java.util.IdentityHashMap[Throwable, java.lang.Boolean]()
+    var current = exn
+    while (current != null && seen.put(current, java.lang.Boolean.TRUE) == null) {
+      // NonFatal also excludes InterruptedException. Inspect each node directly:
+      // Exn.cause/is_interrupt skip intermediate nodes and do not bound cycles.
+      if (!NonFatal(current) ||
+          current.isInstanceOf[java.util.concurrent.CancellationException]) return false
+      current = current.getCause
+    }
+    true
+  }
+
+  /* Immutable, source-only snapshot. Blocks bound decode working storage even
+     for an unusually long declaration. UTF-16 code units are encoded directly:
+     charset encoders replace lone surrogates, which can occur in an unfinished
+     editor buffer. No file path or reload hook exists here. */
+  private[query] object Source {
+    val block_chars = 32768
+
+    private sealed trait Block {
+      def decode: String
+      def stored_bytes: Long
+    }
+    private final class Raw(val decode: String) extends Block {
+      def stored_bytes: Long =
+        decode.length.toLong * (if (decode.forall(_ <= 255)) 1 else 2)
+    }
+    private final class Packed(bytes: Array[Byte], chars: Int) extends Block {
+      def stored_bytes: Long = bytes.length.toLong
+      def decode: String = {
+        val inflater = new Inflater
+        try {
+          inflater.setInput(bytes)
+          val raw = new Array[Byte](chars * 2)
+          var at = 0
+          while (at < raw.length && !inflater.finished()) {
+            val n = inflater.inflate(raw, at, raw.length - at)
+            require(n > 0, "Invalid source snapshot block")
+            at += n
+          }
+          require(at == raw.length && inflater.finished(), "Truncated source snapshot block")
+          val out = new Array[Char](chars)
+          var i = 0
+          while (i < chars) {
+            out(i) = (((raw(2 * i) & 255) << 8) | (raw(2 * i + 1) & 255)).toChar
+            i += 1
+          }
+          new String(out)
+        }
+        finally inflater.end()
+      }
+    }
+
+    private def pack(s: String): Block = {
+      if (s.length < 1024) new Raw(s)
+      else {
+        val raw = new Array[Byte](s.length * 2)
+        var i = 0
+        var latin = true
+        while (i < s.length) {
+          val c = s.charAt(i)
+          if (c > 255) latin = false
+          raw(2 * i) = (c.toInt >>> 8).toByte
+          raw(2 * i + 1) = c.toByte
+          i += 1
+        }
+        val deflater = new Deflater(Deflater.BEST_SPEED)
+        try {
+          deflater.setInput(raw)
+          deflater.finish()
+          // Never retain a compressed representation larger than a compact String.
+          val packed = new Array[Byte](if (latin) s.length else raw.length)
+          val n = deflater.deflate(packed)
+          if (deflater.finished() && n + 32 < packed.length)
+            new Packed(java.util.Arrays.copyOf(packed, n), s.length)
+          else new Raw(s)
+        }
+        finally deflater.end()
+      }
+    }
+
+    def apply(lines: Array[String]): Source = {
+      val blocks = new mutable.ArrayBuffer[Block]
+      val buf = new java.lang.StringBuilder(block_chars)
+      var length = 0
+      var utf8_bytes = 0L
+      def append(s: String): Unit = {
+        var at = 0
+        while (at < s.length) {
+          val end = (at + block_chars - buf.length) min s.length
+          buf.append(s, at, end)
+          length += end - at
+          at = end
+          if (buf.length == block_chars) { blocks += pack(buf.toString); buf.setLength(0) }
+        }
+      }
+      var i = 0
+      while (i < lines.length) {
+        if (i > 0) { append("\n"); utf8_bytes += 1 }
+        val line = lines(i)
+        var k = 0
+        while (k < line.length) {
+          val c = line.charAt(k)
+          if (c < 0x80) utf8_bytes += 1
+          else if (c < 0x800) utf8_bytes += 2
+          else if (Character.isHighSurrogate(c) && k + 1 < line.length &&
+              Character.isLowSurrogate(line.charAt(k + 1))) {
+            utf8_bytes += 4
+            k += 1
+          }
+          else if (Character.isSurrogate(c)) utf8_bytes += 1 // Java UTF-8 replacement '?'
+          else utf8_bytes += 3
+          k += 1
+        }
+        append(line)
+        i += 1
+      }
+      if (buf.length > 0) blocks += pack(buf.toString)
+      new Source(blocks.toArray, length, utf8_bytes)
+    }
+  }
+
+  private[query] final class Source private(
+    blocks: Array[Source.Block], val length: Int, val utf8_bytes: Long
+  ) {
+    /* A reader is request-local, never retained by the section. A scan decodes
+       each block once; a snippet decodes only the blocks intersecting its span. */
+    final class Reader {
+      private var index = -1
+      private var decoded = ""
+      private def block(k: Int): String = {
+        if (k != index) { decoded = blocks(k).decode; index = k }
+        decoded
+      }
+      def append(out: java.lang.StringBuilder, start: Int, end: Int): Unit = {
+        require(0 <= start && start <= end && end <= length)
+        var at = start
+        while (at < end) {
+          val s = block(at / Source.block_chars)
+          val lo = at % Source.block_chars
+          val n = (end - at) min (s.length - lo)
+          out.append(s, lo, lo + n)
+          at += n
+        }
+      }
+      def slice(start: Int, end: Int): String = {
+        require(0 <= start && start <= end && end <= length)
+        if (start == end) ""
+        else if (start / Source.block_chars == (end - 1) / Source.block_chars) {
+          val s = block(start / Source.block_chars)
+          val lo = start % Source.block_chars
+          s.substring(lo, lo + end - start)
+        }
+        else {
+          val out = new java.lang.StringBuilder(end - start)
+          append(out, start, end)
+          out.toString
+        }
+      }
+    }
+    def stored_bytes: Long = blocks.iterator.map(_.stored_bytes).sum
+    def reader: Reader = new Reader
+    def text: String = reader.slice(0, length)
+  }
+
   /* Python's `Path.resolve()`: symlinks followed, made absolute, and a path
      that does not exist normalised rather than refused.  It sits here, at the
      bottom, because `Theory_Section` caches its own resolved path;
@@ -68,19 +238,17 @@ object Model {
         if (i >= n || spans.is_empty(i)) lines(i)
         else {
           val line = lines(i)
-          val buf = new StringBuilder
+          val chars = line.toCharArray
           var prev = 0
           spans.each(i) { (lo0, hi0) =>
             val lo = lo0 max prev
-            val hi = hi0 min line.length
+            val hi = hi0 min chars.length
             if (hi > lo) {
-              buf ++= line.substring(prev, lo)
-              buf ++= " " * (hi - lo)
+              java.util.Arrays.fill(chars, lo, hi, ' ')
               prev = hi
             }
           }
-          buf ++= line.substring(prev min line.length)
-          buf.toString
+          new String(chars)
         }
       i += 1
     }
@@ -157,22 +325,17 @@ class Theory_Section(
      the routing sets rather than a constructor argument every caller passes. */
   var line_window: Option[(Int, Option[Int])] = None
 
-  /* THE SOURCE, AS ONE STRING PLUS OFFSETS, not one String per line.
-     `lines0` is read here and never retained.
+  /* The constructor's lines are consumed, never retained. Source blocks own
+     their bytes independently of disk and of subsequent buffer/array edits.
+     Full text remains available on demand, but is not a second retained copy. */
+  private val snapshot = Model.Source(lines0)
+  def text: String = snapshot.text
 
-     A resident index holds this for every theory in the project, and one
-     `String` per line is the second-largest thing it holds: on `src/HOL`'s
-     838k lines that was ~20 MB of `String` objects and ~13 MB of `byte[]`
-     headers, for 34 MB of actual text.  One String and one `Int` array is the
-     same text plus 3.4 MB.
-
-     What that trades is a materialisation each time `lines` is read.  It is
-     the right trade because the array is TRANSIENT — allocated, walked once by
-     a scanner, and collected — where the per-line Strings were RETAINED for the
-     life of the index.  The discipline it needs is the one `live_source` below
-     already documents and every caller already follows: bind the result to a
-     local, never call it in a loop. */
-  val text: String = lines0.mkString("\n")
+  /* Logical UTF-8 size preserves host source-byte budgets without decoding.
+     Payload storage excludes object headers, offsets, entries and regions;
+     it is profiling evidence, not a whole-section heap-size estimate. */
+  def source_utf8_bytes: Long = snapshot.utf8_bytes
+  def source_storage_bytes: Long = snapshot.stored_bytes
 
   /* `starts(i)` is where line `i` begins; `starts(i + 1) - 1` is where it ends,
      the `- 1` being the separator `mkString` put there.  Length n + 1 so the
@@ -189,32 +352,56 @@ class Theory_Section(
 
   def thy_lines: Int = starts.length - 1
 
-  /* One line, without building the rest.  For a scanner that wants every line,
-     `lines` below is cheaper than calling this in a loop — it walks the offsets
-     once instead of bounds-checking each. */
-  def line(i: Int): String = text.substring(starts(i), starts(i + 1) - 1 max starts(i))
+  /* Source coordinates are UTF-16 columns, as in the original String-backed
+     representation. A read owns at most one decoded block besides its output. */
+  def line(i: Int): String =
+    snapshot.reader.slice(starts(i), (starts(i + 1) - 1) max starts(i))
 
-  def lines: Array[String] = {
-    val n = thy_lines
-    val out = new Array[String](n)
-    var i = 0
-    while (i < n) { out(i) = text.substring(starts(i), (starts(i + 1) - 1) max starts(i)); i += 1 }
+  private def materialize(from: Int, until: Int,
+    spans: Regions.Spans = Regions.empty_spans
+  ): Array[String] = {
+    val out = new Array[String]((until - from) max 0)
+    val reader = snapshot.reader
+    var i = from
+    while (i < until) {
+      val start = starts(i)
+      val end = (starts(i + 1) - 1) max start
+      if (i >= spans.bound.length - 1 || spans.is_empty(i))
+        out(i - from) = reader.slice(start, end)
+      else {
+        // Assemble only the visible segments; do not first allocate a full
+        // source line which would immediately be copied and discarded.
+        val buf = new java.lang.StringBuilder(end - start)
+        var prev = 0
+        spans.each(i) { (lo0, hi0) =>
+          val lo = lo0 max prev
+          val hi = hi0 min (end - start)
+          if (hi > lo) {
+            reader.append(buf, start + prev, start + lo)
+            var k = lo
+            while (k < hi) { buf.append(' '); k += 1 }
+            prev = hi
+          }
+        }
+        reader.append(buf, start + (prev min (end - start)), end)
+        out(i - from) = buf.toString
+      }
+      i += 1
+    }
     out
   }
 
+  def lines: Array[String] = materialize(0, thy_lines)
   def source: Array[String] = lines
 
-  /* COMPUTED, NOT CACHED — and every caller binds the result to a local rather
-     than calling this in a loop.  A cached view is a second full copy of the
-     corpus text held for the life of the process, which at whole-AFP scale is
-     gigabytes for something each consumer reads exactly once (the call graph,
-     the method census, `grep`, `callers`).  The one-call-per-section discipline
-     is what makes a `def` the cheaper shape here; a per-entry caller would need
-     the cache back. */
-  def live_source: Array[String] = Model.blank_all(lines, regions.nonisar)
-  def outer_source: Array[String] = Model.blank_all(lines, regions.inner)
+  /* Computed per request: retaining these views doubles/triples corpus source.
+     Whole-source consumers still receive exactly their existing arrays. */
+  def live_source: Array[String] = materialize(0, thy_lines, regions.nonisar)
+  def outer_source: Array[String] = materialize(0, thy_lines, regions.inner)
 
-  /* 1-indexed inclusive line range. */
+  /* 1-indexed inclusive range; allocation depends on the requested extent,
+     never on a default snippet window or on the number of unrelated lines. */
   def slice(start: Int, end: Int): Array[String] =
-    lines.slice((start - 1) max 0, end min lines.length)
+    materialize(((start.toLong - 1) max 0L min thy_lines.toLong).toInt,
+      (end max 0) min thy_lines)
 }

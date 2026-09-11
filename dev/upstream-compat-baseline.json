@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "upstream": {
+    "version": "0.8.1",
+    "python_tree_id": "daf9cf80879213b62cda12725ba487897e6ddbf6",
+    "pyproject_sha256": "08df0538a481f7d12299ed20275a9485131a831c6405ad4e4baf157b1e405bed"
+  },
+  "evidence": {
+    "kind": "complete-run",
+    "checked_at_utc": "2026-09-11T01:50:09.998006+00:00",
+    "mode": "warm",
+    "comparisons": 2149,
+    "pins": 181,
+    "entry_projections": 28
+  },
+  "layout": {
+    "layout_version": "0.2.2",
+    "python_tree_id": "daf9cf80879213b62cda12725ba487897e6ddbf6",
+    "layout_sha256": "c653b33fba69d4dfa1c6a770e8bab3cbf7db215df5a212541f8cd8bdcbdb590d"
+  },
+  "corpora": {
+    "Abstract_Completeness": "c6fccc5063c3ba4d27156a69b42b3864575cfaf847fe7ed0ed63211afbad64b8",
+    "AODV": "fb4e380f89b0ee800994c70164a7d4b671795962c50acd3c6e4d017621ae04d4",
+    "Category3": "08013b5fe1173dff3c1a18c10efbbc6a43f4baa682c3870ba8b93ade1b4674df",
+    "FOL": "70ec3b2a800673bd7a0f3bc55b3a84eab30e3696f0c8abd5a8204e0049520906",
+    "ZF": "b11ad3d4b5601a7da0eaf9d2dac592f0f06ac5688d15b6025949f8b878d91d12",
+    "Sequents": "3f0a528e41d98c8daf2517ba6e48b9262da614c60b98fab0ae425b931db5fb7e",
+    "CTT": "3cbb3aefd6dae6ea4dbd6c234d8846607663b579a4b093c0c76533e281805a23"
+  },
+  "matrix_sha256": "3998d141dad863643c38fa87a410c8b29b248f15c0f6390aa6dff2d7d28145cb",
+  "owned_server_sha256": "a9a52207490c10e662a531fc44aee07558dbc16bcba73836733d508e6e52d837",
+  "pins_sha256": "22347c44b0287fc37360552c7a2ace3ca8024f9034aa1893cbaf4afdee78321b",
+  "executed_matrix_sha256": "3998d141dad863643c38fa87a410c8b29b248f15c0f6390aa6dff2d7d28145cb",
+  "entrydiff_sha256": "b8c48cbc0f590015419026b36ae709bc1f6c1bc616a01aef0ac31bb89f05a765",
+  "required_configs": {
+    "configs/m3.toml": "c379f68ed632af3d0e5e1340bc6ab51ec4d834c84cf6e6c2fd4170cd037b2bff"
+  },
+  "fixtures_sha256": "bc9c741b0bc5dc18970201aa1f8b5b12d7e5ee489077c81a9009f93797b7c495",
+  "scala_source_sha256": "4b22c45169d8bfdf3fc36b68975e19a8790955d370fee8a76fb2b85301f1e24c"
+}

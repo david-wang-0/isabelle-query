@@ -1,0 +1,2777 @@
+{
+  "suite": "parser",
+  "cases": [
+    {
+      "id": "test_annotations.DefinitionBodies.test_a_definition_contributes_no_roadmap",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.DefinitionBodies.test_a_definitions_notes_are_tagged_statement",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.DefinitionBodies.test_notes_in_a_definition_body_attach",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.NoteContent.test_a_flat_note_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.NoteContent.test_a_nested_cartouche_is_kept_whole",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.NoteContent.test_a_note_running_past_its_line_takes_the_rest",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.NoteContent.test_the_unicode_cartouche_spelling_is_extracted",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.NoteContent.test_two_nested_cartouches_in_a_row",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.OneLinerOrdering.test_a_decl_note_with_no_proof_is_a_decl_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.OneLinerOrdering.test_a_one_line_proof_note_is_a_proof_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Proofs.test_a_note_in_the_proof_body_is_tagged_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Proofs.test_annotations_are_in_source_order",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Proofs.test_roadmap_is_exactly_the_proof_subset",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.ProseView.test_a_definition_has_a_prose_view_at_all",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.ProseView.test_comments_off_still_suppresses_annotations",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.ProseView.test_kinds_are_grouped_and_labelled",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.ProseView.test_the_default_view_does_not_repeat_a_visible_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Statements.test_a_statement_note_is_not_in_the_roadmap",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Statements.test_assumption_glosses_attach_as_statement",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Unowned.test_a_note_above_the_first_declaration_attaches_to_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_annotations.Unowned.test_a_note_in_a_commented_out_block_attaches_to_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_annotations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ImportingThePackageStaysFree.test_the_api_module_does_not_pull_the_cli",
+      "status": "python-only",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": "Python __all__, import dependency and sys.modules mechanics have no Scala package analogue; retained in the original Python compatibility tier."
+    },
+    {
+      "id": "test_api_surface.ImportingThePackageStaysFree.test_the_package_import_does_not_load_parsing",
+      "status": "python-only",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": "Python __all__, import dependency and sys.modules mechanics have no Scala package analogue; retained in the original Python compatibility tier."
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_a_root_with_no_theories_raises",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_an_unreadable_root_raises_rather_than_returning_empty",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_root_sees_the_sibling_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_theory_alone_does_not",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_theory_leaves_the_table_as_it_found_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_two_roots_do_not_contaminate_each_other",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheExportedNames.test_all_lists_exactly_the_surface",
+      "status": "python-only",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": "Python __all__, import dependency and sys.modules mechanics have no Scala package analogue; retained in the original Python compatibility tier."
+    },
+    {
+      "id": "test_api_surface.TheExportedNames.test_every_name_in_all_resolves",
+      "status": "python-only",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": "Python __all__, import dependency and sys.modules mechanics have no Scala package analogue; retained in the original Python compatibility tier."
+    },
+    {
+      "id": "test_api_surface.TheModuleDagStillHolds.test_api_imports_stay_below_it",
+      "status": "python-only",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": "Python __all__, import dependency and sys.modules mechanics have no Scala package analogue; retained in the original Python compatibility tier."
+    },
+    {
+      "id": "test_api_surface.TheSpanFieldsAreTheContract.test_entry_carries_every_derived_span",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpanFieldsAreTheContract.test_entry_carries_every_span_field",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpanFieldsAreTheContract.test_section_carries_every_span_field",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpanFieldsAreTheContract.test_section_carries_every_view",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_slice_round_trips_the_lines",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_the_entry_span_starts_at_the_preamble",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_the_preamble_is_attached",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_the_proof_extent",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_the_whole_extent_including_the_preamble",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserApi.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.NameOnTheCommandLine.test_constant_on_the_command_line_with_mixfix",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.NameOnTheCommandLine.test_label_after_where_on_the_command_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.NameOnTheCommandLine.test_umbrella_and_head_name_share_a_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.NotEveryColonIsALabel.test_a_following_command_ends_the_scan",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.NotEveryColonIsALabel.test_colon_inside_a_proposition_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.SeveralNamesOnOneLine.test_and_inside_a_proposition_does_not_split_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.SeveralNamesOnOneLine.test_constants_sharing_a_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.SeveralNamesOnOneLine.test_labels_sharing_a_line_after_where",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.SeveralNamesOnOneLine.test_they_all_report_the_line_they_are_on",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_an_anonymous_entry_mints_no_citation_edge",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_no_entry_is_named_after_the_keyword",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_anchor_owns_the_command_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_declared_names_are_still_indexed",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_umbrella_is_anonymous",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.WhereDoesNotEndTheCommand.test_bare_where_line_then_labels",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.WhereDoesNotEndTheCommand.test_where_in_column_zero",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_axiom_names.WhereDoesNotEndTheCommand.test_where_indented",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_axiom_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_flat_paren_returns_index_past_close",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_multichar_cartouche_token",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_nested_cartouche",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_nested_paren_matches_the_outermost",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_quote_aware_skips_a_quoted_paren",
+      "status": "ported",
+      "destination": "tests/scala/parser/ParserSpecial.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_quote_unaware_closes_at_a_quoted_paren",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_start_offset_begins_at_the_opener",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedEnd.test_unbalanced_returns_minus_one",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedFacades.test_cartouche_facade",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_balanced.BalancedFacades.test_paren_facade",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_balanced.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.BackslashCartouche.test_declarations_below_the_operator_are_indexed",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.BackslashCartouche.test_every_declaration_is_found",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.BackslashCartouche.test_the_operator_declaration_does_not_swallow_the_file",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.EscapesStillWork.test_an_escaped_backslash_is_still_consumed",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.EscapesStillWork.test_an_escaped_quote_does_not_close_its_term",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cartouche_escape.EscapesStillWork.test_every_declaration_is_found",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_cartouche_escape.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_a_marker_is_a_formal_comment_too",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_a_wrapping_marker",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_an_ml_style_block_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_comment_alone_on_one_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_comment_on_the_keyword_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_comment_wrapping_over_two_lines",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.AKeywordAloneStillFindsItsName.test_no_comment_at_all",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.TheEntrySpanCoversItsOwnName.test_the_name_is_the_same_with_and_without_the_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.TheEntrySpanCoversItsOwnName.test_the_span_contains_the_line_the_name_is_written_on",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.TheGuardStillGuards.test_an_unterminated_comment_does_not_invent_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.TheGuardStillGuards.test_blank_lines_still_spend_the_budget",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_comment_before_name.ThePhantomIsGone.test_the_prose_word_is_not_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_comment_before_name.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_corpus.Corpus.test_bodies_stay_inside_their_own_spans",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
+      "id": "test_corpus.Corpus.test_custom_commands_bound_aot_spans",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
+      "id": "test_corpus.Corpus.test_fast_call_graph_matches_oracle_on_subset",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
+      "id": "test_corpus.Corpus.test_no_locale_prefix_leaks",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
+      "id": "test_corpus.Corpus.test_unparsed_name_rate_is_low",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
+      "id": "test_decl_body_comment.ACommentDoesNotEndADeclaration.test_a_document_marker",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentDoesNotEndADeclaration.test_a_wrapping_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentDoesNotEndADeclaration.test_an_ml_style_block_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentDoesNotEndADeclaration.test_marginal_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentDoesNotEndADeclaration.test_the_name_and_the_body_agree",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentIsNotPartOfADeclaration.test_a_trailing_block_comment_is_not_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.ACommentIsNotPartOfADeclaration.test_a_trailing_marginal_note_is_not_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.TheBlankLineVariantIsStillOpen.test_a_blank_before_the_note",
+      "status": "expected-failure",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": "Original upstream @expectedFailure: blank-before-note declaration body remains truncated; preserve the desired body-end assertion and fail on XPASS; broad span fix previously regressed containment."
+    },
+    {
+      "id": "test_decl_body_comment.TheBodyStaysInsideItsOwnSpan.test_a_heading_bounds_the_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_decl_body_comment.TheBodyStaysInsideItsOwnSpan.test_two_declarations_do_not_overlap",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_decl_body_comment.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_a_custom_command_is_not_guessed_at",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_a_for_clause_is_not_a_sibling_list",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_a_name_ending_in_and_is_not_a_separator",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_an_and_inside_a_term_is_invisible",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_definition_takes_no_and_list",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_mutually_recursive_functions",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_siblings_and_rules_coexist",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_the_helpers_own_name_guard",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.AndSiblings.test_three_way",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_a_bar_inside_a_term_is_not_a_rule_separator",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_a_for_clause_binds_no_rules",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_a_one_line_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_a_repeated_label_is_recorded_once",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_attributes_on_the_label",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_the_entrys_own_name_is_not_a_binding",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_the_reference_case",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.InductiveRuleNames.test_unnamed_rules_bind_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelPattern.test_a_locale_element_colon_is_never_a_type_ascription",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelPattern.test_a_selector_colon_is_never_a_type_ascription",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelPattern.test_a_single_colon_is",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelPattern.test_a_type_ascription_is_not_a_label",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelsOutsideTheInductiveFamily.test_definition_with_a_named_equation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LabelsOutsideTheInductiveFamily.test_primrec_with_named_equations",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_a_class_is_an_entry_too",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_a_for_clause_after_assumes_binds_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_a_label_must_follow_its_keyword_immediately",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_a_second_fixes_group_resets_the_element_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_an_anonymous_context_mints_no_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_an_entry_inside_still_targets_the_locale",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_assumptions_and_defines_are_bound_with_their_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_context_and_interpretation_declare_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_fixed_parameters_are_not_bound",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_the_helpers_parameter_and_own_name_guards",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_the_locale_is_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.LocaleAndClass.test_the_span_is_the_head_only",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.ProofBodiesAreNotScanned.test_a_shows_conjunct_is_still_tagged_conjunct",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.ProofBodiesAreNotScanned.test_obtain_in_a_proof_binds_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.Resolution.test_find_matches_via_a_bound_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.Resolution.test_the_declaration_is_not_its_own_caller",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.Resolution.test_the_declaration_site_is_registered",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_constructor_named_for_its_type_is_not_a_binding",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_constructor_spelled_with_markup",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_discriminator",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_field_spelled_with_markup_keeps_its_markup",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_field_type_contributes_no_names",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_multi_line_datatype",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_record_declares_its_fields",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_a_records_parent_type_is_not_a_field",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_argument_types_are_not_constructors",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_constructors",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_declared_names.TypeDeclarations.test_selectors",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_declared_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_a_heading_keyword_inside_prose_is_not_a_heading",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_a_quoted_title_is_prose",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_a_split_opener_carries_its_title_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_a_wrapped_quoted_title_carries_its_continuation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_an_unbalanced_quote_in_prose_cannot_mask_live_code",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.EveryHeadingSpelling.test_paragraph_and_subparagraph_are_headings",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotDocstrings.test_a_heading_is_masked_but_is_not_a_preamble",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotDocstrings.test_a_text_block_still_is_a_preamble",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotIsar.test_a_heading_does_not_cite",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotIsar.test_a_heading_does_not_name_a_method",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotIsar.test_a_wrapped_heading_carries_its_continuation_lines",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_prose.HeadingsAreNotIsar.test_every_heading_level_and_both_spellings",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_heading_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.DoesNotOverrun.test_an_indented_declaration_ends_the_previous_statement",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.DoesNotOverrun.test_an_indented_definition_ends_the_previous_one",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.Indented.test_after_an_inline_comment_on_the_same_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.Indented.test_at_theory_top_level_with_no_locale",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.Indented.test_deeply_indented",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.Indented.test_inside_a_context_block",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.Indented.test_the_name_is_read_from_the_raw_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.NotACommand.test_a_declaration_inside_a_comment_is_not_a_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.NotACommand.test_a_keyword_inside_a_term_is_not_a_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.NotACommand.test_an_ml_fun_is_not_a_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.NotACommand.test_prose_in_a_text_block_is_not_a_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.SpanBoundaries.test_an_indented_end_closes_the_span",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.SpanBoundaries.test_prose_beginning_with_a_command_word_is_not_a_boundary",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_indented_decls.SpanBoundaries.test_verbatim_code_is_not_a_boundary",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_indented_decls.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.DeadnessVersusFactIdentity.test_callers_stays_fact_level",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.DeadnessVersusFactIdentity.test_unused_resolves_the_derived_spelling",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.InstantiationSpans.test_a_genuinely_uncited_definition_is_still_unused",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.InstantiationSpans.test_definition_does_not_swallow_the_instance_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.InstantiationSpans.test_instance_proof_keeps_its_definition_alive",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.OracleParity.test_derived_mode_only_adds_edges",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.OracleParity.test_instantiation_matches_oracle_in_both_modes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.OracleParity.test_toplevel_citation_matches_oracle",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.TrailingCommandSpans.test_a_commented_out_command_is_not_a_boundary",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.TrailingCommandSpans.test_boundary_does_not_land_on_a_separating_blank",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_instantiation_spans.TrailingCommandSpans.test_lemmas_alias_is_not_absorbed_by_the_lemma_above",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_instantiation_spans.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.QuotedKind.test_glued_quoted_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.QuotedKind.test_quoted_kind_registers_the_commands",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.QuotedKind.test_the_two_spellings_agree",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.QuotedKind.test_unquoted_kind_still_registers",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.ThePipelineSeesIt.test_the_custom_command_declares_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.TheWideningStaysNarrow.test_a_group_with_no_kind_is_a_minor_keyword",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.TheWideningStaysNarrow.test_a_quoted_tag_value_is_not_read_as_the_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keyword_kind_quoted.TheWideningStaysNarrow.test_an_unknown_kind_registers_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keyword_kind_quoted.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.CrossTheoryUnion.test_unknown_command_stays_unrecognised",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.CrossTheoryUnion.test_use_without_local_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.CustomCommandEntries.test_decl_command_bare_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.CustomCommandEntries.test_goal_command_quoted_label",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.CustomCommandEntries.test_proof_command_makes_no_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_and_separated_decls",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_glued_colon_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_kind_to_family",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_kindless_minor_keywords_skipped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_multiple_names_share_one_kind",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_no_keywords_clause",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_non_theory_kinds_are_skipped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.ScanKeywordBlock.test_tag_value_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_keywords.SpanCollapse.test_builtin_span_is_bounded_by_next_custom_command",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_keywords.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_known_failures.RecoverableParserGaps.test_infix_abbreviation_operator_name",
+      "status": "expected-failure",
+      "destination": "tests/scala/parser/Parser_test_known_failures.scala",
+      "reason": "Original upstream @expectedFailure: infix/mixfix abbreviation names still require richer equation parsing; preserve the desired operator-name assertion and fail on XPASS."
+    },
+    {
+      "id": "test_line_index_ties.LineIndexTies.test_enclosing_still_answers_below_the_tie",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_line_index_ties.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_line_index_ties.LineIndexTies.test_the_fixture_really_produces_a_tie",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_line_index_ties.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_line_index_ties.LineIndexTies.test_the_index_builds",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_line_index_ties.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_line_index_ties.LineIndexTies.test_the_index_is_sorted_by_span",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_line_index_ties.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_line_index_ties.LineIndexTies.test_tied_entries_keep_source_order",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_line_index_ties.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_no_spans_is_identity",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_overlapping_spans_do_not_shift_the_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_single_span",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_span_past_the_end_is_clamped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_span_to_end_of_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.BlankSpans.test_two_spans",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.Parity.test_fully_blank_lines_are_exactly_the_reported_ranges",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.Shape.test_clean_theory_shares_the_source_list",
+      "status": "known-difference",
+      "destination": "tests/scala/parser/ParserSpecial.scala",
+      "reason": "Scala Theory_Section deliberately computes source views instead of retaining Python cached-list identity (model.scala, COMPUTED NOT CACHED); byte equality and independent array mutation are asserted."
+    },
+    {
+      "id": "test_live_source.Shape.test_every_line_keeps_its_length",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.Shape.test_line_count_is_preserved",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.Shape.test_redaction_only_ever_writes_spaces",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.Shape.test_result_is_cached",
+      "status": "known-difference",
+      "destination": "tests/scala/parser/ParserSpecial.scala",
+      "reason": "Scala Theory_Section deliberately computes source views instead of retaining Python cached-list identity (model.scala, COMPUTED NOT CACHED); byte equality and independent array mutation are asserted."
+    },
+    {
+      "id": "test_live_source.Shape.test_source_is_not_mutated",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_cancel_region_goes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_legacy_verbatim_goes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_ml_body_goes_but_the_command_stays",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_multi_line_comment_body_is_blank",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_nested_comment_is_blank_throughout",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsBlanked.test_trailing_comment_goes_live_text_stays",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsKeptLive.test_bare_cartouche_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsKeptLive.test_comment_opener_inside_a_string_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsKeptLive.test_quoted_term_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_live_source.WhatIsKeptLive.test_text_block_prose_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_live_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkedHeading.test_the_heading_is_in_the_outline",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerAfterTheName.test_every_declaration_is_found_exactly_once",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerAfterTheName.test_the_name_stops_at_the_marker",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerBodyIsNotLiveSource.test_the_body_is_blanked",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerBodyIsNotLiveSource.test_the_marker_is_not_recorded_as_a_note",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerBodyIsNotLiveSource.test_the_tag_word_is_blanked",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerGluedToKeyword.test_a_marked_datatype_is_found",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerGluedToKeyword.test_the_declaration_is_found_at_all",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerGluedToKeyword.test_the_entry_starts_on_its_own_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerInTheNameSlot.test_a_nested_cartouche_body_is_stepped_over",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerInTheNameSlot.test_no_marker_is_indexed_as_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerInTheNameSlot.test_no_space_is_needed_after_the_close",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkerInTheNameSlot.test_the_name_after_the_marker_is_taken",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkupNamesStillWork.test_a_greek_leading_name_is_one_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkupNamesStillWork.test_a_subscripted_name_is_one_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.MarkupNamesStillWork.test_a_user_pattern_still_escapes_every_markup_token",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheAlreadyRedactedMarkersStillWork.test_a_comment_note_is_still_recorded",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheAlreadyRedactedMarkersStillWork.test_cancelled_text_declares_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheAlreadyRedactedMarkersStillWork.test_every_declaration_is_found",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_a_bare_word_with_no_title_is_not_a_heading",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_a_longer_word_does_not_lead_with_a_heading",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_an_indented_heading",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_no_space_before_the_opener",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_the_plain_form",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_the_quoted_title_form",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_the_split_form",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_marker_decl.TheHeadingFormsStillWork.test_the_unicode_cartouche_form",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_marker_decl.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_blank_and_comment_lines_are_skipped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_datatype_name_below",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_definition_name_below",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_following_command_means_no_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_inductive_set_name_below",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_lhs_head_name_through_lookahead",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_locale_prefix_alone_then_name_below",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ContinuationLineName.test_same_line_name_still_parses",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.DefinitionalCommands.test_function_body_span_covers_the_termination_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.DefinitionalCommands.test_function_indexes_its_constant",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.DefinitionalCommands.test_function_sequential_option_is_stripped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.DefinitionalCommands.test_primrec_inductive_already_indexed",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ExtractEntriesEndToEnd.test_anonymous_lemma_is_the_only_question_mark",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ExtractEntriesEndToEnd.test_names_and_tags",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseDefName.test_explicit_label_still_wins",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseDefName.test_implicit_lhs_head",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseDefName.test_implicit_lhs_head_through_locale_prefix",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseDefName.test_no_connective_is_not_a_definition",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_anonymous_stays_unparsed",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_bare_identifier",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_bare_reserved_keyword_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_locale_prefix_is_skipped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_margin_comment_before_name_is_skipped",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_nested_modifier_prefix",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_other_modifier_prefix",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_quoted_reserved_keyword_is_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_quoted_special_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_quoted_statement_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_reserved_control_symbols_are_not_names",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_symbolic_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseName.test_symbolic_suffix_not_truncated",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseTypedeclName.test_leading_type_variable",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseTypedeclName.test_modifier_then_type_args",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseTypedeclName.test_quoted_keyword_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseTypedeclName.test_symbolic_type_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_names.ParseTypedeclName.test_type_args_without_space",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_enclosing_a_commented_out_line_gives_the_entry_above",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_grep_classifies_a_match_not_a_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_note_in_a_live_proof_is_a_roadmap_step",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_note_inside_a_commented_out_block_is_not",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_preceding_entry_absorbs_the_commented_out_region",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Attribution.test_the_next_entry_keeps_its_forward_attributed_doc",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.KeptLive.test_comment_open_inside_a_string_is_not_a_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.KeptLive.test_fact_named_in_a_term_is_still_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.KeptLive.test_operator_section_in_a_cartouche_opens_no_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.KeptLive.test_operator_section_in_a_term_opens_no_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.KeptLive.test_trailing_comment_keeps_its_line_live",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MLBodyFamily.test_ml_body_below_the_only_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MLBodyFamily.test_ml_body_between_two_entries",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MLBodyFamily.test_ml_body_with_no_entry_above_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MLBodyFamily.test_ml_file_ends_the_span_above_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_multi_line_note_body_is_covered",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_alone_on_its_line_is_wholly_non_isar",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_does_not_take_the_step_with_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_inside_a_cartouche_term_is_covered",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_inside_a_quoted_term_is_covered",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_line_still_counts_its_method",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_note_nested_in_a_live_cartouche_does_not_end_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.MarginalComments.test_term_resumes_after_a_note_at_the_right_depth",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NestedAndInline.test_comment_alone_on_one_line_inside_a_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NestedAndInline.test_legacy_verbatim_is_not_live",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NestedAndInline.test_nested_comment_two_levels_deep",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_comment_opening_mid_line_still_hides_what_follows",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_commented_out_definition_is_not_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_declaration_after_a_closed_comment_still_declares",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_declaration_with_a_trailing_comment_still_declares",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_ml_fun_is_not_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomDeclarations.test_superseded_declaration_resolves_to_the_live_one",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomOnAPartialLine.test_comment_that_opens_and_runs_on_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomOnAPartialLine.test_inline_cancel_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomOnAPartialLine.test_inline_ml_body_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomOnAPartialLine.test_oracle_agrees_on_a_partial_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.NoPhantomOnAPartialLine.test_trailing_comment_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.PartialLines.test_citation_after_a_comment_closes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.PartialLines.test_citation_before_a_comment_that_runs_on",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.PartialLines.test_citation_before_a_trailing_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.PartialLines.test_citation_beside_an_inline_cancel",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.PartialLines.test_citation_in_a_term_beside_a_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_blank_source_has_no_ranges",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_cancel_region",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_full_line_comment",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_ml_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_ml_command_line_itself_stays_live",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Ranges.test_multi_line_comment_is_one_range",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r1_comment_does_not_hide_a_dead_lemma",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r1_comment_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r2_ml_body_ends_the_span_above_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r2_ml_body_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r3_cancel_region_is_not_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r4_commented_end_does_not_cut_the_span",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_nonisar_regions.Reproductions.test_r4_live_proof_line_has_an_enclosing_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_nonisar_regions.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.BlockBalance.test_a_comment_mentioning_begin_does_not_unbalance_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.BlockBalance.test_a_nested_context_balances",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.BlockBalance.test_a_plain_theory_balances",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.BlockBalance.test_a_term_mentioning_end_does_not_unbalance_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.Shape.test_every_column_is_preserved",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.Shape.test_line_count_is_preserved",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.Shape.test_outer_is_a_subset_of_live",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatIsBlanked.test_a_cartouche_term_goes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatIsBlanked.test_a_comment_goes_too",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatIsBlanked.test_a_keyword_inside_a_term_is_blanked",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatIsBlanked.test_a_multi_line_term_is_blanked_on_every_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatIsBlanked.test_a_quoted_term_goes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatSurvives.test_an_indented_declaration_survives",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatSurvives.test_block_tokens_survive_outside_terms",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_outer_source.WhatSurvives.test_the_command_keyword_survives",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_outer_source.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.ACommentedBoundaryDoesNotStopTheProof.test_a_commented_out_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.ACommentedBoundaryDoesNotStopTheProof.test_a_commented_out_heading",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.ACommentedBoundaryDoesNotStopTheProof.test_a_commented_out_text_block",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.ACommentedBoundaryDoesNotStopTheProof.test_the_commented_lemma_declares_nothing",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.TheRealBoundariesStillStop.test_a_live_line_that_merely_ends_in_a_comment_still_stops_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.TheRealBoundariesStillStop.test_a_real_declaration_stops_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.TheRealBoundariesStillStop.test_a_real_heading_stops_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_extent_view.TheRealBoundariesStillStop.test_a_real_text_block_stops_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_extent_view.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.BlankLineBeforeTheProof.test_blank_between_assumptions",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.BlankLineBeforeTheProof.test_blank_between_statement_and_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.BlankLineBeforeTheProof.test_blank_inside_a_multi_line_term",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.DoesNotOverrun.test_a_following_lemma_is_still_its_own_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.DoesNotOverrun.test_a_note_carrying_the_terms_closing_quote",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.DoesNotOverrun.test_a_proof_keyword_inside_a_term_is_not_the_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.DoesNotOverrun.test_statement_rendering_still_stops_at_the_blank",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.OneLiner.test_dot_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.OneLiner.test_proof_after_the_term_closes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.OneLiner.test_proof_on_the_declaration_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.OneLiner.test_proof_on_the_statements_continuation_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.RoadmapBoundary.test_note_deeper_in_the_proof_still_attaches",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.RoadmapBoundary.test_note_on_a_one_line_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.RoadmapBoundary.test_note_on_the_statement_is_not_a_roadmap_step",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_blank_still_ends_a_declaration_no_bar_follows",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_blank_then_a_real_command_still_ends_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_cartouche_body_with_a_blank_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_comment_between_rules_is_stepped_over",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_datatype_body_stops_at_the_next_command",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_rule_list_spaced_out_with_blank_lines",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_text_block_between_rules_still_ends_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_a_type_declaration_reads_its_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_an_escaped_quote_does_not_open_a_term",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_proof_on_the_line_the_term_closes",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proof_line.TermTracking.test_the_lookahead_stops_at_outer_syntax",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proof_line.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.FieldsAreCitableAndDeclared.test_a_field_resolves_to_the_record_that_declares_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.FieldsAreCitableAndDeclared.test_the_declaration_is_not_a_caller_of_itself",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_blank_line_does_not_end_the_field_list",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_comment_before_a_quoted_field",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_comment_between_fields_does_not_end_the_list",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_field_may_share_the_records_own_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_quoted_field_name_is_read_from_the_live_view",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_a_type_at_the_end_of_a_line_is_not_the_next_fields_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheBodyScanReachesEveryField.test_the_span_covers_the_whole_record",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheRecordGrammarIsNotTheDatatypeGrammar.test_a_datatype_declares_no_fields",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_record_fields.TheRecordGrammarIsNotTheDatatypeGrammar.test_a_record_declares_no_constructors",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_record_fields.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.EnclosingAttribution.test_back_loop_still_owns_its_proof",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.EnclosingAttribution.test_binary_search_index_agrees",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.EnclosingAttribution.test_doc_line_resolves_to_following_entry",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.EndToEndEnclosing.test_doc_line_names_the_documented_lemma",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.ExtentRendering.test_following_entry_extent_shows_preamble_and_body",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.ExtentRendering.test_preceding_entry_extent_does_not_reach_the_doc",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.PreambleOwnership.test_body_span_is_unchanged_and_inside_src",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.PreambleOwnership.test_doc_block_is_the_following_entry_preamble",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_src_doc_attribution.PreambleOwnership.test_preceding_entry_src_stops_before_the_doc",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_src_doc_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.ExplicitTarget.test_a_term_mentioning_in_is_not_a_target",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.ExplicitTarget.test_in_modifier_beats_lexical_nesting",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.ExplicitTarget.test_in_modifier_is_recorded",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_a_declared_but_never_opened_locale_is_not_inherited",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_after_the_end_the_target_is_gone",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_an_indented_block_is_still_a_block",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_an_unrecognised_opener_still_nests",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_anonymous_context_nests_but_is_not_named",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_class_and_instantiation_are_targets",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_context_reopening_a_locale",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_lemma_inside_a_locale_records_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_the_theory_block_is_not_reported",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.LexicalNesting.test_two_openers_and_two_begins_on_one_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.Rendering.test_enclosing_names_the_locale",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.Rendering.test_theory_level_entry_gets_no_scope_step",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_markup_symbol_does_not_end_the_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_name_that_is_only_a_symbol",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_qualified_target_keeps_its_dot",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_quoted_instantiation_type",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_quoted_locale_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_a_symbol_instantiation_type",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetNameSpellings.test_two_locales_differing_only_in_markup_stay_distinct",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetsThatCorrectlyHaveNoName.test_a_bare_context_stays_anonymous",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetsThatCorrectlyHaveNoName.test_a_cartouche_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_targets.TargetsThatCorrectlyHaveNoName.test_a_context_element_is_not_a_name",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_targets.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_a_bare_text_line_does_not_annex_a_later_block",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_bare_cartouche_spelling",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_bodyless_comment_stays_one_line",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_multiline_cartouche_glyph_block_is_fully_covered",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_split_opener",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_text_block_still_recognised",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_text_raw_still_recognised",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TheOtherSpellings.test_txt_raw_is_not_a_command",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TxtIsAProseBlock.test_no_proof_step_lands_in_the_prose",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TxtIsAProseBlock.test_the_english_by_registers_no_method",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_txt_prose.TxtIsAProseBlock.test_txt_block_is_recorded",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
+      "reason": ""
+    }
+  ]
+}

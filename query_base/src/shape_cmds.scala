@@ -754,10 +754,9 @@ object Shape_Cmds {
            had worked perfectly. */
         case exn: Broken_Pipe => throw exn
         case exn: Exit_Code => throw exn
-        case exn: Throwable =>
-          /* Broad on purpose.  A census exists to survive a corpus, and the
-             failures are open-ended; narrowing this would trade a named
-             exception for losing every later session. */
+        case exn: Throwable if Model.recoverable(exn) =>
+          /* Ordinary session failures remain skippable. Fatal errors and
+             cancellation abort instead of attempting the remaining corpus. */
           skipped += 1
           err.println(s"isabelle query: session '$name' skipped: " +
             s"${exn.getClass.getSimpleName}: ${exn.getMessage}")

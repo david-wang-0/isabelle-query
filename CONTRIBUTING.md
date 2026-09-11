@@ -237,20 +237,50 @@ missing feature but a hole, and a hole prunes `[import-leaf]`.
 
 ## Verification — the Scala tree
 
-There is no unit suite here, and that is a decision rather than an omission: the
-tool has an **oracle**, and a differential run says more about a scanner change
-than any number of hand-written assertions could. Six harnesses, in the order
-a change should meet them. All read their corpora from `$QUERY_TEST_AFP` /
-`$QUERY_TEST_DISTRO` (see `.dev/corpora.env`) and none from a hard-coded path.
+Routine validation is `make test`: cached Scala regressions, a cheap upstream
+identity gate, and the shipping Python client's small transport suite. No Python
+oracle or JVM per case runs in the Scala suite. Use `dev/scala-tests.sh --suite
+parser` (also `graph`, `shape`, `cli`) to compile support and that group only.
+See `tests/README.md` for coverage accounting and the shared helper contract.
+Upstream expected-failure decorators are preserved as a separate nonpass tier:
+only inventory-marked IDs may use the strict shared assertion bracket, and an
+unexpected pass or unrelated runtime/bridge error fails the suite.
+
+The full Python/Scala comparison is an upstream compatibility gate. The default
+checks the Python version, working source tree and project metadata against
+`dev/upstream-compat-baseline.json`. Unchanged 0.8.1 uses explicitly recorded P11
+evidence; this is not a new matrix result. Same-version source drift fails the
+cheap check. A changed upstream version runs all seven required corpora and
+records the new identity only after successful entry projections and the full
+warm differential matrix. `make compat` explicitly forces that maintenance
+check. Supply `QUERY_TEST_AFP`, `QUERY_TEST_DISTRO` and `QUERY_ORACLE`; a missing
+corpus or partial `QUERY_CORPORA` override is a refusal, never a pass. A separate
+`python3 dev/check-upstream-compat.py --check-only` refuses changed versions
+without launching the expensive job. The full gate copies its engine and
+harnesses into a private scratch checkout, preserving production components.
+Entry comparisons reject failed dump producers even if both outputs are empty.
+Timeout/error cleanup is bounded to owned process groups and exact-name servers
+under that run's private user home.
+
+P13 has a stricter publication gate despite the unchanged frozen Python 0.8.1
+version. Before publishing `0.8.1-scala.0.2`, run and audit the forced full
+comparison on the final frozen snapshot: all 2,149 differential cases and all
+28 entry projections, plus every benchmark case. Prior P11 evidence and the
+cheap unchanged-upstream check do not satisfy this release-specific gate.
+
+The older focused probes remain useful for their integration boundaries. Full
+compatibility is not required for routine Scala edits; use the direct regression
+group and the relevant host/plugin probe instead. The corpus harnesses read
+`QUERY_TEST_AFP` / `QUERY_TEST_DISTRO` (local setup may use `.dev/corpora.env`).
 
 | harness | what it establishes | when |
 |---|---|---|
-| `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | any change to parsing, discovery, or the entry grammar |
-| `dev/difftest.sh` | 2,149 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | any change to a command, a flag, or a renderer |
-| `dev/p9probe.sh` | 140 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
+| `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | upstream-version compatibility or explicit maintenance |
+| `dev/difftest.sh` | 2,149 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
+| `dev/p9probe.sh` | 153 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter itself: the closure, the leaf rule, position-blindness, and `--reach name` as the compatibility mode | any change to `Reach` or to the citation router's candidate filter |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
-| `dev/p7probe.sh` | the warm server, the thin client, and the decline protocol that joins them to the cold path (§15, §16) | any change to `server.scala`, `cli.scala`, `lib/Tools/query`, or the client |
+| `tests/test_p12_transport.py`, `tests/test_owned_launcher.py`, `dev/p12integration.sh` | protocol, owned EOF shutdown, reconnection, and jEdit/PIDE isolation; setup in `tests/README.md` | host, client, or lifecycle changes |
 
 `isabelle query` uses the warm server by default, so every harness that
 compares the ENGINE with something else pins `--no-server` (or exports
@@ -291,14 +321,20 @@ Four habits around them, each of which has caught something here:
 **Never edit `query_base/src` while a differential run is in flight** — the
 harness builds, and a mid-run edit tests a tree that no longer exists.
 
-**A resident host must rebind `Namespace`.** It is process-global mutable state
-that decides whether `auto` is a proof method or a fact, and `shape census`
-binds the broad union unconditionally by design. The jEdit plugin serialises
-through one worker thread; the server restores the committed default before
-every request under one lock. A new long-lived caller that does neither will
-read whatever the last one left, and will do it *selectively* — which is how
-this class of bug reads as data rather than as a failure (see the
-configurable-global rule above).
+**A resident host passes a `Namespace.Table`; it has nothing to rebind.** The
+table is an immutable per-request value: `CLI.resolve_namespace` chooses it,
+the request's `CLI.Session` holds it, and every reader receives it as a
+parameter. Thus `shape census` can take the broad union without affecting the
+next request, and two projects may use different tables concurrently in one
+JVM. A new long-lived caller must resolve and pass that value; adding mutable
+namespace state would restore the selective, data-shaped failure described by
+the configurable-global rule above.
+
+The hosts still serialise work for their own state. The server's `engine_lock`
+keeps index refresh and use as one logical step and bounds concurrent
+whole-corpus analyses. The jEdit plugin's worker keeps parsing and its per-file
+cache from being re-entered, leaves the EDT free, and preserves result order.
+Neither is a namespace lock (`[p10-namespace-value]`).
 
 ## Verification — the frozen Python tree *(reference only)*
 
@@ -347,4 +383,3 @@ greps `src/` for the literal.
 Diagnostics compose it as `"isabelle query: …"`. The warm client is a transport
 and prints the tool's bytes unchanged, so it inherits the name rather than
 introducing a third one.
-

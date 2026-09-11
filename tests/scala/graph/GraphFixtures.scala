@@ -1,0 +1,26 @@
+package isabelle.query.regression
+
+/** Literal original fixture bytes extracted from the assigned Python sources.
+  * No Python tests or oracle output were executed to create these inputs. */
+object GraphFixtures {
+  val text: Map[String, String] = Map(
+    "test_bfs_depths.CallGraphTransitiveDepth.SRC" -> "theory T imports Main begin\ndefinition base :: \"nat\" where \"base = 0\"\nlemma mid: \"base = base\" by (simp add: base_def)\nlemma top: \"mid = mid\" using mid by simp\nend\n",
+    "test_call_graph.DropShortNames.SNIPPET" -> "theory T imports Main begin\ndefinition f :: \"nat\" where \"f = 0\"\ndefinition ff :: \"nat\" where \"ff = 0\"\nlemma uses_both: \"f = ff\" by (simp add: f_def ff_def)\nend\n",
+    "test_citation_reach.A" -> "theory A\nimports Main\nbegin\ndefinition base :: \"nat\" where \"base = 0\"\nend\n",
+    "test_citation_reach.B" -> "theory B\nimports A\nbegin\nlemma uses_base: \"base = base\" by simp\nend\n",
+    "test_citation_reach.C" -> "theory C\nimports Main\nbegin\nlemma looks_like: \"base = base\" by simp\nend\n",
+    "test_citation_reach.D" -> "theory D\nimports B\nbegin\nlemma via_b: \"base = base\" by simp\nend\n",
+    "test_shadowed_names.ShadowedNameIsStillAFact.SNIPPET" -> "theory T imports Main begin\nlemma foo: \"True\" by simp\nlemma cites_it: \"True\" using foo by simp\nlemma dead: \"True\" by simp\nend\n",
+    "test_shadowed_names.MethodInvocationIsNotACitation.SNIPPET" -> "theory T imports Main begin\ndefinition simp :: \"nat\" where \"simp = 0\"\nlemma plain: \"True\" by simp\nlemma modifier: \"True\" by (auto simp: refl)\nlemma attribute: \"True\" by (simp add: refl)\nlemma term_use: \"simp = 0\" unfolding simp_def by simp\nend\n",
+    "test_symbol_body_tokens.SYMBOLS" -> "theory Sym\nimports Main\nbegin\n\ndefinition lambda :: \"nat\" where \"lambda = 0\"\ndefinition le :: \"nat\" where \"le = 1\"\ndefinition sub :: \"nat\" where \"sub = 2\"\ndefinition close :: \"nat\" where \"close = 3\"\n\nlemma writes_symbols: \"\\<forall>x\\<^sub>1. (\\<lambda>y. y) x\\<^sub>1 \\<le> x\\<^sub>1\"\n  using \\<open>True\\<close> by simp\n\nend\n",
+    "test_symbol_body_tokens.GUARDS" -> "theory Guard\nimports Main\nbegin\n\ndefinition iso_transaction :: \"nat\" where \"iso_transaction = 0\"\ndefinition \"merge_rt_F\\<^sub>m\" :: \"nat\" where \"merge_rt_F\\<^sub>m = 1\"\ndefinition inside :: \"nat\" where \"inside = 2\"\n\nlemma abuts: \"iso_transaction\\<^sub>h = iso_transaction\\<^sub>h\" by simp\nlemma symbolic: \"merge_rt_F\\<^sub>m = merge_rt_F\\<^sub>m\" by simp\nlemma in_cartouche: \\<open>inside = inside\\<close> by simp\n\nend\n",
+    "test_unused_cascade_depth.CHAIN" -> "theory Cascade\nimports Main\nbegin\n\nlemma c_leaf: \\<open>True\\<close> by simp\n\nlemma b_mid: \\<open>True\\<close> using c_leaf by simp\n\nlemma a_top: \\<open>True\\<close> using b_mid by simp\n\nend\n",
+    "test_unused_cascade_depth.FORK" -> "theory Fork\nimports Main\nbegin\n\nlemma left_leaf: \\<open>True\\<close> by simp\n\nlemma right_leaf: \\<open>True\\<close> by simp\n\nlemma joint: \\<open>True\\<close> using left_leaf right_leaf by simp\n\nlemma root: \\<open>True\\<close> using joint by simp\n\nend\n"
+  )
+  val files: Map[String, Seq[(String, String)]] = Map(
+    "test_bfs_depths._CHAIN" -> Map("C.thy" -> "theory C imports Main begin\nlemma c_l: \"True\" by simp\nend\n", "B.thy" -> "theory B imports C begin\nlemma b_l: \"True\" by simp\nend\n", "A.thy" -> "theory A imports B begin\nlemma a_l: \"True\" by simp\nend\n").toSeq,
+    "test_graph_export.TREE" -> Map("base/Base.thy" -> "theory Base imports Main begin\nlemma helper: \"True\" by simp\nlemma \\<Gamma>\\<^sub>x: \"True\" by simp\nend\n", "mid/Mid.thy" -> "theory Mid imports Base \"HOL-Library.FuncSet\" begin\nlemma mid_fact: \"True\" using helper by simp\nend\n").toSeq,
+    "test_theory_refs.TREE" -> Map("a_variant/A_Base.thy" -> "theory A_Base imports Main begin\nlemma helper: \"True\" by simp\nend\n", "base/Base.thy" -> "theory Base imports Main begin\nlemma helper: \"True\" by simp\nend\n", "mid/Mid.thy" -> "theory Mid imports Base begin\nlemma mid_fact: \"True\" using helper by simp\nend\n", "spare/Spare.thy" -> "theory Spare imports Main begin\nlemma spare_fact: \"True\" by simp\nend\n", "top/Top.thy" -> "theory Top imports Mid Spare begin\nlemma top_one: \"True\" using helper mid_fact by simp\nlemma top_two: \"True\" using helper by simp\nend\n").toSeq,
+    "test_name_is_not_identity.FILES" -> Map("alpha/ROOT" -> "session Alpha = HOL +\n  theories\n    Base\n    Preliminaries\n", "alpha/Base.thy" -> "theory Base\nimports Main\nbegin\nlemma target: \"True\" by simp\nend\n", "alpha/Preliminaries.thy" -> "theory Preliminaries\nimports Base\nbegin\nlemma a_head: \"True\" by simp\ntext \\<open>\n  a paragraph about target\n  still prose\n\\<close>\nlemma a_tail: \"True\" by simp\nend\n", "beta/ROOT" -> "session Beta = HOL +\n  theories\n    Base\n    Preliminaries\n", "beta/Base.thy" -> "theory Base\nimports Main\nbegin\nlemma target: \"True\" by simp\nend\n", "beta/Preliminaries.thy" -> "theory Preliminaries\nimports Base\nbegin\nlemma b_head: \"True\" by simp\n\nlemma b_cites: \"True\" using target by simp\n\nlemma b_tail: \"True\" by simp\nend\n").toSeq
+  )
+}

@@ -119,8 +119,8 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
 # answers the oracle gives?  It is the same 2,149-case matrix, taken through
-# the socket.  The server is probe-private and stopped on the way out, for the
-# reason dev/p7probe.sh gives at greater length.
+# the socket. The harness retains a private query_server stdin pipe until
+# completion; historical auto-daemon expectations in p7probe are superseded.
 #
 # Since P7d a bare `isabelle query` resolves to the THIN CLIENT, so the warm
 # run above exercises shim -> client -> server, which is the path a user's
@@ -136,14 +136,24 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 # called while there was something to delegate to, and is still honoured
 # because it is in people's shell history.
 if [ "${QUERY_DIFFTEST_WARM:-${QUERY_DIFFTEST_DELEGATE:-0}}" = "1" ]; then
-  export ISABELLE_QUERY_CLIENT_SERVER="difftest-$$"
-  unset ISABELLE_QUERY_NO_SERVER
+  : "${USER_HOME:?warm matrix requires a supplied unique private home with verified components}"
+  export USER_HOME
+  umask 077
+  mkdir "$USER_HOME/.query-difftest-owned" || exit 2
+  source "$repo/dev/owned-server.sh"
+  owned_out=$(mktemp -d "$outdir/owned-server.XXXXXXXX") || exit 2
   delegate_cleanup() {
-    USER_HOME="$repo/.dev" isabelle server -x -n "$ISABELLE_QUERY_CLIENT_SERVER" \
-      >/dev/null 2>&1
-    pkill -f "server -n $ISABELLE_QUERY_CLIENT_SERVER" >/dev/null 2>&1
+    local rc=$?
+    trap - EXIT INT TERM
+    owned_server_stop || rc=1
+    exit "$rc"
   }
-  trap delegate_cleanup EXIT INT TERM
+  trap delegate_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  unset ISABELLE_QUERY_NO_SERVER
+  owned_server_start "${QUERY_DIFFTEST_CLIENT:-$repo/query_base/lib/scripts/query_client.py}" \
+    "$owned_out" "${QUERY_DIFFTEST_READY_TIMEOUT:-60}" || exit 1
   SCALA_SERVER_FLAG=()
   echo "difftest: WARM, through server $ISABELLE_QUERY_CLIENT_SERVER" >&2
 else
@@ -167,7 +177,7 @@ fi
 # one, because it is visible in the case id rather than in the environment.
 run_scala() {
   ISABELLE_QUERY_NAMESPACE=committed \
-    USER_HOME="$repo/.dev" isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
+    USER_HOME="${USER_HOME:-$repo/.dev}" isabelle query "${SCALA_SERVER_FLAG[@]}" "$@"
 }
 
 # `### Missing Isabelle component` lines are this scratch home's own noise, not

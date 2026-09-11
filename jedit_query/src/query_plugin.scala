@@ -23,6 +23,7 @@ package isabelle.jedit_query
 
 
 import isabelle.GUI_Thread
+import isabelle.query.Query_Host
 
 import org.gjt.sp.jedit.{EBMessage, EBPlugin}
 import org.gjt.sp.jedit.msg.{EditPaneUpdate, ViewUpdate}
@@ -41,9 +42,13 @@ class Query_Plugin extends EBPlugin {
       case _ =>
     }
 
-  override def start(): Unit = { Query_Plugin._instance = Some(this) }
+  override def start(): Unit = {
+    Query_Plugin._instance = Some(this)
+    Query_Host.start("jedit")
+  }
 
   override def stop(): Unit = {
+    Query_Host.stop()
     Query_Plugin._instance = None
     /* A peek popup lives in a view's layered pane, not in the dockable, so
        unloading the plugin has to take it down explicitly. */

@@ -1,0 +1,1223 @@
+{
+  "suite": "shape",
+  "cases": [
+    {
+      "id": "test_bare_provenance.BareByConstruction.test_a_bare_also_states_nothing_of_its_own",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.BareByConstruction.test_a_stated_step_has_no_bare_kind",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.BareByConstruction.test_interpret_instantiates_rather_than_states",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.BareByConstruction.test_show_thesis_is_construction",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.NonGoalStepsCarryNoKind.test_context_and_closing_steps",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.TheSumIsStillNBare.test_a_stated_proof_has_an_all_zero_histogram",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.TheSumIsStillNBare.test_every_bucket_key_is_present",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.TheSumIsStillNBare.test_every_proof_sums",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.Undelimited.test_a_bare_term_is_undelimited_not_unfound",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.Undelimited.test_a_cited_cartouche_is_not_mistaken_for_the_statement",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.Unfound.test_a_wrapped_have_is_not_bare_at_all",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bare_provenance.Unfound.test_obtain_with_the_statement_below_is_unfound",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeProvenance.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Dedup.test_a_theory_claimed_twice_is_emitted_once",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Dedup.test_the_cli_shares_one_dedup_set_across_sessions",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_a_rootless_directory_of_theories_still_works",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_all_sessions_skipped_is_an_error",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_exit_codes_are_distinct",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_loaded_but_zero_records_is_a_silent_honest_zero",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_no_sessions_at_all_is_bad_root",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.ExitContract.test_partial_failure_succeeds_but_says_so",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Isolation.test_a_failing_session_is_skipped_not_fatal",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Isolation.test_a_load_failure_is_isolated_too",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Isolation.test_broken_pipe_is_not_a_session_failure",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Isolation.test_warnings_never_touch_stdout",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Laziness.test_a_generator_of_groups_is_consumed_lazily",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Laziness.test_sessions_load_one_at_a_time",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Provenance.test_records_carry_their_session",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Provenance.test_session_is_null_without_one",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_census_sessions.Resume.test_resume_skips_already_present_records",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_bare_method_has_no_args",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_multiline_arbitrary_wraps",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_proof_introducer",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_quoted_paren_does_not_close_early",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_single_line",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ArgTextLocation.test_trailing_combinator_method_excluded",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.CensusReduction.test_non_induction_proof_has_zero_columns",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.CensusReduction.test_summarize_empty",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.CensusReduction.test_summarize_takes_maxima_and_sums",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.CensusReduction.test_summary_record_carries_induction_columns",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_arbitrary_only",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_arbitrary_then_recursion_rule",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_custom_non_dotted_rule_is_not_recursion",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_empty_args",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_glued_modifier_value",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_library_rule_is_not_recursion",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_qualified_rule_is_recursion",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_quoted_compound_term_counts_once",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_rule_only_no_terms",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_single_term",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_term_and_two_arbitrary",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ParseInduction.test_three_terms",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_bare_induct_zero_counts",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_induct_tac",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_multiple_inductions_in_one_proof",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_non_induction_proof_empty",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_one_line_by_induction",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_proof_introducer_with_recursion_rule",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.ScanInductions.test_statement_mentioning_induct_is_not_counted",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.SplitArgs.test_bare_terms_split_on_whitespace",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.SplitArgs.test_quoted_compound_term_is_one_token",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_induction.SplitArgs.test_subscript_symbol_stays_glued",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInduction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeProof.test_annotation_ran_before_access",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeProof.test_bare_definition_has_no_metrics",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeProof.test_redundant_rollup_is_hand_computed",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeStatement.test_binder_separates_bound",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeStatement.test_glued_binder_prefix_is_split",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeStatement.test_multiple_bound",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeStatement.test_plain",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.AnalyzeStatement.test_schematic",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.Blocks.test_flat_and_chained_are_one_block",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.Blocks.test_nested_second_proof_is_a_new_block",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.BracketChunks.test_multiset_jaccard",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.BracketChunks.test_nested_forest",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.BracketChunks.test_short_group_below_threshold_is_dropped",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.BracketChunks.test_tuple_is_a_chunk",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ChainedProof.test_goal_statements_and_labels",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ChainedProof.test_step_shape",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyIdentifier.test_context_wins_over_entry_and_corpus",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyIdentifier.test_entry_then_default",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyIdentifier.test_single_letter_constant_misclassifies",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyIdentifier.test_syntax_wins_over_entry",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_bare_goal",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_closing",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_context",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_goal_keyword_inside_a_term_does_not_count",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_plumbing",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_plumbing_prefixed_goal",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_prefixed_terminal_method_is_closing",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_structural_is_other",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ConstEst.test_canonicalize_dedups_overloaded_notation",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ConstEst.test_is_operator_const_classification",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ConstEst.test_names_and_operator_symbols_both_count",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.CrossStepRedundancy.test_framing_partial_overlap",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.CrossStepRedundancy.test_nested_two_blocks_no_redundancy",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.CrossStepRedundancy.test_redundant_block_compresses",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.DepthMax.test_flat_one_liner_is_depth_1",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.DepthMax.test_flat_structured_proof_is_depth_1",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.DepthMax.test_one_nested_block_is_depth_2",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.DepthMax.test_summary_record_carries_depth_max",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.DepthMax.test_two_nested_blocks_is_depth_3",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ExtensionCurveTest.test_framing_partial",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ExtensionCurveTest.test_k0_reproduces_raw_widths",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ExtensionCurveTest.test_redundant_collapses",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanIn.test_chained",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanIn.test_flat_proof_has_no_goal_steps",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanIn.test_nested",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanIn.test_standalone_plumbing_line_attaches_to_next_goal",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanInCited.test_every_goal_cites",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanInCited.test_goal_free_proof_is_zero",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanInCited.test_only_citing_goals_counted",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FanInCited.test_summary_record_carries_fanin_cited",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FlatProof.test_only_the_closing_step",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FlatProof.test_single_line_unfolding_by_is_one_closing_step",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FrameRatioTest.test_framing_ratio_one",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FrameRatioTest.test_non_config_proposition_is_null",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FrameRatioTest.test_pair_selectors_no_update",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FrameRatioTest.test_wide_delta_tracing",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.IntroduceConsume.test_chained",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.IntroduceConsume.test_flat_proof_ratio_is_undefined",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.IntroduceConsume.test_nested",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.IntroduceConsume.test_reuse",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.IntroduceConsume.test_standalone",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.Introduces.test_context_and_closing",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.Introduces.test_from_have_introduces_via_goal_cmd",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.LiveFactSpace.test_flat_proof_is_empty",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.LiveFactSpace.test_nested_single_fact_peak",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.LiveFactSpace.test_reuse_holds_three_at_the_peak",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.LiveFactSpace.test_standalone_then_chaining_extends_life",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.M3ConfigLoad.test_toml_loads_name_lists",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.M3SummaryTest.test_nested_zero_coverage",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.M3SummaryTest.test_wide_full_coverage",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.MethodKinds.test_classification",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.MethodKinds.test_counts_over_redundant",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.MethodKinds.test_counts_partition_discharged_steps",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.NestedProof.test_goal_statements",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.NestedProof.test_step_shape_and_depth",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ProofSize.test_lines_and_tokens_raw_and_code",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ProofSize.test_region_counts_empty_span_is_zero",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.StepRecord.test_config_gates_frame_columns",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.StepRecord.test_estimator_columns_carry_est_suffix",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.StepRecord.test_goal_record_fields",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.StepRecord.test_uniform_schema_across_step_kinds",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.SummaryRecord.test_matches_summarize",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.TrivialAndRemovable.test_method_is_the_leading_discharge",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.TrivialAndRemovable.test_removable_scalar",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.TrivialAndRemovable.test_trivial_frac_none_when_no_method",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.TrivialAndRemovable.test_trivial_frac_over_methoded_steps",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W1Est.test_classify_demo",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W1Est.test_corpus_list_has_staples",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W1Est.test_default_vars_without_fixes",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W1Est.test_fix_line_does_not_leak_proposition_constants",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2Src.test_chained_goal_widths",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2Src.test_nested_goal_widths",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2Src.test_non_goal_steps_are_zero",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2SrcTokeniser.test_delimiters_each_count",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2SrcTokeniser.test_glued_subscript_stays_attached",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2SrcTokeniser.test_plain",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.W2SrcTokeniser.test_symbol_is_one_token",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Census.test_load_done_tolerates_a_truncated_final_line",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Census.test_resume_skips_done_entries",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Census.test_streams_one_record_per_proof",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Lemma.test_footer_reports_the_aggregate",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Lemma.test_unknown_name_is_reported_not_crashed",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepJsonSchema.test_all_steps_flag_widens_the_stream",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepJsonSchema.test_config_gates_frame_columns",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepJsonSchema.test_steps_json_keys_and_position",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepJsonSchema.test_widest_json_is_ranked_records",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepsScoping.test_bad_span_exits",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepsScoping.test_bare_theory_name_scopes_to_theory",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.StepsScoping.test_locus_scopes_to_lines",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.SummaryJsonSchema.test_summary_json_is_per_proof_records",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Widest.test_metric_live_reranks",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Widest.test_ranked_by_w2",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_bare_shape_has_a_help_fallback",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_config_flags_only_on_record_views",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_each_view_dispatches_to_its_handler",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_lemma_is_variadic_lookup",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_steps_span_is_optional",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_widest_carries_trailing_paths",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_cli.Wiring.test_widest_metric_is_constrained",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCli.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_a_keyword_inside_a_cited_term_is_not_a_command",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_a_line_with_no_goal_keyword_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_a_nested_cartouche_does_not_strand_its_closer",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_it_matches_the_same_proof_written_without_a_cartouche",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_the_citation_is_attributed_to_the_goal_that_makes_it",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_the_goal_behind_the_cartouche_is_emitted",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.ACartoucheFactReferenceIsNotTheProposition.test_the_proposition_is_measured_not_the_cited_fact",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_a_command_followed_by_a_non_statement_stays_bare",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_a_genuinely_bare_goal_stays_bare",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_a_labelled_wrapped_goal_is_found",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_it_matches_the_same_proof_written_on_one_line",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_the_span_points_at_the_line_the_statement_is_on",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_hidden_goals.AWrappedStatementIsNotABareGoal.test_the_wrapped_proposition_is_found",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeHidden.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.InlineProofIsScanned.test_a_one_liner_reaches_the_census",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.InlineProofIsScanned.test_after_a_bare_term_past_the_declaration_end",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.InlineProofIsScanned.test_inline_plumbing_and_block_openers",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.InlineProofIsScanned.test_on_a_later_line_of_the_declaration",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.InlineProofIsScanned.test_on_the_declaration_line",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.OnlyStatementTextIsBlanked.test_a_structured_proof_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.OnlyStatementTextIsBlanked.test_an_ordinary_indented_proof_line_needs_no_column",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.OnlyStatementTextIsBlanked.test_the_column_lands_on_the_proof_keyword",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.StatementSpansAndLineNumbers.test_an_inline_goal_extracts_its_own_proposition",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape_inline.StatementSpansAndLineNumbers.test_step_lines_are_real_source_lines",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeInline.scala",
+      "reason": ""
+    }
+  ]
+}

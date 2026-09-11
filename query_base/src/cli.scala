@@ -49,7 +49,7 @@ object CLI {
      monotone, never reset when the number in front of it moves.  Dots, not a
      second hyphen, so a semver comparison reads the identifiers numerically
      (`scala.0.10` after `scala.0.9`; `scala-10` would sort before `scala-9`). */
-  val version = "0.8.1-scala.0.1"
+  val version = "0.8.1-scala.0.2"
   val prog = "query"
 
   /* Exit statuses, as the CLI contract fixes them: 0 ran, 1 an unresolved
@@ -665,7 +665,7 @@ object CLI {
         resolve(if (p.isAbsolute) p else marker.getParent.resolve(p))
       }
     }
-    catch { case _: Exception => None }
+    catch { case exn: Exception if Theory.recoverable(exn) => None }
 
   /* `$ISABELLE_LAYOUT_ROOT` / `$ISABELLE_QUERY_ROOT`, else the nearest project
      marker at or above the cwd (proximity beats spelling), else the nearest
@@ -776,6 +776,17 @@ object CLI {
        this is a function and not a constant. */
     var ambient_root: () => JPath = () => default_root_from(Paths.get(""), env_root)
 
+    /* A resident host may pin an already-resolved root without learning or
+       reproducing the argv grammar.  The hook sees only an explicit root,
+       after the CLI has parsed, checked and canonicalized it; ordinary CLI
+       sessions accept every such root. */
+    var validate_explicit_root: JPath => Unit = _ => ()
+
+    /* Request-owned stdin for hosts that have one.  A process reads System.in;
+       a resident transport may replace this with a closure that supplies its
+       request body or rejects stdin without changing process-global state. */
+    var stdin_source: () => Array[String] = () => read_stdin()
+
     /* `$ISABELLE_LAYOUT_ROOT` / `$ISABELLE_QUERY_ROOT`, in that order, read
        through this run's environment rather than the process's. */
     def env_root: Option[String] = env_roots.iterator.flatMap(env(_)).nextOption()
@@ -800,14 +811,15 @@ object CLI {
       sections: mutable.ListBuffer[Theory_Section]
     ): Unit = {
       val plan = Theory.plan(dir)
-      custom_table = custom_table ++ plan.union
+      val table = custom_table ++ plan.union
       val parsed =
-        Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
-          (fk._1, Theory.parse(fk._1, custom_table ++ fk._2)), plan.found)
+        Theory.map_bounded((fk: (Discovery.Found, Map[String, String])) =>
+          (fk._1, Theory.parse(fk._1, table ++ fk._2)), plan.found)
       for ((found, sec) <- parsed) {
         val rp = Discovery.real(found.path)
         if (!seen(rp)) { seen += rp; sec.foreach(sections += _) }
       }
+      custom_table = table
     }
 
     /* Exactly ONE session's theories — the unit of work for a batch corpus run
@@ -819,25 +831,34 @@ object CLI {
        `seen` is the caller's dedup set and must be SHARED across sessions,
        exactly as a whole-root load shares one: 47 AFP theory files are
        referenced by two sessions, and a per-session set would parse and emit
-       each twice — silent duplicate records that inflate every aggregate. */
+       each twice — silent duplicate records that inflate every aggregate.
+
+       Unlike the whole-root load, a read or parse failure here PROPAGATES:
+       the census catches it at the session boundary and reports the session
+       as skipped, which `Theory.parse`'s `None` would have hidden as an
+       honest zero.  The whole session is parsed before `seen` is touched, so
+       a session that fails claims nothing and a later session may still own
+       the theories it shares with the failed one. */
     def sections_for_session(si: Discovery.Session_Info, seen: mutable.Set[JPath]
     ): List[Theory_Section] = {
       val found =
         Discovery.session_theories(si).map(p => Discovery.Found(p._1, p._2, Some(si.name)))
       val owned =
-        Par_List.map((f: Discovery.Found) =>
+        Theory.map_bounded((f: Discovery.Found) =>
           (f, if (f.path.getFileName.toString.endsWith(".thy")) Theory.header_keywords(f.path)
               else Map.empty[String, String]), found)
       val union = owned.foldLeft(Map.empty[String, String])(_ ++ _._2)
-      custom_table = union
       val parsed =
-        Par_List.map((fk: (Discovery.Found, Map[String, String])) =>
-          (fk._1, Theory.parse(fk._1, union)), owned)
+        Theory.map_bounded((fk: (Discovery.Found, Map[String, String])) => {
+          val f = fk._1
+          (f, Theory.parse_one(f.name, f.path, Theory.read(f.path), union, f.session))
+        }, owned)
       val sections = new mutable.ListBuffer[Theory_Section]
       for ((f, sec) <- parsed) {
         val rp = Discovery.real(f.path)
-        if (!seen(rp)) { seen += rp; sec.foreach(sections += _) }
+        if (!seen(rp)) { seen += rp; sections += sec }
       }
+      custom_table = union
       sections.toList
     }
 
@@ -961,7 +982,7 @@ object CLI {
           if (!stdin_read) {
             stdin_read = true
             sections += section_from(s,
-              File_Source(STDIN_NAME, stdin_path, Some(read_stdin())), parse_policy)
+              File_Source(STDIN_NAME, stdin_path, Some(s.stdin_source())), parse_policy)
           }
         }
         else {
@@ -1131,8 +1152,8 @@ object CLI {
         Namespace.pure
       }
     }
-    // resolving a table must never fail a query
-    catch { case _: Throwable => Namespace.census }
+    // Ordinary namespace discovery errors use the fallback; fatal failures abort.
+    catch { case exn: Throwable if Theory.recoverable(exn) => Namespace.census }
   }
 
 
@@ -1180,7 +1201,7 @@ object CLI {
         val (file_token, ranges) = lines_file_and_ranges(s, ns.pos("args"))
         val src =
           if (file_token == STDIN_SENTINEL)
-            File_Source(STDIN_NAME, stdin_path, Some(read_stdin()))
+            File_Source(STDIN_NAME, stdin_path, Some(s.stdin_source()))
           else resolve_file_source(s, file_token,
             Discovery.real(path_of(file_token).getOrElse(Paths.get(file_token))
               .toAbsolutePath))
@@ -1378,7 +1399,9 @@ object CLI {
       val p = expanduser(r)
       if (!Files.exists(p)) s.fail_root(p, "no such directory (given to -R/--root)")
       if (!Files.isDirectory(p)) s.fail_root(p, "not a directory (given to -R/--root)")
-      s.root_override = Some(Discovery.real(p.toAbsolutePath))
+      val resolved = Discovery.real(p.toAbsolutePath)
+      s.validate_explicit_root(resolved)
+      s.root_override = Some(resolved)
     }
 
   /* The whole CLI, minus the two things only a process may do: write to file

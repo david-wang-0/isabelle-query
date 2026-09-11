@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#
+# DESCRIPTION: Isabelle PIDE MCP server with an optional shared query host
+#
+# Enter Scala directly: redispatching the pide_mcp tool name would recurse.
+
+"$ISABELLE_HOME/lib/Tools/scala_build" >&2 || exit $?
+eval "declare -a JAVA_ARGS=($ISABELLE_TOOL_JAVA_OPTIONS)"
+exec isabelle java "${JAVA_ARGS[@]}" isabelle.query.pide_mcp.Query_PIDE_Main "$@"

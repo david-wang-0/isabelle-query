@@ -80,6 +80,13 @@ have_client_action=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --client-cache)
+      client_opts+=("$1"); have_client_opt=true; have_client_action=true; shift
+      case "${1:-}" in
+        on | off | clear) client_opts+=("$1"); shift ;;
+        *) echo "isabelle query: --client-cache: expected on, off, or clear" >&2; exit 2 ;;
+      esac
+      ;;
     --client-limit | --client-timeout)
       client_opts+=("$1"); have_client_opt=true; shift
       if [ "$#" -gt 0 ]; then client_opts+=("$1"); shift; fi

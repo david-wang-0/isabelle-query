@@ -4,25 +4,23 @@
 # package (editable) plus the PEP 735 `test` dependency group, and
 # `make test` runs the suite.
 #
-# Release: pyproject.toml's [project].version is the single source of truth for the
+# Release: CLI.version is the single source of truth for the Scala
 # release version. `make release` reads it, creates an annotated git tag
 # v<version> on the current commit, then pushes the current branch and that
-# tag to the remote. GitHub renders a pushed tag as a Release with an
-# auto-generated source archive:
-#   https://github.com/ott2/isabelle-query/releases/tag/v<version>
+# tag to the remote. The release workflow publishes the tag in that repository.
 #
 # To attach human-readable notes afterwards:
 #   gh release create v<version> --title "isabelle-query <version>" --notes "..."
 
 REMOTE ?= origin
 
-# Read [project].version from pyproject.toml. The release step assumes Python
-# 3.11+ for tomllib; the packaged library still supports 3.9+ independently.
-VERSION := $(shell python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+# The frozen Python reference has its own unchanged upstream version.
+VERSION := $(shell sed -n 's/^  val version = "\([^"]*\)"/\1/p' query_base/src/cli.scala)
+PLUGIN_VERSION := $(shell sed -n 's/^plugin.isabelle.jedit_query_plugin.Plugin.version=//p' jedit_query/jedit_query_plugin/plugin.props)
 TAG     := v$(VERSION)
 
 .DEFAULT_GOAL := version
-.PHONY: version release dev test
+.PHONY: version release check-release-version dev test test-scala test-transport test-compat-inputs check-upstream compat
 
 # Install the package (editable) plus the PEP 735 `test` dependency group
 # into the active environment.  Create and activate a venv first; then a
@@ -31,19 +29,35 @@ dev:
 	python3 -m pip install -e .
 	python3 -m pip install --group test
 
-# Run the test suite.  Assumes `make dev` (or an equivalent install) has put
-# pytest in the environment.
-test:
-	python3 -m pytest
+# Routine engine regressions run once in a private cached Scala JVM.
+test: check-upstream test-scala test-transport test-compat-inputs
+
+test-scala:
+	dev/scala-tests.sh
+
+test-transport:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_p12_transport.py
+
+test-compat-inputs:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_compat_inputs.py
+
+check-upstream:
+	python3 dev/check-upstream-compat.py
+
+compat:
+	python3 dev/check-upstream-compat.py --force
 
 # Print the tag that `make release` would create.
-version:
+version: check-release-version
 	@echo $(TAG)
+
+check-release-version:
+	@test -n "$(VERSION)" || { echo "error: could not read CLI.version"; exit 1; }
+	@test "$(PLUGIN_VERSION)" = "$(VERSION)" || { echo "error: plugin version $(PLUGIN_VERSION) differs from CLI.version $(VERSION)"; exit 1; }
 
 # Tag the current commit as v<version> (annotated), then push the current
 # branch and the tag to $(REMOTE).
-release:
-	@test -n "$(VERSION)" || { echo "error: could not read version from pyproject.toml"; exit 1; }
+release: check-release-version
 	@git update-index -q --refresh
 	@git diff-index --quiet HEAD -- || { echo "error: uncommitted changes in working tree; commit or stash before releasing"; exit 1; }
 	@if git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null; then \
@@ -66,4 +80,4 @@ release:
 	fi
 	git tag -a "$(TAG)" -m "isabelle-query $(VERSION)"
 	git push $(REMOTE) HEAD "$(TAG)"
-	@echo "Released $(TAG); CI will publish HEAD's commit message at https://github.com/ott2/isabelle-query/releases/tag/$(TAG)"
+	@echo "Released $(TAG) to $(REMOTE); the release workflow publishes HEAD's commit message in that repository."

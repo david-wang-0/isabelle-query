@@ -179,7 +179,7 @@ object Query_Index {
         Discovery.real(if (p.isAbsolute) p else marker.getParent.resolve(p))
       }
     }
-    catch { case _: Throwable => None }
+    catch { case exn: Throwable if Theory.recoverable(exn) => None }
 
   /* The CLI's rule (`CLI.default_root`) — nearest project marker at or above,
      else the nearest directory holding a ROOT file — but rooted at the FILE
@@ -260,20 +260,29 @@ object Query_Index {
 
 final class Query_Index private[jedit_query] (val root: JPath) {
   private val cache_lock = new Object
-  private val cache = mutable.HashMap.empty[JPath, (String, Theory_Section)]
+  /* The per-project file-count guard is not a retained-heap budget. Keys also
+     retain exact raw dirty overlays; snapshots may retain graphs and decoded
+     caller results independently, and refresh overlaps old/new sections. */
+  private final case class Cache_Key(stamp: String, overlay: Option[String],
+    name: String, session: Option[String], table: Map[String, String])
+  private final case class Cached(key: Cache_Key, section: Theory_Section)
+  private final case class Published(cache: Map[JPath, Cached],
+    snapshot: Option[Query_Index.Snapshot])
+  @volatile private var published = Published(Map.empty, None)
 
   @volatile private var _status: Query_Index.Status = Query_Index.Idle
-  @volatile private var _snapshot: Option[Query_Index.Snapshot] = None
   @volatile private var _note: String = ""
 
   def status: Query_Index.Status = _status
-  def snapshot: Option[Query_Index.Snapshot] = _snapshot
+  def snapshot: Option[Query_Index.Snapshot] = published.snapshot
   def note: String = _note
 
   def name: String = root.getFileName match { case null => root.toString; case n => n.toString }
 
   /* Drop everything parsed, so the next refresh starts from the files. */
-  def invalidate(): Unit = cache_lock.synchronized { cache.clear() }
+  def invalidate(): Unit = cache_lock.synchronized {
+    published = published.copy(cache = Map.empty)
+  }
 
 
   /* ------------------------------------------------------------------ */
@@ -304,7 +313,7 @@ final class Query_Index private[jedit_query] (val root: JPath) {
         session.root_override = Some(root)
         CLI.resolve_namespace(session, "callers")
       }
-      catch { case _: Throwable => Namespace.census }
+      catch { case exn: Throwable if Theory.recoverable(exn) => Namespace.census }
     _note = capture.text
     body(table)
   }
@@ -319,13 +328,7 @@ final class Query_Index private[jedit_query] (val root: JPath) {
       val attrs = Files.readAttributes(path, classOf[java.nio.file.attribute.BasicFileAttributes])
       "file:" + attrs.lastModifiedTime.toMillis + ":" + attrs.size
     }
-    catch { case _: Throwable => "file:missing" }
-
-  private def cached(path: JPath): Option[(String, Theory_Section)] =
-    cache_lock.synchronized { cache.get(path) }
-
-  private def store(path: JPath, key: String, sec: Theory_Section): Unit =
-    cache_lock.synchronized { cache(path) = (key, sec) }
+    catch { case exn: Throwable if Theory.recoverable(exn) => "file:missing" }
 
   /* Runs ON the worker thread.  `progress` is called from the parallel parse,
      so it must be cheap and thread-safe (the dockable hops to the EDT). */
@@ -333,60 +336,80 @@ final class Query_Index private[jedit_query] (val root: JPath) {
     overlay: Map[JPath, String],
     progress: Query_Index.Status => Unit = _ => ()
   ): Query_Index.Snapshot = {
-    val start = System.currentTimeMillis()
-    set(Query_Index.Indexing(0, 0), progress)
+    val previous = published
+    try {
+      val start = System.currentTimeMillis()
+      set(Query_Index.Indexing(0, 0), progress)
 
-    /* Before discovery, on a directory walk that reads nothing. */
-    val cap = Query_Index.limit
-    if (cap > 0) {
-      val on_disk =
-        Discovery.walk(root, p => p.getFileName.toString.endsWith(".thy")).length
-      if (Query_Index.over_limit(on_disk, cap)) {
-        val why = Query_Index.limit_message(name, on_disk, cap)
+      /* Before discovery, on a directory walk that reads nothing. */
+      val cap = Query_Index.limit
+      if (cap > 0) {
+        val on_disk =
+          Discovery.walk(root, p => p.getFileName.toString.endsWith(".thy")).length
+        if (Query_Index.over_limit(on_disk, cap)) {
+          val why = Query_Index.limit_message(name, on_disk, cap)
+          set(Query_Index.Failed(why), progress)
+          error(why)
+        }
+      }
+
+      val plan = Theory.plan(root)
+      val total = plan.found.length
+      if (total == 0) {
+        val why = CLI.diagnose_empty_root(root)
         set(Query_Index.Failed(why), progress)
         error(why)
       }
+      /* Again on the discovered set: a ROOT may reach theories that do not live
+         under the root directory the walk covered. */
+      if (Query_Index.over_limit(total, cap)) {
+        val why = Query_Index.limit_message(name, total, cap)
+        set(Query_Index.Failed(why), progress)
+        error(why)
+      }
+
+      /* The keyword union is root-wide, so a change to it invalidates every
+         parsed section, not just the header that moved. */
+      val done = new AtomicInteger(0)
+
+      val built =
+        Theory.map_bounded[(Discovery.Found, Map[String, String]), Option[(JPath, Cached)]](
+          { case (found, own) =>
+              val sec = section_for(found, plan.table(own), overlay, previous.cache)
+              val n = done.incrementAndGet()
+              if (n == total || n % 16 == 0) set(Query_Index.Indexing(n, total), progress)
+              sec
+          },
+          plan.found).flatten
+
+      /* Neither workers nor failed refreshes mutate retained state. Snapshot and
+         cache publish together, including exact dirty-buffer versions. Building
+         the replacement map before publication also makes allocation failure
+         atomic. Removed/unreadable files disappear on a successful refresh. */
+      val snapshot = new Query_Index.Snapshot(root, built.map(_._2.section))
+      val next = Published(built.toMap, Some(snapshot))
+      val next_invalidated = next.copy(cache = Map.empty)
+      val ready = Query_Index.Ready(snapshot.theories, snapshot.entries,
+        System.currentTimeMillis() - start, _note)
+      // A failing progress consumer is also a failed refresh: notify before
+      // the allocation-free commit, so it cannot leave a new dirty snapshot.
+      progress(ready)
+      cache_lock.synchronized {
+        // Invalidation only asks the next refresh to reparse. This completed
+        // snapshot remains coherent; publish it without retaining its cache.
+        // A different successful snapshot means a competing writer instead.
+        if (published eq previous) published = next
+        else if (published.snapshot eq previous.snapshot) published = next_invalidated
+        else error("index replaced during refresh")
+        _status = ready
+      }
+      snapshot
     }
-
-    val plan = Theory.plan(root)
-    val total = plan.found.length
-    if (total == 0) {
-      val why = CLI.diagnose_empty_root(root)
-      set(Query_Index.Failed(why), progress)
-      error(why)
+    catch {
+      case exn: Throwable =>
+        _status = Query_Index.Failed(Exn.message(exn))
+        throw exn
     }
-    /* Again on the discovered set: a ROOT may reach theories that do not live
-       under the root directory the walk covered. */
-    if (Query_Index.over_limit(total, cap)) {
-      val why = Query_Index.limit_message(name, total, cap)
-      set(Query_Index.Failed(why), progress)
-      error(why)
-    }
-
-    /* The keyword union is root-wide, so a change to it invalidates every
-       parsed section, not just the header that moved. */
-    val union_key = "/" + plan.union.hashCode.toHexString
-    val done = new AtomicInteger(0)
-
-    val sections =
-      Par_List.map[(Discovery.Found, Map[String, String]), Option[Theory_Section]](
-        { case (found, own) =>
-            val sec = section_for(found, plan.table(own), union_key, overlay)
-            val n = done.incrementAndGet()
-            if (n == total || n % 16 == 0) set(Query_Index.Indexing(n, total), progress)
-            sec
-        },
-        plan.found).flatten
-
-    /* Forget files the project no longer contains. */
-    val live = plan.found.map(_._1.path).toSet
-    cache_lock.synchronized { cache.filterInPlace((p, _) => live(p)) }
-
-    val snapshot = new Query_Index.Snapshot(root, sections)
-    _snapshot = Some(snapshot)
-    set(Query_Index.Ready(snapshot.theories, snapshot.entries,
-      System.currentTimeMillis() - start, _note), progress)
-    snapshot
   }
 
   private def set(st: Query_Index.Status, progress: Query_Index.Status => Unit): Unit = {
@@ -397,30 +420,28 @@ final class Query_Index private[jedit_query] (val root: JPath) {
   private def section_for(
     found: Discovery.Found,
     table: Map[String, String],
-    union_key: String,
-    overlay: Map[JPath, String]
-  ): Option[Theory_Section] = {
+    overlay: Map[JPath, String],
+    previous: Map[JPath, Cached]
+  ): Option[(JPath, Cached)] = {
     val path = found.path
     /* Discovery resolves a theory against a REAL session directory but does
        not re-resolve the file itself, while the overlay is keyed by real path
        (that is the form jEdit knows a buffer by).  A symlinked `.thy` is the
        one case where the two spellings differ, so try both. */
     val text = overlay.get(path).orElse(overlay.get(Discovery.real(path)))
-    val key =
-      (text match {
-        case Some(t) => "buffer:" + t.length + ":" + t.hashCode.toHexString
-        case None => file_key(path)
-      }) + union_key
+    /* Hash-only buffer keys alias ordinary edits (e.g. Aa/BB). Keep the exact
+       immutable overlay and full keyword/identity values in the cache key. */
+    val key = Cache_Key(if (text.isDefined) "buffer" else file_key(path),
+      text, found.name, found.session, table)
 
-    cached(path) match {
-      case Some((k, sec)) if k == key => Some(sec)
+    previous.get(path) match {
+      case Some(cached) if cached.key == key => Some(path -> cached)
       case _ =>
         val parsed =
           try Some(Theory.parse_one(found.name, path,
             text.getOrElse(Theory.read(path)), table, found.session))
-          catch { case _: Throwable => None }
-        parsed.foreach(store(path, key, _))
-        parsed
+          catch { case exn: Throwable if Theory.recoverable(exn) => None }
+        parsed.map(sec => path -> Cached(key, sec))
     }
   }
 }

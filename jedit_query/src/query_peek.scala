@@ -87,7 +87,7 @@ object Query_Peek {
             rows_of(Query_Search.body_hits(sec, e, LINES)), Some((sec.path, line)))
         case None =>
           val lo = (line - CONTEXT) max 1
-          val hi = (line + CONTEXT) min sec.lines.length
+          val hi = (line + CONTEXT) min sec.thy_lines
           Content(Render.file_locus(snapshot.labels, sec.path) + ":" + line.toString,
             (for ((text, i) <- sec.slice(lo, hi).zipWithIndex.toList)
               yield (lo + i, Symbol.decode(text))),

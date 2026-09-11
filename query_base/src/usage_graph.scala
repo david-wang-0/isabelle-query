@@ -504,8 +504,6 @@ object Usage_Graph {
         val spelling = n + suffix
         if (!names(spelling)) derived_base(spelling) = n
       }
-    val derived_keys: Set[String] = derived_base.keySet.toSet
-
     val def_sites = build_def_sites(sections, Some(names))
     val text_ranges = noise_ranges(sections)
     val line_index = build_line_index(sections)
@@ -536,18 +534,19 @@ object Usage_Graph {
           val stripped = if (line.contains("@{")) ANTIQ_RE.matcher(line).replaceAll("") else line
           /* The word pass reads the SYMBOL-BLANKED line, not the raw one
              [symbol-body-tokens].  Only lines that carry a `\<` pay the
-             substitution, and the derived-key pass reads the same string —
-             the two are one tokenisation of the same line, so a spelling one
-             of them can see and the other cannot would be a bug. */
+             substitution.  Direct names and derived spellings are routed
+             from the SAME matcher walk: this both fixes their tokenisation to
+             be identical and avoids a second regex traversal plus a temporary
+             set on every line when `derived` is enabled. */
           val worded =
             if (stripped.contains("""\<""")) SYM_TOKEN_RE.matcher(stripped).replaceAll(" ")
             else stripped
           cand.clear()
-          add_matches(WORD_RE, worded, 0, names, cand)
-          if (derived_base.nonEmpty) {
-            val dv = mutable.LinkedHashSet.empty[String]
-            add_matches(WORD_RE, worded, 0, derived_keys, dv)
-            for (d <- dv) cand += derived_base(d)
+          val wm = WORD_RE.matcher(worded)
+          while (wm.find()) {
+            val tok = wm.group()
+            if (names(tok)) cand += tok
+            else derived_base.get(tok).foreach(cand += _)
           }
           if (stripped.contains("""\<""")) add_matches(SYM_RE, stripped, 0, names, cand)
           if (stripped.contains("\"")) add_matches(QUOTED_RE, stripped, 1, names, cand)

@@ -36,7 +36,7 @@ mkdir -p "$outdir"
 # `--no-server` is not decoration: the dump verbs route cold anyway (they write
 # straight past any socket), so saying it here only makes the harness state
 # what it already relies on -- and keeps a future dump-shaped verb honest.
-run_scala() { USER_HOME="$repo/.dev" isabelle query --no-server "$@" 2>/dev/null; }
+run_scala() { USER_HOME="$repo/.dev" isabelle query --no-server "$@"; }
 run_oracle() { "$oracle" "$@"; }
 
 corpora=("$@")
@@ -72,8 +72,17 @@ for corpus in "${corpora[@]}"; do
       entries-bindings) s=(dump-entries "$corpus" --bindings)
                         o=(entries "$corpus" --bindings) ;;
     esac
-    run_scala "${s[@]}" >"$outdir/$tag.$variant.scala"
-    run_oracle "${o[@]}" >"$outdir/$tag.$variant.oracle"
+    scala_status=0; oracle_status=0
+    run_scala "${s[@]}" >"$outdir/$tag.$variant.scala" \
+      2>"$outdir/$tag.$variant.scala.err" || scala_status=$?
+    run_oracle "${o[@]}" >"$outdir/$tag.$variant.oracle" \
+      2>"$outdir/$tag.$variant.oracle.err" || oracle_status=$?
+    if [ "$scala_status" -ne 0 ] || [ "$oracle_status" -ne 0 ]; then
+      printf 'FAILED %-16s %-16s (Scala exit %s, oracle exit %s)\n' \
+        "$variant" "$(basename "$corpus")" "$scala_status" "$oracle_status"
+      status=1
+      continue
+    fi
     if diff -u "$outdir/$tag.$variant.oracle" "$outdir/$tag.$variant.scala" \
         >"$outdir/$tag.$variant.diff"; then
       n=$(wc -l <"$outdir/$tag.$variant.scala")

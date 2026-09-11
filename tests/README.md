@@ -1,172 +1,140 @@
 # Tests
 
-Stdlib `unittest` — no third-party dependency, no install required. `support.py`
-puts `../src` on `sys.path`, so the suite runs against the working tree.
-
-## Run the default (fast, self-contained) suite
+## Routine Scala validation
 
 ```sh
-python -m unittest discover -s tests -v
+make test
+dev/scala-tests.sh --suite parser   # parser, graph, shape, or cli
 ```
 
-These use small inline theory snippets (`tests/test_names.py`,
-`tests/test_call_graph.py`, `tests/test_keywords.py`) and run in well under a
-second. The call-graph tests pin `cli._build_call_graph` to a brute-force
-reference builder (`support.brute_force_call_graph`), so the linear builder can
-never silently drift from the obvious O(lines×names) one. It is a drift check,
-not an oracle — see the last section for the difference and why it matters.
+The default runs the Scala regression suite, the cheap upstream identity gate,
+and `test_p12_transport.py` for the shipping Python client. It does not run the
+frozen Python tests or the Python oracle when upstream is unchanged. Scala
+compilation uses a copied `query_base`, a private Isabelle user home, and separate
+engine/suite caches under `.dev/scala-tests` (override with `SCALA_TEST_CACHE`;
+for example, export it once from `mktemp -d` for a reusable temporary cache).
+A test-only change recompiles the
+selected suite; a cache hit runs one JVM. No production jar, global component
+registration, prover session, or live host is changed. Python 3.11+ orchestrates
+builds and reads gate metadata only; Isabelle must be on `PATH`.
 
-`tests/test_keywords.py` covers the **custom outer-syntax command scanner**:
-an AFP entry may define its own theory commands (AOT's `AOT_theorem`,
-`AOT_define`, ...) via a `keywords "name" :: kind` header clause — which *is*
-Isabelle's keyword table (`Pure/Thy/thy_header.ML`). The scanner reads that
-clause and routes each command through the matching built-in branch, so the
-facts are indexed and the inflated spans they used to cause collapse.
+`scala/upstream-tests.json` preserves all 1,255 original unittest IDs and their
+disjoint groups. Each `scala/coverage/GROUP.json` is exhaustive for that group.
+`ported` rows must execute real `TestSupport.test(id)` assertions. Explicit
+`python-only`, `optional`, `process`, and documented `known-difference` rows
+call `disposition(id, status, reason)` and are counted separately, never as
+passing ports. Known differences also require passing Scala assertions; an
+unimplemented or failing port is not a known difference. Optional assertions
+may execute when their suite enables them, but keep their tier label. Missing,
+duplicate, unknown IDs and manifest/runtime disagreements fail validation.
 
-`tests/test_methods.py` covers the **proof-method scanner** behind `query
-methods` / `query method NAME` — the complement of the citation router. It
-pins the precision property that makes the tally trustworthy: a method-namespace
-token that is really a term variable (`N`, `order`) is counted *only* in
-introducer position (after `by` / `apply` / `proof`), never as a bare token, so
-the AFP-wide ranking is `simp`/`auto`/`blast`/`metis`/… rather than a list of
-common variable names. It also pins the documented under-count (the trailing
-method of `by (induct x) auto` is not tallied — never over-counted).
+The two original `@unittest.expectedFailure` cases retain the manifest status
+`expected-failure`. Use `TestSupport.expectedFailure(id, reason) { ... }` with
+the original desired assertions; it registers its own nonpass disposition.
+Only IDs with verified upstream decorator metadata in `upstream-tests.json`
+are eligible. A failure of shared `check`, `equal`, `contains`, `notContains`,
+or `raises` emits the dedicated `CheckFailure` accepted by this bracket.
+An unexpected pass (XPASS), empty body, runtime error, or an unrelated bridge
+`AssertionError` fails the run. These two cases use direct bodies; `subcase`
+collection inside `expectedFailure` is explicitly rejected. An expected
+failure is reported separately and never counted as a passing Scala port.
 
-`tests/test_call_graph.py`'s `DropShortNames` covers the **single-char-name
-filter** (`--drop-names-upto L`, default 1). A length-1 token (`x`, `a`, `f`,
-the wildcard `_`) is a bound variable in nearly every proof — on the AFP,
-length-1 names carry ~28% of all citation in-edges across 51 universal-variable
-names, essentially all noise — so by default they are not citation-graph nodes,
-while length-2+ short *lemma* names (`le`, `id`) are kept. The threshold is a
-parameter of the shared `_is_citation_name`, so the fast builder and the oracle
-stay in parity at every value (`scripts/analyze_citation_names.py` is the
-reusable diagnostic that produced the evidence for the default).
+All suites live in `isabelle.query.regression` and expose `def run(): Unit` in
+`ParserSuite`, `GraphSuite`, `ShapeSuite`, or `CliSuite`. Shared helpers live in
+`scala/support/TestSupport.scala`; special fixtures/helpers stay with the suite.
+`parse` uses raw `Theory.parse_one`; `cli` captures output with request-owned
+writers and a fresh `CLI.Session`, environment, root and stdin hooks. Use
+`subcase(label) { ... }` or `note(label)` to report looped fixture rows. Original
+method IDs are an accounting boundary, not a count of logical subcases.
 
-`tests/test_known_failures.py` is a catalogue of *recoverable* parser corner
-cases (comment-prefixed names, abbreviation LHS heads). Each asserts the
-desired behaviour and is marked `@expectedFailure`, so the suite stays green
-today but reports an "unexpected success" the moment the parser is improved to
-handle one — a built-in to-do list toward full AFP coverage. The largest
-former entry, **name on a following line**, is now handled — see the
-`ContinuationLineName` tests in `tests/test_names.py`.
-
-## Run the corpus-scale checks
-
-`tests/test_corpus.py` is skipped unless you point it at a tree of `.thy` files
-(an AFP checkout, e.g. your local `afp/thys`):
+## Upstream compatibility
 
 ```sh
-ISABELLE_QUERY_CORPUS=~/repos/afp/thys python -m unittest tests.test_corpus -v
+python3 dev/check-upstream-compat.py --check-only
+# After supplying QUERY_TEST_AFP, QUERY_TEST_DISTRO and QUERY_ORACLE:
+make compat
 ```
 
-It mirrors `load_index`: it scans every header into the custom-command union
-first, so the measurements reflect the real parse. It asserts the full-tree
-robustness targets: unparsed-name (`?`) rate below 7% (the residual is
-genuinely-anonymous lemmas and nameless commands — a `C` C-code block, an
-`autocorres` invocation), no `(in locale)` prefix leaking into a name, the
-reported-bug regression that AOT's `AOT_theorem` run no longer inflates
-`beta-C-cor:3`'s span, and the fast call-graph builder matching the oracle on a
-bounded slice (never inventing edges; dropping at most 0.5%, in practice
-~0.01%).
+The gate checks working Python bytes and executable modes, not merely HEAD or
+the version string. Same-version source/metadata drift fails the cheap check;
+reviewed maintenance can use `--force`. Version changes trigger complete
+compatibility by default. All seven standard corpora are mandatory. The copied
+harness executes 28 entry projections and 2,149 warm differential comparisons,
+including stale-pin rejection. Entry projections require successful producers
+as well as equal bytes. Failed/partial runs never update the baseline. On Linux,
+timeout/error cleanup terminates owned command groups and detached servers only
+when both their exact name and private user home match this run.
+Successful runs record source, layout dependency, corpus, matrix, pin and Scala
+identities; local corpus and installation paths are not recorded in the baseline.
 
-## Run the performance checks
+The initial baseline explicitly cites prior `dev/P11-STATUS.md` evidence:
+2,149 comparisons, including 181 pins. Its unknown historical layout/corpus
+identities remain null; bootstrapping did not run a fresh matrix. All 307
+invocation IDs in `scala/coverage/matrix.json` retain their exact corpus/process
+compatibility tier. That mapping does not claim that a small semantic unit
+fixture repeats a seven-corpus byte comparison.
 
-`tests/test_perf.py` is opt-in (timing has no place in the fast default suite):
+## Lifecycle integration
+
+`dev/p12integration.sh` tests jEdit/PIDE hosts, owner exit/signals, and borrower
+recovery in copied components and a private user home. Set `PIDE_MCP_COMPONENT`
+to an isolated PIDE dependency archive. The narrower `test_owned_launcher.py`
+suite uses `QUERY_OWNED_TEST_COMPONENT` pointing to a compiled private
+`query_base`; run it with unittest discovery. Neither belongs in the fast loop.
+
+## Optional reference and performance checks
+
+The frozen Python suite uses stdlib `unittest`; `support.py` loads the in-tree
+reference source. These are maintenance commands, not the routine Scala loop:
 
 ```sh
-ISABELLE_QUERY_PERF=1 python -m unittest tests.test_perf -v
+python3 -m unittest discover -s tests -v
+ISABELLE_QUERY_CORPUS="$QUERY_TEST_AFP" python3 -m unittest discover -s tests -p test_corpus.py -v
+ISABELLE_QUERY_PERF=1 python3 -m unittest discover -s tests -p test_perf.py -v
 ```
 
-It guards both phases against the *per-theory* O(n²) traps each has actually
-hit, with `BuildScaling` and `ParseScaling`:
+Corpus checks cover parsing robustness and graph consistency. Performance checks
+compare per-theory scaling, where quadratic regressions can hide if only the
+number of theories grows. For query latency and memory measurements, run
+`dev/bench.sh all`; see [benchmark method and results](../dev/BENCH.md).
 
-* **build** — `_entry_at_line` rebuilding a keys list per call (O(lines ×
-  entries)) and the prose-skip test rescanning every range per line (O(lines ×
-  ranges));
-* **parse** — `compute_spans` and `_attach_comments` each scanning the whole
-  entry list per entry / block / comment (O(entries²)), the dominant cost on an
-  *entry-dense* theory (thousands of short declarations — the real AFP has
-  files like `SEC1v2_0_Test_Vectors` with ~6,700).
+The two original expected failures concern infix abbreviation names and a blank
+line before an attached declaration comment. Their Scala equivalents retain
+strict expected-failure assertions; they are not ordinary passes.
 
-All are per-theory quadratics, so the synthetic corpus scales **per-theory
-size** (not theory count): one theory's definitions, lemmas, text blocks and
-comments all grow together — scaling theory count alone would keep each
-quadratic linear in corpus size and hide it. The assertion is a **scaling
-ratio**, not an absolute wall-clock floor — run at size S and 4·S and require
-the ratio to stay near linear (~4), nowhere near quadratic (~16). A reintroduced
-per-entry/per-line O(n) factor blows the ratio (verified by monkeypatching each
-old form back: build ~4→~13, parse ~4→~15) long before it would trip a fragile
-absolute threshold; a deliberately loose build-throughput floor (20k lines/s,
-vs the ~150k+ measured) catches only order-of-magnitude regressions.
-`scripts/profile_build.py` is the matching diagnostic — it times the parse and
-build phases separately and, with `--cprofile`, names the hot functions per
-phase.
+The graph reference builder checks consistency with the specified source-scanning
+rules, not Isabelle semantics. When a semantic probe reveals a defect, add a
+small hand-written regression fixture with an independently derived answer.
 
-The driver of the parse cost is *entry count*, not line count: the AFP's
-longest file by lines (`Tarski_Neutral`, 44k lines) has only ~1,800 entries and
-parses in ~50ms, whereas a same-size file of short declarations would have
-~40k. The fix makes both phases linear in entry count — the entry-dense
-extreme (17k entries) dropped from ~10s to ~70ms, and full AFP `load_index`
-from ~5.2s to ~4.7s.
+## P13 focused checks and publication gate
 
-## Future work (parser corner cases)
+The focused P13 runners are:
 
-Near-term — the one remaining `@expectedFailure` in `test_known_failures.py`:
-the **infix/mixfix definition** name (`abbreviation "x \<oplus> y \<equiv> .."`).
-The LHS-head heuristic returns the first operand (`x`); the true name is the
-operator (`\<oplus>`), which needs mixfix-aware parsing of the equation.
+```sh
+bash dev/p13-source/run.sh
+bash dev/p13-pane.sh
+```
 
-Done — the whole name-on-the-decl-line family, which together took the AFP
-`?` rate from ~5.9% to ~4.0% while the call-graph oracle parity held:
+Those two runners create copied components and private Isabelle homes. The
+loading and cache runners instead require `USER_HOME` to name a
+parent-coordinated isolated home with copied components already built. Loading
+requires its engine jar; cache requires both engine and jEdit jars. With that
+prerequisite satisfied, run:
 
-* **name on a following line** (`inductive_set` / `definition` with the keyword
-  alone on its line and the name beneath it). `DECL_RE` now anchors on a token
-  boundary so a lone keyword matches at all, and `_lookahead_name` reads the
-  name from the first content line below without consuming it (spans unchanged)
-  — ~1,455 names recovered, ~8,377 silently-dropped decls surfaced.
-* **margin-comment-prefixed name** (`definition \<comment> \<open>..\<close> bar
-  :: ...`) — `_strip_decl_prefix` skips a leading `\<comment>` cartouche
-  (~190 entries).
-* **implicit-name definition/abbreviation** (`abbreviation "lhs x \<equiv> .."`
-  → `lhs`) — `_lhs_head_name` reads the LHS head of the quoted equation
-  (~9,000 entries).
-* **bare reserved keyword** in the name slot (`lemma assumes ...`, `... by ...`)
-  no longer captured as a name — ~630 misparses removed from the call graph.
+```sh
+bash dev/p13-loading.sh
+bash dev/p13cache.sh
+```
 
-See the `ContinuationLineName`, `ParseDefName` and reserved-keyword tests in
-`tests/test_names.py`.
+They cover compressed exact source snapshots, bounded fatal-aware parsing,
+atomic cache publication and invalidation, scoped callers refresh, Delete/Clear,
+and bounded excerpts. For one fast Scala suite, run
+`dev/scala-tests.sh --suite parser`; the other valid choices are `graph`,
+`shape`, and `cli`. `make test` runs all four plus the transport suite and the
+ordinary upstream-identity gate.
 
-## Ground truth from Isabelle, and the shape it should take
-
-`support.brute_force_call_graph` is **not** an oracle. It is a slow *regex*
-reference that guards the fast builder against drift, not against absolute
-error, and it shares its exclusion helpers with the builder it checks — so on
-the exclusion set it is a consistency check between two implementations of the
-same rules. Real ground truth about Isabelle has to come from Isabelle.
-
-It has been fetched, once, and it paid for itself: `[export-oracle]` read the
-`isabelle_exports` table out of a session database (read-only sqlite — note
-that `isabelle export` is **not** read-only and triggers a build) and asked
-what entities Isabelle knew that `query` did not. The answer was 713 unindexed
-names over 120 AFP entries, all 538 unambiguous ones cited, 40,741 occurrences
-— and it shipped as eight commits under `[declared-names]`: `and`-declared
-constants, named rules and equations, type constructors, locale and class
-names, `record` selectors. Recover it with
-
-    git log --grep='\[declared-names\]'
-
-**Then the tag was retired and nothing standing was kept.** That is the
-precedent, and it is the point of this section. Isabelle ground truth is a
-**one-time discovery instrument**, not a maintained artifact: once it says
-*what* to look for, the measurement is ordinary source scanning at full corpus
-scale, on a machine with no Isabelle installed — which is how the 713 became a
-corpus-wide number in the first place. A committed fixture corpus harvested
-from a heap would instead pin one Isabelle release's semantics and need
-regenerating forever, and the only cure for a stale reference is a rebuild,
-the one thing this tool must never do.
-
-So when a question needs Isabelle: ask it with a probe, fix what it finds, pin
-the fix with a **hand-written** fixture (hand-compute the value, then make the
-code match), cite the finding in the commit message, and let the probe go. The
-open instance is `[markup-step-model]` in `todo.md` — three proof steps on
-`DitherTM` that Isabelle's `PIDE/markup` counts and `query` does not.
+For the P13 release, unchanged upstream does not waive the full compatibility
+run. Publication requires the final frozen snapshot to pass all 2,149
+differential cases and 28 entry projections, with documented divergences
+audited, and requires every benchmark case. These gates are separate from the
+routine `make test` pass and remain pending until their final reports say PASS.

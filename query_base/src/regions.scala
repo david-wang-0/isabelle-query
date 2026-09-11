@@ -55,6 +55,22 @@ import scala.collection.mutable
 
 
 object Regions {
+  /* Modern Isabelle no longer tokenizes legacy {* ... *} verbatim blocks.
+     Extend its token parser at the CURRENT token boundary only: a native
+     string/comment/cartouche still consumes its whole body first, so a legacy
+     opener inside one cannot start another token. RegexParsers has empty
+     whiteSpace here; neither columns nor line breaks are skipped. */
+  private object Legacy_Parser extends Token.Parsers {
+    private val legacy: Parser[Token] =
+      """(?s)\{\*.*?(?:\*\}|\z)""".r ^^ (s => Token(Token.Kind.INFORMAL_COMMENT, s))
+
+    def explode(keywords: Keyword.Keywords, text: String): List[Token] =
+      parseAll(rep(legacy | token(keywords)), Scan.char_reader(text)) match {
+        case Success(tokens, _) => tokens
+        case _ => error("Unexpected failure of tokenizing input:\n" + text)
+      }
+  }
+
   /* Commands whose body is an ML cartouche. */
   val ml_body_commands: Set[String] =
     Set("ML", "ML_prf", "ML_val", "ML_command", "ML_export",
@@ -206,10 +222,15 @@ object Regions {
     keywords: Keyword.Keywords = Keyword.Keywords.empty
   ): Result = {
     val n = lines.length
-    val nonisar = Array.fill(n)(new mutable.ListBuffer[(Int, Int)])
-    val inner = Array.fill(n)(new mutable.ListBuffer[(Int, Int)])
+    val nonisar = new Array[mutable.ListBuffer[(Int, Int)]](n)
+    val inner = new Array[mutable.ListBuffer[(Int, Int)]](n)
     val open_at = new Array[Boolean](n)
-    val notes = Array.fill(n)(new mutable.TreeSet[Int]())
+    val notes = new Array[mutable.TreeSet[Int]](n)
+
+    def note(line: Int, col: Int): Unit = {
+      if (notes(line) == null) notes(line) = new mutable.TreeSet[Int]()
+      notes(line) += col
+    }
 
     def line_of(offset: Int): Int = {
       var lo = 0
@@ -231,7 +252,10 @@ object Regions {
           val base = line_starts(i)
           val lo = (a - base) max 0
           val hi = (b - base) min lines(i).length
-          if (hi > lo) buf(i) += ((lo, hi))
+          if (hi > lo) {
+            if (buf(i) == null) buf(i) = new mutable.ListBuffer[(Int, Int)]
+            buf(i) += ((lo, hi))
+          }
           i += 1
         }
       }
@@ -270,14 +294,17 @@ object Regions {
         if (starts_with_any(src.substring(start), note_markers)) {
           val abs = base + start
           val ln = line_of(abs)
-          notes(ln) += (abs - line_starts(ln))
+          note(ln, abs - line_starts(ln))
         }
         from = end max (m.end())
       }
     }
 
     val tokens =
-      try Token.explode(keywords, text)
+      try {
+        if (text.contains("{*")) Legacy_Parser.explode(keywords, text)
+        else Token.explode(keywords, text)
+      }
       catch { case ERROR(_) => Nil }
 
     /* A formal comment whose cartouche never closes.  The lexer cannot pair
@@ -310,7 +337,7 @@ object Regions {
           mark_open(pending, stop)
           if (pending_note) {
             val ln = line_of(pending)
-            notes(ln) += (pending - line_starts(ln))
+            note(ln, pending - line_starts(ln))
           }
         }
         else classify(tok, lines, line, col) match {
@@ -318,7 +345,7 @@ object Regions {
             add(nonisar, start, stop)
             add(inner, start, stop)
             mark_open(start, stop)
-            if (starts_with_any(tok.source, note_markers)) notes(line) += col
+            if (starts_with_any(tok.source, note_markers)) note(line, col)
           case INNER =>
             add(inner, start, stop)
             mark_open(start, stop)
@@ -342,13 +369,13 @@ object Regions {
       val bound = new Array[Int](n + 1)
       var total = 0
       var i = 0
-      while (i < n) { total += buf(i).length; i += 1; bound(i) = total }
+      while (i < n) { if (buf(i) != null) total += buf(i).length; i += 1; bound(i) = total }
       val lo = new Array[Int](total)
       val hi = new Array[Int](total)
       i = 0
       while (i < n) {
         var k = bound(i)
-        for ((a, b) <- buf(i).sortBy(_._1)) { lo(k) = a; hi(k) = b; k += 1 }
+        if (buf(i) != null) for ((a, b) <- buf(i).sortBy(_._1)) { lo(k) = a; hi(k) = b; k += 1 }
         i += 1
       }
       new Spans(bound, lo, hi)
@@ -361,11 +388,11 @@ object Regions {
       val bound = new Array[Int](n + 1)
       var total = 0
       var i = 0
-      while (i < n) { total += buf(i).size; i += 1; bound(i) = total }
+      while (i < n) { if (buf(i) != null) total += buf(i).size; i += 1; bound(i) = total }
       val lo = new Array[Int](total)
       i = 0
       var k = 0
-      while (i < n) { for (c <- buf(i)) { lo(k) = c; k += 1 }; i += 1 }
+      while (i < n) { if (buf(i) != null) for (c <- buf(i)) { lo(k) = c; k += 1 }; i += 1 }
       new Spans(bound, lo, lo)
     }
 
@@ -386,14 +413,21 @@ object Regions {
     while (i < lines.length) {
       if (!spans.is_empty(i)) {
         val line = lines(i)
-        val buf = new StringBuilder
+        var blank = true
         var prev = 0
+        def check(until: Int): Unit = {
+          val end = until min line.length
+          while (blank && prev < end) {
+            if (!Py.is_space(line.charAt(prev))) blank = false
+            prev += 1
+          }
+        }
         spans.each(i) { (a, b) =>
-          if (a > prev) buf ++= line.substring(prev min line.length, a min line.length)
+          check(a)
           prev = prev max b
         }
-        if (prev < line.length) buf ++= line.substring(prev)
-        if (Py.is_blank(buf.toString)) marked += (i + 1)
+        check(line.length)
+        if (blank) marked += (i + 1)
       }
       i += 1
     }

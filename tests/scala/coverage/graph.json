@@ -1,0 +1,1121 @@
+{
+  "suite": "graph",
+  "cases": [
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_callback_is_lazy_and_called_once_per_node",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_cycle_is_safe",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_multi_seed_all_seeds_at_seed_depth",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_seed_depth_minus_one_puts_direct_at_zero",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_seed_depth_zero_counts_the_seed",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.BfsDepthsUnit.test_shortest_path_on_a_diamond",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.CallGraphTransitiveDepth.test_callees_depths_through_the_chain",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.CallGraphTransitiveDepth.test_callers_depths_through_the_chain",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.DepsDepthLabels.test_forward_non_recursive_is_direct_only",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.DepsDepthLabels.test_forward_recursive_depth_labels",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bfs_depths.DepsDepthLabels.test_reverse_recursive_depth_labels",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBfsDepths.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_bare_reference",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_comment_mention_is_not_a_call",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_cross_theory_reference",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_definition_site_excluded",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_prose_mention_is_not_a_call",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_quoted_special_name_reference",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_special_name_substring_is_not_a_call",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_substring_is_not_a_call",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_symbolic_name_not_glued_into_longer_symbol",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.CallGraphEdges.test_symbolic_name_reference",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.DropShortNames.test_drop_upto_two_drops_two_char",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.DropShortNames.test_drop_upto_zero_keeps_single_char",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.DropShortNames.test_oracle_parity_at_each_threshold",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.DropShortNames.test_single_char_dropped_by_default",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.WordBoundary.test_plain_identifier_is_prime_and_substring_aware",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.WordBoundary.test_special_char_name_only_matches_quoted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_call_graph.WordBoundary.test_symbolic_name_not_glued",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCallGraph.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.AnUnknownClosureFiltersNothing.test_buffer_parsed_sections_keep_their_edges",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.AnUnknownClosureFiltersNothing.test_the_closure_is_reported_as_unknown",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.FindCallersAgrees.test_a_name_the_project_never_declares_is_not_filtered",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.FindCallersAgrees.test_name_mode_restores_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.FindCallersAgrees.test_the_importers_are_kept",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.FindCallersAgrees.test_the_invisible_theory_is_skipped",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.TheFlagIsOnEveryAttributingVerb.test_a_verb_that_attributes_nothing_does_not_carry_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.TheFlagIsOnEveryAttributingVerb.test_the_default_matches_the_library_default",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.TheFlagIsOnEveryAttributingVerb.test_the_flag_is_accepted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.TheRuleOnlyDrops.test_closure_edges_are_a_subset",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.TheRuleOnlyDrops.test_something_was_actually_dropped",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.UnusedMayHonestlyGrow.test_an_entry_only_cited_out_of_reach_becomes_unused",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.UnusedMayHonestlyGrow.test_base_is_live_because_b_really_cites_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.VisibilityDecidesAttribution.test_a_theory_cites_its_own_declaration",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.VisibilityDecidesAttribution.test_a_theory_that_cannot_see_it_does_not",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.VisibilityDecidesAttribution.test_a_transitive_importer_still_cites",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.VisibilityDecidesAttribution.test_an_importer_still_cites",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_citation_reach.VisibilityDecidesAttribution.test_name_mode_restores_the_old_answer",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCitationReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_OF_args_are_facts",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_OF_then_THEN_multi_attr",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_and_in_where_does_not_leak",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_lone_greek_term_does_not_leak",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_nested_OF_brackets",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_of_still_keeps_the_head_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_of_terms_do_not_leak",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_simplified_rule_arg_is_a_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_symmetric_flag_does_not_leak",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_unfolded_arg_is_a_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_where_terms_do_not_leak",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.AttributeBrackets.test_wildcard_placeholder_in_OF_is_not_a_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.ChainedCiteKeywords.test_from_then_with",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.ChainedCiteKeywords.test_unfolding_then_using",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.ChainedCiteKeywords.test_using_then_unfolding",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.Coverage.test_known_shapes_stay_covered",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.Coverage.test_unknown_method_with_bare_args_is_uncovered",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.FromUsingWith.test_from_prefix",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.FromUsingWith.test_keyword_inside_proposition_is_ignored",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.FromUsingWith.test_label_is_introduced_not_cited",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.FromUsingWith.test_unfolding_list",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.FromUsingWith.test_using_suffix",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_auto_simp_marker",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_bare_method_no_facts",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_induction_variable_is_not_a_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_metis_multiple",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_of_attribute",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_rule_bare_arg",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_rule_local_label",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.MethodArguments.test_simp_add_marker",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.NonIdentifierTokens.test_cite_list_head_with_attr_keeps_following_facts",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.NonIdentifierTokens.test_dotted_numeral_artifacts_are_not_facts",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.NonIdentifierTokens.test_marker_list_with_attr",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.NonIdentifierTokens.test_numeric_labels_are_not_facts",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.NonIdentifierTokens.test_type_variable_is_not_a_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.RealAfpComposite.test_where_and_dest_of_line",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.SymbolNamedFactsKept.test_greek_led_def",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_fact_citations.SymbolNamedFactsKept.test_subscripted_fact",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphFactCitations.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.Determinism.test_edges_are_sorted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.Determinism.test_two_runs_are_byte_identical",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.DotEscaping.test_a_markup_name_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.DotEscaping.test_a_quote_in_a_name_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.DotEscaping.test_the_dot_body_is_a_balanced_digraph",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.DotEscaping.test_the_emitted_dot_carries_the_escaped_name",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.Scoping.test_a_theory_scope_narrows_the_export",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.Scoping.test_kind_defaults_to_citation",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.Scoping.test_the_format_choices_are_constrained",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_a_citation_edge_is_caller_then_callee",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_an_import_edge_is_importer_then_imported",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_an_out_of_project_import_is_a_flagged_node_not_a_dropped_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_citation_nodes_carry_their_locus",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_citation_output_is_valid_json",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_every_edge_endpoint_is_a_declared_node",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_graph_export.TheJsonShape.test_imports_output_is_valid_json",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphGraphExport.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_combinator_tail_is_undercounted_not_miscounted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_induction_method_is_recognised",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_introducer_forms_are_counted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_located_form_reports_owning_entry",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_method_name_as_a_variable_is_not_counted",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_no_methods_yields_empty",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_methods.ScanMethods.test_prose_and_comments_are_skipped",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphMethods.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.AnOwnerBelongsToTheFileItNames.test_grep_owners",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.AnOwnerBelongsToTheFileItNames.test_method_owners",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.AnOwnerBelongsToTheFileItNames.test_the_fixture_really_collides",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.CollidingCorpus.test_the_fixture_really_collides",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_def_sites",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_line_index",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_noise_ranges",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_prose_is_prose_only_in_the_file_that_wrote_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_the_fixture_really_collides",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.EachSectionKeepsItsOwnIndex.test_the_owner_of_a_line_comes_from_that_file",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.ExternalSkipsFilesNotNames.test_a_citation_outside_the_declaring_file_survives",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.ExternalSkipsFilesNotNames.test_the_fixture_really_collides",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.SuppressionIsTheWorstHalf.test_exactly_one_citation",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.SuppressionIsTheWorstHalf.test_the_call_graph_agrees_with_callers",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.SuppressionIsTheWorstHalf.test_the_fixture_really_collides",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.SuppressionIsTheWorstHalf.test_the_live_citation_is_found",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_name_is_not_identity.SuppressionIsTheWorstHalf.test_the_prose_mention_is_not",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphNameIsNotIdentity.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_perf.BuildScaling.test_build_scales_near_linearly",
+      "status": "optional",
+      "destination": "tests/scala/graph/GraphPerf.scala",
+      "reason": "Opt-in timing guard; set ISABELLE_QUERY_PERF=1 to exercise original sizes, repeats and thresholds."
+    },
+    {
+      "id": "test_perf.BuildScaling.test_build_throughput_is_sane",
+      "status": "optional",
+      "destination": "tests/scala/graph/GraphPerf.scala",
+      "reason": "Opt-in timing guard; set ISABELLE_QUERY_PERF=1 to exercise original sizes, repeats and thresholds."
+    },
+    {
+      "id": "test_perf.ParseScaling.test_parse_scales_near_linearly",
+      "status": "optional",
+      "destination": "tests/scala/graph/GraphPerf.scala",
+      "reason": "Opt-in timing guard; set ISABELLE_QUERY_PERF=1 to exercise original sizes, repeats and thresholds."
+    },
+    {
+      "id": "test_shadowed_names.MethodInvocationIsNotACitation.test_attribute_argument_is_not_an_edge",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.MethodInvocationIsNotACitation.test_bare_method_is_not_an_edge",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.MethodInvocationIsNotACitation.test_matches_the_oracle",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.MethodInvocationIsNotACitation.test_method_modifier_is_not_an_edge",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.MethodInvocationIsNotACitation.test_term_position_is_an_edge",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_attribute_block",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_bare_method",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_cartouche_term_is_a_use",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_derived_spelling_counts_only_when_asked",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_method_modifier",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_method_with_fact_list",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_quoted_term_is_a_use",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_rule_argument_is_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.PositionRule.test_using_is_a_citation",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.ShadowedNameIsStillAFact.test_citation_is_an_edge",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.ShadowedNameIsStillAFact.test_matches_the_oracle",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.ShadowedNameIsStillAFact.test_name_is_a_graph_node",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.ShadowedNameIsStillAFact.test_unused_can_see_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.UnshadowedNamesAreUnaffected.test_numerals_and_short_names_still_excluded",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shadowed_names.UnshadowedNamesAreUnaffected.test_plain_name_keeps_position_blind_edges",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphShadowedNames.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.ASymbolBodyIsNotACitation.test_close_is_not_cited_by_a_cartouche_delimiter",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.ASymbolBodyIsNotACitation.test_lambda_is_not_cited_by_a_lambda_symbol",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.ASymbolBodyIsNotACitation.test_le_is_not_cited_by_a_le_symbol",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.ASymbolBodyIsNotACitation.test_sub_is_not_cited_by_a_subscript_control",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheGuardsThatWordScanningExistsFor.test_a_bare_name_abutting_a_symbol_is_still_found",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheGuardsThatWordScanningExistsFor.test_a_name_inside_a_cartouche_is_still_cited",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheGuardsThatWordScanningExistsFor.test_a_symbolic_name_is_still_one_token",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheSingleNameScanAgrees.test_a_name_abutting_a_symbol_still_matches",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheSingleNameScanAgrees.test_a_name_inside_a_cartouche_still_matches",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheSingleNameScanAgrees.test_a_symbol_body_does_not_match",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheSingleNameScanAgrees.test_a_symbolic_name_is_unaffected",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_symbol_body_tokens.TheSingleNameScanAgrees.test_the_real_name_still_matches",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphSymbolBodyTokens.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.CountsAreCitingEntries.test_a_name_used_by_one_entry_counts_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.CountsAreCitingEntries.test_a_name_used_by_two_entries_counts_two",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.OwnershipFollowsTheImportClosure.test_a_local_declaration_shadows_an_imported_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.OwnershipFollowsTheImportClosure.test_a_visible_declaration_beats_an_earlier_invisible_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.OwnershipFollowsTheImportClosure.test_the_decoy_sorts_first",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.OwnershipFollowsTheImportClosure.test_the_naive_rule_really_would_get_this_wrong",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.OwnershipFollowsTheImportClosure.test_the_owning_theorys_import_depth_is_reported",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TerseModes.test_a_theory_that_references_nothing_says_so",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TerseModes.test_an_unknown_theory_is_reported",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TerseModes.test_count_is_the_distinct_name_total",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TerseModes.test_external_drops_the_theorys_own_declarations",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TerseModes.test_names_prints_bare_names_one_per_line",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheDeclaredVersusCitedComparison.test_a_cited_theory_that_is_not_a_direct_import_is_named",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheDeclaredVersusCitedComparison.test_a_theory_citing_only_direct_imports_reports_neither",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheDeclaredVersusCitedComparison.test_an_import_no_citation_reaches_is_named",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_a_repeat_does_not_duplicate_a_section",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_a_thy_suffix_resolves",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_an_unknown_theory_is_reported_not_silently_empty",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_no_flag_leaves_the_index_alone",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_one_theory_narrows_to_it",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_several_theories_union",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_the_dest_does_not_collide_with_the_theory_positional",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_refs.TheoryScopeOnFind.test_the_flag_parses_and_is_repeatable",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphTheoryRefs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_unused_cascade_depth.CascadeDepth.test_a_chain_gets_one_level_per_link",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphUnusedCascadeDepth.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_unused_cascade_depth.CascadeDepth.test_a_fork_levels_both_arms_together",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphUnusedCascadeDepth.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_unused_cascade_depth.CascadeDepth.test_depth_is_one_more_than_the_deepest_caller",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphUnusedCascadeDepth.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_unused_cascade_depth.CascadeDepth.test_the_unused_set_is_unchanged_by_levelling",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphUnusedCascadeDepth.scala",
+      "reason": ""
+    }
+  ]
+}

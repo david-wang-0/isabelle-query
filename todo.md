@@ -5,7 +5,7 @@ handles for cross-referencing in commits/PRs — and, once an item ships, for
 finding it again with `git log --grep`.
 
 Conventions for changing the tool (the CLI contract, verification habits) live
-in `CONTRIBUTING.md`.
+in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
 
 - [ ] `[markup-step-model]` Resolve ONE discrepancy, then stop.  On
       `DitherTM`, `PIDE/markup` decodes to 87 `command_span`s each carrying
@@ -87,37 +87,6 @@ in `CONTRIBUTING.md`.
       `tests/test_decl_body_comment.py::TheBlankLineVariantIsStillOpen`, so a
       real fix reports an unexpected success rather than going unnoticed.
       Low priority at 5 records: filed so the rejection is not re-litigated.
-
-- [ ] `[pide-mcp-tools]` Offer the engine to coding agents through Kevin
-      Kappelmann's PIDE MCP server (`isabelle pide_mcp`, the
-      `isabelle-pide-mcp` component).  Its README documents the hook: any
-      registered Scala component that requires `env:ISABELLE_PIDE_MCP_JAR`
-      and registers a `PIDE_MCP_Tools` service has its tools offered by the
-      server -- the same chaining `jedit_query` uses, so nothing on the MCP
-      side changes and no fork is needed.  The server's own `find_entities`
-      reads PIDE markup and needs loaded theories; this engine answers the
-      corpus-wide structural questions (callers, definition, instances,
-      code equations, outline, grep) cold, before anything is loaded --
-      complementary, not overlapping.  (I/Q, the other Isabelle MCP server,
-      has no cross-theory, usage or grep affordance at all.)
-      Design, decided 2026-09-02, to follow `[p10-namespace-value]`:
-      - An OPT-IN `pide_mcp_query/` component in this repo, registered
-        explicitly (`isabelle components -u <repo>/pide_mcp_query`), NOT
-        chained from the root `etc/components`: an unset `env:` requirement
-        compiles against nothing rather than failing (`Setup/src/Build.java`
-        `requirement_paths`), so an unconditional chain would break
-        `scala_build` for every user without the MCP component.
-      - ONE generic `query` tool taking the CLI argument list, returning
-        stdout/stderr text and the exit status, through `CLI.run_result` --
-        the single dispatch path the server uses; the CLI help is the
-        schema.  Default root from the MCP session's directories, overridable
-        per call.  Typed tools (usages, definition, sites) only once usage
-        shows which are worth a schema.
-      - A warm index in-process, the `Query_Server` cache pattern without the
-        socket; a per-request namespace VALUE is what makes that a resident
-        host without a rebinding dance, hence the ordering.
-      - Verified without a heap: the tools need a project root, not a PIDE
-        session, so a probe calls `handle` on a fixture directly.
 
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
@@ -301,36 +270,6 @@ on the containment measurement) and `[axiom-untyped]` (the port took
       declaration's, so a naive check would prune real citations.  Entry
       condition is a fixture per case, and the whole-corpus delta measured
       before and after — the same shape of evidence D13 itself carries.
-
-- [ ] `[index-footprint]` **Two of the three targets shipped and the third was
-      measured and rejected**, so what is left under this tag is the server's
-      admission rule, not the index's layout. The resident index is now **~110
-      bytes per source line**, about twice the source it indexes (`src/HOL`:
-      34 MB of `.thy` → 84 MB of heap; the AFP: 281 MB → 664 MB), down from
-      ~190 B/line. Recover the histogram, the three candidates and the
-      before/after with `git log --grep='\[index-footprint\]'`; in short, flat
-      CSR spans instead of `Array[List[(Int,Int)]]` took 36 MB off `src/HOL`
-      and one `String` per theory instead of one per line took another 32,
-      while rebuilding `Entry.text` from the section was worth 2 MB (2.3%)
-      against a permanent `Entry → Theory_Section` back-reference and an
-      invariant that broke parity on its first outing — reverted, with the
-      number kept in the reverted commit's message so the question is not
-      re-opened without it.
-
-      **RSS barely moved: 4,532 → 4,441 MB.** The process footprint is set by
-      the transient peak DURING the parse, not by what survives it, and ZGC
-      does not uncommit. So halving the retained index buys headroom — more
-      indexes resident per server, room to raise the 4,000-theory cap — and
-      not a smaller process. Any further work here has to say which of the two
-      it is claiming.
-
-      What is still open: the server **refuses** over
-      `$ISABELLE_QUERY_SERVER_LIMIT` (4000 theories) rather than bounding
-      itself. An LRU over sections with reparse-on-miss would turn that into a
-      memory budget; `shape census` already holds one session live at a time
-      for exactly this reason, so the pattern exists in-tree. The cost is
-      thrashing on whole-corpus queries, which wants measuring before it is
-      built.
 
 - [ ] `[settings-shell]` The `bin/isabelle` settings shell is ~180 ms and, since
       `[p8-coldpath]` cached the other two, it is now the largest single item

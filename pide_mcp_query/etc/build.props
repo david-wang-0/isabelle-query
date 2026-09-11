@@ -1,0 +1,11 @@
+title = Isabelle Query tools for PIDE MCP
+module = $ISABELLE_PIDE_MCP_QUERY_JAR
+requirements = \
+  env:ISABELLE_SCALA_JAR \
+  env:ISABELLE_QUERY_JAR \
+  env:ISABELLE_PIDE_MCP_JAR
+sources = \
+  src/query_mcp_tool.scala \
+  src/query_pide_main.scala
+services = \
+  isabelle.query.pide_mcp.Query_MCP_Tools

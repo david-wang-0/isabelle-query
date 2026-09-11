@@ -573,7 +573,7 @@ the gate compare one table against itself.
 
 ## D12 — `\w` is not the same character class in Python and Java
 
-**Cost: 1 record in 306,525 over the whole AFP, in two derived count fields; 0
+**Cost: 1 record in 306,525 over the whole AFP, in `proof_tokens`; 0
 on all seven gate corpora.**
 
 ```isabelle
@@ -994,6 +994,5 @@ and `grep-count` does not, since only the first prints a locus.
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (25):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps`, `shape-steps-all`, `shape-steps-all-long`, `shape-steps-config-plain`, `shape-steps-locus`, `shape-steps-open-hi`, `shape-widest`, `shape-widest-fanin`, `shape-widest-huge`, `shape-widest-live`, `shape-widest-metric-equals`, `shape-widest-n-glued`, `shape-widest-n3`, `shape-widest-top-long`, `shape-widest-w1`, `shape-widest-w2`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
 
-- **an oracle-written resume prefix** — `shape census --resume` skips records keyed by (session, theory), and `dev/difftest.sh` derives the prefix from the ORACLE, so this engine re-emits the eleven CTT records its keys name.  A prefix this engine wrote resumes to nothing (1):
+- **an oracle-written resume prefix** — `shape census --resume` skips records keyed by (theory, lemma), and `dev/difftest.sh` derives the prefix from the ORACLE, so this engine re-emits the eleven CTT records its keys name.  A prefix this engine wrote resumes to nothing (1):
   `shape-census-resume`
-

@@ -53,6 +53,7 @@ Client options are recognised only BEFORE the first tool argument, and all
 carry the `--client-` prefix so they cannot collide with the tool's own:
 
     --client-cold          skip the server entirely (the cold path)
+    --client-cache MODE    set retention on/off, or clear the selected host
     --client-status        report on the server and its open indexes, then exit
     --client-stop          shut the server down, then exit
     --client-restart       restart the server before running
@@ -108,6 +109,10 @@ PROTOCOL = 1
 # would mean two resident JVMs holding two copies of the same index.
 DEFAULT_SERVER = "isabelle_query"
 DEFAULT_TIMEOUT = 600.0
+HOST_PREFIX = "isabelle_query_host_"
+FALLBACK_PREFIX = "isabelle_query_fallback_"
+DISCOVERY_TIMEOUT = 2.0
+PROBE_TIMEOUT = 0.25
 
 # A connect that does not answer at once is a dead registry row, not a busy
 # server: the accept loop is one thread doing nothing else.
@@ -277,92 +282,219 @@ def home_user(isabelle, cached):
 # --------------------------------------------------------------------------
 
 
-def registry_lookup(isabelle, cached, name):
+def registry_entries(isabelle, cached, name=None):
     """`$ISABELLE_HOME_USER/servers.db`, read-only.  The schema is
     `isabelle_servers(name, port, password)` — see `Server.private_data`.
 
     Opened in read-only URI mode so a client can never take the write lock the
     server's own `init()` needs."""
     db = os.path.join(home_user(isabelle, cached), "servers.db")
+    cached["_registry_db"] = db
     if not os.path.isfile(db):
-        return None
+        return []
     try:
-        con = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=2.0)
+        from urllib.parse import quote
+        con = sqlite3.connect("file:%s?mode=ro" % quote(db, safe="/"), uri=True, timeout=0.05)
     except sqlite3.Error:
-        return None
+        return []
     try:
-        row = con.execute(
-            "SELECT port, password FROM isabelle_servers WHERE name = ?", (name,)
-        ).fetchone()
+        sql = "SELECT name, port, password FROM isabelle_servers"
+        rows = con.execute(sql if name is None else sql + " WHERE name = ?",
+                           () if name is None else (name,)).fetchall()
+        return [(n, p, secret) for n, p, secret in rows
+                if isinstance(n, str) and isinstance(p, int) and 0 < p < 65536
+                and isinstance(secret, str) and secret and "\n" not in secret]
     except sqlite3.Error:
-        return None
+        return []
     finally:
         con.close()
-    if not row:
-        return None
-    return int(row[0]), str(row[1])
+
+
+def registry_lookup(isabelle, cached, name):
+    rows = registry_entries(isabelle, cached, name)
+    return rows[0][1:] if rows else None
+
+
+def prune_refused_server(cached, name, port, password, selected_name=None):
+    """Called only after connection refusal; never wait for a registry writer."""
+    db = cached.get("_registry_db")
+    if (name.startswith(HOST_PREFIX) or not db or
+            not (name.startswith(FALLBACK_PREFIX) or name == selected_name)):
+        return
+    from urllib.parse import quote
+
+    try:
+        con = sqlite3.connect("file:%s?mode=rw" % quote(db, safe="/"), uri=True, timeout=0)
+    except sqlite3.Error:
+        return
+    try:
+        with con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("DELETE FROM isabelle_servers WHERE name=? AND port=? AND password=?",
+                        (name, port, password))
+    except sqlite3.Error:
+        pass
+    finally:
+        con.close()
+
+
+_owned_launches = []
+SHUTDOWN_TIMEOUT = 4.0  # Allow the launcher's 3-second watchdog to finish first.
+
+
+def close_owned_since(mark):
+    import signal
+    import subprocess
+
+    owned = _owned_launches[mark:]
+    del _owned_launches[mark:]
+    for proc in reversed(owned):
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=SHUTDOWN_TIMEOUT)
+            continue
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        # Kill the whole group before reaping its leader; TERM can lose the
+        # wrapper first and leave a resistant JVM orphaned.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=1)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def start_server(isabelle, name):
-    """`isabelle server` prints `server "NAME" = HOST:PORT (password "...")`
-    and then blocks in the foreground, so the port and password arrive on its
-    stdout — no need to race the registry for the row it just wrote.
-
-    `start_new_session` detaches it: the client exits in milliseconds and the
-    server must outlive it.  Its environment is inherited, `USER_HOME`
-    included, which is what keeps a development client talking to a
-    development server."""
+    """Keep the owned launcher alive through a private stdin pipe."""
+    import selectors
     import subprocess
 
     try:
         proc = subprocess.Popen(
-            [isabelle, "server", "-n", name],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-            cwd="/",  # a shared server must not inherit one client's cwd
-            text=True,
+            [isabelle, "query_server", "-n", name],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE, start_new_session=True, cwd="/",
         )
     except OSError as exn:
         raise Fallback("cannot start the server: %s" % exn)
 
-    deadline = time.monotonic() + START_TIMEOUT
-    line = ""
-    while time.monotonic() < deadline:
-        line = proc.stdout.readline()
-        if line:
+    try:
+        deadline = time.monotonic() + START_TIMEOUT
+        data = b""
+        with selectors.DefaultSelector() as selector:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            while b"\n" not in data:
+                left = deadline - time.monotonic()
+                if left <= 0 or not selector.select(left):
+                    raise Fallback("server startup timed out")
+                chunk = os.read(proc.stdout.fileno(), 4096)
+                if not chunk:
+                    raise Fallback("server exited during start-up")
+                data += chunk
+                if len(data) > 65536:
+                    raise Fallback("oversized server greeting")
+        line = data.split(b"\n", 1)[0].decode("utf-8")
+        try:
+            address = line.split("= ", 1)[1].split(" ", 1)[0]
+            port = int(address.rsplit(":", 1)[1])
+            password = line.split('(password "', 1)[1].split('"', 1)[0]
+            if not 0 < port < 65536 or not password:
+                raise ValueError()
+        except (IndexError, ValueError):
+            # A greeting contains credentials: never include it in diagnostics.
+            raise Fallback("unparsable server greeting")
+        _owned_launches.append(proc)
+        return port, password
+    except BaseException:
+        # The Java tool wrapper can retain a shell above the JVM. The new
+        # session's process group belongs entirely to this failed launch, so
+        # kill that group before reaping its leader (and allowing PID reuse).
+        # Killing only the shell can orphan a JVM holding our stdout pipe.
+        # No registry lookup or existing server is involved in this cleanup.
+        import signal
+
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=1)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Preserve the startup failure, with bounded cleanup.
+        raise
+    finally:
+        proc.stdout.close()
+
+
+def shutdown_connection(conn):
+    if shared(conn):
+        raise Fallback("refusing to stop/restart an embedded query host")
+    if type(conn.version.get("protocol")) is not int or conn.version["protocol"] != PROTOCOL:
+        raise Fallback("refusing to stop/restart an incompatible query protocol")
+    conn.deadline, conn.timeout = None, GREETING_TIMEOUT
+    head, body = conn.command("shutdown")
+    if head != "OK":
+        raise Fallback("cannot stop the selected server: %s" % body.get("message", body))
+
+
+def candidate_rows(isabelle, cached, name, dedicated_only=False):
+    explicit = "ISABELLE_QUERY_CLIENT_SERVER" in os.environ
+    rows = registry_entries(isabelle, cached, name if explicit else None)
+    if explicit:
+        return rows
+    return [r for r in rows if r[0] == name or
+            (not dedicated_only and r[0].startswith((FALLBACK_PREFIX, HOST_PREFIX)))]
+
+
+def candidate_rank(name, candidate):
+    return (0 if candidate.startswith(HOST_PREFIX + "jedit_") else
+            1 if candidate.startswith(HOST_PREFIX + "pide_") else
+            2 if candidate == name else 3, candidate)
+
+
+def stop_server(isabelle, name, cached=None, quiet=False):
+    if name.startswith(HOST_PREFIX):
+        raise Fallback("refusing to stop/restart an embedded query host")
+    cached = cached if cached is not None else {}
+    rows = candidate_rows(isabelle, cached, name, dedicated_only=True)
+    deadline = time.monotonic() + DISCOVERY_TIMEOUT
+    failure = None
+    for candidate, port, password in sorted(rows, key=lambda r: candidate_rank(name, r[0])):
+        if time.monotonic() >= deadline:
             break
-        if proc.poll() is not None:
-            raise Fallback("server exited during start-up")
-    proc.stdout.close()
-    if "= " not in line or "(password " not in line:
-        raise Fallback("unreadable server greeting: %r" % line.strip())
-    try:
-        address = line.split("= ", 1)[1].split(" ", 1)[0]
-        port = int(address.rsplit(":", 1)[1])
-        password = line.split('(password "', 1)[1].split('"', 1)[0]
-    except (IndexError, ValueError):
-        raise Fallback("unparsable server greeting: %r" % line.strip())
-    return port, password
-
-
-def stop_server(isabelle, name):
-    import subprocess
-
-    try:
-        proc = subprocess.run(
-            [isabelle, "server", "-x", "-n", name],
-            capture_output=True,
-            text=True,
-            timeout=START_TIMEOUT,
-        )
-    except (OSError, subprocess.SubprocessError) as exn:
-        sys.stderr.write("query: cannot stop the server: %s\n" % exn)
-        return 2
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
-    return proc.returncode
+        conn = None
+        try:
+            conn = probe(candidate, (port, password), min(deadline, time.monotonic() + PROBE_TIMEOUT))
+            if shared(conn):
+                raise Fallback("refusing to stop/restart an embedded query host")
+        except ConnectionRefusedError:
+            prune_refused_server(cached, candidate, port, password,
+                                 selected_name=os.environ.get("ISABELLE_QUERY_CLIENT_SERVER",
+                                     DEFAULT_SERVER if name == DEFAULT_SERVER else None))
+            continue  # A dead listener has nothing left to stop.
+        except (Fallback, OSError, ValueError, TypeError) as exn:
+            failure = exn
+            if conn is not None:
+                conn.close()
+            continue
+        try:
+            shutdown_connection(conn)
+            return 0
+        finally:
+            conn.close()
+    if failure is not None:
+        raise Fallback("cannot verify a dedicated server to stop: %s" % failure)
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -376,24 +508,41 @@ class Connection:
     long one is a line of decimal digits (the byte length, newline included)
     followed by exactly that many bytes."""
 
-    def __init__(self, port, password, timeout):
-        self.sock = socket.create_connection(
-            ("127.0.0.1", port), timeout=CONNECT_TIMEOUT
-        )
-        # Without this a long message costs a delayed ACK: the framing writes
-        # a length header and then a payload, Nagle holds the second segment
-        # until the first is acknowledged, and the round trip jumps from about
-        # 1 ms to about 41 ms — measured, and the single biggest thing between
-        # this client and the floor.  A request/response protocol has nothing
-        # to coalesce, so the algorithm only ever costs here.
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        self.sock.settimeout(GREETING_TIMEOUT)
-        self.buf = b""
-        self.sock.sendall(password.encode("utf-8") + b"\n")
-        greeting = self.read_message()
-        if greeting is None or not greeting.startswith("OK"):
-            raise Fallback("server did not greet (bad password or dead socket)")
+    def __init__(self, port, password, timeout, deadline=None):
+        self.deadline = deadline
         self.timeout = timeout
+        self.sock = socket.create_connection(
+            ("127.0.0.1", port), timeout=self.remaining(CONNECT_TIMEOUT))
+        try:
+            # Without this a long message costs a delayed ACK: the framing writes
+            # a length header and then a payload, Nagle holds the second segment
+            # until the first is acknowledged, and the round trip jumps from about
+            # 1 ms to about 41 ms — measured, and the single biggest thing between
+            # this client and the floor.  A request/response protocol has nothing
+            # to coalesce, so the algorithm only ever costs here.
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.sock.settimeout(self.remaining(GREETING_TIMEOUT))
+            self.buf = b""
+            self.sock.sendall(password.encode("utf-8") + b"\n")
+            greeting = self.read_message()
+            if greeting is None or greeting.split(" ", 1)[0] != "OK":
+                raise Fallback("server did not greet (bad password or dead socket)")
+        except BaseException:
+            self.close()
+            raise
+
+    def remaining(self, default):
+        if self.deadline is None:
+            return default
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise socket.timeout("discovery deadline expired")
+        return min(default, left) if default is not None else left
+
+    def recv(self, n):
+        if self.deadline is not None:
+            self.sock.settimeout(self.remaining(PROBE_TIMEOUT))
+        return self.sock.recv(n)
 
     def close(self):
         try:
@@ -403,16 +552,18 @@ class Connection:
 
     def _read_line(self):
         while b"\n" not in self.buf:
-            chunk = self.sock.recv(65536)
+            chunk = self.recv(65536)
             if not chunk:
                 return None
             self.buf += chunk
+            if self.deadline is not None and len(self.buf) > 1048576:
+                raise Fallback("oversized discovery reply")
         line, self.buf = self.buf.split(b"\n", 1)
         return line[:-1] if line.endswith(b"\r") else line
 
     def _read_exactly(self, n):
         while len(self.buf) < n:
-            chunk = self.sock.recv(max(65536, n - len(self.buf)))
+            chunk = self.recv(max(65536, n - len(self.buf)))
             if not chunk:
                 return None
             self.buf += chunk
@@ -424,14 +575,17 @@ class Connection:
         if line is None:
             return None
         if line.isdigit():
+            if self.deadline is not None and int(line) > 1048576:
+                raise Fallback("oversized discovery reply")
             block = self._read_exactly(int(line))
             if block is None:
                 return None
             return block.rstrip(b"\n").decode("utf-8", "replace")
         return line.decode("utf-8", "replace")
 
-    def command(self, name, argument):
-        payload = ("%s %s" % (name, json.dumps(argument))).encode("utf-8")
+    def command(self, name, argument=None):
+        payload = (name if argument is None else
+                   "%s %s" % (name, json.dumps(argument))).encode("utf-8")
         # The server's own rule for when a header is needed, mirrored: over
         # 100 bytes, or containing a newline.  Header and payload go out in ONE
         # write, so the wire sees one segment even where Nagle is in force.
@@ -440,16 +594,18 @@ class Connection:
             if len(payload) > 100 or b"\n" in payload
             else b""
         )
+        self.sock.settimeout(self.remaining(self.timeout if self.timeout > 0 else None))
         self.sock.sendall(header + payload + b"\n")
-        self.sock.settimeout(self.timeout if self.timeout > 0 else None)
         reply = self.read_message()
         if reply is None:
-            raise Fallback("connection closed before an answer arrived")
+            raise ConnectionResetError("connection closed before an answer arrived")
         head, _, rest = reply.partition(" ")
         try:
             body = json.loads(rest) if rest.strip() else {}
         except ValueError:
             raise Fallback("unparsable reply: %r" % reply[:120])
+        if not isinstance(body, dict):
+            raise Fallback("reply is not an object")
         return head, body
 
 
@@ -478,29 +634,131 @@ def cold(verbose, why):
     return EXIT_RUN_COLD
 
 
-def connect(isabelle, cached, name, restart, timeout, verbose):
-    """A connection to the warm server, starting one if there is none."""
-    if restart:
-        stop_server(isabelle, name)
-        info = None
-    else:
-        info = registry_lookup(isabelle, cached, name)
-    if info is None:
-        note(verbose, "starting the server")
-        info = start_server(isabelle, name)
-    port, password = info
+def shared(conn):
+    return (conn.name.startswith(HOST_PREFIX) or
+            conn.version.get("host_kind", "server") != "server")
+
+
+def probe(name, info, deadline):
+    conn = Connection(*info, PROBE_TIMEOUT, deadline=deadline)
     try:
-        return Connection(port, password, timeout)
-    except (OSError, socket.timeout) as exn:
-        # A registry row outlives the process it names; the server prunes such
-        # rows on the NEXT init, so starting one is both the retry and the
-        # cleanup.
-        note(verbose, "stale registry row (%s), starting a server" % exn)
-        port, password = start_server(isabelle, name)
-        try:
-            return Connection(port, password, timeout)
-        except (OSError, socket.timeout) as exn2:
-            raise Fallback("cannot reach the server: %s" % exn2)
+        head, version = conn.command("query_version")
+        if head != "OK" or not isinstance(version, dict):
+            raise Fallback("host has no query_version")
+        kind = version.get("host_kind", "server")
+        if kind not in ("server", "jedit", "pide"):
+            raise Fallback("unknown query host kind")
+        if kind != "server" and version.get("host_name") != name:
+            raise Fallback("query host name mismatch")
+        if ("host_pid" in version and
+                (type(version["host_pid"]) is not int or version["host_pid"] <= 0)):
+            raise Fallback("invalid query host PID")
+        if "retain_indexes" in version and type(version["retain_indexes"]) is not bool:
+            raise Fallback("invalid query retention policy")
+        conn.name, conn.version = name, version
+        return conn
+    except BaseException:
+        conn.close()
+        raise
+
+
+def compatible(conn, stamp):
+    return (bool(stamp) and type(conn.version.get("protocol")) is int and
+            conn.version.get("protocol") == PROTOCOL and
+            conn.version.get("component_id") == stamp)
+
+
+def ready_connection(conn, timeout, restarted, verbose):
+    conn.deadline, conn.timeout = None, timeout
+    conn.restarted = restarted
+    note(verbose, "host %s (%s), retention %s" %
+         (conn.name, conn.version.get("host_kind", "server"),
+          conn.version.get("retain_indexes", "unknown")))
+    return conn
+
+
+def start_checked(isabelle, name, timeout, restarted, verbose):
+    note(verbose, "starting dedicated server %s" % name)
+    mark = len(_owned_launches)
+    conn = None
+    try:
+        conn = probe(name, start_server(isabelle, name), time.monotonic() + GREETING_TIMEOUT)
+        if shared(conn) or not compatible(conn, jar_stamp()):
+            raise Fallback("started server is incompatible")
+        return ready_connection(conn, timeout, restarted, verbose)
+    except BaseException:
+        if conn is not None:
+            conn.close()
+        close_owned_since(mark)
+        raise
+
+
+def connect(isabelle, cached, name, restart, timeout, verbose):
+    """Discover reserved hosts only; unverifiable defaults get a managed fallback."""
+    explicit = "ISABELLE_QUERY_CLIENT_SERVER" in os.environ
+    if restart and name.startswith(HOST_PREFIX):
+        raise Fallback("refusing to stop/restart an embedded query host")
+    stamp = jar_stamp()
+    if not stamp:
+        raise Fallback("local query component identity is unavailable")
+    rows = candidate_rows(isabelle, cached, name, dedicated_only=restart)
+    deadline = time.monotonic() + DISCOVERY_TIMEOUT
+    refused = set()
+    failure = "selected server is unavailable or incompatible"
+    stale = None
+    selected = None
+    try:
+        for candidate, port, password in sorted(rows, key=lambda r: candidate_rank(name, r[0])):
+            if time.monotonic() >= deadline:
+                break
+            if candidate != name and time.monotonic() >= deadline - PROBE_TIMEOUT:
+                continue
+            conn = None
+            try:
+                conn = probe(candidate, (port, password),
+                             min(deadline if candidate == name else deadline - PROBE_TIMEOUT,
+                                 time.monotonic() + PROBE_TIMEOUT))
+                if restart and shared(conn):
+                    raise Fallback("refusing to stop/restart an embedded query host")
+                if compatible(conn, stamp):
+                    selected, conn = conn, None
+                    break
+                # Retain a verified dedicated candidate for explicit restart only.
+                if (not shared(conn) and type(conn.version.get("protocol")) is int
+                        and conn.version["protocol"] == PROTOCOL and stale is None):
+                    stale, conn = conn, None
+            except ConnectionRefusedError:
+                refused.add(candidate)
+                prune_refused_server(cached, candidate, port, password,
+                                     selected_name=os.environ.get("ISABELLE_QUERY_CLIENT_SERVER",
+                                         DEFAULT_SERVER if restart and name == DEFAULT_SERVER else None))
+            except (Fallback, OSError, ValueError, TypeError) as exn:
+                failure = str(exn) or "selected listener did not answer"
+            if conn is not None:
+                conn.close()
+        if selected is not None:
+            if not restart:
+                return ready_connection(selected, timeout, False, verbose)
+            try:
+                shutdown_connection(selected)
+                return start_checked(isabelle, selected.name, timeout, True, verbose)
+            finally:
+                selected.close()
+        if stale is not None and restart:
+            shutdown_connection(stale)
+            return start_checked(isabelle, stale.name, timeout, True, verbose)
+        if name.startswith(HOST_PREFIX):
+            raise Fallback("selected embedded query host is unavailable or incompatible")
+        selected_exists = any(r[0] == name for r in rows)
+        if selected_exists and name not in refused and (explicit or restart):
+            raise Fallback(failure)
+        if not explicit and not restart:
+            import uuid
+            name = FALLBACK_PREFIX + uuid.uuid4().hex
+        return start_checked(isabelle, name, timeout, restart, verbose)
+    finally:
+        if stale is not None:
+            stale.close()
 
 
 def note(verbose, msg):
@@ -631,36 +889,47 @@ def request(args, limit, verbose):
 
 
 def warm(isabelle, args, opts):
-    """One warm invocation, with exactly one restart allowed: a stale server
-    is a fact about the component, so retrying against the same one would
-    fail the same way, and retrying forever would be a hang with extra steps."""
-    conn = connect(isabelle, opts["cached"], opts["name"], opts["restart"],
-                   opts["timeout"], opts["verbose"])
+    """Rediscover once after transport loss, before emitting any answer."""
+    conn = None
+    payload = request(args, opts["limit"], opts["verbose"])
     try:
-        head, body = conn.command("query_run", request(args, opts["limit"],
-                                                       opts["verbose"]))
-        if head == "ERROR" and "stale query server" in str(body.get("message", "")):
-            note(opts["verbose"], "component rebuilt under the server; restarting")
-            conn.close()
-            conn = connect(isabelle, opts["cached"], opts["name"], True,
-                           opts["timeout"], opts["verbose"])
-            head, body = conn.command("query_run", request(args, opts["limit"],
-                                                           opts["verbose"]))
+        for attempt in range(2):
+            try:
+                conn = connect(isabelle, opts["cached"], opts["name"],
+                               opts["restart"] if attempt == 0 else False,
+                               opts["timeout"], opts["verbose"])
+                head, body = conn.command("query_run", payload)
+                break
+            except ConnectionError:
+                if attempt:
+                    raise
+                if conn is not None:
+                    conn.close()
+                    conn = None
         if head != "OK":
-            message = str(body.get("message", body))
-            # A REFUSAL is the server's considered answer and must not be
-            # silently replaced by a cold run that would happily do the work
-            # the refusal exists to prevent.
-            if "too large for a resident index" in message:
-                sys.stderr.write("isabelle query: %s\n" % message)
+            try:
+                sys.stderr.write("isabelle query: %s\n" % body.get("message", body))
+            except BrokenPipeError:
+                return 141
+            except (OSError, UnicodeError):
                 return 2
-            raise Fallback("server error: %s" % message)
-        sys.stdout.write(body.get("output", ""))
-        sys.stderr.write(body.get("error", ""))
-        sys.stdout.flush()
-        return int(body.get("exit", 0))
+            return 2
+        output, error, rc = body.get("output", ""), body.get("error", ""), int(body.get("exit", 0))
+        if not isinstance(output, str) or not isinstance(error, str) or rc == EXIT_RUN_COLD:
+            raise Fallback("malformed query result")
+        try:
+            sys.stdout.write(output)
+            sys.stderr.write(error)
+            sys.stdout.flush()
+        except BrokenPipeError:
+            return 141
+        except (OSError, UnicodeError):
+            # Bytes may already have escaped. Never signal cold replay here.
+            return 2
+        return rc
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def status(isabelle, opts):
@@ -673,7 +942,10 @@ def status(isabelle, opts):
     if head != "OK":
         sys.stderr.write("query: %s\n" % body.get("message", body))
         return 2
-    print("server        %s" % opts["name"])
+    print("server        %s" % conn.name)
+    print("host_kind     %s" % body.get("host_kind", "server"))
+    print("host_pid      %s" % body.get("host_pid", "unknown"))
+    print("retain_indexes %s" % body.get("retain_indexes", "unknown"))
     print("protocol      %s (client %d)" % (body.get("protocol"), PROTOCOL))
     print("version       %s" % body.get("version"))
     print("component_id  %s%s" % (body.get("component_id"),
@@ -689,7 +961,31 @@ def status(isabelle, opts):
     return 0
 
 
+def cache_control(isabelle, opts):
+    conn = connect(isabelle, opts["cached"], opts["name"], opts["restart"],
+                   opts["timeout"], opts["verbose"])
+    try:
+        head, body = conn.command("query_cache", {"mode": opts["cache"],
+                                                  "client_id": jar_stamp()})
+        if head != "OK":
+            raise Fallback(str(body.get("message", body)))
+        print("server        %s" % conn.name)
+        print("host_kind     %s" % conn.version.get("host_kind", "server"))
+        print("retain_indexes %s" % body.get("retain_indexes", "unknown"))
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv):
+    mark = len(_owned_launches)
+    try:
+        return _main(argv)
+    finally:
+        close_owned_since(mark)
+
+
+def _main(argv):
     cached = read_cache()
     opts = {
         "cached": cached,
@@ -701,7 +997,8 @@ def main(argv):
         "restart": False,
         "verbose": False,
     }
-    force_cold = os.environ.get("ISABELLE_QUERY_CLIENT_COLD") == "1"
+    force_cold = (os.environ.get("ISABELLE_QUERY_CLIENT_COLD") == "1" or
+                  os.environ.get("ISABELLE_QUERY_NO_SERVER") == "1")
     action = "run"
 
     while argv and argv[0].startswith("--client-"):
@@ -710,6 +1007,12 @@ def main(argv):
             force_cold = True
         elif opt == "--client-status":
             action = "status"
+        elif opt == "--client-cache":
+            if not argv or argv[0] not in ("on", "off", "clear"):
+                sys.stderr.write("query: --client-cache: expected on, off, or clear\n")
+                return 2
+            opts["cache"] = argv.pop(0)
+            action = "cache"
         elif opt == "--client-stop":
             action = "stop"
         elif opt == "--client-restart":
@@ -732,6 +1035,10 @@ def main(argv):
             sys.stderr.write("query: unknown client option: %s\n" % opt)
             return 2
 
+    if force_cold and (action != "run" or opts["restart"]):
+        sys.stderr.write("query: client action requires the warm path\n")
+        return 2
+
     # Resolved AFTER the options, so a decline can be reported at the verbosity
     # the caller asked for.  No `isabelle` means no registry and no way to
     # start a server: decline, and let the shim -- which reached this script
@@ -740,17 +1047,17 @@ def main(argv):
     # those say what is wrong instead.
     isabelle = find_isabelle(cached)
     if isabelle is None:
-        if action == "run":
+        if action == "run" and not opts["restart"]:
             return cold(opts["verbose"], "no `isabelle` on PATH, and no $ISABELLE_TOOL")
         sys.stderr.write("query: no `isabelle` on PATH, and no $ISABELLE_TOOL\n")
         return 2
 
-    if action == "stop":
-        return stop_server(isabelle, opts["name"])
-    if action == "status":
+    if action != "run":
         try:
-            return status(isabelle, opts)
-        except Fallback as exn:
+            if action == "stop":
+                return stop_server(isabelle, opts["name"], cached)
+            return status(isabelle, opts) if action == "status" else cache_control(isabelle, opts)
+        except (Fallback, OSError, ValueError, TypeError) as exn:
             sys.stderr.write("query: %s\n" % exn)
             return 2
 
@@ -763,6 +1070,9 @@ def main(argv):
     census = pos[:2] == ["shape", "census"]
     live = ambiguous(argv)
     if force_cold or first in COLD_ONLY_COMMANDS or census or "-" in argv or live:
+        if opts["restart"]:
+            sys.stderr.write("query: --client-restart requires a warm-compatible invocation\n")
+            return 2
         return cold(opts["verbose"],
                     "cold path" if not live
                     else "cold path: relative to this directory: %r" % live)
@@ -770,9 +1080,15 @@ def main(argv):
     start = time.monotonic()
     try:
         rc = warm(isabelle, argv, opts)
-        note(opts["verbose"], "warm, %.1f ms" % ((time.monotonic() - start) * 1000))
+        try:
+            note(opts["verbose"], "warm, %.1f ms" % ((time.monotonic() - start) * 1000))
+        except OSError:
+            pass  # The answer has been emitted; never replay for a timing log.
         return rc
     except Fallback as exn:
+        if opts["restart"]:
+            sys.stderr.write("query: %s\n" % exn)
+            return 2
         return cold(opts["verbose"], "falling back: %s" % exn)
     except socket.timeout:
         # Falling back would repeat work that has already run longer than the
@@ -784,12 +1100,18 @@ def main(argv):
         )
         return 2
     except OSError as exn:
+        if opts["restart"]:
+            sys.stderr.write("query: %s\n" % exn)
+            return 2
         # A socket that dies mid-request -- the server killed, the connection
         # reset.  Nothing has been written to stdout yet (that happens only
         # after a complete OK reply), so running cold cannot duplicate output,
         # and a traceback here would be a worse answer than a slow one.
         return cold(opts["verbose"], "falling back: %s" % exn)
     except (ValueError, KeyError, TypeError) as exn:
+        if opts["restart"]:
+            sys.stderr.write("query: malformed reply: %s\n" % exn)
+            return 2
         # A reply this client cannot make sense of is a protocol mismatch, and
         # a protocol mismatch is exactly what the cold path is for.
         return cold(opts["verbose"], "falling back: malformed reply: %s" % exn)
@@ -798,6 +1120,13 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    import signal
+
+    def interrupted(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
     try:
         sys.exit(main(sys.argv[1:]))
     except BrokenPipeError:

@@ -210,6 +210,83 @@ object Query_Dockable {
   }
 
 
+  /* EDT-owned request arbitration and tree publication, shared with the
+     headless Swing probe. No engine calls or editor state are needed here. */
+  final case class Ticket(scope: Query_Search.Scope, serial: Long, stack: Boolean)
+
+  final class Result_Node(val scope: Query_Search.Scope, result: Query_Search.Result)
+    extends DefaultMutableTreeNode(result)
+
+  final class Result_Tree(val model: DefaultTreeModel) {
+    private val root = model.getRoot.asInstanceOf[DefaultMutableTreeNode]
+    private var serial = 0L
+    private val pending = mutable.Map.empty[Query_Search.Scope, Long]
+
+    def begin(scope: Query_Search.Scope, stack: Boolean): Ticket = {
+      GUI_Thread.require {}
+      serial += 1
+      if (!stack) pending.clear()
+      pending(scope) = serial
+      Ticket(scope, serial, stack)
+    }
+
+    def current(ticket: Ticket): Boolean =
+      pending.get(ticket.scope).contains(ticket.serial)
+
+    def foreground(ticket: Ticket): Boolean = current(ticket) && ticket.serial == serial
+
+    def clear(): Unit = {
+      GUI_Thread.require {}
+      pending.clear()
+      root.removeAllChildren()
+      model.reload(root)
+    }
+
+    def remove(node: DefaultMutableTreeNode): Unit = {
+      GUI_Thread.require {}
+      node match {
+        case result: Result_Node => pending.remove(result.scope)
+        case _ =>
+      }
+      if (node.getParent != null) model.removeNodeFromParent(node)
+    }
+
+    /* Replace only the matching usages subtree. A root reload would silently
+       collapse unrelated results. Empty and failed usages are also answers:
+       keep a zero/failure heading, never the stale hits from a previous run. */
+    def publish(ticket: Ticket, result: Query_Search.Result)
+      (populate: DefaultMutableTreeNode => Unit): Option[DefaultMutableTreeNode] = {
+      GUI_Thread.require {}
+      if (!current(ticket)) None
+      else {
+        pending.remove(ticket.scope)
+        val callers = ticket.scope.kind == Query_Search.Result_Kind.Usages
+        if (!callers && (result.is_empty || result.refused.nonEmpty)) None
+        else {
+          val existing = (0 until root.getChildCount).iterator
+            .map(root.getChildAt(_)).collectFirst {
+              case n: Result_Node if callers && n.scope == ticket.scope => n
+            }
+          val node = existing.getOrElse(new Result_Node(ticket.scope, result))
+          node.setUserObject(result)
+          node.removeAllChildren()
+          populate(node)
+          existing match {
+            case Some(_) => model.nodeStructureChanged(node)
+            case None =>
+              if (!ticket.stack) {
+                root.removeAllChildren()
+                root.add(node)
+                model.reload(root)
+              }
+              else model.insertNodeInto(node, root, root.getChildCount)
+          }
+          Some(node)
+        }
+      }
+    }
+  }
+
   /* --- captions --- */
 
   private def plural(n: Int, one: String, many: String): String =
@@ -367,6 +444,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
 
   private val tree_root = new DefaultMutableTreeNode
   private val tree_model = new DefaultTreeModel(tree_root)
+  private val results = new Query_Dockable.Result_Tree(tree_model)
 
   private val tree: JTree = new JTree(tree_model) {
     /* The renderer already produces the caption; converting here as well
@@ -414,7 +492,8 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
             case result: Query_Search.Result =>
               setFont(bold_font)
               setText(result.label + " -- " +
-                Query_Dockable.count_caption(result.kind, Query_Dockable.count(node)))
+                (if (result.refused.nonEmpty) result.refused
+                 else Query_Dockable.count_caption(result.kind, Query_Dockable.count(node))))
             case folder: Query_Search.Folder =>
               setFont(bold_font)
               val c = Query_Dockable.count(node)
@@ -531,7 +610,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     if (paths != null) {
       for (path <- paths if path.getPathCount > 1) {
         node_of(path).foreach { node =>
-          if (node.getParent != null) tree_model.removeNodeFromParent(node)
+          results.remove(node)
         }
       }
       tree.clearSelection()
@@ -702,6 +781,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
   buttons.add(button("Refresh", "re-read the project and re-run the last query")(refresh()))
   buttons.add(button("Expand", "expand every result set")(expand_all()))
   buttons.add(button("Collapse", "collapse every result set")(collapse_all()))
+  buttons.add(button("Delete", "remove selected results (Delete key)")(remove_selected()))
   buttons.add(button("Clear", "remove every result set")(clear()))
   buttons.add(stack_button)
   buttons.add(sorts_button)
@@ -935,8 +1015,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
 
   def clear(): Unit = {
     GUI_Thread.require {}
-    tree_root.removeAllChildren()
-    tree_model.reload(tree_root)
+    results.clear()
     set_caption("")
   }
 
@@ -978,13 +1057,18 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         set_caption("no ROOT above " + req.file.getFileName.toString +
           " -- not an Isabelle project")
       case Some(index) =>
+        val ticket = results.begin(
+          Query_Search.scope(index.root, req.name, req.external, req.kind),
+          stack_button.isSelected)
         val overlay = Query_Dockable.overlay(index.root)
         set_caption(status(index, "searching " + req.name))
         Query_Index.background {
           try {
             val snapshot =
               index.refreshed(overlay,
-                st => GUI_Thread.later { set_caption(index.name + ": " + st.message) })
+                st => GUI_Thread.later {
+                  if (results.foreground(ticket)) set_caption(index.name + ": " + st.message)
+                })
             val result =
               index.with_table { table =>
                 req.kind match {
@@ -998,12 +1082,16 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
                     Query_Search.usages(snapshot, req.name, req.external, index.note, table)
                 }
               }
-            GUI_Thread.later { handle(index, result) }
+            GUI_Thread.later { handle(index, ticket, result) }
           }
           catch {
             case exn: Throwable =>
               val msg = Exn.message(exn)
-              GUI_Thread.later { set_caption("query failed: " + msg) }
+              GUI_Thread.later {
+                handle(index, ticket, Query_Search.Result(req.kind,
+                  "usages of " + req.name, req.name, Nil, None, index.note,
+                  refused = "query failed: " + msg))
+              }
           }
         }
     }
@@ -1051,42 +1139,31 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
     for (group <- folder.groups) parent.add(group_node(group))
   }
 
-  private def handle(index: Query_Index, result: Query_Search.Result): Unit = {
+  private def handle(index: Query_Index, ticket: Query_Dockable.Ticket,
+    result: Query_Search.Result
+  ): Unit = {
     GUI_Thread.require {}
-
-    /* A question that could not be asked is not an empty answer: say which,
-       in the words the CLI would have exited 1 with. */
-    if (result.refused.nonEmpty) set_caption(result.refused + " -- " + status(index))
-    else if (result.is_empty)
-      set_caption("no " + Query_Dockable.empty_noun(result.kind) + " of " + result.name +
-        " -- " + status(index))
-    else {
-      val set_node = new DefaultMutableTreeNode(result)
-      /* Building the tree is pure arithmetic over a result set the worker has
-         already computed — no engine call, no file read — which is what makes
-         it EDT work rather than another background hop. */
+    if (!results.current(ticket)) return
+    val foreground = results.foreground(ticket)
+    val node = results.publish(ticket, result) { set_node =>
+      /* Pure tree construction over the completed worker result. */
       if (result.kind.folders) add_folder(set_node, Query_Search.tree(index.root, result.groups))
       else for (group <- result.groups) set_node.add(group_node(group))
-
-      /* Inserting rather than reloading keeps the expansion state of the
-         result sets already on the tree; a reload would collapse all of them
-         every time a new query lands. */
-      if (stack_button.isSelected) {
-        tree_root.add(set_node)
-        tree_model.nodesWereInserted(tree_root, Array(tree_root.getChildCount - 1))
-      }
-      else {
-        tree_root.removeAllChildren()
-        tree_root.add(set_node)
-        tree_model.reload(tree_root)
-      }
-
-      val path = Query_Dockable.tree_path(set_node)
+    }
+    node.foreach { set_node =>
       open_result(set_node, result.kind)
-      tree.setSelectionPath(path)
-      tree.scrollPathToVisible(path)
-
-      set_caption(status(index))
+      if (foreground) {
+        val path = Query_Dockable.tree_path(set_node)
+        tree.setSelectionPath(path)
+        tree.scrollPathToVisible(path)
+      }
+    }
+    if (foreground) {
+      if (result.refused.nonEmpty) set_caption(result.refused + " -- " + status(index))
+      else if (result.is_empty)
+        set_caption("no " + Query_Dockable.empty_noun(result.kind) + " of " + result.name +
+          " -- " + status(index))
+      else set_caption(status(index))
     }
   }
 
@@ -1106,5 +1183,8 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
         })
   }
 
-  override def exit(): Unit = Query_Dockable.unregister(view)
+  override def exit(): Unit = {
+    results.clear()
+    Query_Dockable.unregister(view)
+  }
 }

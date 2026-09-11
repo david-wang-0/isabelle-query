@@ -321,24 +321,61 @@ object Reach {
   /* Cached per corpus, keyed by the IDENTITY of the section list: one load of a
      project produces one list, and the warm server and the plugin both hold
      theirs for the life of the index, so every verb of a session shares one
-     closure.  The key is WEAK — a stale entry must not pin a re-indexed
-     corpus's sources in memory, which for the plugin is the whole difference
-     between a cache and a leak. */
-  private var cache_key: java.lang.ref.WeakReference[AnyRef] = null
-  private var cache_value: Closure = null
+     closure.  Four slots let several resident projects alternate without
+     rebuilding their closures; least-recently used is evicted first.
+
+     The keys are WEAK — a stale entry must not pin a re-indexed corpus's
+     sources in memory, which for the plugin is the whole difference between a
+     cache and a leak.  The values contain only the derived graph, never the
+     section list.  Dead keys are removed on the next access; until then their
+     values may remain retained, but there are never more than four of them. */
+  private val CACHE_CAPACITY = 4
+
+  private final case class Cache_Entry(
+    key: java.lang.ref.WeakReference[AnyRef],
+    value: Closure
+  )
+
+  /* Oldest first, most recently used last.  A four-element linear walk keeps
+     the identity comparison explicit and avoids teaching a structural map
+     about weak identity keys.  Every mutation is under `Reach`'s monitor. */
+  private val cache = new mutable.ArrayBuffer[Cache_Entry](CACHE_CAPACITY)
+
+  private def clean_cache(): Unit = {
+    var i = cache.length - 1
+    while (i >= 0) {
+      if (cache(i).key.get == null) cache.remove(i)
+      i -= 1
+    }
+  }
 
   def closure(sections: List[Theory_Section]): Closure = synchronized {
     val key = sections.asInstanceOf[AnyRef]
-    if (cache_key == null || (cache_key.get ne key)) {
-      cache_value = build(sections)
-      cache_key = new java.lang.ref.WeakReference(key)
+    clean_cache()
+
+    var found = -1
+    var i = 0
+    while (found < 0 && i < cache.length) {
+      if (cache(i).key.get eq key) found = i
+      i += 1
     }
-    cache_value
+
+    if (found >= 0) {
+      val entry = cache.remove(found)
+      cache += entry
+      entry.value
+    }
+    else {
+      val value = build(sections)
+      cache += Cache_Entry(new java.lang.ref.WeakReference(key), value)
+      if (cache.length > CACHE_CAPACITY) cache.remove(0)
+      value
+    }
   }
 
-  /* Development / probe hook: drop the memo so a measurement of the closure
-     cost measures the closure and not a hit. */
-  def clear_cache(): Unit = synchronized { cache_key = null; cache_value = null }
+  /* Development / probe hook: drop the whole memo so a measurement of the
+     closure cost measures the closure and not a hit. */
+  def clear_cache(): Unit = synchronized { cache.clear() }
 
 
   /* ------------------------------------------------------------------ */

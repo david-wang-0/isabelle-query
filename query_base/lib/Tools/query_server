@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# DESCRIPTION: query server owned by the caller's stdin lifetime
+
+"$ISABELLE_HOME/lib/Tools/scala_build" >&2 || exit $?
+eval "declare -a JAVA_ARGS=($ISABELLE_TOOL_JAVA_OPTIONS)"
+exec isabelle java -Xlog:disable "${JAVA_ARGS[@]}" isabelle.query.Query_Server_Main "$@"

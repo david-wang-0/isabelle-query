@@ -14,12 +14,23 @@ query -R AFP/thys callers foo            # before
 isabelle query -R AFP/thys callers foo   # after
 ```
 
-For a project you query often, the same spelling is already warm: a plain
-`isabelle query` runs the thin client against a resident server (starting one
-on first use, and falling back to the JVM tool wherever `python3` is missing),
-so repeat questions come back in ~35 ms with nothing extra to type.
-`--no-server` opts a single invocation out; `isabelle query --client-stop`
-shuts the server down.
+A plain `isabelle query` uses a thin Python client to find a compatible jEdit,
+PIDE, or dedicated query host. If none is usable, its automatic fallback is
+owned by the client through a private stdin pipe and exits when that invocation
+ends. Reused jEdit/PIDE hosts and manually managed dedicated servers remain
+running; attaching does not guarantee their lifetime. Query transport
+reconnects once on failure before emitting output. Repeated commands reuse
+indexes only while a host survives; see [benchmarks](dev/BENCH.md) for timings.
+
+Without `python3`, the CLI uses a fresh JVM. `--no-server` selects that route
+explicitly; `--client-stop` stops a dedicated server, never an embedded host.
+Terminal queries read saved files even inside jEdit; the plugin's UI also reads
+dirty buffers. See [host and cache controls](README.md#the-warm-server).
+
+The Scala engine remains source-only. It can query broken, unbuilt, and
+mid-refactor theories, preserves the existing context defaults, and keeps exact
+snapshots when files or dirty buffers change. Large sources use compressed
+immutable blocks internally; this does not change excerpts or command output.
 
 ## What is identical
 
@@ -30,11 +41,13 @@ shuts the server down.
 subcommands, same flags, same abbreviations, same positional grammar, same
 `-R/--root` on either side of the command name.
 
-Same **output, byte for byte** — 2,149 (corpus × invocation) cases across seven
-corpora are diffed on every change, plus the whole entry set and theory set
-over the entire AFP and the entire distribution `src`. The oracle is the frozen
-`src/isabelle_query/` tree, and the harness **refuses to run** against a `query`
-of any other version.
+The compatibility harness compares **output byte for byte** and exit statuses
+across seven corpora, plus whole entry and theory sets over AFP and the
+Isabelle distribution. The oracle is the frozen `src/isabelle_query/` tree;
+the harness rejects an unexpected oracle identity. Routine checks use
+`make test`; upstream version changes trigger full compatibility, also available through
+`make compat`. See [tests/README.md](tests/README.md) for accounting and gates,
+and [recorded differences](dev/DIVERGENCES.md) for exceptions.
 
 Same **exit statuses**: `0` ran, `1` unresolved subject, `2` usage error or an
 unreadable root, `141` a write failed because a downstream reader closed the
@@ -42,8 +55,8 @@ pipe. Same rule that a root which cannot be read reports on stderr and never
 returns an empty success.
 
 Same **semantics**: live-text scanning, locale scope, session discovery, the
-method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
-`METRICS.md` describe both implementations.
+method-vs-fact router, the `M1`–`M6` metric definitions.
+[SCANNING.md](SCANNING.md) and [METRICS.md](METRICS.md) describe both implementations.
 
 ## What is new
 
@@ -53,8 +66,8 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
 - **`codeqs NAME`** — declared code-equation sites of a constant: `[code]` and
   kin, `declare c [code …]`, `lemmas … [code] = …`, and the constant's own
   `fun`/`primrec`/`definition` default equations.
-  Read the caveats in `README.md` before trusting a short answer — mixfix
-  notation defeats the head rule, and it under-reports there.
+  Read the [source caveats](README.md#source-semantics-and-limits): mixfix
+  notation hides the head symbol and can cause under-reporting.
   Each row is `LOCUS  NAME  KIND  source`; `--sorts` adds the sort, arity or
   signature **the source writes** at that site. No prover runs, so no type is
   ever inferred: a site that writes none shows none.
@@ -62,16 +75,18 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
   instantiations, find code equations, search by name, quick-open, peek, and
   toolbar/keyboard exposure for Isabelle's existing navigate-back/forward
   stacks.
-- **A warm server** — four commands added to the stock `isabelle server`, plus
-  a stdlib-only Python client, and `isabelle query` itself finds that server
-  and uses it (`--no-server`, or `$ISABELLE_QUERY_NO_SERVER=1`, keeps the query
-  in this process; stdin runs, the development dumps, `shape census` and
-  `-h`/`--version` are never served). See `dev/BENCH.md`. The variables the tool reads
-  (`$ISABELLE_QUERY_ROOT`, `$ISABELLE_LAYOUT_ROOT`,
-  `$ISABELLE_QUERY_NAMESPACE`) are sent **with each request** and bound for it
-  alone, so setting one in your shell means what it means cold — the server
-  never consults its own environment for them.
-- **`-V/--version`** reports `0.8.1-scala.0.1`, not `0.8.1`. Deliberately:
+- **Resident query hosts and cache controls** — shared jEdit/PIDE endpoints,
+  dedicated servers, and a stdlib-only Python client. Retention is bounded and
+  controlled per host; see [README.md](README.md#the-warm-server), including
+  which requests use the cold route. `ISABELLE_QUERY_ROOT`,
+  `ISABELLE_LAYOUT_ROOT`, and `ISABELLE_QUERY_NAMESPACE` travel with each
+  request and are bound for it alone.
+- **Callers refresh and result removal** — repeating a callers query refreshes
+  its existing scoped group. Delete removes the selected row; deleting an
+  entire result set cancels its pending refresh, while a deleted child group or
+  hit may reappear when that refresh finishes. Clear removes all results and
+  cancels all pending results.
+- **`-V/--version`** reports `0.8.1-scala.0.2`, not `0.8.1`. Deliberately:
   the number in front of `-scala` names the upstream release whose contract
   this port matches, the `-scala` marker is what lets a script that pins a
   version tell the two tools apart, and the `MINOR.PATCH` after it is the
@@ -81,15 +96,8 @@ method-vs-fact router, the `M1`–`M6` metric definitions. `SCANNING.md` and
 
 ## What is deliberately different
 
-Fifteen recorded divergences, each with the evidence in `dev/DIVERGENCES.md`
-— and **most of them are closed**. Most were cases where the Python
-implementation disagreed with Isabelle's own lexer or header parser; upstream
-has since fixed six of those on its own side, from this port's findings, so the
-two tools now agree on the whole AFP and the whole distribution `src` down to a
-single record's span (D5).
-
-Seven entries still describe something you would notice, and **D15 is the only
-one that changes a byte of shared output on purpose**.
+[dev/DIVERGENCES.md](dev/DIVERGENCES.md) records the differences and their
+evidence. The migration-relevant cases are:
 
 | | what changes for you |
 |---|---|
@@ -101,17 +109,10 @@ one that changes a byte of shared output on purpose**.
 | **D14** | For the visibility filter below, a name an entry *binds* (a datatype constructor, a `shows` conjunct, a `.simps`) counts as a declaration of that name. Upstream consults entries only, so `callers <constructor>` can differ on a corpus where the name is mentioned outside the binder's import cone. |
 | **D15** | A theory a `ROOT` addresses by path — `theories "ex/Typechecking"` — is called `Typechecking`, which is what `Thy_Header.import_name` calls it and what `isabelle build` compiles. The Python tool prints `ex/Typechecking`, a name no Isabelle command answers to, and then `theory Typechecking` finds nothing. Here both spellings resolve: the leaf is the name, `ex/Typechecking` is the label. |
 
-The rest are history, kept with their evidence: **D1** (a cartouche whose body
-is a backslash), **D2** (`definition\<^marker>\<open>tag …\<close> name`),
-**D3** (a quoted `keywords` kind), **D6** (a structural marker inside a name),
-**D7** (the oracle's line index raising `TypeError` on a multi-name
-`axiomatization`) and **D10** (`unused -r`'s cascade depths depending on the
-hash seed) were all found here and are all fixed upstream now; **D4** (the
-whole-corpus keyword union) turned out to be a weakness both tools share; and
-**D13** — a citation is attributed only to a declaration the citing theory can
-**see** — is a rule both tools now apply by default, with `--reach name` on
-both to turn it off. Over the whole AFP that takes `callers mono` from 1,363
-hits to 634, and `unused` honestly **grows**.
+Closed parser and analysis differences remain documented there. D13's import
+visibility filter is now shared: a citation is attributed only to a declaration
+the citing theory can see. Both tools default to `--reach closure`; use
+`--reach name` to restore name-only attribution.
 
 ## Things that move
 

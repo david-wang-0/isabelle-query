@@ -1,0 +1,2429 @@
+{
+  "suite": "cli",
+  "cases": [
+    {
+      "id": "test_bad_root.Diagnosis.test_directory_with_neither_root_nor_theories",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.Diagnosis.test_missing_directory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.Diagnosis.test_not_a_directory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.Diagnosis.test_root_file_declaring_no_session",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.Diagnosis.test_session_declared_but_no_theory_resolves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.EmptyIndexFails.test_a_real_session_still_loads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.EmptyIndexFails.test_a_rootless_directory_of_theories_still_loads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.EmptyIndexFails.test_load_index_on_an_empty_directory_exits_2",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.ExplicitRootFailsEarly.test_bad_root_reported_even_when_files_are_given",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.ExplicitRootFailsEarly.test_exit_code_is_not_1",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.ExplicitRootFailsEarly.test_file_as_root_exits_2",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bad_root.ExplicitRootFailsEarly.test_missing_root_exits_2",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_bad_root.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_context_flag.ContextFlag.test_callers_C_flag_is_gone",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_context_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_context_flag.ContextFlag.test_callers_accepts_U",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_context_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_context_flag.ContextFlag.test_per_command_defaults_preserved",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_context_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_context_flag.ContextFlag.test_short_flag_is_U_everywhere",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_context_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_families.FamilyContract.test_callers_has_no_path_positional",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_families.FamilyContract.test_callers_is_variadic",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_families.FamilyContract.test_lookup_subjects_are_variadic_without_paths",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_families.FamilyContract.test_search_verbs_carry_trailing_paths",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": "PLAN.md help-text parity exemption: Scala uses FILES rather than argparse PATH metavar; assert every original search verb retains zero-or-more trailing paths and discoverable file help."
+    },
+    {
+      "id": "test_cli_families.SharedHelpWording.test_subject_list_help_is_templated",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": "PLAN.md help-text parity exemption: Scala uses concise positional help instead of argparse gate-loop prose; all six original commands retain help and variadic subject behavior."
+    },
+    {
+      "id": "test_cli_families.SharedHelpWording.test_template_varies_only_by_extra",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_families.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_names_flag.NamesFlag.test_long_names_flag_still_parses",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_names_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_names_flag.NamesFlag.test_noop_n_parses_identically_to_its_absence",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_names_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_names_flag.NamesFlag.test_short_n_flag_is_rejected_outside_the_search_verbs",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_names_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_names_flag.NamesFlag.test_short_n_never_sets_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_names_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_no_global_only_options.NoGlobalOnlyOptions.test_every_parent_option_is_on_every_child",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_no_global_only_options.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_prog_name.BothNamesAreInstalled.test_both_names_are_declared",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.BothNamesAreInstalled.test_both_names_are_the_same_entry_point",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.BothNamesAreInstalled.test_the_alias_matches_the_distribution_name",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.NoHardcodedProgramName.test_no_message_hardcodes_the_canonical_name",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameFallsBackToCanonical.test_absent_argv_falls_back",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameFallsBackToCanonical.test_empty_argv0_falls_back",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameFallsBackToCanonical.test_module_path_falls_back",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_a_renamed_wrapper_is_reported_as_itself",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_each_console_script_name_is_reported_as_itself",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_help_examples_name_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_stderr_diagnostic_names_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_subcommand_usage_inherits_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_the_census_skip_notice_names_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_usage_line_names_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_prog_name.ProgNameReflectsTheInvocation.test_version_line_names_the_invoked_command",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_cli_prog_name.scala",
+      "reason": "Python console-script argv[0] reflection, argparse prog inheritance, Python source-import guard and pyproject packaging aliases; Scala is invoked through the fixed Isabelle tool name and has no sys.argv[0] API. Retain the original Python packaging/reference test."
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagDiscoverable.test_help_wording_is_position_agnostic",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagDiscoverable.test_listed_in_each_subcommand_help",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagDiscoverable.test_listed_in_nested_shape_verb_help",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagPositions.test_absent_is_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagPositions.test_before_and_after_agree",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagPositions.test_nested_shape_both_positions",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_root_flag.RootFlagPositions.test_top_position_survives_suppress_default",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_root_flag.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionFlag.test_resolver_returns_nonempty",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionFlag.test_version_exits_zero",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionFlag.test_version_prints_query_and_resolved_version",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionPosition.test_after_a_nested_shape_verb",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionPosition.test_after_a_subcommand",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionPosition.test_short_form_at_top_level",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionPosition.test_short_form_still_means_verbatim_on_show",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_version.VersionPosition.test_wins_over_a_missing_required_positional",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_version.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_with_comments.WithCommentsToggle.test_both_search_verbs_accept_with_comments",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_with_comments.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_with_comments.WithCommentsToggle.test_find_a_flag_still_means_show_all",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_with_comments.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_with_comments.WithCommentsToggle.test_grep_a_flag_is_gone",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_with_comments.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_cli_with_comments.WithCommentsToggle.test_prose_help_is_shared",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_cli_with_comments.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_closed_stdout.ALargeAnswerExitsOneFortyOne.test_it_is_deterministic",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ALargeAnswerExitsOneFortyOne.test_status_is_141",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ASmallAnswerExitsZero.test_it_is_deterministic",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ASmallAnswerExitsZero.test_status_is_zero",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ASmallAnswerExitsZero.test_stderr_stays_silent",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.NoShutdownNoise.test_nothing_is_printed_on_stderr",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.NoShutdownNoise.test_the_status_is_never_pythons_default",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ReferenceBehaviour.test_a_large_producer_dies_of_sigpipe",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_closed_stdout.ReferenceBehaviour.test_a_small_producer_exits_zero",
+      "status": "process",
+      "destination": "tests/scala/cli/Cli_closed_stdout.scala",
+      "reason": "Real OS pipe timing/SIGPIPE, external seq/head and optional AFP corpus process behavior cannot be established by an in-process writer assertion; retain the original bounded process integration tier."
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsNothingInNamesMode.test_find_names_with_no_match",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsNothingInNamesMode.test_show_names_with_no_match",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsZero.test_find_with_no_match",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsZero.test_show_with_no_match",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsZero.test_the_count_is_parseable_as_a_number",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnHonestZeroPrintsZero.test_unused_when_nothing_is_unused",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnUnknownSubjectIsNotZero.test_callees_of_a_nonexistent_entry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnUnknownSubjectIsNotZero.test_callers_scans_and_so_may_truthfully_be_zero",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnUnknownSubjectIsNotZero.test_methods_for_a_name_that_is_no_method",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.AnUnknownSubjectIsNotZero.test_refs_of_a_nonexistent_theory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.TheHumanModesStillSaySo.test_a_real_count_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.TheHumanModesStillSaySo.test_the_all_mode_still_explains",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.TheHumanModesStillSaySo.test_the_default_mode_still_explains",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_count_modes.TheHumanModesStillSaySo.test_unused_still_explains",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_count_modes.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ExplicitTableSelection.test_the_default_still_governs_classify_identifier",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ExplicitTableSelection.test_the_shape_method_axis_ignores_the_bound_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ExplicitTableSelection.test_use_census_namespace_restores_the_default",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ExplicitTableSelection.test_use_pure_namespace_steps_down_to_the_floor",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ImportTimeDefault.test_default_is_the_broad_union_not_the_pure_floor",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ImportTimeDefault.test_keywords_stay_the_pure_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.ImportTimeDefault.test_the_automation_methods_are_recognised",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.LibraryCallerGetsMethods.test_a_one_liner_by_auto_carries_its_method",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.LibraryCallerGetsMethods.test_structured_proof_methods_and_kinds",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_default_namespace.LibraryCallerGetsMethods.test_trivial_frac_is_1_not_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_default_namespace.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_external_import_alone_is_out_of_project",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_fixture_loads_both_theories",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_qualified_import_is_direct",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_recursive_forward_reaches_qualified_child",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_reverse_lists_qualified_importer",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.DepsQualified.test_reverse_recursive_lists_importer",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.ResolveImportUnit.test_bare_same_session",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.ResolveImportUnit.test_external_bare_is_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.ResolveImportUnit.test_external_qualified_is_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_deps_qualified.ResolveImportUnit.test_qualified_cross_session_resolves_by_tail",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_deps_qualified.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_callers",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_enclosing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_enclosing_range",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_grep",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_grep_names_mode",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_largest",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_methods",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_methods_names_mode",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_shape_lemma",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_shape_steps",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_shape_widest",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.EveryLocusIsQualified.test_sorry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.OnlyACollisionQualifies.test_a_unique_name_stays_bare",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.OnlyACollisionQualifies.test_grep_keeps_a_unique_file_bare",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.PlainFilesKeepTheirName.test_a_markdown_positional_keeps_its_suffix",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheEchoSaysWhatWasResolved.test_a_path_input_is_echoed_as_a_theory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheEchoSaysWhatWasResolved.test_an_ambiguous_input_is_echoed_qualified",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheEchoSaysWhatWasResolved.test_past_end_names_the_theory_it_measured",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheLocusIsValidInput.test_callers_loci_round_trip",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheLocusIsValidInput.test_context_loci_round_trip_too",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheLocusIsValidInput.test_enclosing_accepts_its_own_output",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.TheLocusIsValidInput.test_grep_loci_round_trip_with_their_suffix",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.WrongFileAttribution.test_context_lines_come_from_the_matched_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.WrongFileAttribution.test_each_row_is_owned_by_a_lemma_in_its_own_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_loci.WrongFileAttribution.test_no_row_names_an_entry_from_another_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_loci.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.Degenerate.test_no_sections",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.Degenerate.test_the_same_section_twice_is_one_theory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.OnlyACollisionGrowsAPrefix.test_a_colliding_name_is_qualified",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.OnlyACollisionGrowsAPrefix.test_a_unique_name_stays_bare",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.OnlyACollisionGrowsAPrefix.test_every_label_is_unique",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.OnlyACollisionGrowsAPrefix.test_the_shared_root_prefix_is_not_shown",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.ScopedToTheCorpusNotTheScreen.test_a_collision_qualifies_even_when_shown_alone",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.TheLabelIsValidInput.test_a_qualified_label_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.CliSurface.test_at_alias_parses",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.CliSurface.test_enclosing_parses",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.CliSurface.test_locus_is_required",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Containment.test_definition_owns_its_line",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Containment.test_extent_annotation_present",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Containment.test_lemma_proof_line_is_in_proof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Containment.test_lemma_statement_line_is_in_statement",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Containment.test_span_end_line_still_owned",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Errors.test_batch_continues_past_a_bad_locus",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Errors.test_batch_emits_one_line_per_good_locus",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Errors.test_malformed_locus_to_stderr",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.Errors.test_unknown_theory_to_stderr",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.NoOwner.test_header_region_has_no_owner",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.NoOwner.test_past_end_of_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.OnDiskFixture.test_fixture_parses_from_disk",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.OnDiskFixture.test_full_stack_via_parser_and_root",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.OnDiskFixture.test_name_form_locus",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.OnDiskFixture.test_path_form_locus_resolves_against_on_disk_path",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_bare_name_form",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_empty_line_is_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_inverted_range_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_no_colon_is_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_non_numeric_line_is_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_path_form",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_range_form",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_splits_on_last_colon",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_strips_trailing_rg_context_marker",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_strips_trailing_rg_match_marker",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.ParseLocus.test_zero_and_negative_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.RangeMode.test_range_in_header_overlaps_nothing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.RangeMode.test_range_inside_one_entry_lists_only_it",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.RangeMode.test_range_lists_all_overlapping_entries",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing.RangeMode.test_rg_marker_round_trips_through_command",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_blocks_mode_shows_full_path",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_brace_block",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_default_shows_nearest_block",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_entry_mode_matches_pre_drilldown_output",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_entry_mode_suppresses_drilldown",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_flat_proof_degrades_to_entry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_in_proof_but_no_block_degrades",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.CliModes.test_outer_block_when_outside_inner",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.EnclosingBlocks.test_innermost_is_last",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.EnclosingBlocks.test_line_in_main_proof_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.EnclosingBlocks.test_line_in_outer_block_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ParserWiring.test_blocks_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ParserWiring.test_defaults_to_nearest",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ParserWiring.test_entry_and_blocks_mutually_exclusive",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ProofBlocks.test_flat_proof_has_no_blocks",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ProofBlocks.test_main_proof_is_not_reported",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ProofBlocks.test_raw_brace_block",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ProofBlocks.test_structured_nested_haves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.ProofBlocks.test_unbalanced_proof_fails_safe",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_enclosing_blocks.RoundTrip.test_block_field_span_parses_back",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_enclosing_blocks.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.ComposesWithTheOtherFlags.test_a_theory_scope_narrows_the_conjunction",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.ComposesWithTheOtherFlags.test_count",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.ComposesWithTheOtherFlags.test_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.PatternsMayMatchDifferentParts.test_a_name_and_a_bound_name_intersect",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.PatternsMayMatchDifferentParts.test_the_statement_slice_is_searched_when_asked",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.ProseObeysTheConjunctionToo.test_a_note_needs_every_pattern_on_it",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheDefaultIsStillDisjunction.test_one_pattern_with_the_flag_is_an_ordinary_find",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheDefaultIsStillDisjunction.test_without_the_flag_each_pattern_reports_separately",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheFlagSpelling.test_the_dest_is_not_the_python_keyword",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheFlagSpelling.test_there_is_no_short_A_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_an_entry_matching_both_is_kept",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_an_entry_matching_only_one_is_dropped",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_no_common_entry_says_so_once",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_order_does_not_matter",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_the_result_is_the_intersection_of_the_two_searches",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_find_conjunction.TheIntersection.test_three_patterns_narrow_further",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_find_conjunction.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.GrepWindow.test_no_window_finds_all",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.GrepWindow.test_single_line_window",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.GrepWindow.test_window_excludes_outside_lines",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.GrepWindow.test_window_restricts_count",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.SplitPathWindow.test_no_window_when_file_missing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.SplitPathWindow.test_no_window_without_colon",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_grep_window.SplitPathWindow.test_window_when_file_resolves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_grep_window.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineDoesNotInventHeadings.test_a_textbook_citation_in_prose_is_not_a_chapter",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineDoesNotInventHeadings.test_the_dof_star_form_is_not_accepted",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineSeesEverySpelling.test_every_spelling_is_found",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineSeesEverySpelling.test_the_command_word_is_reported",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineSeesEverySpelling.test_the_split_opener_is_reported_at_its_command_word",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.OutlineSeesEverySpelling.test_the_title_is_clean_of_its_delimiters",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heading_outline.TheTwoConsumersAgree.test_same_heading_lines_from_both",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_heading_outline.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_heaps_dirs.DistributionOnlySession.test_absent_session_is_still_absent",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.DistributionOnlySession.test_built_sessions_includes_it",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.DistributionOnlySession.test_fingerprint_is_not_empty",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.DistributionOnlySession.test_heap_file_finds_it",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.SearchPath.test_an_explicit_system_variable_wins",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.SearchPath.test_home_resolves_through_a_symlink",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.SearchPath.test_one_directory_when_both_names_agree",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.SearchPath.test_system_directory_is_derived_from_the_binary",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.SearchPath.test_user_directory_comes_first",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.UserHeapWins.test_a_session_in_both_resolves_to_the_user_copy",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_heaps_dirs.UserHeapWins.test_built_sessions_does_not_double_count",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_heaps_dirs.scala",
+      "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
+    },
+    {
+      "id": "test_import_leaf.APathSpelledImportResolves.test_a_bare_name_finds_a_path_spelled_theory",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: ROOT path spellings name theories by their Isabelle leaf; assert leaf identity and preserve path resolution/import reachability instead of Python Sub/Leaf identity."
+    },
+    {
+      "id": "test_import_leaf.APathSpelledImportResolves.test_a_deep_path_finds_its_leaf",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.APathSpelledImportResolves.test_a_relative_path_finds_its_leaf",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.APathSpelledImportResolves.test_a_session_qualified_import_still_resolves_by_its_tail",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.APathSpelledImportResolves.test_the_exact_name_still_wins",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: ROOT path spellings name theories by their Isabelle leaf; assert leaf identity and preserve path resolution/import reachability instead of Python Sub/Leaf identity."
+    },
+    {
+      "id": "test_import_leaf.ASharedNameUnionsItsEdges.test_both_citations_survive",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ASharedNameUnionsItsEdges.test_the_closure_reaches_both_targets",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ASharedNameUnionsItsEdges.test_the_union_is_deterministic",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ExternalStaysExternal.test_a_library_import_is_still_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ExternalStaysExternal.test_a_path_naming_nothing_loaded_is_still_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ExternalStaysExternal.test_a_theory_reaching_nothing_in_project_is_still_filtered",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.ExternalStaysExternal.test_main_is_still_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheClosureCrossesTheEdge.test_the_bare_importer_reaches_transitively",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: ROOT path spellings name theories by their Isabelle leaf; assert leaf identity and preserve path resolution/import reachability instead of Python Sub/Leaf identity."
+    },
+    {
+      "id": "test_import_leaf.TheClosureCrossesTheEdge.test_the_bare_importers_citation_survives",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheClosureCrossesTheEdge.test_the_filter_now_drops_nothing_it_should_not",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheClosureCrossesTheEdge.test_the_path_importer_reaches_its_target",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheClosureCrossesTheEdge.test_the_path_importers_citation_survives",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheFixtureReallyCollides.test_the_last_wins_index_keeps_only_one",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheFixtureReallyCollides.test_two_sections_share_the_name_Dup",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.TheFixtureReallyUsesBothSpellings.test_the_root_path_becomes_the_theory_name",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: ROOT path spellings name theories by their Isabelle leaf; assert leaf identity and preserve path resolution/import reachability instead of Python Sub/Leaf identity."
+    },
+    {
+      "id": "test_import_leaf.TheFixtureReallyUsesBothSpellings.test_the_subdirectory_theory_is_loaded",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: ROOT path spellings name theories by their Isabelle leaf; assert leaf identity and preserve path resolution/import reachability instead of Python Sub/Leaf identity."
+    },
+    {
+      "id": "test_import_leaf.UnionOnlyWidens.test_an_unrelated_name_is_still_filtered",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_import_leaf.UnionOnlyWidens.test_name_mode_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_import_leaf.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.CmdLargest.test_empty_sections_report_nothing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.CmdLargest.test_ranks_by_span_descending",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.CmdLargest.test_top_caps_the_row_count",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestFileSemantics.test_directory_with_root_uses_root_theories",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestFileSemantics.test_directory_without_root_recursive_glob",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestFileSemantics.test_files_are_deduped_by_resolved_path",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestFileSemantics.test_union_of_explicit_files",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestParser.test_defaults",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestParser.test_long_top_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_largest.LargestParser.test_top_flag_and_files",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_largest.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_layout_surface.BehaviourUpstreamDoesNotTest.test_document_tag_with_a_space",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_layout_surface.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_layout_surface.BehaviourUpstreamDoesNotTest.test_quoted_document_tag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_layout_surface.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_layout_surface.LayoutSurface.test_every_imported_name_resolves",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_layout_surface.scala",
+      "reason": "Python import/export/AST boundary of the external isabelle_layout package; Scala Discovery is compiled into the component. Retain Python import-contract coverage."
+    },
+    {
+      "id": "test_layout_surface.LayoutSurface.test_query_imports_nothing_private_from_layout",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_layout_surface.scala",
+      "reason": "Python import/export/AST boundary of the external isabelle_layout package; Scala Discovery is compiled into the component. Retain Python import-contract coverage."
+    },
+    {
+      "id": "test_layout_surface.LayoutSurface.test_the_private_surface_has_not_grown",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_layout_surface.scala",
+      "reason": "Python import/export/AST boundary of the external isabelle_layout package; Scala Discovery is compiled into the component. Retain Python import-contract coverage."
+    },
+    {
+      "id": "test_lines_forms.EndToEnd.test_classic_and_colon_agree",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.EndToEnd.test_colon_multi_range_one_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.Errors.test_mixed_forms_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.Errors.test_multi_file_colon_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.Errors.test_no_range_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.FileAndRangesSplit.test_classic_form",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.FileAndRangesSplit.test_colon_form_one_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_lines_forms.FileAndRangesSplit.test_colon_form_single_line",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_lines_forms.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.CallersFormat.test_context_line_keeps_marker_and_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.CallersFormat.test_match_locus_is_clean_and_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.CallersFormat.test_no_dangling_match_colon_anywhere",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.CallersFormat.test_old_bracket_form_gone",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.CallersFormat.test_owner_field_carries_tag_and_span",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.GrepFormat.test_default_owner_has_no_span",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.GrepFormat.test_names_mode_owner_has_no_span",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.MethodsFormat.test_default_mode_owner_field",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.MethodsFormat.test_names_mode_uses_same_owner_field",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.OwnerFieldSpan.test_no_owner_is_dash_either_way",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.OwnerFieldSpan.test_span_default_on",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_locus_format.OwnerFieldSpan.test_span_off_drops_extent",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_locus_format.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_cache.Augmented.test_no_build_when_session_heap_absent",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Augmented.test_skips_when_session_is_base",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Augmented.test_unions_base_and_session",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.CacheRoundTrip.test_load_missing_is_none",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.CacheRoundTrip.test_save_then_load",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Fingerprint.test_changes_when_heap_changes",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Fingerprint.test_empty_without_isabelle",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Fingerprint.test_spawn_free",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.ProjectResolution.test_failed_dump_reports_committed_not_isabelle",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.ProjectResolution.test_forwards_dirs_to_dump",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.ProjectResolution.test_no_built_session_returns_committed",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.ProjectResolution.test_no_isabelle_returns_committed_without_glob",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.ProjectResolution.test_unions_committed_floor_with_built_sessions",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Resolve.test_cache_hit_does_not_spawn",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Resolve.test_cache_miss_regenerates_and_base_folds",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_cache.Resolve.test_falls_back_to_committed",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python namespace-resolver JSON cache, fingerprint, built-heap subprocess/dump and module mocking mechanism; Scala uses compiled immutable namespace tables. Retain Python reference coverage; request-local namespace/root semantics are ported separately."
+    },
+    {
+      "id": "test_namespace_fallback.BindCommittedFallback.test_hol_binds_broad_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.BindCommittedFallback.test_nonhol_binds_pure_floor_and_warns",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.BindCommittedFallback.test_pure_only_project_is_silent_but_still_binds",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.IsKnownNonHolBase.test_hol_and_unknown_are_not_flagged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.IsKnownNonHolBase.test_positively_non_hol",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_empty_project_defaults_broad",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_hol_sub_session_out_of_scope_parent",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_hol_whole_project_chains_to_hol",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_mixed_project_vetoes_broad",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_pure_project_vetoes_broad",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_namespace_fallback.UseBroadFallback.test_zf_project_vetoes_broad",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_namespace_fallback.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.EnclosingOpenRange.test_open_lower_lists_from_start",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.EnclosingOpenRange.test_open_upper_echoes_resolved_span",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.EnclosingOpenRange.test_open_upper_lists_to_eof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.GrepOpenWindow.test_open_window_restricts_to_tail",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.LinesOpenRange.test_both_open_is_whole_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.LinesOpenRange.test_colon_form_open_upper_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.LinesOpenRange.test_open_lower_runs_from_one",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.LinesOpenRange.test_open_upper_past_eof_echoes_open_spec",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.LinesOpenRange.test_open_upper_runs_to_eof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_both_open_is_whole_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_closed_range",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_descending_closed_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_empty_single_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_garbage_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_open_lower_resolves_to_one",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_open_upper_is_none",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_single_line",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_open_ranges.ParseLineRange.test_zero_start_rejected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_open_ranges.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_a_match_list_has_one_block_per_match",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_an_entry_renders_as_one_block",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_every_block_in_a_match_list_is_attributable",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_the_fixture_has_the_preambles_the_test_assumes",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_the_preamble_names_its_entry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_preamble_attribution.PreambleAttribution.test_the_preamble_precedes_the_header",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_preamble_attribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.FindBySymbolName.test_a_markup_prefix_finds_every_entry_sharing_it",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.FindBySymbolName.test_a_non_caret_symbol_still_works",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.FindBySymbolName.test_plain_patterns_are_unaffected",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.FindBySymbolName.test_regex_still_applies_around_the_markup",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.FindBySymbolName.test_the_printed_name_finds_the_entry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.InvalidPattern.test_find_reports_a_bad_regex_and_exits_2",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.UserPattern.test_a_pattern_without_markup_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.UserPattern.test_both_rewrites_compose",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.UserPattern.test_grep_style_alternation_is_still_rewritten",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.UserPattern.test_markup_is_escaped_so_the_caret_is_not_an_anchor",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_search_patterns.UserPattern.test_regex_syntax_around_the_markup_still_works",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_search_patterns.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_a_bare_statement_term_line_still_shows_its_proof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_declaration_ending_in_its_proof_prints_once",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_every_rendered_line_is_distinct_across_the_fixture",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_one_liner_prints_its_line_once",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_proof_on_its_own_line_still_shows_it",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_inline_proof.NoDuplicatedLines.test_structured_proof_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_inline_proof.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.CliSurface.test_both_spellings_set_statement",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.CliSurface.test_find_allows_statement_with_verbatim",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.CliSurface.test_show_rejects_statement_with_verbatim",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.CliSurface.test_show_statement_default_is_false",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.FindStatementMatch.test_count_mode_reflects_statement_matches",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.FindStatementMatch.test_name_search_misses_statement_only_reference",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.FindStatementMatch.test_statement_is_match_only_not_render",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.FindStatementMatch.test_statement_search_does_not_match_proof_body",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.FindStatementMatch.test_statement_search_finds_statement_only_reference",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.RenderEntryPrecedence.test_statement_narrower_than_verbatim_if_both_set",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.RenderEntryPrecedence.test_statement_text_helper_is_the_declaration",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.ShowStatementRender.test_default_render_keeps_the_proof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.ShowStatementRender.test_statement_render_does_not_change_matching",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.ShowStatementRender.test_statement_render_drops_the_proof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_statement_slice.ShowStatementRender.test_verbatim_keeps_the_proof",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_statement_slice.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.GrepStdin.test_default_skips_prose_block",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.GrepStdin.test_with_comments_includes_prose",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LinesStdin.test_reads_range_from_stdin_with_preserved_numbers",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LinesStdin.test_single_line",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LoadSectionsStdin.test_dash_reads_and_parses_stdin_as_theory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LoadSectionsStdin.test_repeated_dash_reads_stdin_only_once",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LoadSectionsStdin.test_source_is_cached_so_no_disk_read_of_synthetic_path",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.LoadSectionsStdin.test_stdin_section_uses_synthetic_location_label",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParsePolicy.test_infer_defaults_stdin_to_syntax",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParsePolicy.test_infer_is_plain_on_nonthy",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParsePolicy.test_infer_is_syntax_on_thy",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParsePolicy.test_syntax_forces_grammar_even_on_nonthy",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParserWiring.test_lines_accepts_dash_as_file",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.ParserWiring.test_search_family_accepts_dash_in_files",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.SharedRouting.test_bare_name_resolves_via_index",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.SharedRouting.test_existing_file_resolves_to_itself",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.SharedRouting.test_unknown_token_exits_with_hint",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_stdin_path.SorryStdin.test_sorry_over_stdin_reports_owning_entry",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.AggregateRender.test_by_session_table_and_total",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.AggregateRender.test_default_is_still_per_theory_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.AggregateRender.test_no_session_bucket_labelled",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.AggregateRender.test_totals_only_suppresses_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.AggregateRender.test_verbose_expands_theories",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_summary_aggregate.SessionAttribution.test_loader_tags_each_theory_with_its_session",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_summary_aggregate.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.PathSpelledTheoryName.test_an_unknown_nested_name_is_still_unresolved",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.PathSpelledTheoryName.test_every_section_name_resolves_to_itself",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.PathSpelledTheoryName.test_the_printed_name_resolves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.TheOtherFormsStillWork.test_a_bare_name_still_resolves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.TheOtherFormsStillWork.test_a_real_path_resolves_to_its_section",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.TheOtherFormsStillWork.test_an_exact_name_beats_the_stem",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.TheOtherFormsStillWork.test_case_insensitive_bare_name_still_resolves",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_theory_name_roundtrip.TheOtherFormsStillWork.test_the_stem_fallback_survives",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_theory_name_roundtrip.scala",
+      "reason": ""
+    }
+  ]
+}

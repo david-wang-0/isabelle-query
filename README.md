@@ -1,27 +1,20 @@
 # isabelle-query
 
-An **Isabelle component** for querying an Isabelle/Isar project — its entries
-(definitions, lemmas, theorems, datatypes), call graph, theory dependencies,
-locale instantiations, code equations, outstanding `sorry`s, dead code, and the
-shape of its proofs.
+An **Isabelle component** for querying Isar source: declarations, callers and
+callees, theory dependencies, locale instantiations, code equations, outstanding
+`sorry`s, unused entries, and proof-shape metrics. It uses Isabelle's own Scala
+lexer and header/session parsers; queries need **no theory build, proof replay,
+or prover process**.
 
-It parses the project's `.thy` sources on every invocation, so results always
-match the current tree: **no Isabelle build, no proof replay, no prover
-process.** It is aimed at projects big enough that grep-and-examine has stopped
-working — AFP entries, the AFP itself, or industrial verification.
+`isabelle query` reads **saved source**, reusing parsed sections after a
+staleness check. The jEdit plugin also reads dirty buffers. The CLI can reuse a
+compatible jEdit/PIDE host or a manually managed server; an automatically
+started fallback lasts only for the client invocation.
 
-Three front ends over one engine:
-
-| | |
-|---|---|
-| **`isabelle query`** | the command line — 22 verbs (24 names, with the `at` and `method` aliases), `-h` on each |
-| **Isabelle/jEdit plugin** | find usages, find definition, find instantiations, find code equations, quick-open, peek, and Isabelle's own jump stacks given the toolbar buttons they never had |
-| **warm server + thin client** | the same command line against a **resident parsed index**, at about 1/2 to 1/72 of the cold cost — and a plain `isabelle query` *is* the thin client (with a JVM fallback wherever `python3` is missing), so the warm index is not something you have to opt into. See [dev/BENCH.md](dev/BENCH.md) |
-
-Written in Isabelle/Scala against the distribution's own parsing stack:
-`Token.explode` is the real Isar outer-syntax lexer, `Thy_Header` the real
-theory-header parser, `Sessions.parse_root_entries` the real ROOT reader. No
-external dependencies — the Isabelle classpath only.
+Parsing is source-only: theories may be broken, unbuilt, or midway through a
+refactor. Querying does not require a successful Isabelle build or semantic
+markup. Source snapshots are immutable and preserve exact text; large sources
+are stored in independent compressed blocks and decoded only where needed.
 
 ## Install
 
@@ -29,383 +22,249 @@ external dependencies — the Isabelle classpath only.
 isabelle components -u <this checkout>
 ```
 
-That registers the whole tree as one component: the engine and CLI
-(`query_base`), and the jEdit plugin (`jedit_query`). `isabelle query` works
-immediately; the plugin jar is built at jEdit start-up, so restart jEdit to
-pick it up. To remove it:
+This registers the engine/CLI (`query_base`) and jEdit plugin (`jedit_query`).
+The CLI works immediately. The plugin builds at jEdit startup; pick it up at
+the next coordinated restart. Python 3 enables the thin client; without it,
+the CLI uses a fresh JVM. No external Scala dependencies are needed.
+
+To remove the component and its otherwise leftover plugin jar:
 
 ```sh
 isabelle components -x <this checkout>
 rm -f "$ISABELLE_HOME_USER/jedit/jars/isabelle_jedit_query.jar"
 ```
 
-The second line matters — `$JEDIT_SETTINGS/jars` is not cleaned when a
-component is deregistered, and a stale plugin jar whose library jar has gone
-away fails loudly on every start-up.
+### Optional PIDE MCP tool
+
+The adapter targets external `isabelle-pide-mcp` revision
+`be9fdcb52c35bac9ad6df6ddc49c7af803e16b8e` on `Isabelle2025-2`. With that
+component installed and registered:
+
+```sh
+isabelle components -u <this checkout>/pide_mcp_query
+isabelle scala_build
+```
+
+The adapter is excluded from the root component list, so ordinary installation
+needs no PIDE MCP. It adds a `query` tool accepting CLI arguments and optional
+request-local environment:
+
+```json
+{
+  "argv": ["-R", "/path/to/project", "callers", "my_fact"],
+  "env": {"ISABELLE_QUERY_NAMESPACE": "committed"}
+}
+```
+
+`env` accepts only `ISABELLE_LAYOUT_ROOT`, `ISABELLE_QUERY_ROOT`, and
+`ISABELLE_QUERY_NAMESPACE`. Results contain `exit`, `stdout`, and `stderr`;
+CLI failures preserve their exit code, while malformed requests are MCP tool
+errors. No optional tool annotations are registered.
+
+Root selection uses explicit `-R/--root`, then request root environment, then
+one unambiguous canonical directory across currently running PIDE sessions.
+Canonical aliases count once; the session set is read on every call. Supply a
+root when there are zero or multiple directories; an explicit root works
+without a prover session. Use an absolute path if the MCP working directory is
+unknown. Commands that actually consume stdin return exit `2`; an inert `-`
+retains its normal CLI meaning.
+
+The tool and the adapter's `pide_mcp` launcher share one bounded query cache.
+The launcher preserves upstream arguments and stdio and advertises a terminal
+query endpoint even with no prover sessions. Deregister `pide_mcp_query` before
+the next PIDE start to restore the upstream launcher.
 
 ## Commands
 
-```sh
-isabelle query summary                 # theory overview table (--by-session: corpus aggregate)
-isabelle query theory MyTheory         # entries in a theory (--names for terse names)
-isabelle query find <regex>            # search entry names (--statement: search statements)
-isabelle query show <name>             # a named entry's declaration + body
-isabelle query outline [THEORY]        # section structure with entries
-isabelle query enclosing FILE:LINE     # which entry + proof block owns a line (alias: at)
-isabelle query largest [-N n]          # the biggest entries, by span
-isabelle query grep <regex> [PATH...]  # regex search across live theory source
-isabelle query lines FILE A..B         # print line ranges with a `NR| CONTENT` prefix
-isabelle query defs <theory>           # definitions in a theory
-isabelle query sorry                   # outstanding sorry's
-isabelle query callers <name> [-r]     # who references a name  (reverse; -r = transitive)
-isabelle query callees <name> [-r]     # what a name references (forward)
-isabelle query deps <theory> [-r]      # what a theory imports  (reverse: uses)
-isabelle query refs <theory>           # what a theory cites, by owning theory
-isabelle query graph [citation|imports] # the whole graph as JSON (-f dot for Graphviz)
-isabelle query unused                  # dead-code / unused-entry analysis
-isabelle query methods                 # proof methods used, by frequency (alias: method)
-isabelle query instances <locale>      # where a locale or class is instantiated
-isabelle query codeqs <const>          # declared code-equation sites of a constant
-isabelle query shape <view>            # proof-shape metrics (summary|steps|lemma|widest|census)
-```
-
-Point it at any session directory with `-R` (or `--root`); with no `-R` it
-finds the nearest project at or above the working directory.
+Use `-h` on each command for its flags. `-R/--root` selects a session directory;
+otherwise the CLI discovers the nearest project at or above the working directory.
 
 ```sh
-isabelle query -R AFP/thys callers metric_domain_tfin_def   # every proof step that cites a fact
-isabelle query -R AFP/thys find --statement tfin            # lemmas *stated about* tfin
-isabelle query -R AFP/thys enclosing Tfin.thy:412           # what a build error sits in
-isabelle query -R AFP/thys enclosing Tfin:88..140           # every entry a diff hunk touches
-isabelle query -R AFP/thys grep simp Tfin.thy:88..140       # search just a hunk
+isabelle query summary                 # theory overview; --by-session for a corpus
+isabelle query theory MyTheory         # entries; --names for names only
+isabelle query find <regex>            # names; --statement for statements
+isabelle query show <name>             # declaration and body
+isabelle query outline [THEORY]        # sections and entries
+isabelle query enclosing FILE:LINE     # owning entry/proof block (alias: at)
+isabelle query largest [-N n]          # biggest entries by span
+isabelle query grep <regex> [PATH...]  # live source text
+isabelle query lines FILE A..B         # numbered source lines
+isabelle query defs <theory>           # definitions
+isabelle query sorry                   # outstanding sorry sites
+isabelle query callers <name> [-r]     # references to a name; -r is transitive
+isabelle query callees <name> [-r]     # references from a name
+isabelle query deps <theory> [-r]      # imports; uses is the reverse direction
+isabelle query refs <theory>           # citations grouped by owning theory
+isabelle query graph [citation|imports] # JSON; -f dot for Graphviz
+isabelle query unused                  # unused-entry analysis
+isabelle query methods                 # proof-method frequencies (alias: method)
+isabelle query instances <locale>      # locale/class instantiation sites
+isabelle query codeqs <const>          # declared code-equation sites
+isabelle query shape <view>            # summary|steps|lemma|widest|census
 ```
 
-Locations and spans share one grammar (`theory:line`, `theory:A..B`), so the
-tool's output is valid input: a locus from `callers` / `sorry` / `instances`
-pastes into `enclosing`, and a span from `outline` / `largest` pastes into
-`lines`.
+Locations and spans compose: `theory:line` or `theory:A..B` from one command
+can be pasted into another. Theory names are directory-qualified only as far
+as needed to disambiguate them.
 
-A theory prints as its bare name, qualified only far enough to name one theory.
-Over a corpus that matters: 27 AFP theories are called `Examples`, so `largest`
-reports `Virtual_Substitution/QE` and `enclosing` takes it straight back. A name
-used once stays bare.
-
-### `instances` and `codeqs`, and what they do not see
-
-Each row is `LOCUS  NAME  KIND  source`, one site per line — the name sits where
-`callers` puts its owning entry, and the locus stays first so a row still pastes
-into `enclosing`. The locus is a theory, qualified by exactly as much directory
-as it takes to name one of them and no more, the way every other located verb
-spells one.
-
-The **name** is what the source calls that site, never something inferred:
-
-```
-$ isabelle query -R Isabelle/src/HOL codeqs rev
-5 code equation(s) of rev:
-
-  List:87                rev            default  primrec rev :: "'a list \<Rightarrow> 'a list" where
-  List:3249              rev_conv_fold  [code]   lemma rev_conv_fold [code]: "rev xs = fold Cons xs []"
-  Time_Functions:78      rev            default  time_fun rev
-  Imperative_Reverse:20  rev            default  fun rev :: "'a::heap array \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> unit Heap" where
-  Linked_Lists:539       rev            default  primrec rev :: "('a:: heap) node \<Rightarrow> 'a node Heap"
+```sh
+isabelle query -R AFP/thys callers metric_domain_tfin_def
+isabelle query -R AFP/thys enclosing Tfin:88..140
+isabelle query -R AFP/thys grep simp Tfin.thy:88..140
 ```
 
-- `instances` — the written qualifier (`Cop` in `sublocale Cop: dual_category C ..`),
-  else the type constructor an `instantiation` / `instance` names, else the
-  target of a `sublocale L ⊆ M`, else the context the site sits in (the
-  enclosing locale, or the lemma an `interpret` is inside).
-- `codeqs` — the fact that provides the equation: the `lemma` / `lemmas` name
-  carrying the attribute, the binding label a `declare` attaches to
-  (`fib.simps`), or, for a `default` row, the defining entry's own name.
+See the [guided tour](demo/DEMO.md), [cheatsheet](demo/CHEATSHEET.md), and
+[proof-shape reference](METRICS.md).
 
-A site the source gives no name at all — a bare `interpretation L ..` at top
-level — prints `?`, the same placeholder the engine uses for an unnamed
-`context`. It is not given the locale's own name, which would make every row
-repeat the question.
+### Source semantics and limits
 
-**`--sorts`** adds the sort, arity or signature **as the source writes it**:
-`prod :: (topological_space, topological_space) topological_space`,
-`rev :: 'a list ⇒ 'a list`. This tool runs no prover, so **nothing is
-inferred** — a site whose source writes no type shows none, and the flag is a
-way of reading the source, not of typing it.
+Only live Isar text contributes declarations and citations: comments, text
+blocks, and ML bodies do not. Layout and indentation do not determine command
+boundaries. Discovery follows session-declared theories and their in-entry
+imports; see [SCANNING.md](SCANNING.md).
 
-These two have no Python counterpart and one shared caveat, stated here because
-it is the honest scope rather than a footnote.
+`instances` and `codeqs` report **declared source sites**, not the processed
+setup shown by a prover's `print_interps` / `print_codesetup`. Rows have the
+form `LOCUS NAME KIND source`; unnamed sites use `?`. `--sorts` adds only the
+sort, arity, or signature written at the site, never inferred types.
 
-Both report **declared source sites** — the complement of Isar's
-`print_interps` / `print_codesetup`, which need a running prover and show the
-*processed* setup: after preprocessing, after `[code del]` has taken effect,
-and including whatever an imported session installed. A static scan sees the
-text; the prover sees the result.
+**`codeqs` under-reports when mixfix notation hides the statement's head
+symbol.** Check source with `grep` if an answer looks short. Neither finder
+separates same-named declarations that are visible within a theory. Visibility
+requires a declaration in that theory or its transitive imports within the
+scanned project; heap-only declarations are not discovered.
 
-`codeqs` finds an equation by the **head symbol of its statement**, and mixfix
-notation defeats that rule. `lemma upto_code [code]: "[i..j] = upto_aux i j []"`
-is an equation of `upto` written in `upto`'s own notation, where the head rule
-reads no identifier at all. This is irreducible without a parser that knows the
-project's `notation` declarations, and it **under-reports** — the one place
-these scans lean the unsafe way. If `codeqs c` looks short, check with `grep`.
-
-Neither verb separates same-named constants *within* what a theory can see:
-`codeqs rev` over `src/HOL` reports `List.rev`, `Imperative_Reverse.rev` and
-`Linked_Lists.rev` together, because every theory there imports `Main` and so
-could be naming any of them. That much is inherent to a name-based tool
-(`callers` has it too), and a site listing invites the reader to treat the rows
-as one constant's equations.
-
-What *is* separated is the impossible case. A site is reported only in a theory
-that can **see** a declaration of the name — its own, or one in its transitive
-`imports` closure — so across disjoint trees the rows no longer run together.
-Over the whole AFP `callers mono` drops from 1,363 hits to 634: the 729 that go
-are in theories whose entire import closure declares no `mono`, where the token
-is HOL's own `Orderings.mono` arriving through an `imports Main` that `query`
-does not follow. The same filter is what `callers`, `callees`, `refs`,
-`unused`, `graph citation`, `instances` and `codeqs` all read.
-
-`--reach name` turns it off, restoring name-only attribution. The flag is on
-`callers`, `callees`, `refs`, `unused` and `graph` — every verb the scoping
-moves — and `closure` is the default for the CLI, the warm server, the plugin
-and a library caller alike.
-
-Both exit `1` when the subject is not a locale/class (resp. not a constant)
-declared in the project, rather than reporting zero sites.
+This import-closure filter also applies to `callers`, `callees`, `refs`,
+`unused`, and `graph citation`. Their `--reach name` option restores name-only
+attribution; `closure` is the default. `instances` and `codeqs` return exit `1`
+for a subject that is not a declared locale/class or constant respectively,
+and exit `0` for a valid subject with no sites.
 
 ## The jEdit plugin
 
-Right-click in a theory buffer, or use the *Isabelle Query* dockable:
+Use the theory-buffer context menu or the **Isabelle Query** dockable for
+usages, definitions, instantiations, code equations, and search by name.
+Quick-open, peek definition, and toolbar/keyboard access to Isabelle's own
+back/forward navigation are also available. Name resolution uses the source
+index without waiting for the prover.
 
-- **Find usages** — resolves the identifier at the caret through the engine's
-  name index, not PIDE markup, so it answers without waiting for the prover.
-- **Find definition** — the declaration *and its body*, rendered in the panel
-  rather than jumping a pane. jEdit has no such view otherwise.
-- **Find instantiations** / **Find code equations** — the two verbs above,
-  presented as a **directory → file → site tree**.
-- **Search by name** — a name field in the panel, so a finder can be run on
-  something that is not under the caret (what `code_thms c` gives you at the
-  prompt). Fuzzy completion over the index; the *Find* button offers the
-  finders that name admits, gated exactly as the right-click menu is.
-- **Sorts** — the CLI's `--sorts` as a toggle; it repaints the rows already on
-  screen rather than re-running the query.
-- **Quick-open / go to symbol** — fuzzy lookup over the index.
-- **Peek definition** — a popup that does not move the editor.
-- **Navigate back / forward** — Isabelle already ships complete jump stacks
-  (`Isabelle_Navigator`) with no default keybinding or toolbar exposure; the
-  plugin exposes them rather than re-implementing them.
+Results show line previews grouped by file; instantiations and code equations
+also group by directory. Successive result sets remain visible. Configure
+click actions in **Plugin Options → Isabelle Query**; by default double-click
+or Enter opens in the current pane, shift-click in a new pane, alt-click peeks,
+and middle-click opens a new view. Single-click does nothing.
 
-The two site views group by **directory** as well as by file, because a site
-list mixes registrations with retractions — `[code]` in one file, `[code del]`
-in another — and where in the project each is written is what tells them apart.
-The levels come from each theory's own path relative to the project root; a
-directory chain with nothing else in it (`Deep/Down/`) is shown as one node
-rather than as two arrows, so a project whose theories all sit in its root
-looks exactly as it did and one with session subdirectories gains a single
-level. Every level carries its own count, directories open down to the file
-level, and the site rows themselves are visible without a click. Usages and
-find-definition keep the flat per-theory presentation.
+Repeating a callers query refreshes that identifier's existing group, including
+changed, empty, and failed results, while unrelated groups stay visible.
+**Delete** removes the selected row. Deleting an entire result set cancels its
+pending refresh; a deleted child group or hit may reappear when that refresh
+finishes. **Clear** removes every result and cancels all pending results.
 
-Results share one tree, following jEdit's own HyperSearch Results idiom:
-grouped by file, line-numbered previews, successive result sets kept as
-siblings. Find-definition renders expanded, usages collapsed. Click policy is
-configurable (Plugin Options → Isabelle Query) through one gesture→action
-table: by default double-click and Enter open in the current pane, shift-click
-in a new pane, alt-click peeks, middle-click opens a new view, and single-click
-does nothing.
-
-The index is per project (discovered from the buffer's own path), refreshed
-from live buffer text for dirty buffers and mtime for the rest, and **refuses
-rather than truncates** above a size limit — a partial index answers "no
-usages" for a name that is used.
+The per-project UI index reads dirty buffers and checks saved-file mtimes. It
+refuses oversized projects rather than returning a partial index. Terminal
+queries hosted by this same JVM still read saved files, not editor buffers.
 
 ## The warm server
 
-A plain `isabelle query` **is** a thin Python client over a resident index: the
-component ships an external tool under the tool's own name, which `isabelle`
-dispatches to before any JVM starts. The server is the stock `isabelle server`
-extended with four commands (`query_version`, `query_open`, `query_run`,
-`query_close`) contributed as a `Server.Commands` service, so it inherits that
-server's lifecycle, discovery registry and security model (loopback bind,
-per-user password). Nothing new listens on anything, and no JVM is on the fast
-path.
+The thin client first looks for a compatible jEdit or PIDE query endpoint,
+then a dedicated server. If none is usable, it starts a fallback whose lifetime
+is tied to the client process by a private stdin pipe: **the fallback exits
+when that CLI invocation ends**. Reused jEdit/PIDE hosts and manually managed
+dedicated servers remain running. Repeated commands therefore reuse indexes
+only while their host survives; attaching does not guarantee its lifetime.
+The query transport reconnects once on failure before emitting output.
+
+For cross-command caching without jEdit/PIDE, run
+`isabelle query_server -n isabelle_query` in a separate foreground terminal.
+It serves other clients until stdin closes (Ctrl-D) or you stop it.
+
+Discovery uses Isabelle's private `servers.db` and authenticated loopback
+protocol. Embedded endpoints expose `query_version`, `query_open`, `query_run`,
+`query_close`, and `query_cache`; they cannot start prover sessions or accept
+stock-server shutdown. The client skips dead, stale, or incompatible shared
+hosts and never restarts a shared JVM. It does not select unrelated registered
+servers or stop an unverifiable endpoint to make room for a fallback.
+
+`ISABELLE_QUERY_CLIENT_SERVER` explicitly selects one registry name, bypassing
+automatic discovery; the default dedicated name is `isabelle_query`.
+`ISABELLE_QUERY_HOST=0` disables embedded advertisement. Updated components
+must be loaded at the host's next coordinated restart.
 
 ```sh
-isabelle query summary               # the thin client; starts a server on first use
-isabelle query --client-status       # what is resident, and what it cost
-isabelle query --client-stop         # shut it down
-isabelle query --no-server <args>    # no client, no server: one JVM, right here
+isabelle query --client-status       # selected host, PID, retention, open indexes
+isabelle query --client-cache off    # clear indexes and disable retention
+isabelle query --client-cache on     # reenable bounded retention
+isabelle query --client-cache clear  # clear indexes, keep retention policy
+isabelle query --client-stop         # stop a dedicated server, never an embedded host
+isabelle query --client-limit 8000 summary # request theory limit; 0 disables it
+isabelle query --no-server summary   # fresh JVM, no client or server
 ```
 
-What the warm mode saves is the **parse**, not the process start: 19 of the
-whole AFP's 20 cold seconds are reading theories, and no amount of faster
-starting touches that. Measured 2026-08-30, median of 5 — method, the full
-table and the cost breakdown are in [dev/BENCH.md](dev/BENCH.md):
+Cache controls affect all query clients of the **selected host** until changed
+or that JVM exits; they do not configure future fallback processes. Host
+startup environment likewise cannot be changed from a later terminal.
 
-| | Python `query` | JVM tool, cold | thin client |
-|---|---:|---:|---:|
-| `show` on a 2-theory AFP entry | 75 ms | 697 ms | **32 ms** |
-| `callers` on a 28-theory entry | 284 ms | 1086 ms | **112 ms** |
-| `summary` on `src/HOL` (1451 theories) | 4863 ms | 3890 ms | **64 ms** |
-| `summary --by-session` over the whole AFP | 37.4 s | 19.0 s | **0.28 s** |
+- `ISABELLE_QUERY_SERVER_LIMIT`: per-request admission limit, default **4000
+  theories**. Oversized requests are refused, never truncated; transient runs
+  obey the same limit. Use `--client-limit` to override it for a request.
+- `ISABELLE_QUERY_SERVER_CACHE_MB`: aggregate idle-retention budget, default
+  **128 MiB**. Accepts nonnegative integer MiB; unset, empty, negative,
+  nonnumeric, or overflowing values use the default. `0` disables retention.
+  Oversized roots still work transiently in root-addressed queries.
+- The budget counts logical UTF-8 bytes of normalized retained theory source,
+  once per section; it is **neither a heap nor an RSS limit** and does not
+  measure compressed payloads, decoded views, indexes, graphs, or refresh
+  overlap. Eviction removes whole indexes in least-recently-used order, with a
+  separate 256-entry cap.
+  `query_open` refuses zero-budget or individually oversized roots. Explicit
+  handles expire on eviction/close and must be reopened; the thin client's
+  root-addressed requests recreate indexes as needed.
 
-The index costs about **110 bytes per source line** of retained heap — 84 MB for
-`src/HOL`, 664 MB for the whole AFP. Process RSS runs much higher (~4.4 GB with
-the AFP loaded) because the collector keeps what it has committed and the peak
-is set by the parse, not by what is retained, so **size a host by RSS** — the
-index being smaller buys headroom for more of them, not a smaller process.
-`$ISABELLE_QUERY_SERVER_LIMIT` (default 4000 theories) **refuses rather than
-truncates**, so a stray `-R` at a whole checkout cannot quietly turn the server
-into a multi-gigabyte process.
+Before answering, the server checks `.thy`, `ROOT`, and `ROOTS` file metadata;
+changed theories are reparsed. **A stat check is not a content hash**, and
+unsaved buffers remain invisible to terminal queries.
 
-One workload goes the other way and is bypassed for it: a whole-corpus
-`shape census` returns 256 MB, which is slower through the socket than
-cold. Typing `isabelle query` runs it cold without being asked.
+Stdin requests, `dump-*`, the `shape` census view, help/version, and ambiguous
+relative file/directory arguments use the cold JVM route. Absolute paths can
+be served; `-R` is resolved by the client. A transport decline emits no output
+before the shim falls back, preserving the CLI answer and exit status.
 
-**Staleness.** The server polls before every answer — a walk over every `.thy`,
-`ROOT` and `ROOTS`, one `stat` each, no file read — which is 12 ms across
-`src/HOL`'s 1468 files. One edited theory in 1451 reparses one theory. Two
-limits worth knowing: a `stat` is not a hash, and the server has no editor, so
-**unsaved buffer changes are invisible to it**. The jEdit plugin reads dirty
-buffers itself and does not share that limitation.
+Additional switches: `ISABELLE_QUERY_NO_CLIENT=1` bypasses the thin client;
+`ISABELLE_QUERY_NO_SERVER=1` is equivalent to `--no-server`;
+`ISABELLE_QUERY_NO_CDS=1` disables the cold AppCDS archive;
+`ISABELLE_QUERY_ALWAYS_BUILD=1` always runs `scala_build`.
+`ISABELLE_QUERY_ROOT`, `ISABELLE_LAYOUT_ROOT`, and `ISABELLE_QUERY_NAMESPACE`
+travel with each request and are bound only for that request.
 
-**One router.** `lib/Tools/query` decides who answers and nothing downstream
-decides again. When the client will not serve a request it exits **97** having
-written nothing, and the shim runs the JVM instead; the answer is byte-for-byte
-the cold answer, exit status included (a declined `… | head -3` still exits
-141). Nothing is printed until the whole reply is in hand, so a decline can
-neither duplicate nor truncate output.
-
-Never served, and the list is deliberate: anything reading stdin (`-`), the
-`dump-*` development verbs, `shape census`, `-h`/`--help`/`-V`/`--version`,
-and a **relative** argument naming a file or directory here — `find .` searches
-for the regex `.` while `grep pat .` searches the directory `.`, only the
-command's grammar tells them apart, and a transport is not a parser. Absolute
-paths mean the same thing anywhere, so they are served. The list lives in
-`query_client.py` and nowhere else.
-
-```sh
-ISABELLE_QUERY_NO_CLIENT=1 …         # skip the thin client; answer in this JVM
-ISABELLE_QUERY_NO_SERVER=1 …         # skip both; the same wish as --no-server
-ISABELLE_QUERY_NO_CDS=1 …            # do not use the cold path's AppCDS archive
-ISABELLE_QUERY_ALWAYS_BUILD=1 …      # run scala_build always, not only when stale
-```
-
-`$ISABELLE_QUERY_CLIENT_SERVER` names the server (default `isabelle_query`).
-The variables the *tool* reads — `$ISABELLE_QUERY_ROOT`,
-`$ISABELLE_LAYOUT_ROOT`, `$ISABELLE_QUERY_NAMESPACE` — travel in the request
-and are bound for that request only, so one set in your shell means the same thing warm as cold,
-whoever happened to start the server.
-
-## What it reads
-
-Only **live Isar text**. A name in a comment, a `\<comment>` note, a `text`
-block or an `ML` body is not a citation, so it never invents a caller or hides
-a dead lemma — and a `definition` left behind in a comment is not an entry.
-Regions come from Isabelle's own lexer, so `by (simp add: foo) (* not bar *)`
-keeps `foo` and drops `bar`.
-
-Layout carries no meaning: Isar is whitespace-insensitive, so a declaration is
-recognised wherever a *command* can start, at any indentation and any block
-depth. Discovery loads what `isabelle build` compiles — each session's declared
-theories plus the closure of their in-entry imports.
-
-See **[SCANNING.md](SCANNING.md)** for the details: locale scope, method names
-that collide with fact names, corpus aggregation, and the prose view.
-
-## Proof-shape metrics
-
-`isabelle query shape` measures the shape of individual proof steps — how big a
-step is, how deeply nested, how many facts it holds at once, how much is
-re-said, and how it is discharged. All source-level, no build.
-
-```sh
-isabelle query shape summary                  # per-theory aggregate table
-isabelle query shape lemma <name>             # one proof: every step
-isabelle query -R AFP/thys shape census       # per-proof JSONL over a whole corpus
-```
-
-See **[METRICS.md](METRICS.md)** for the command reference, the metric table,
-and the JSONL record schema.
+For measured latency, memory use, routes, and methodology, see
+[dev/BENCH.md](dev/BENCH.md).
 
 ## Exit status
 
-`0` the command ran; `1` the request could not be resolved (a subject that is
-not a locale, not a constant, an unknown theory, entry name or path, no
-subcommand); `2` bad usage — an argument error, or **a root that could not be
-read**; `141` a write failed because a downstream reader closed the pipe (a
-whole-corpus census piped into `head`), as a shell reports for SIGPIPE.
+`0`: command ran (including an empty search); `1`: unresolved subject;
+`2`: bad usage or unreadable root; `141`: a failed write after a downstream
+reader closes the pipe. A small answer may finish writing before `head`
+closes and exit `0`. Diagnostics go to stderr; count output stays usable.
+For example, `find zzz -c` prints `0` and succeeds, while an unknown subject
+in `callees zzz -c` reports an error and exits `1`. An unreadable root never
+becomes an empty success.
 
-**A diagnostic goes to stderr and stdout stays clean**, so a count mode is
-always safe to capture. The two empty answers are different and say so:
+## Reference and development
 
-```
-$ isabelle query find zzz -c        # a real search that found nothing
-0
-$ echo $?
-0
-$ isabelle query callees zzz -c     # no entry `zzz` to have callees
-isabelle query: 'zzz' is not in the entry index
-$ echo $?
-1
-```
+The frozen Python original, [ott2/isabelle-query](https://github.com/ott2/isabelle-query),
+lives in `src/isabelle_query/` with its reference tests. Routine validation is
+`make test`; full upstream compatibility is `make compat`. See
+[tests/README.md](tests/README.md) for test accounting, gates, and evidence.
 
-`141` is not promised for *every* `| head`. When the whole answer leaves the
-process in one write no write ever fails and the status is `0` — the same as
-`seq 10 | head`, where `seq 200000 | head` dies of SIGPIPE. The producer wrote
-everything; the reader chose to stop. Either way stderr stays silent and the
-status is deterministic.
-
-A root that yields no theories is reported on stderr and never as an empty
-success, so a script can tell a broken run from an honestly empty one:
-
-```
-$ isabelle query -R /typo/path shape census
-isabelle query: /typo/path: no such directory (given to -R/--root)
-$ echo $?
-2
-```
-
-## Relationship to the Python original
-
-This is a rewrite of the pure-Python `isabelle-query`
-([ott2/isabelle-query](https://github.com/ott2/isabelle-query), on PyPI). The
-Python tree is kept **in this repository, frozen**, as the reference
-implementation and the test oracle: `src/isabelle_query/` and `tests/`. Nothing
-in the Scala engine is a translation — it is a reimplementation checked against
-the original's output.
-
-Verification is **differential**, not unit: `dev/difftest.sh` runs both tools
-over a matrix of 2,149 (corpus × invocation) cases across seven corpora,
-diffing stdout byte-for-byte and comparing exit statuses, and
-`dev/entrydiff.sh` diffs the whole entry set and theory set over the entire AFP
-and the entire distribution `src`.
-
-Where the two differ, the difference is recorded in
-[dev/DIVERGENCES.md](dev/DIVERGENCES.md) with the evidence — fifteen entries,
-most of them now closed. Six of them (D1, D2, D3, D6, D7, D10) were defects
-this port found in the Python implementation, and upstream has since fixed all
-six on its own side, so what began as 1,904 AFP declarations and 509
-distribution declarations the reference could not see is now **agreement**:
-over the whole AFP and the whole distribution `src` the two engines report the
-same `theory:line:tag:name` set, and exactly one record's span differs (D5).
-
-Exactly one entry changes shared output *on purpose*: **D15** names a theory a
-`ROOT` addresses by path (`theories "ex/Typechecking"`) the way Isabelle does,
-by its leaf — `Typechecking` — where the Python tool prints the declared
-string, which no Isabelle command answers to.
-
-Moving from the Python tool: see **[MIGRATING.md](MIGRATING.md)**.
-
-## Documentation
-
-| file | what |
+| Reference | Contents |
 |---|---|
-| [demo/DEMO.md](demo/DEMO.md) | a guided tour — a 666-line corpus written to be queried, every verb with a named thing to point at ([CHEATSHEET.md](demo/CHEATSHEET.md) is the one-line-per-feature form) |
-| [SCANNING.md](SCANNING.md) | how a project is read — declarations, citations, sessions |
-| [METRICS.md](METRICS.md) | `shape` command reference and metric definitions |
-| [MIGRATING.md](MIGRATING.md) | coming from the Python `query` |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | the CLI contract and where design decisions are recorded |
-| [PLAN.md](PLAN.md) | the rewrite's normative plan, phase by phase |
-| [dev/BENCH.md](dev/BENCH.md) | the benchmark numbers and how they were taken |
-| [dev/DIVERGENCES.md](dev/DIVERGENCES.md) | every deliberate difference from the oracle |
+| [MIGRATING.md](MIGRATING.md) | Python compatibility and migration differences |
+| [SCANNING.md](SCANNING.md) | declarations, citations, locale scope, sessions |
+| [METRICS.md](METRICS.md) | proof-shape metrics and JSONL schema |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | CLI contract and contribution rules |
+| [PLAN.md](PLAN.md) | normative rewrite plan |
+| [dev/DIVERGENCES.md](dev/DIVERGENCES.md) | differences from the Python oracle |
+| [dev/BENCH.md](dev/BENCH.md) | benchmark results and methodology |
 
 ## Authors & license
 
@@ -416,4 +275,5 @@ implementation. The Scala rewrite, the `instances` and `codeqs` verbs, the
 jEdit plugin and its IDE features (find usages/definition/instantiations/code
 equations, quick-open, peek, search-by-name, navigation exposure), the warm
 server and thin client, and the demo project are by David Wang, with Claude
-Fable 5 and Claude Opus 5. [MIT](LICENSE).
+Fable 5 and Claude Opus 5. P13 contributions are by GPT-6 Astra, Claude Fable
+5.1, and GPT-5.6 Sol. [MIT](LICENSE).

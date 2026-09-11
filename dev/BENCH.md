@@ -1,504 +1,193 @@
-# Benchmark — the three ways to ask this tool a question
+# Benchmarks and test timing
 
-Produced by `dev/bench.sh`, which is the authority on method; this file records
-what it printed and what the numbers mean.
+P13 full run, **2026-09-10: all tiers passed after exact divergence audit**.
+All **255 invocations in 69 series exited 0**, with stable repeated output and
+no timeout. All 43 output comparisons agree except the documented D12/D15
+oracle differences below. The raw harness exits 1 for those differences;
+none was silently waived. The audit also rejected a deliberately added
+unrelated field change.
 
-|  | what it is |
+## Method and environment
+
+Linux 7.1.9-1-MANJARO x86_64; Core i9-13950HX, 32 logical CPUs, 62 GiB RAM.
+Isabelle2025-2; Python query 0.8.1; Scala query **0.8.1-scala.0.2**.
+Run started at 19:47 UTC, load averages 1.96, 2.97, 2.53, and took 49.4 minutes.
+No competing builds, comparison matrix, host or GUI tests ran during timing.
+The private copied candidate's 357 manifest hashes matched before and after.
+Manifest SHA256: `6ef9d3d6b65d8a4ef82f71990460c8f29ac1f4f50534d062e7dae8fbe02d220c`.
+Query jar SHA256: `e047f3b8217c6794652a35cb40cd849caebc0086a08bd05bcac565bbb2026d29`.
+
+Corpora: AFP 2025-2 (10,336 theory files; 10,262 discovered theories) and distribution HOL.
+Warm retention was **512 MiB explicitly configured; default is 128 MiB**,
+with request limit 0. This bounds normalized source bytes, not heap or RSS;
+compression does not change that admission budget.
+Stock JVM options: `-Djava.awt.headless=true -Xms512m -Xmx4g -Xss16m`,
+with generational ZGC. No diagnostic GC logging was enabled for timings.
+The oracle imported the frozen Python source through `PYTHONPATH`, with bytecode
+writes disabled; tiny process-start timings depend on that cache state.
+
+Latency values are wall-clock **medians of three samples**, after one discarded
+warmup per series. These are not cold filesystem-cache tests. Memory values are
+single samples. Failed samples remain failures, not usable timings.
+
+| Route | Included work |
 |---|---|
-| **oracle** | the Python implementation (`query` 0.7.0 on `PATH`), cold |
-| **cold** | `isabelle query --no-server` 0.8.0-scala, a fresh JVM per invocation |
-| **warm** | `query_base/lib/scripts/query_client.py` against a resident server |
-| **delegated** | `isabelle query` with no flags, which finds that same server itself |
+| Oracle | Fresh Python process |
+| Cold | `isabelle query --no-server`, including fresh JVM/process setup |
+| Warm | Thin client using an already admitted index in the owned retained host |
+| Declined | `--client-cold`: client decline plus cold execution |
+| Auto fallback | Fresh absent explicit name: discovery, owned startup, query and teardown |
 
-The cold column says `--no-server` because since P7b that is what makes it
-cold. Without the flag `isabelle query` delegates, and the column would be
-measuring the delegated path under the cold label — the same shape of mistake
-`dev/P6C-STATUS.md` §5 records for the tiny tier's subject. The flag restores
-exactly the previous behaviour, so the figures below are unchanged.
+Warm host startup is excluded; auto startup/teardown are included. An owned
+fallback lasts for one client invocation. Census declines the warm route and
+runs cold, so its warm-column number is **not** retained-index analysis latency.
+Embedded jEdit/PIDE discovery and GUI latency are not measured.
 
-Since P7d the spellings have moved but the columns have not: a plain
-`isabelle query` now *is* the warm column (the shim in
-`query_base/lib/Tools/query` runs the thin client), the delegated column is
-what `$ISABELLE_QUERY_NO_CLIENT=1` buys, and cold is still `--no-server`,
-which routes past client and server both. The measurements stand; only the
-name of the default path changed — from the slowest warm route to the
-fastest.
+## Query latency
 
-Every figure is a **median** of 5 runs (3 for the whole-AFP tier), wall clock,
-measured around the whole invocation exactly as a user pays for it — process
-start included, because process start is the thing under discussion. A
-discarded warm-up run precedes each series, so no column is charged for
-another's page cache. Every row's three answers are compared (md5 of captured
-stdout); a disagreement is printed in the table rather than hidden.
+Milliseconds; `n/a` means no oracle verb. Equality is byte-for-byte stdout.
 
-## Machine and date
+| Corpus | Invocation | Oracle | Cold | Warm | Stdout |
+|---|---|---:|---:|---:|---|
+| Tiny | `show fair_fenum` | 124 | 697 | 45 | = |
+| Tiny | `summary` | 123 | 726 | 49 | = |
+| Tiny | `callers mono` | 121 | 732 | 46 | = |
+| Category3 | `callers comp_assoc` | 343 | 1155 | 148 | = |
+| Category3 | `callers category_axioms` | 322 | 1171 | 84 | = |
+| Category3 | `shape summary` | 955 | 1565 | 368 | = |
+| HOL | `instances comm_monoid` | n/a | 6182 | 781 | cold/warm = |
+| HOL | `codeqs rev` | n/a | 6271 | 738 | cold/warm = |
+| HOL | `summary` | 4986 | 5349 | 73 | D15; cold/warm = |
+| Whole AFP | `summary --by-session` | 37131 | 29094 | 236 | = |
+| Whole AFP | `shape census` | 178831 | 172021 | 168735 | D12/D15; cold/warm = |
+| Analysis | `summary` | 959 | 2067 | 100 | = |
+| Analysis | `callers has_integral` | 1076 | 2196 | 113 | = |
+| Analysis | `shape summary` | 6211 | 4688 | 2623 | = |
+| AutoCorres2 | `callers refines` | 966 | 2059 | 215 | = |
+| JinjaThreads | `summary` | 619 | 1678 | 96 | D15; cold/warm = |
+| JinjaThreads | `callers wf_prog` | 758 | 1834 | 197 | = |
 
-```
-date:      2026-08-28
-host:      Linux 7.1.9-1-MANJARO x86_64
-cpu:       13th Gen Intel(R) Core(TM) i9-13950HX
-cores:     32
-memory:    62 GB
-isabelle:  Isabelle2025-2
-oracle:    query 0.7.0
-rewrite:   query 0.8.0-scala
-load:      0.23 (1 min) at the start of the run — no other heavy process
-```
+Tiny is Abstract_Completeness; Analysis is HOL/Analysis. Exact audit found only:
+56 HOL summary label lines, one JinjaThreads summary label line, and 15,351
+census theory labels (D15); among 306,525 census records, only
+`Feuerbach.special` additionally differs in `proof_tokens`, Python 2,149 versus
+Scala 2,151 (D12). Every other byte/field agrees. See [DIVERGENCES.md](DIVERGENCES.md).
+HOL admission reported 1,451 theories, 78,279 entries and 1,468 fingerprinted
+files: 4,367 ms build, 7 ms best-of-five recheck, zero reparses.
 
-Tiers (a)–(d) were re-measured on **2026-08-30**, after `[p8-coldpath]` cached
-the two cheapest parts of the cold path; the numbers below are that run.
-Tier (e) and the memory table are from 2026-08-28 and are marked where they
-appear. What moved is the **cold** column, and only where the cold column was
-not already dominated by the parse — the two-theory tier lost a third
-(1091 → 697 ms), `src/HOL` barely moved (4197 → 3890 ms), and the whole-AFP row
-did not move at all. That is the same point the cost table above makes, arrived
-at from the other end.
+## Decline and owned auto fallback
 
-Corpora: an AFP checkout of the Isabelle2025-2 vintage (10,336 `.thy` files,
-10,262 loaded across 1,043 sessions, 411,181 entries) and the distribution's
-own `src`. Paths come from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO`.
+| Decline invocation | Cold ms | Warm ms | Declined ms | Stdout |
+|---|---:|---:|---:|---|
+| `show fair_fenum` | 705 | 40 | 779 | = |
+| `summary src-HOL` | 5344 | 68 | 5473 | = |
+| `instances comm_monoid src-HOL` | 6200 | 784 | 6253 | = |
 
-## (a) tiny — `Abstract_Completeness`, 2 theories, 81 entries
+| Auto summary | Cold ms | Auto ms | Stdout / endpoint cleanup |
+|---|---:|---:|---|
+| tiny summary | 712 | 1201 | =; endpoint removed |
+| HOL summary | 5380 | 5971 | =; endpoint removed |
 
-| invocation | oracle ms | cold ms | warm ms |
-|---|---:|---:|---:|
-| `show fair_fenum` [^1] | 75 | 697 | **32** |
-| `summary` | 72 | 724 | **31** |
-| `callers mono` | 77 | 716 | **35** |
+## Memory: peak RSS and retained heap
 
-The cold column here is almost pure process setup: ~0.7 s to answer a question
-about two files, of which the JVM proper is ~30 ms. That is the crossover P2
-recorded and the reason the warm mode exists. It was ~1.1 s until
-`[p8-coldpath]`; what came off is a redundant `scala_build` and the class
-loading, which is all there was to take — the remainder is the settings shell,
-the JVM, and about 40 ms of actually reading two files.
+RSS is per-invocation peak from `/usr/bin/time`, in MiB (rounded down as the
+harness prints it); it includes nonheap/native/mapped memory. The explicit
+memory-case deadline was **180 seconds**. All cases returned matching output
+and exit 0, including whole-AFP summary at `-Xmx512m`.
 
-[^1]: **This row replaces a bad one.** It read `show expand`, and
-`Abstract_Completeness` declares nothing called `expand` — so all three columns
-timed the same `No entries matching 'expand'.`, measuring the parse and the
-process start and none of the rendering, and agreeing with each other for the
-wrong reason. The old figures were 73 / 1060 / **31** ms. `fair_fenum` is a
-27-line lemma that exists. All three rows of this tier now come from the same
-2026-08-30 run, median of 5, all answers byte-identical, so the footnote's
-original worry — one row measured apart from its neighbours — no longer
-applies. (The 2026-08-28 figures it replaced were 73 / 1091 / 33.)
-
-## (b) medium — `Category3`, 28 theories
-
-| invocation | oracle ms | cold ms | warm ms |
-|---|---:|---:|---:|
-| `callers comp_assoc` (206 callers) | 284 | 1086 | **112** |
-| `callers category_axioms` (25 callers) | 279 | 1053 | **56** |
-| `shape summary` | 914 | 1507 | **354** |
-
-## (c) `src/HOL` — 1451 theories, 78,279 entries
-
-| invocation | oracle ms | cold ms | warm ms |
-|---|---:|---:|---:|
-| `instances comm_monoid` | n/a | 4429 | **353** |
-| `codeqs rev` | n/a | 4303 | **310** |
-| `summary` | 4863 | 3890 | **64** |
-
-`instances` and `codeqs` have no Python counterpart, hence no oracle column.
-This is the tier the warm mode was built for: the cold tool spends ~4.4 s
-parsing 1451 theories to answer a lookup, and answers the same question warm in
-a third of a second — or 64 ms where the answer is a table it already has.
-
-It is also the tier that shows what the cold-path caches are **not** for. They
-took ~310 ms off a two-theory query and ~60 ms off this one, because here
-almost the whole 4.4 s is the parse. Caching process setup helps exactly where
-there is little else to do.
-
-`summary` here is the one row whose three answers are **not** identical: the
-oracle reports 77,845 entries and both Scala columns 78,279. That is D2
-(`definition\<^marker>\<open>tag …\<close> name`), the documented divergence
-where the oracle's hand-rolled lexer misses a declaration Isabelle's own does
-not. The two Scala columns agree byte-for-byte with each other, which is what
-this table is checking.
-
-### What the staleness recheck costs
-
-The warm index re-stats every source file on **every** request — that is the
-whole invalidation story, and it is deliberately the expensive-but-honest
-reading rather than a timestamp on the directory.
-
-```
-first open:  2799 ms, 1451 theories, 78279 entries, 1468 files fingerprinted
-recheck:       12 ms (best of 5), 0 theories reparsed
-```
-
-12 ms to prove that 1468 files have not moved. A single edited theory reparses
-one theory (`dev/p7probe.sh` §4 measures 23 ms on a 2-theory project, dominated
-by the sweep rather than the parse).
-
-**What that 12 ms actually does**, since the number only means something with
-the mechanism beside it. There is no file watcher and no inotify: the server
-polls, on every request, *before* it answers. The sweep is a directory walk over
-every `.thy` and every `ROOT`/`ROOTS` the project could load, plus one `stat`
-each recording `(mtime, size)`. No file is read and nothing is parsed.
-
-If that fingerprint is unchanged the parsed sections stand. If anything moved,
-discovery and the header pass run again — but each theory is keyed on its own
-`(mtime, size)` *plus the hash of the project-wide custom-keyword union*, and
-every file whose key still matches comes back out of the cache. Hence one
-edited theory in 1451 reparsing one theory. The union in the key is what makes
-a `ROOT` or `keywords` change invalidate everything, which is correct rather
-than pessimistic: a new keyword can change how any theory lexes.
-
-Size travels with mtime because a coarse filesystem clock can hide an edit
-landing in the same millisecond as the previous one. Two limits follow, and
-neither is a bug so much as the cost of not reading the files:
-
-- a `stat` is not a hash, so an edit preserving both mtime and size is
-  invisible;
-- the server has no editor, so **unsaved buffer changes are invisible to it**.
-  The jEdit plugin keeps its own index and refreshes dirty buffers from live
-  text, which is why it does not share this limitation.
-
-## (d) the whole AFP — 10,336 `.thy` files
-
-RUNS=3, re-measured 2026-08-30 via `dev/bench.sh afp`. The warm column needs an
-index over the whole checkout, which the default 4000-theory cap refuses;
-`--client-limit 0` is what asks for it, and the resulting resident index is a
-~5 GB process (see the memory table).
-
-| invocation | oracle ms | cold ms | warm ms | output |
-|---|---:|---:|---:|---:|
-| `summary --by-session` | 37,425 | 19,044 | **275** | 34 KB |
-| `shape census` | 176,179 | 156,096 | 156,648 | 256 MB |
-
-Two rows, two different lessons.
-
-**`summary --by-session` is the warm mode's best case at scale**: 275 ms
-against the cold tool's 19.0 s and the oracle's 37.4 s, because everything
-expensive — parsing 10,262 theories — is already done and the answer is 34 KB.
-Once a day's editing has warmed the index, a whole-AFP overview costs about
-what a directory listing costs. This is the one row the cold-path caches do not
-touch at all: 19 s of parse does not care about 300 ms of process setup.
-
-**`shape census` is the workload the warm mode cannot help**, and the
-table now shows it being declined rather than attempted. Two structural
-reasons, neither incidental:
-
-1. `shape census` does not go through `load_index` at all — it iterates
-   sessions itself, one session live at a time, precisely so a corpus run's
-   memory is bounded by the largest session rather than by the corpus. So it
-   gets **no benefit** from a warm index.
-2. Served, it would then pay for the transport. The reply is 256 MB and
-   `query_run` is **synchronous with a single reply** — the server buffers the
-   whole answer, JSON-encodes it, and the client decodes it before writing a
-   byte. Measured at 170 s against 154 s cold before the bypass existed: the
-   deliberate design of the protocol showing its limit. A `NOTE`-per-chunk
-   variant would fix this row and cost every other row a task fork and two
-   extra messages.
-
-So a census is on the client's bypass list, and **the warm column above is the
-cold path reached through the client**: 156.6 s against 156.1 s: the ~550 ms
-difference is the client starting, declining and the shim running the query.
-You get that by typing nothing — `isabelle query shape census` routes
-itself.
-
-The two Scala columns are byte-identical at 306,525 records; the oracle's
-304,987 differ by the documented D-series.
-
-That byte-identity is not decoration here. On the first 2026-08-30 run this row
-reported a warm column of **29 ms against a 0-byte output**: P8 had changed the
-client to DECLINE with exit 97 rather than exec the cold path itself, and
-`bench.sh` was still invoking `query_client.py` directly, so it timed the
-decline and measured nothing. The cold/warm comparison in this script is what
-caught it. `bench.sh` now finishes a decline the way the shim does
-(`warm_run`), which is why the column is a real number again.
-
-## (e) heavy — one big session, and the two largest AFP entries
-
-Taken 2026-08-29, same machine and method (median of 5, load < 0.5).
-**Pre-cache:** this tier was not re-measured after `[p8-coldpath]`, so its cold
-column is pessimistic — by a few hundred ms, not proportionally, since every
-row here is parse-dominated. The tier
-exists because (a)–(b) are small and (c)–(d) are extreme; this is the middle
-a working formalization actually lives in. Corpora: `src/HOL/Analysis` (106
-theories, 178k lines, a session-less root — directory discovery on both
-sides), and the two largest AFP entries by theory volume, `AutoCorres2` (120k
-lines) and `JinjaThreads` (89k). Subjects are hot on purpose, per tier (a)'s
-rule: `has_integral` has 515 callers under the oracle, `refines` 1,063,
-`wf_prog` 200 — every row pays for a real scan, not a lucky miss.
-
-| invocation | oracle ms | cold ms | warm ms |
-|---|---:|---:|---:|
-| Analysis `summary` | 930 | 2,043 | **88** |
-| Analysis `callers has_integral` (515) | 1,115 | 2,376 | **76** |
-| Analysis `shape summary` | 6,083 | 4,911 | **2,370** |
-| AutoCorres2 `callers refines` (1,063) | 886 | 2,195 | **144** |
-| JinjaThreads `summary` | 593 | 1,838 | **80** |
-| JinjaThreads `callers wf_prog` (200) | 700 | 1,988 | **148** |
-
-Three things the middle tier shows:
-
-1. **At 100–180k lines the oracle still finishes under the JVM's start-up**,
-   so the cold rewrite loses every parse-bound row. The crossover is the one
-   compute-bound row, `shape summary`, where the engine's speed pays for the
-   JVM even cold (4.9 s against 6.1 s).
-2. **Warm is 8–15× the oracle** on lookups and citation scans — and since
-   P7d the warm column is what a plain `isabelle query` costs.
-3. The `summary` and `shape summary` rows print a DISAGREE marker: the
-   documented divergences surfacing in an unpinned run (the entry set —
-   11,274 oracle vs 11,676 rewrite on Analysis — is the D-series' "no entry
-   is ever lost" direction). The three `callers` rows agree byte for byte,
-   import-reachability filter and all.
-
-## Memory — peak RSS
-
-Taken 2026-08-28 and unaffected by `[p8-coldpath]`: an AppCDS archive is
-memory-MAPPED, shared and read-only, and skipping `scala_build` removes a
-process that had already exited. Neither moves this table.
-
-Isabelle's `etc/settings` **overwrites** `$ISABELLE_TOOL_JAVA_OPTIONS` from the
-environment, and this JVM ignores `$_JAVA_OPTIONS`, so the only heap override
-that takes effect is a line in `$ISABELLE_HOME_USER/etc/settings`. `bench.sh`
-writes one, runs, and removes it again. Anyone quoting a memory number for this
-tool has to say which heap it was taken under, or the number is the ceiling
-rather than the working set.
-
-| invocation | stock heap MB | `-Xmx512m` MB |
+| Cold invocation | Stock 4 GiB heap RSS | 512 MiB heap RSS |
 |---|---:|---:|
-| `summary` (src/HOL) | 2715 | 831 |
-| `callers comp_assoc` (Category3) | 972 | 581 |
-| `summary --by-session` (whole AFP) | 4708 | **OOM** |
+| `summary src-HOL` | 3245 | 801 |
+| `callers comp_assoc Category3` | 1004 | 500 |
+| `summary --by-session whole-AFP` | 4018 | 904 |
+| Python oracle: HOL summary | 171 | n/a |
 
-Python oracle, for scale: `query -R src/HOL summary` peaks at **171 MB**.
+The following **selected-source** heap ladder is separate, using single samples
+and the same whole-AFP summary. The 512 MiB/4 GiB summary observations come from
+the accepted direct candidate comparison; 1/2 GiB observations and all histograms
+were then measured on the identical candidate.
 
-Three things this settles, and the first corrects the record:
-
-1. **P3's 4.65 GB and P4's 4.63 GB were the ceiling, not the footprint.** The
-   stock heap here is `-Xms512m -Xmx4g`; a workload that fills it reports ~4.7 GB
-   whatever it actually needs. Capped at 512 MB, `src/HOL`'s `summary` still
-   produces byte-identical output at 831 MB — so its real working set is under
-   512 MB of heap and the 2715 MB figure is GC laziness, not demand.
-2. **The whole AFP genuinely does not fit in 512 MB**, and fails the right way:
-   `java.lang.OutOfMemoryError: Java heap space` on stderr, empty stdout, and a
-   non-zero exit. It does not answer a truncated corpus. That is worth stating
-   because "runs at 512 MB" was the shape of P4's claim, and it holds for the
-   streaming census (one session live at a time) but not for `summary
-   --by-session`, which holds every section at once.
-3. **The rewrite costs an order of magnitude more memory than the oracle** for
-   the same answer (2715 vs 171 MB on `src/HOL`, or 831 vs 171 with the heap
-   pinned). Some of that is the JVM's floor and some is that `Theory_Section`
-   keeps the source text; none of it is hidden by quoting the ceiling.
-
-A resident server holds its indexes until they are closed, so these numbers
-bound the server's too: `query_close` exists because nothing else bounds it, and
-the size cap (`ISABELLE_QUERY_SERVER_LIMIT`, default 4000 theories) exists so a
-stray `-R` at an AFP checkout cannot silently make the server a 5 GB process.
-
-### What the resident index itself costs
-
-The table above is peak RSS of a **cold** invocation, which is the parse and its
-garbage as much as the result. The server's steady state is a different and
-smaller number, measured 2026-08-30 by loading one index into a fresh server and
-forcing a GC (`jcmd GC.run`, then `GC.heap_info`):
-
-| corpus | theories | entries | retained heap |
-|---|---:|---:|---:|
-| `src/HOL` | 1,451 | 78,279 | 84 MB |
-| the whole AFP | 10,262 | 411,181 | 664 MB |
-
-Re-measured 2026-08-30 after `[index-footprint]`. The figures it replaced —
-154 MB and 1,156 MB, from the same method on 2026-08-29 — are what the index
-cost before the flat spans and the one-String-per-theory change:
-
-One index per server, so the figures are attributable rather than cumulative; an
-empty server is 100 MB of heap and 165 MB of RSS.
-
-**What it scales with is source LINES**, not entries and not theories:
-
-| corpus | lines | heap | bytes/line | bytes/entry |
+| Heap | Summary s | Summary peak RSS MiB | Retained MiB, including Scala runner | Histogram peak RSS MiB |
 |---|---:|---:|---:|---:|
-| `src/HOL/Analysis` | 177,861 | 30 MB | 177 | 2,694 |
-| `src/HOL` | 838,047 | 154 MB | 193 | 2,063 |
-| the whole AFP | 6,081,370 | 1,156 MB | 199 | 2,948 |
+| 512m | 130.25 | 910.9 | 452.1 | 953.1 |
+| 1g | 32.44 | 1421.5 | 453.6 | 1482.9 |
+| 2g | 29.49 | 2290.8 | 451.8 | 2369.2 |
+| 4g | 29.44 | 3976.4 | 450.0 | 3239.3 |
 
-Bytes-per-line is flat to within 12% across corpora spanning 34x; bytes-per-entry
-varies by 43% over the same three. So bytes-per-line is the number that
-predicts. `[index-footprint]` took it from ~190 to ~110 — `src/HOL` 194 -> 105,
-the AFP 199 -> 114, a 43-46% reduction — leaving the index at about **twice**
-the size of the source it indexes rather than four times.
+Histograms use in-process `DiagnosticCommand.gcClassHistogram`, keep all sections
+reachable through measurement, and **include the Scala runner/compiler** (G1).
+They are not CLI peak-heap measurements. Each retained 10,262 sections with
+293,394,611 normalized UTF-8 source bytes and 95,996,883 stored source-block bytes
+(279.8 and 91.5 MiB). The prior runner-inclusive baseline was 647.6 MiB; the current
+4 GiB observation is 450.0 MiB, about **30.5% less retained heap**.
 
-**RSS barely moved: 4,532 -> 4,441 MB.** The process footprint is set by the
-transient peak during the parse, not by what survives it, and ZGC does not
-uncommit. So the win is headroom — more indexes resident per server, and room
-to raise the 4,000-theory cap — and NOT a smaller process. Size a host by RSS.
+The trade is visible: 512 MiB summary now succeeds, where the prior P12 capped
+run timed out at 600 seconds, but takes about 130 seconds. Default-heap RSS still
+approaches 4 GiB and does not universally improve (HOL RSS increased). Region
+and offset arrays, normalized declaration text and other index objects remain.
+Full-source consumers still allocate decoded views; per-hit jEdit decompression
+cost and phase-by-phase allocation peaks were not measured. This does not claim
+that every whole-AFP query or jEdit workload fits a 512 MiB heap.
 
-Where it goes, at ~46 bytes of actual text per line: one `String` per line costs
-~88 B once the object header, the `byte[]` and the array slot are counted; the
-two `Array[List[(Int,Int)]]` region arrays cost 16 B of slots per line before
-any spans, and each span is a cons cell plus a boxed tuple; and `Entry.text`
-holds a SECOND copy of the declaration text that `lines` already has.
+A bounded, no-GC-diagnostics comparison recorded P12 / batched P13 / selected
+four-worker P13 whole-AFP summary at 19.96 / 61.92 / 29.44 seconds, with identical
+output. The fixed worker queue recovers 52% of batched latency but retains a
+47% cold cost versus P12 in that single-sample comparison. In full-run medians,
+whole-AFP cold summary moved from the earlier 21.43 seconds to 29.09 seconds;
+warm summary stayed near 0.23 seconds. Earlier batched-run timings are withdrawn,
+not part of this final gate.
 
-**RSS and retained heap are far apart, and both are true.** With the whole AFP
-loaded: heap 2144 MB before a GC, **1176 MB after**, and RSS **4532 MB** which
-does not move afterwards — ZGC keeps what it has committed. So "a 5 GB process"
-is the right thing to say about the machine's memory, and "1.2 GB of index" is
-the right thing to say about the data. Quote the first when sizing a host and
-the second when reasoning about the tool.
+## Reproduce privately
 
-This also settles what the cap is protecting against. It is not that the parsed
-AFP is enormous — 1.2 GB is not — it is that reaching it costs 2.1 GB of live
-heap mid-parse and leaves a 4.5 GB process behind.
+Use a frozen checkout and a matching verified component. Complete compilation
+before measuring; run no competing builds, tests or comparison matrix.
 
-## The auto-delegating CLI (P7b) — a route P8 removed
-
-Kept as a record, not as a description of the tool: `delegate.scala` was deleted
-in P8 (see README "One router"), so there is no delegated column any more. What
-the numbers still show is where the cost of a cold invocation actually sits, and
-they are the reason the interpretation below had to be rewritten.
-
-`isabelle query` with no flags, as it behaved in P7b: a fresh JVM, which then
-found the warm server and asked it instead of parsing the corpus itself. This
-section used to say "**the floor is JVM start**". That was wrong, and it was
-wrong in a way that mattered — it argued for avoiding a JVM when the thing worth
-avoiding was a parse. Measured on the same machine, 2026-08-29:
-
-| what a cold `isabelle query` pays | ms |
-|---|---:|
-| `scala_build` — a second JVM, only to check whether the component is stale | ~405 |
-| the `bin/isabelle` settings shell, sourced again by `isabelle java` | ~180 |
-| **the JVM itself** | **~30** |
-| Isabelle/Scala class loading, 53 jars | ~250 |
-| the parse — 421 ms for a 28-theory entry, 2755 ms for `src/HOL` | varies |
-
-Bare `java -version` on the bundled JDK 21 is 30 ms; `isabelle getenv` alone is
-185 ms and starts no JVM at all. Running `Query_Main` directly with a cached
-environment — no bash, no `scala_build` — costs 345 ms before any work, and
-155 ms with an AppCDS archive. So the "~0.9 s of JVM" below is really ~0.03 s of
-JVM inside ~0.9 s of process setup, most of it bash and a redundant build check.
-
-### The cold path since P8
-
-Two of those rows are now cached. Measured through the front door, median of 5,
-`summary` on a two-theory AFP entry, 2026-08-29:
-
-| | CDS on | CDS off |
-|---|---:|---:|
-| `scala_build` skipped | **722** | 828 |
-| `scala_build` forced | 906 | 1032 |
-
-`$ISABELLE_QUERY_ALWAYS_BUILD=1` and `$ISABELLE_QUERY_NO_CDS=1` are the two
-switches, and are how the right-hand column and bottom row were taken.
-
-Both are caches of derived things and **neither may change an answer**.
-`dev/p7probe.sh` §17 is what holds that: it checks the archive is generated,
-that the answer is byte-identical with it and without it, and that a corrupted,
-a truncated and an empty archive each leave stdout, stderr and the exit status
-untouched — plus a failability check that runs the same damaged archive without
-`-Xlog:disable` and requires the JVM's CDS warning to appear on stdout, which is
-the corruption the flag exists to prevent.
-
-The two savings are **not additive** — 190 + 126 rather than 382 + 250 — because
-a `scala_build` that has just run leaves the page cache warm for the JVM that
-follows. A naive sum would have promised 600 ms and delivered 310. Worth
-remembering before quoting either number on its own.
-
-Tiers (a)–(d) above WERE re-measured against this cold path on 2026-08-30 and
-carry the new figures. The P7b table immediately below, tier (e) and the memory
-table were not: they predate the caches and their cold columns are pessimistic
-by up to a third. They are kept as taken — a half-re-measured table is worse
-than a dated one — and each says so where it appears.
-
-```
-date:      2026-08-29 02:50 UTC     (same machine, load 0.31)
-runs:      median of 5
+```bash
+(
+: "${QUERY_TEST_AFP:?AFP thys directory}" "${QUERY_TEST_DISTRO:?distribution src directory}"
+: "${QUERY_VERIFIED_COMPONENT:?verified query_base snapshot directory}"
+work=$(mktemp -d "${TMPDIR:-/tmp}/query-bench.XXXXXXXX")
+mkdir "$work/home"
+cp -a "$QUERY_VERIFIED_COMPONENT" "$work/query_base"
+export USER_HOME="$work/home"
+isabelle components -u "$work/query_base"
+isabelle scala_build
+isabelle query --no-server -V
+export BENCH_CLIENT="$work/query_base/lib/scripts/query_client.py"
+export ISABELLE_QUERY_SERVER_CACHE_MB=512 RUNS=3 BENCH_MEMORY_TIMEOUT=180
+export PYTHONPATH="$PWD/src" PYTHONDONTWRITEBYTECODE=1
+unset ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_NO_CLIENT
+isabelle getenv -b ISABELLE_TOOL_JAVA_OPTIONS >"$work/java-options.txt"
+sha256sum "$work/query_base/lib/classes/isabelle_query.jar" "$BENCH_CLIENT" \
+  dev/bench.sh dev/owned-server.sh >"$work/source-sha256.txt"
+rc=0
+bash dev/bench.sh all >"$work/bench.log" 2>&1 || rc=$?
+printf 'benchmark exit: %s; retained artifacts: %s\n' "$rc" "$work"
+)
 ```
 
-| invocation | cold ms | warm ms | delegated ms |
-|---|---:|---:|---:|
-| `show fair_fenum` — 2 theories | 1090 | 37 | **973** |
-| `summary` on `src/HOL` — 1451 theories | 4194 | 68 | **1036** |
-| `instances comm_monoid` on `src/HOL` | 4586 | 338 | **1332** |
+Keep every sample/status and audit every mismatch; nonzero raw harness exit is
+not automatically a known divergence. Preserve private owner logs but never
+publish their credentials. This run stopped/reaped the owned launcher, left an
+empty private server registry, restored heap settings and had no leftover workload.
 
-**Read it as process setup plus the answer, and nothing else.** About 0.9 s of
-that column is setup in every row — of which the JVM proper is ~30 ms — so the
-tiny row is all floor and saves almost nothing (1090 → 973), while the two
-`src/HOL` rows save 3.2 s and 3.3 s — 4.0x and 3.4x — because the parse they no
-longer do was the whole cost. That asymmetry is the whole argument for a warm
-INDEX rather than a warm process, and it is why P8 could delete this column
-without giving anything up: the client already covered the case where the win is
-large, and where the win is small there was nothing to keep. Each row's
-delegated answer was compared with its cold one; a disagreement is printed in
-the table rather than hidden.
+Standalone retained profiling from the same frozen checkout:
 
-**Where the rest of a delegated invocation goes**, from
-`$ISABELLE_QUERY_SERVER_VERBOSE=1`, on the tiny row:
-
-```
-query-delegate: registry   60 ms      open servers.db (JDBC + native library)
-query-delegate: connect     6 ms      TCP, password, greeting
-query-delegate: query_run  37 ms      the request, the answer, and the JSON
-query-delegate: delegated, 105 ms
+```bash
+P13_SOURCE_HISTOGRAM="${TMPDIR:-/tmp}/query-retained.txt" P13_SOURCE_HEAP=4g \
+  bash dev/p13-source/run.sh --retain-repl "$QUERY_TEST_AFP"
 ```
 
-The registry read is the single largest item and it is **SQLite**: opening
-`$ISABELLE_HOME_USER/servers.db` loads the JDBC driver and its native library
-into a JVM that has just started. The `query_run` figure is class loading, not
-work — the same request measures ~1 ms inside the long-lived thin client.
-Neither is removable without keeping a copy of the server's password somewhere
-the Isabelle registry did not put it, and together they are why this mode is a
-convenience rather than a competitor to the client.
+The [probe](p13-source/probe.scala) owns and shuts down its worker pool, including
+on failure. Its two-theory teardown smoke covers compiled/Scala-runner success
+and post-parse I/O failure; the old-helper control reproduced the completed-run
+hang. `--retain` uses the compiled runner; `--profile` measures source payloads
+and exact reconstruction rather than total retained heap.
 
-**When each of the three warm routes wins**
+## Test command timing
 
-- **thin client** — interactive use, where 37 ms against 1090 ms is the
-  difference between a tool you keep typing at and one you stop reaching for.
-- **cold** — one-off runs, a whole-corpus census, anything reading stdin, a
-  machine with no `python3`, and any situation where a resident JVM holding an
-  index is not wanted. `--no-server` is how you say so. (P7b–P7d had a fourth
-  mode between these two, a JVM that delegated; P8 removed it.)
+The prior cached `make test` observation is **4.43 s**: **1,177 Scala passes**, **49 transport passes**, and **78 explicit nonpass dispositions**; no failures reported.
+This is one cached test run, not a latency median. The compatibility guard reused evidence:
+matrix-body identity and helper hashes were reviewed; **no fresh full oracle matrix ran**.
 
-## Reading the columns
-
-- **A small cold query loses, and no amount of engineering fixes it.** ~0.7 s
-  of process setup per invocation is a fixed toll the oracle does not pay. Note
-  *process setup*, not "JVM start": of the ~1 s it was before `[p8-coldpath]`,
-  ~405 ms was `scala_build`, ~180 ms the settings shell, ~250 ms class loading,
-  and ~30 ms the JVM. The caches took the first and most of the third; what
-  remains is the settings shell, the JVM and the work. Anything under about
-  three quarters of a second of real work is still faster in Python, cold.
-- **The cold tool wins where there is work to do.** `src/HOL summary`:
-  3890 ms against the oracle's 4863, and it finds 434 more declarations while
-  doing it.
-- **The warm client wins everywhere a human waits for an answer**: 2.3x on the
-  tiny tier, 2.5–5.0x on the medium one, 76x on a `src/HOL` lookup and 136x on
-  a whole-AFP `summary --by-session`, both against a resident index. The floor
-  is the client process itself — about 15 ms of Python start plus 16 ms of
-  imports, against a sub-millisecond round trip. Those multiples are against
-  the ORACLE; against the cold tool the same rows span 1/2 (Analysis
-  `shape summary`, tier (e)) to 1/72 (the whole-AFP `summary --by-session`).
-- **It loses on exactly one workload, and predictably**: a whole-corpus
-  `shape census`, which bypasses the index by design and returns 256 MB
-  through a protocol that buffers a whole reply. Run that one cold.
-- **What the warm client actually saves is the parse, not the process.** On
-  `src/HOL` the index costs 2799 ms to build and 12 ms to re-check; that ratio,
-  not the ~0.7 s of setup, is what makes the 76x. `[p8-coldpath]` is the
-  clearest possible demonstration: it removed a third of the setup and moved
-  this row by 60 ms. The P7b delegated column is
-  the control that proves it: a warm process with a cold parse recovered only
-  1090 → 973 ms on a two-theory entry, because there was no parse worth
-  skipping. P8 deleted that column.
-- **The round trip is not the cost.** A `query_run` against a warm index
-  measures ~1.0 ms end to end inside the client. It was 43 ms until the
-  framing's length header and payload went out in one write with `TCP_NODELAY`
-  set — two writes let Nagle hold the second segment for a delayed ACK, the
-  textbook 40 ms. Worth knowing before optimising anything else.
-
-## Reproducing
-
-```sh
-source .dev/corpora.env            # or export the two variables yourself
-dev/bench.sh tiny                  # tier (a) alone, for re-measuring one row
-dev/bench.sh small                 # tiers (a)-(c), about two minutes
-dev/bench.sh full                  # adds the whole-AFP tier
-dev/bench.sh memory                # peak RSS at both heaps
-dev/bench.sh delegate              # the auto-delegating CLI, three rows
-```
-
-`RUNS=n` overrides the sample count. The script refuses without both corpora
-and the Python oracle on `PATH` — a benchmark missing a column is not one.
+Agent attribution: GPT-6 Astra (Codex).

@@ -1,0 +1,7 @@
+# -*- shell-script -*- :mode=shellscript:
+
+PIDE_MCP_QUERY_HOME="$COMPONENT"
+ISABELLE_PIDE_MCP_QUERY_JAR="$PIDE_MCP_QUERY_HOME/lib/classes/isabelle_pide_mcp_query.jar"
+
+# External tool dispatch enters the query host before upstream PIDE MCP.
+ISABELLE_TOOLS="$ISABELLE_TOOLS:$PIDE_MCP_QUERY_HOME/lib/Tools"

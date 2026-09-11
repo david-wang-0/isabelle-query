@@ -69,7 +69,7 @@ object Discovery {
           try s.iterator().asScala.toList.sortBy(_.getFileName.toString)
           finally s.close()
         }
-        catch { case _: Exception => Nil }
+        catch { case exn: Exception if Model.recoverable(exn) => Nil }
       for (p <- items if !Files.isDirectory(p) && accept(p)) out += p
       for (p <- items if Files.isDirectory(p) && !Files.isSymbolicLink(p)) rec(p)
     }
@@ -176,7 +176,7 @@ object Discovery {
   def parse_root_sessions(root_path: JPath): List[Session_Info] = {
     val entries =
       try Sessions.parse_root_entries(Path.explode(root_path.toString))
-      catch { case ERROR(_) => Nil; case _: Exception => Nil }
+      catch { case exn: Exception if Model.recoverable(exn) => Nil }
     val abs = real(root_path)
     for (e <- entries) yield
       Session_Info(
@@ -277,7 +277,7 @@ object Discovery {
       Thy_Header.read(node, Scan.char_reader(File.read(Path.explode(path.toString))))
         .imports.map(_._1)
     }
-    catch { case _: Throwable => Nil }
+    catch { case exn: Throwable if Model.recoverable(exn) => Nil }
 
   /* The build's theory set for one session: declared theories in ROOT order,
      then the closure of their in-entry imports.  The frontier is a STACK, so

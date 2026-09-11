@@ -75,6 +75,13 @@ object Query_Search {
     case object Code_Equations extends Result_Kind(true, folders = true)
   }
 
+  /* Exact identifier and query scope, not the display label or bare name.
+     The index supplies its canonical project root; normalisation also makes
+     synthetic/headless callers agree on equivalent lexical paths. */
+  final case class Scope(root: JPath, name: String, external: Boolean, kind: Result_Kind)
+  def scope(root: JPath, name: String, external: Boolean, kind: Result_Kind): Scope =
+    Scope(root.toAbsolutePath.normalize, name, external, kind)
+
   /* One line of source.  `text` is the RAW line, as the engine returns it:
      file form, `\<alpha>` and all.  Decoding for display is the view's
      business.
@@ -254,7 +261,7 @@ object Query_Search {
     fallback: String
   ): String =
     snapshot.section(theory) match {
-      case Some(sec) if line >= 1 && line <= sec.lines.length => sec.lines(line - 1)
+      case Some(sec) if line >= 1 && line <= sec.thy_lines => sec.line(line - 1)
       case _ => fallback
     }
 
@@ -321,7 +328,7 @@ object Query_Search {
       val start = e.thy_line
       val stop = {
         val body_end = if (e.body_end_line != 0) e.body_end_line else e.thy_end
-        (if (body_end >= start) body_end else start) min sec.lines.length
+        (if (body_end >= start) body_end else start) min sec.thy_lines
       }
       val shown = if (limit > 0) (start + limit - 1) min stop else stop
       val rows =
