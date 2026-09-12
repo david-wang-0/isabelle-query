@@ -32,11 +32,11 @@ object P13_Loading {
 
   private def run(args: Array[String]): Unit = {
     if (args.contains("--fail")) check(false, "deliberate failability marker")
-    check(CLI.version == "0.8.1-scala.0.2", "CLI release version")
+    check(CLI.version == "0.8.1-scala.0.3", "CLI release version")
     val version_out = new java.io.StringWriter
     val version_err = new java.io.StringWriter
     check(CLI.run_result(List("--version"), new Out(version_out), new Out(version_err)) == 0 &&
-      version_out.toString.trim == "query 0.8.1-scala.0.2" &&
+      version_out.toString.trim == "query 0.8.1-scala.0.3" &&
       version_err.toString.isEmpty, "CLI --version output")
     val root = java.nio.file.Paths.get(args(0))
     Files.createDirectories(root)

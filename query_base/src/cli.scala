@@ -49,7 +49,7 @@ object CLI {
      monotone, never reset when the number in front of it moves.  Dots, not a
      second hyphen, so a semver comparison reads the identifiers numerically
      (`scala.0.10` after `scala.0.9`; `scala-10` would sort before `scala-9`). */
-  val version = "0.8.1-scala.0.2"
+  val version = "0.8.1-scala.0.3"
   val prog = "query"
 
   /* Exit statuses, as the CLI contract fixes them: 0 ran, 1 an unresolved
