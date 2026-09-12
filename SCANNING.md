@@ -202,6 +202,26 @@ An opener that carries no name is left unnamed rather than guessed at: `context`
 alone opens an anonymous context whose elements follow on later lines, and 430
 of the 1,247 `context` blocks over 120 AFP entries are of that kind.
 
+### Extending a target is not instantiating it
+
+`instances L` lists the lines that supply types or terms to `L` — the
+`instantiation` / `instance` arities, the `interpretation` family and
+`sublocale`. Extending `L` is a different relation, so `class X = L + …`,
+`locale X = … L …`, `subclass L`, `instance X ⊆ L` and `sublocale X ⊆ L` are
+not sites; they are the **edges** `instances L -r` walks. The closure is taken
+over live text only, by breadth-first search from `L` with a visited set, and
+each transitive row carries the member of the closure it actually writes in its
+`VIA` cell.
+
+The heads of an extension are read exactly as any other use site: the text
+after the `=` and before the first context element (`fixes`, `constrains`,
+`assumes`, `notes`, `defines`, `for`, `begin`), split on top-level `+` with
+qualifiers stripped, so `class both = side + leaf` is two edges and a `+` inside
+a term is none. An edge counts only where the extending section can see a
+declaration of that name, the same import-visibility condition a site obeys —
+and with the same limit: two projects that each declare a `ring` are not told
+apart by name, so a closure can be wider than the one Isabelle would compute.
+
 ## What counts as the project
 
 The tool reads one Isabelle **session directory** (a directory containing a

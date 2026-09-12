@@ -98,7 +98,7 @@ isabelle query refs <theory>           # citations grouped by owning theory
 isabelle query graph [citation|imports] # JSON; -f dot for Graphviz
 isabelle query unused                  # unused-entry analysis
 isabelle query methods                 # proof-method frequencies (alias: method)
-isabelle query instances <locale>      # locale/class instantiation sites
+isabelle query instances <loc> [-r]    # instantiation sites; -r walks the hierarchy
 isabelle query codeqs <const>          # declared code-equation sites
 isabelle query shape <view>            # summary|steps|lemma|widest|census
 ```
@@ -127,6 +127,13 @@ imports; see [SCANNING.md](SCANNING.md).
 setup shown by a prover's `print_interps` / `print_codesetup`. Rows have the
 form `LOCUS NAME KIND source`; unnamed sites use `?`. `--sorts` adds only the
 sort, arity, or signature written at the site, never inferred types.
+
+`instances -r` also lists the sites of everything that **extends** the subject —
+`class X = NAME + …`, `locale X = … NAME …`, `subclass`, `instance X ⊆ NAME`,
+`sublocale` — transitively, and adds a `VIA` column naming which of them each
+row writes. `nat` instantiates `comm_monoid_diff`, never `ab_semigroup_add` by
+name, so it appears only under `-r`. Without the flag the listing is the direct
+sites alone.
 
 **`codeqs` under-reports when mixfix notation hides the statement's head
 symbol.** Check source with `grep` if an answer looks short. Neither finder
