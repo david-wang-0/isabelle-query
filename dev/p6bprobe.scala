@@ -852,6 +852,26 @@ object P6B_Probe {
     loc.contains("Find instantiations") && !loc.contains("Find code equations") &&
       con.contains("Find code equations") && !con.contains("Find instantiations")
   }, Query_Name_Search.finders(snap, "magma").map(_.label).mkString(", "))
+  /* The field offers a locale the pair the right-click menu offers, in the
+     same order and under the same predicate [closure-instances]: five entries
+     for `magma`, and the fifth runs the transitive kind rather than repeating
+     the fourth.  A constant's list is unchanged -- neither instantiation
+     entry, and the code-equation one where it always was. */
+  check("a locale's field menu offers both listings, direct then transitive",
+    Query_Name_Search.finders(snap, "magma").map(_.label) ==
+      List("Find usages", "Find external usages", "Find definition",
+        "Find instantiations", "Find instantiations (transitive)"),
+    Query_Name_Search.finders(snap, "magma").map(_.label).mkString(", "))
+  check("and the transitive entry runs the transitive kind",
+    Query_Name_Search.finders(snap, "magma").map(_.kind).drop(3) ==
+      List(Query_Search.Result_Kind.Instantiations,
+        Query_Search.Result_Kind.Instantiations_Transitive),
+    Query_Name_Search.finders(snap, "magma").map(_.kind).mkString(", "))
+  check("a constant's list is exactly what it was",
+    Query_Name_Search.finders(snap, "twice").map(_.label) ==
+      List("Find usages", "Find external usages", "Find definition",
+        "Find code equations"),
+    Query_Name_Search.finders(snap, "twice").map(_.label).mkString(", "))
   check("a cold index offers only the ungated three, as the menu does",
     Query_Name_Search.finders(None, "magma") == Query_Name_Search.ungated, "")
   check("an empty field offers nothing at all",

@@ -20,11 +20,11 @@ Two decisions, and this file exists so both are testable without a display:
   * The OFFERED finders are gated by the same predicate as the context menu
     (`Query_Search.is_subject`, which is `Sites.resolve`, which is what the CLI
     exits 1 on).  Usages and definition are offered always, because they answer
-    for any name at all -- including one this project only cites.  The two site
+    for any name at all -- including one this project only cites.  The site
     verbs are offered only where they have an answer, and a COLD index (no
-    snapshot yet) offers neither: the predicate needs entries, reading it must
-    not parse on the EDT, and the same documented degradation already applies
-    to the right-click menu.
+    snapshot yet) offers none of them: the predicate needs entries, reading it
+    must not parse on the EDT, and the same documented degradation already
+    applies to the right-click menu.
 */
 
 package isabelle.jedit_query
@@ -51,8 +51,14 @@ object Query_Name_Search {
     if (name.isEmpty) Nil
     else
       ungated ::: snapshot.toList.flatMap { s =>
+        /* The direct listing and the transitive one, in the context menu's
+           order and under the context menu's single predicate: the field and
+           the right-click offer a locale the same pair, or neither. */
         (if (Query_Search.is_subject(s, name, Sites.locale_tags))
-          List(Finder("Find instantiations", Query_Search.Result_Kind.Instantiations))
+          List(
+            Finder("Find instantiations", Query_Search.Result_Kind.Instantiations),
+            Finder("Find instantiations (transitive)",
+              Query_Search.Result_Kind.Instantiations_Transitive))
          else Nil) :::
         (if (Query_Search.is_subject(s, name, Sites.constant_tags))
           List(Finder("Find code equations", Query_Search.Result_Kind.Code_Equations))
