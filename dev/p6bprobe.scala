@@ -563,6 +563,72 @@ object P6B_Probe {
     Query_Dockable.hit_html("magma", hit).contains("<i>" + hit.tag + "</i>")
   }, Query_Dockable.hit_html("magma", inst_result.groups.head.hits.head))
 
+  /* --- the transitive listing, in the panel [closure-instances] --- */
+
+  /* The same six rows section 2c hand-computed off `Closure_Fix.thy`, and the
+     same VIA values the CLI's table pins in `dev/p6bprobe.sh` -- written here
+     before the plugin seam existed.  The point of the pin is that the panel
+     adds NOTHING to the engine's answer and loses nothing from it: same loci,
+     same order, same roles, same closure members.  The direct listing of the
+     same subject stays at its one row, which is what makes the two separate
+     kinds worth having. */
+  val trans_result = Query_Search.instantiations_transitive(snapshot, "base")
+  def trans_rows: List[Query_Search.Hit] = trans_result.groups.flatMap(_.hits)
+
+  check("the panel's transitive set is the engine's, grouped by theory",
+    trans_result.hits == 6 && trans_result.theories == 1 &&
+      trans_result.refused.isEmpty,
+    trans_result.hits.toString + " sites in " + trans_result.theories.toString + " theories")
+  check("and it is the six loci of the closure, in locus order",
+    trans_rows.map(h => h.theory + ":" + h.line.toString) ==
+      List("Closure_Fix:28", "Closure_Fix:33", "Closure_Fix:43", "Closure_Fix:45",
+        "Closure_Fix:50", "Closure_Fix:55"),
+    trans_rows.map(h => h.theory + ":" + h.line.toString).mkString(", "))
+  check("each row carries the closure member it writes, as the CLI's VIA column",
+    trans_rows.map(_.via) == List("leaf", "base", "both", "mid", "qmid", "alt"),
+    trans_rows.map(_.via).mkString(", "))
+  check("and its own role and name, exactly as the direct listing would",
+    trans_rows.map(_.tag) == List("instantiation", "instantiation", "instance",
+      "instantiation", "instantiation", "instantiation") &&
+      trans_rows.map(_.name) == List("nat", "int", "prod", "fun", "unit", "option"),
+    trans_rows.map(_.tag).mkString(", ") + " / " + trans_rows.map(_.name).mkString(", "))
+  check("the label says the listing is the transitive one",
+    trans_result.label.startsWith("instantiations (transitive) of base"),
+    trans_result.label)
+  check("the DIRECT listing of the same subject is untouched: its own row, no VIA", {
+    val direct = Query_Search.instantiations(snapshot, "base")
+    direct.hits == 1 && direct.groups.flatMap(_.hits).map(_.via) == List("")
+  }, Query_Search.instantiations(snapshot, "base").hits.toString)
+
+  check("the VIA reaches the rendered leaf, after the role and in the CLI's word", {
+    val hit = trans_rows.head
+    Query_Dockable.hit_tag(hit) == "instantiation via leaf" &&
+      Query_Dockable.hit_html("base", hit).contains("<i>instantiation via leaf</i>")
+  }, Query_Dockable.hit_html("base", trans_rows.head))
+  check("and a row with no VIA renders the role alone, as it always has", {
+    val hit = inst_result.groups.head.hits.head
+    Query_Dockable.hit_tag(hit) == hit.tag && !Query_Dockable.hit_html("magma", hit).contains(" via ")
+  }, Query_Dockable.hit_tag(inst_result.groups.head.hits.head))
+
+  check("the transitive kind has the direct kind's shape",
+    Query_Search.Result_Kind.Instantiations_Transitive.expand_groups &&
+      Query_Search.Result_Kind.Instantiations_Transitive.folders, "")
+  check("and its captions are a site set's",
+    Query_Dockable.count_caption(Query_Search.Result_Kind.Instantiations_Transitive, 6, 1) ==
+      "6 sites in 1 theory" &&
+      Query_Dockable.group_caption(Query_Search.Result_Kind.Instantiations_Transitive,
+        "Closure_Fix", 6) == "Closure_Fix (6 sites)" &&
+      Query_Dockable.folder_caption(Query_Search.Result_Kind.Instantiations_Transitive,
+        "Deep", 6, 2) == "Deep (6 sites in 2 theories)",
+    Query_Dockable.count_caption(Query_Search.Result_Kind.Instantiations_Transitive, 6, 1))
+  check("an empty transitive set says what the direct one says",
+    Query_Dockable.empty_noun(Query_Search.Result_Kind.Instantiations_Transitive) ==
+      "instantiations", "")
+  check("a wrong-kinded subject is refused under -r too, with the same reason", {
+    val r = Query_Search.instantiations_transitive(snapshot, "twice")
+    r.refused.contains("not a locale or class") && r.is_empty
+  }, Query_Search.instantiations_transitive(snapshot, "twice").refused)
+
   val code_result = Query_Search.code_equations(snapshot, "twice")
   check("the panel's code-equation set matches the engine's",
     code_result.hits == expect(4) && code_result.groups.flatMap(_.hits).map(_.tag) ==
@@ -856,6 +922,21 @@ object P6B_Probe {
       menu.forall(m => action_names.contains(m) || m == Query_Dockable.NAME),
       menu.mkString(", "))
 
+    /* The transitive listing is a third site action [closure-instances]: its
+       own action name, its own label, its own menu entry, and no shortcut for
+       the same reason the other two ship none. */
+    val trans_action = "isabelle-project-query.find-instantiations-transitive"
+    check("the transitive action exists, is labelled and is on the menu",
+      action_names.contains(trans_action) &&
+        prop(trans_action + ".label").contains("Find instantiations (transitive) at caret") &&
+        menu.contains(trans_action),
+      prop(trans_action + ".label").getOrElse("<no label>"))
+    check("and ships no default shortcut", prop(trans_action + ".shortcut").isEmpty, "")
+    check("it sits directly after the direct listing on the menu",
+      menu.indexOf(trans_action) ==
+        menu.indexOf("isabelle-project-query.find-instantiations") + 1,
+      menu.mkString(", "))
+
     /* P6c: the panel's name field needs a keyboard route, and the Sorts
        toggle needs a default that is written down rather than assumed. */
     val search_action = "isabelle-project-query.search-by-name"
@@ -876,7 +957,7 @@ object P6B_Probe {
         .map(m => (m.group(1), m.group(2).trim)).toMap
     val target_re = """([\w.]+)\.(\w+)\(view""".r
     check("both action bodies resolve to a real method",
-      (new_actions ::: List(search_action)).forall { a =>
+      (new_actions ::: List(search_action, trans_action)).forall { a =>
       bodies.get(a).flatMap(b => target_re.findFirstMatchIn(b)).exists { m =>
         try {
           val cls = Class.forName(m.group(1) + "$")

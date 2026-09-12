@@ -128,6 +128,16 @@ object Query_Dockable {
     show(view).foreach(_.request(buffer, name, false, Query_Search.Result_Kind.Instantiations))
   }
 
+  /* The same subject, one link further out: the sites of everything that IS
+     it.  A separate request kind, so the direct and the transitive listing of
+     one locale are two result sets in the panel rather than one that replaces
+     the other. */
+  def find_instantiations_transitive(view: View, buffer: Buffer, name: String): Unit = {
+    GUI_Thread.require {}
+    show(view).foreach(
+      _.request(buffer, name, false, Query_Search.Result_Kind.Instantiations_Transitive))
+  }
+
   def find_code_equations(view: View, buffer: Buffer, name: String): Unit = {
     GUI_Thread.require {}
     show(view).foreach(_.request(buffer, name, false, Query_Search.Result_Kind.Code_Equations))
@@ -305,7 +315,9 @@ object Query_Dockable {
       /* A site list counts SITES, not hits: an instantiation is a place where
          something happens, and "3 hits" would describe the search rather than
          the answer. */
-      case Query_Search.Result_Kind.Instantiations | Query_Search.Result_Kind.Code_Equations =>
+      case Query_Search.Result_Kind.Instantiations |
+          Query_Search.Result_Kind.Instantiations_Transitive |
+          Query_Search.Result_Kind.Code_Equations =>
         plural(hits, "site", "sites") + " in " + plural(groups, "theory", "theories")
       case _ =>
         plural(hits, "hit", "hits") + " in " + plural(groups, "theory", "theories")
@@ -320,7 +332,9 @@ object Query_Dockable {
      reads as a different quantity. */
   def group_caption(kind: Query_Search.Result_Kind, caption: String, hits: Int): String =
     caption + " (" + (kind match {
-      case Query_Search.Result_Kind.Instantiations | Query_Search.Result_Kind.Code_Equations =>
+      case Query_Search.Result_Kind.Instantiations |
+          Query_Search.Result_Kind.Instantiations_Transitive |
+          Query_Search.Result_Kind.Code_Equations =>
         plural(hits, "site", "sites")
       case _ => hits.toString
     }) + ")"
@@ -337,7 +351,12 @@ object Query_Dockable {
   def empty_noun(kind: Query_Search.Result_Kind): String =
     kind match {
       case Query_Search.Result_Kind.Definition => "declaration"
-      case Query_Search.Result_Kind.Instantiations => "instantiations"
+      /* "no instantiations of base" for the transitive kind too: the caption
+         already carries the subject, and an empty transitive set means the
+         closure writes none either -- a second noun here would only repeat
+         what the result node above it says. */
+      case Query_Search.Result_Kind.Instantiations |
+          Query_Search.Result_Kind.Instantiations_Transitive => "instantiations"
       case Query_Search.Result_Kind.Code_Equations => "code equations"
       case _ => "usages"
     }
@@ -371,6 +390,17 @@ object Query_Dockable {
   def hit_name(hit: Query_Search.Hit, sorts: Boolean): String =
     if (sorts && hit.sorts.nonEmpty) hit.name + " :: " + hit.sorts else hit.name
 
+  /* What a site row's ROLE cell says, in ONE place because the tree renders it
+     twice -- once as HTML for the eye and once as plain text for the screen
+     reader and the type-ahead, and a cell that read differently in the two
+     would be a lie in whichever one nobody looks at.
+     Under the transitive listing the role is followed by the closure member
+     the site actually writes, the CLI's VIA column in the CLI's own word:
+     `instantiation via leaf` is why a search for `base` returned a row about
+     `nat`.  Empty `via` leaves the cell exactly as it was. */
+  def hit_tag(hit: Query_Search.Hit): String =
+    if (hit.via.isEmpty) hit.tag else hit.tag + " via " + hit.via
+
   def hit_html(name: String, hit: Query_Search.Hit, sorts: Boolean = false): String = {
     val shown = Symbol.decode(hit.text).trim
     /* A note is ABOUT the source ("[+17 more lines, to 94]"), so it carries no
@@ -393,7 +423,7 @@ object Query_Dockable {
          for the reason above. */
       if (hit.tag.nonEmpty) {
         buf ++= "<i>"
-        buf ++= escape(hit.tag)
+        buf ++= escape(Symbol.decode(hit_tag(hit)))
         buf ++= "</i>&nbsp;&nbsp;"
       }
       try {
@@ -461,7 +491,7 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
               else hit.line.toString + ": " +
                 (if (hit.name.isEmpty) ""
                  else Symbol.decode(Query_Dockable.hit_name(hit, sorts_on)) + "  ") +
-                (if (hit.tag.isEmpty) "" else hit.tag + "  ") +
+                (if (hit.tag.isEmpty) "" else Symbol.decode(Query_Dockable.hit_tag(hit)) + "  ") +
                 Symbol.decode(hit.text).trim
             case folder: Query_Search.Folder => folder.name
             case group: Query_Search.Group => group.caption
@@ -1076,6 +1106,8 @@ class Query_Dockable(view: View, position: String) extends Dockable(view, positi
                     Query_Search.definition(snapshot, req.name, index.note)
                   case Query_Search.Result_Kind.Instantiations =>
                     Query_Search.instantiations(snapshot, req.name, index.note)
+                  case Query_Search.Result_Kind.Instantiations_Transitive =>
+                    Query_Search.instantiations_transitive(snapshot, req.name, index.note)
                   case Query_Search.Result_Kind.Code_Equations =>
                     Query_Search.code_equations(snapshot, req.name, index.note)
                   case _ =>

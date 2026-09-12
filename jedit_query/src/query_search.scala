@@ -72,6 +72,15 @@ object Query_Search {
        DECLARATIONS, tens of them, where a usage list is bounded by citations;
        and the Collapse button is one click for the rare listing that is not. */
     case object Instantiations extends Result_Kind(true, folders = true)
+    /* The same question one link further out: the sites of everything that IS
+       the subject, transitively (`isabelle query instances -r`).  A KIND of
+       its own rather than a flag on the request, because a result set is
+       keyed by its kind: with a flag the two listings of one locale would
+       collide in the panel -- asking the transitive question would refresh
+       the direct set in place, and the two answers (1 site, 6 sites) could
+       never be read side by side.  Everything else about the shape is the
+       direct listing's, because a site row is still already the answer. */
+    case object Instantiations_Transitive extends Result_Kind(true, folders = true)
     case object Code_Equations extends Result_Kind(true, folders = true)
   }
 
@@ -99,9 +108,16 @@ object Query_Search {
      source writes at it, exactly as the CLI's name column carries them.  BOTH
      are kept, rather than one pre-rendered string, so the Sorts toggle
      re-renders the tree that is already on screen instead of re-running the
-     query -- a display choice must not cost a parse. */
+     query -- a display choice must not cost a parse.
+
+     `via` is the CLI's VIA column: under the TRANSITIVE listing, which member
+     of the subject's closure the site actually writes.  A row saying
+     `nat :: leaf` under a search for `base` is otherwise unexplainable, which
+     is the whole reason the engine returns it.  Empty for every other kind,
+     including the direct site listings, so no existing row changes. */
   final case class Hit(theory: String, path: Option[JPath], line: Int, text: String,
-    note: Boolean = false, tag: String = "", name: String = "", sorts: String = "")
+    note: Boolean = false, tag: String = "", name: String = "", sorts: String = "",
+    via: String = "")
 
   /* `label`, when set, replaces the bare theory name in the caption: a
      declaration's group says what the ENGINE says about it
@@ -405,12 +421,18 @@ object Query_Search {
 
   /* --- the site families (P6b) --- */
 
-  /* Both site verbs are one shape, so they are one producer: resolve the
+  /* Every site verb is one shape, so they are one producer: resolve the
      subject through the ENGINE's predicate (`Sites.resolve` -- the same
      function the context menu asks before offering the item, so the menu and
      the panel can never disagree about what a locale is), then group the sites
      by theory exactly as a usages set is grouped.  The navigation, the
-     gestures and the peek come with `Hit` and are not written again. */
+     gestures and the peek come with `Hit` and are not written again.
+
+     A `scan` answers PAIRS because the transitive one has a second thing to
+     say about each row (the closure member it writes) and the other two have
+     not: `Sites.find_instantiations_transitive` is already that shape, and the
+     direct scans are lifted into it here rather than each producer growing its
+     own loop. */
   private def sites(
     snapshot: Query_Index.Snapshot,
     kind: Result_Kind,
@@ -418,7 +440,7 @@ object Query_Search {
     noun: String,
     what: String,
     tags: Set[String],
-    scan: (List[Theory_Section], String) => List[Sites.Site],
+    scan: (List[Theory_Section], String) => List[(Sites.Site, String)],
     note: String
   ): Result =
     Sites.resolve(snapshot.sections, name, tags, what) match {
@@ -435,10 +457,10 @@ object Query_Search {
            The directory level (P6d) is unaffected: `directory_of` was already
            path arithmetic, and it now gets a path that is right. */
         val buf = mutable.LinkedHashMap.empty[JPath, (String, mutable.ListBuffer[Hit])]
-        for (site <- scan(snapshot.sections, name)) {
+        for ((site, via) <- scan(snapshot.sections, name)) {
           val hits = buf.getOrElseUpdate(site.path, (site.theory, new mutable.ListBuffer[Hit]))._2
           hits += Hit(site.theory, Some(site.path), site.line, site.text,
-            tag = site.kind, name = site.name, sorts = site.sorts)
+            tag = site.kind, name = site.name, sorts = site.sorts, via = via)
         }
         val groups =
           (for ((path, (theory, hits)) <- buf)
@@ -449,17 +471,34 @@ object Query_Search {
           definition_hit(snapshot, name), note)
     }
 
+  /* A scan that says nothing beyond the site itself, lifted to the pair the
+     producer takes. */
+  private def direct(scan: (List[Theory_Section], String) => List[Sites.Site]
+  ): (List[Theory_Section], String) => List[(Sites.Site, String)] =
+    (sections, name) => scan(sections, name).map(site => (site, ""))
+
   def instantiations(snapshot: Query_Index.Snapshot, name: String,
     note: String = ""
   ): Result =
     sites(snapshot, Result_Kind.Instantiations, name, "instantiations",
-      "a locale or class", Sites.locale_tags, Sites.find_instantiations, note)
+      "a locale or class", Sites.locale_tags, direct(Sites.find_instantiations), note)
+
+  /* The sites of the subject AND of everything that extends it, which is
+     `isabelle query instances -r` [closure-instances].  The noun says so: the
+     panel stacks result sets, and "instantiations of base" twice over with
+     different counts would be two nodes the reader cannot tell apart. */
+  def instantiations_transitive(snapshot: Query_Index.Snapshot, name: String,
+    note: String = ""
+  ): Result =
+    sites(snapshot, Result_Kind.Instantiations_Transitive, name,
+      "instantiations (transitive)", "a locale or class", Sites.locale_tags,
+      Sites.find_instantiations_transitive, note)
 
   def code_equations(snapshot: Query_Index.Snapshot, name: String,
     note: String = ""
   ): Result =
     sites(snapshot, Result_Kind.Code_Equations, name, "code equations",
-      "a constant", Sites.constant_tags, Sites.find_code_equations, note)
+      "a constant", Sites.constant_tags, direct(Sites.find_code_equations), note)
 
 
   /* --- what the menu may offer --- */

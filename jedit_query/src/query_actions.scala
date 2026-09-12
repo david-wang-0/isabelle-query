@@ -55,7 +55,7 @@ object Query_Actions {
     }
   }
 
-  /* The two site verbs.  Unlike the context menu, an action does NOT gate on
+  /* The site verbs.  Unlike the context menu, an action does NOT gate on
      the entry kind: it is reached from the keyboard or the Plugins menu, where
      there is nothing to look at that would explain a missing item, and the
      panel answers a bad subject with the reason ("'foo' is a LEMMA in Bar, not
@@ -65,6 +65,17 @@ object Query_Actions {
     GUI_Thread.require {}
     caret_word(view) match {
       case Some((buffer, word)) => Query_Dockable.find_instantiations(view, buffer, word.base)
+      case None => Query_Dockable.show(view)
+    }
+  }
+
+  /* And the same subject one link further out: the sites of everything that
+     extends it (`isabelle query instances -r`). */
+  def find_instantiations_transitive(view: View): Unit = {
+    GUI_Thread.require {}
+    caret_word(view) match {
+      case Some((buffer, word)) =>
+        Query_Dockable.find_instantiations_transitive(view, buffer, word.base)
       case None => Query_Dockable.show(view)
     }
   }

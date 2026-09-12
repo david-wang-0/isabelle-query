@@ -142,7 +142,7 @@ object Query_Context_Menu {
       menu
     }
 
-  /* The two site verbs, offered only where they have an answer.
+  /* The site verbs, offered only where they have an answer.
 
      ABSENT rather than disabled, and the choice follows the menu this class
      already builds: its contract is `null` for "nothing to contribute", and
@@ -169,10 +169,18 @@ object Query_Context_Menu {
         snapshot <- index.snapshot
       } yield snapshot
     snapshot.toList.flatMap { snap =>
+      /* The direct listing and the transitive one are offered TOGETHER or not
+         at all: they take the same subject and ask the engine's same
+         predicate, so an appearing pair with one member missing could only
+         mean the menu had grown a second rule about what a locale is. */
       (if (Query_Search.is_subject(snap, s.name, isabelle.query.Sites.locale_tags))
-        List(item("Find instantiations") {
-          Query_Dockable.find_instantiations(s.view, s.buffer, s.name)
-        })
+        List(
+          item("Find instantiations") {
+            Query_Dockable.find_instantiations(s.view, s.buffer, s.name)
+          },
+          item("Find instantiations (transitive)") {
+            Query_Dockable.find_instantiations_transitive(s.view, s.buffer, s.name)
+          })
        else Nil) :::
       (if (Query_Search.is_subject(snap, s.name, isabelle.query.Sites.constant_tags))
         List(item("Find code equations") {

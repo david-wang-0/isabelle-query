@@ -22,6 +22,11 @@
 	    isabelle.jedit_query.Query_Actions.find_instantiations(view);
 	  </CODE>
 	</ACTION>
+	<ACTION NAME="isabelle-project-query.find-instantiations-transitive">
+	  <CODE>
+	    isabelle.jedit_query.Query_Actions.find_instantiations_transitive(view);
+	  </CODE>
+	</ACTION>
 	<ACTION NAME="isabelle-project-query.find-code-equations">
 	  <CODE>
 	    isabelle.jedit_query.Query_Actions.find_code_equations(view);
