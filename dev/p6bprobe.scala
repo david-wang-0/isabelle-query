@@ -966,6 +966,18 @@ object P6B_Probe {
       prop(search_action + ".label").getOrElse("<no label>"))
     check("and ships no default shortcut either",
       prop(search_action + ".shortcut").isEmpty, "")
+    /* The plugin and the CLI are ONE release, and jEdit's Plugin Manager is
+       where a user reads which one they have.  Nothing checked that the two
+       strings agreed, and they silently did not (the props stayed at
+       `0.8.1-scala.0.2` through the `instances -r` release), so the policy is
+       pinned here rather than remembered: whatever `CLI.version` says, the
+       plugin declares. */
+    check("the plugin declares the tool's own release version",
+      prop("plugin.isabelle.jedit_query_plugin.Plugin.version")
+        .contains(isabelle.query.CLI.version),
+      prop("plugin.isabelle.jedit_query_plugin.Plugin.version").getOrElse("<unset>") +
+        " vs " + isabelle.query.CLI.version)
+
     check("the Sorts toggle has a written default, and it is off",
       prop(Query_Dockable.SORTS_PROPERTY).contains("false"),
       prop(Query_Dockable.SORTS_PROPERTY).getOrElse("<unset>"))
