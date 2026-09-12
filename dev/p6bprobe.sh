@@ -91,6 +91,7 @@ session P6B_Fix = HOL +
     Sites_Fix
     Code_Fix
     Names_Fix
+    Closure_Fix
 
 session P6B_Nested in Nested = P6B_Fix +
   theories
@@ -260,6 +261,93 @@ qed
 end
 THY
 
+# The class HIERARCHY, for `instances -r` [closure-instances].  A fourth theory
+# rather than lines added to `Sites_Fix.thy`, for the same reason `Names_Fix`
+# was a third: every line number above is an expectation.
+#
+# The hierarchy, read off the source below and hand-computed BEFORE the scan was
+# written (an arrow reads "extends"):
+#
+#     mid -> base   (8)          leaf -> mid   (11)
+#     both -> side, leaf  (17)   qmid -> base  (19, QUALIFIED)
+#     alt -> base   (25, a `subclass` inside `class alt ... begin`)
+#
+# so descendants(base) = {mid, qmid, alt, leaf, both} and the transitive sites
+# of `base` are the six arities of those classes plus its own -- every one in
+# this file except `bool :: side` (38), whose class is a SIBLING, and except the
+# three decoys (61, 65, 67) that are not live text.
+cat >"$FIX/Closure_Fix.thy" <<'THY'
+theory Closure_Fix
+  imports Main
+begin
+
+class base =
+  fixes b :: 'a
+
+class mid = base +
+  fixes m :: 'a
+
+class leaf = mid +
+  fixes l :: 'a
+
+class side =
+  fixes s :: 'a
+
+class both = side + leaf
+
+class qmid = Closure_Fix.base +
+  fixes qm :: 'a
+
+class alt =
+  fixes b' :: 'a
+begin
+subclass base ..
+end
+
+instantiation nat :: leaf
+begin
+instance ..
+end
+
+instantiation int :: base
+begin
+instance ..
+end
+
+instantiation bool :: side
+begin
+instance ..
+end
+
+instance prod :: (both, both) both ..
+
+instantiation "fun" :: (type, mid) mid
+begin
+instance ..
+end
+
+instantiation unit :: qmid
+begin
+instance ..
+end
+
+instantiation option :: (alt) alt
+begin
+instance ..
+end
+
+text \<open>
+  class ghost = base +
+    fixes g :: 'a
+\<close>
+
+(* class ghost2 = base + fixes g :: 'a *)
+
+\<^cancel>\<open>instantiation char :: base begin instance .. end\<close>
+
+end
+THY
+
 # P6d.  The DIRECTORY level, and the reason it exists: `quad` is registered in
 # one directory and RETRACTED in another.  A flat per-theory list says both
 # happen; only the layout says where.  These two theories declare their own
@@ -411,6 +499,70 @@ expect_out "codeqs fib -c"       "2" codeqs fib -c
 # hierarchy checks are measuring something else.
 expect_out "codeqs quad -c"      "3" codeqs quad -c
 
+# -r, the transitive form [closure-instances].  The counts are the ones
+# hand-computed above the `Closure_Fix.thy` heredoc; `magma` is there because
+# `semi` extends it (twice over, by the locale header AND by the `sublocale`
+# at Sites_Fix:26) and has no sites of its own, so the count must not move.
+expect_out "instances base -c (the default form is untouched)" "1" instances base -c
+expect_out "instances base -r -c"   "6" instances base -r -c
+expect_out "instances mid -r -c"    "3" instances mid -r -c
+expect_out "instances side -r -c"   "2" instances side -r -c
+expect_out "instances both -r -c (a leaf of the hierarchy)" "1" instances both -r -c
+expect_out "instances magma -r -c"  "5" instances magma -r -c
+
+# The exit contract is the same question under -r: a known subject with nothing
+# below it is an honest zero, an unknown one is still a refusal.
+expect_rc  "a known subject with no transitive sites exits 0"  0 instances semi -r
+expect_out "and says so in the same words"  "No instantiations found for 'semi'." \
+  instances semi -r
+expect_rc  "an unknown subject exits 1 under -r too"  1 instances no_such_locale_xyz -r
+expect_rc  "and a wrong-kinded one as well"           1 instances uses_interpret -r
+
+# --names: the loci, in the order the table prints them.
+expect_out "instances base -r --names" \
+'Closure_Fix:28
+Closure_Fix:33
+Closure_Fix:43
+Closure_Fix:45
+Closure_Fix:50
+Closure_Fix:55' instances base -r --names
+
+# The TABLE, column widths and all: the locus column is 14 (`Closure_Fix:28`),
+# the name column 6 (`option`), the kind column 13 (`instantiation`) and the
+# new VIA column 4 (`leaf` / `both` / `qmid`), each followed by two spaces.
+expect_out "the VIA column, and the header that says the listing is transitive" \
+'6 instantiation(s) of base (transitive):
+
+  Closure_Fix:28  nat     instantiation  leaf  instantiation nat :: leaf
+  Closure_Fix:33  int     instantiation  base  instantiation int :: base
+  Closure_Fix:43  prod    instance       both  instance prod :: (both, both) both ..
+  Closure_Fix:45  fun     instantiation  mid   instantiation "fun" :: (type, mid) mid
+  Closure_Fix:50  unit    instantiation  qmid  instantiation unit :: qmid
+  Closure_Fix:55  option  instantiation  alt   instantiation option :: (alt) alt' \
+  instances base -r
+
+# ... and WITHOUT -r there is no VIA column and no `(transitive)`: the default
+# output is what it was before this flag existed, byte for byte.
+expect_out "and none of it appears without the flag" \
+'1 instantiation(s) of base:
+
+  Closure_Fix:33  int  instantiation  instantiation int :: base' \
+  instances base
+
+# --sorts is orthogonal to -r: it re-spells the NAME cell and touches nothing
+# else, so the row still starts with a locus that pastes into `enclosing`.
+q instances base -r --sorts | sed -n 's/^  \([^ ]*\)  .*/\1/p' >"$OUT/r-loci.txt"
+# shellcheck disable=SC2046
+if [ "$(grep -c . "$OUT/r-loci.txt")" = 6 ] &&
+   grep -qF '  nat :: leaf  ' <(q instances base -r --sorts) &&
+   isabelle query -R "$FIX" enclosing $(cat "$OUT/r-loci.txt") >"$OUT/r-encl.txt" 2>/dev/null &&
+   [ "$(grep -c . "$OUT/r-encl.txt")" = 6 ]; then
+  note "-r --sorts re-spells the name cell and leaves the locus column alone"
+else
+  bad "-r --sorts re-spells the name cell and leaves the locus column alone" \
+    "$(head -2 "$OUT/r-loci.txt" | tr '\n' ' ')"
+fi
+
 # --names is the loci, and they are the tool's own span grammar: they must
 # round-trip through `enclosing`.
 q instances magma --names >"$OUT/cli-inst.txt"
@@ -540,6 +692,34 @@ echo "6. real corpora -- spot checks verified by hand"
     note "src/HOL: instances comm_monoid answers with loci"
   else
     bad "src/HOL: instances comm_monoid answers with loci" "no loci"
+  fi
+
+  # THE CASE -r EXISTS FOR, on the real thing.  `Nat.thy:213` is
+  # `instantiation nat :: comm_monoid_diff`, and `nat` is an
+  # `ab_semigroup_add` only through four class extensions in Groups.thy
+  # (comm_monoid_diff -> cancel_comm_monoid_add -> cancel_ab_semigroup_add ->
+  # ab_semigroup_add).  It writes `ab_semigroup_add` nowhere, so the default
+  # listing must NOT have it and the transitive one must.
+  direct=$(isabelle query -R "$DISTRO_HOL" instances ab_semigroup_add --names 2>/dev/null)
+  closure=$(isabelle query -R "$DISTRO_HOL" instances ab_semigroup_add -r --names 2>/dev/null)
+  if echo "$closure" | grep -qx "Nat:213" && ! echo "$direct" | grep -qx "Nat:213" &&
+     [ "$(echo "$closure" | grep -c .)" -gt "$(echo "$direct" | grep -c .)" ]; then
+    note "src/HOL: -r reaches \`instantiation nat :: comm_monoid_diff\`, four classes down" \
+      "$(echo "$direct" | grep -c .) direct, $(echo "$closure" | grep -c .) transitive"
+  else
+    bad "src/HOL: -r reaches \`instantiation nat :: comm_monoid_diff\`, four classes down" \
+      "direct=$(echo "$direct" | grep -c .) transitive=$(echo "$closure" | grep -c .)"
+  fi
+
+  # And the VIA column names the class the site actually writes, not the
+  # subject: the row for Nat:213 says `comm_monoid_diff`.
+  if isabelle query -R "$DISTRO_HOL" instances ab_semigroup_add -r 2>/dev/null |
+       grep -E '^  Nat:213 ' | grep -qE 'comm_monoid_diff +instantiation nat'; then
+    note "and its VIA cell names comm_monoid_diff, which is what the line writes"
+  else
+    bad "and its VIA cell names comm_monoid_diff, which is what the line writes" \
+      "$(isabelle query -R "$DISTRO_HOL" instances ab_semigroup_add -r 2>/dev/null |
+         grep -E '^  Nat:213 ')"
   fi
 }
 

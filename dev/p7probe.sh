@@ -554,6 +554,7 @@ p8_cases=(
   "unused"
   "methods --names"
   "instances stream"
+  "instances stream -r"
   "codeqs fair_fenum"
   "shape summary"
   "shape steps -N 3"

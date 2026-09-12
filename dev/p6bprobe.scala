@@ -131,6 +131,33 @@ object P6B_Probe {
     arity(""" bifinite \<subseteq> profinite""").mkString(","))
   check("bare `instance` has no arity", arity(" ..").isEmpty, "")
 
+  /* The class / locale expression of a DECLARATION header -- what `-r` walks
+     [closure-instances].  The header is everything up to the first context
+     element, which is where a first draft reads `fixes` as a superclass. */
+  def ext(text: String): List[String] = Sites.extends_heads(text, blank_terms(text))
+
+  check("a class extends the heads after the `=`",
+    ext("class X = A + B + fixes f :: 'a") == List("A", "B"),
+    ext("class X = A + B + fixes f :: 'a").mkString(","))
+  check("and the context element ends the expression, whichever it is",
+    ext("""class X = A + assumes eq: "a = b" """) == List("A") &&
+      ext("class X = A + constrains f :: 'a") == List("A") &&
+      ext("class X = A + notes foo = bar") == List("A"),
+    ext("""class X = A + assumes eq: "a = b" """).mkString(","))
+  check("a class with no context elements at all", ext("class X = A") == List("A"),
+    ext("class X = A").mkString(","))
+  check("a declaration that extends NOTHING has no heads",
+    ext("class X =\n  fixes f :: 'a").isEmpty && ext("locale X =").isEmpty &&
+      ext("class X").isEmpty,
+    ext("class X =\n  fixes f :: 'a").mkString(","))
+  check("a quoted and a qualified head are read as at any other use site",
+    ext("""locale X = q: "open" id + Groups.monoid plus""") ==
+      List("open", "Groups.monoid"),
+    ext("""locale X = q: "open" id + Groups.monoid plus""").mkString(","))
+  check("and a `+` inside a term is no more a separator here than anywhere else",
+    ext("""locale X = folding "\<lambda>x. x + 1" 0""") == List("folding"),
+    ext("""locale X = folding "\<lambda>x. x + 1" 0""").mkString(","))
+
   /* The head of an equation. */
   def eq(text: String): List[String] = Sites.equation_heads(text)
 
@@ -202,9 +229,9 @@ object P6B_Probe {
 
   val index = Query_Index(fix_root)
   val snapshot = index.refreshed(Map.empty)
-  /* Five: three in the root, and P6d's two in subdirectories. */
+  /* Six: four in the root, and P6d's two in subdirectories. */
   check("the fixture project indexes",
-    snapshot.theories == 5 && snapshot.entries > 0,
+    snapshot.theories == 6 && snapshot.entries > 0,
     snapshot.theories.toString + " theories, " + snapshot.entries.toString + " entries")
 
   def loci(sites: List[Sites.Site]): List[String] =
@@ -402,6 +429,85 @@ object P6B_Probe {
     labels_of(code("twice"), true) ==
       List("""twice :: nat \<Rightarrow> nat""", "twice_alt", "twice_lemmas", "twice"),
     labels_of(code("twice"), true).mkString(" | "))
+
+
+  /* ------- 2c. the hierarchy, and the transitive listing ------- */
+
+  println("2c. the class hierarchy -- edges, closure, transitive sites")
+
+  /* `Closure_Fix.thy` is written for this and nothing else, and the hierarchy
+     it declares was read off the file before the scan existed:
+
+       mid -> base (8)   leaf -> mid (11)   both -> side, leaf (17)
+       qmid -> base (19, QUALIFIED)         alt -> base (25, a `subclass`)
+
+     so the closure of `base` is everything but `side`, and its transitive sites
+     are the six arities of those classes -- not `bool :: side` (38), whose
+     class is a SIBLING, and not the `text` block, the comment or the
+     `\<^cancel>`ed line (61, 65, 67), which are not live text. */
+  def ext_of(n: String): List[String] = Sites.extenders(snapshot.sections, n).sorted
+  def desc_of(n: String): List[String] = Sites.descendants(snapshot.sections, n).sorted
+  def trans(n: String): List[(Sites.Site, String)] =
+    Sites.find_instantiations_transitive(snapshot.sections, n)
+  def trans_loci(n: String): List[String] =
+    trans(n).map(r => r._1.theory + ":" + r._1.line.toString)
+  def trans_via(n: String): List[String] = trans(n).map(_._2)
+
+  check("the direct extenders of each class in the fixture",
+    ext_of("base") == List("alt", "mid", "qmid") && ext_of("mid") == List("leaf") &&
+      ext_of("leaf") == List("both") && ext_of("side") == List("both") &&
+      ext_of("both").isEmpty,
+    ext_of("base").mkString(", ") + " / " + ext_of("leaf").mkString(", "))
+  check("a `subclass` inside a class block is an edge from the BLOCK's class",
+    ext_of("base").contains("alt"), ext_of("base").mkString(", "))
+  check("and a QUALIFIED superclass is the same edge",
+    ext_of("base").contains("qmid"), ext_of("base").mkString(", "))
+  check("a class in a `text` block, a comment or a \\<^cancel> is not an edge",
+    !ext_of("base").contains("ghost") && !ext_of("base").contains("ghost2"),
+    ext_of("base").mkString(", "))
+
+  check("the closure is every class that IS one, and excludes the sibling",
+    desc_of("base") == List("alt", "both", "leaf", "mid", "qmid") &&
+      desc_of("mid") == List("both", "leaf") && desc_of("side") == List("both") &&
+      desc_of("both").isEmpty,
+    desc_of("base").mkString(", "))
+  check("a locale is not its own descendant, and a self-edge does not loop",
+    desc_of("magma") == List("semi"), desc_of("magma").mkString(", "))
+
+  check("the transitive sites of `base` are the six arities, in locus order",
+    trans_loci("base") == List("Closure_Fix:28", "Closure_Fix:33", "Closure_Fix:43",
+      "Closure_Fix:45", "Closure_Fix:50", "Closure_Fix:55"),
+    trans_loci("base").mkString(", "))
+  check("and each row says which member of the closure it writes",
+    trans_via("base") == List("leaf", "base", "both", "mid", "qmid", "alt"),
+    trans_via("base").mkString(", "))
+  check("the sibling's own arity is not among them",
+    !trans_loci("base").contains("Closure_Fix:38") &&
+      loci(inst("side")) == List("Closure_Fix:38"),
+    loci(inst("side")).mkString(", "))
+  check("a subject part way down the chain sees only what is below it",
+    trans_loci("mid") ==
+      List("Closure_Fix:28", "Closure_Fix:43", "Closure_Fix:45") &&
+      trans_loci("side") == List("Closure_Fix:38", "Closure_Fix:43") &&
+      trans_loci("both") == List("Closure_Fix:43"),
+    trans_loci("mid").mkString(", "))
+  check("a leaf of the hierarchy answers exactly what it does without -r",
+    trans_loci("both") == loci(inst("both")) &&
+      trans_loci("qmid") == loci(inst("qmid")) && trans_loci("alt") == loci(inst("alt")),
+    trans_loci("qmid").mkString(", "))
+  check("the DEFAULT listing is untouched: one site of `base`, its own",
+    loci(inst("base")) == List("Closure_Fix:33"), loci(inst("base")).mkString(", "))
+
+  /* `sublocale semi \<subseteq> magma f ..` (Sites_Fix:26) is BOTH a site of
+     magma and the edge that brings semi's sites in.  One scan, one row per
+     line, so it is counted once and needs no deduplication pass. */
+  check("a `sublocale` line that is both a site and an edge is counted once",
+    trans_loci("magma") == loci(inst("magma")) &&
+      trans_loci("magma").count(_ == "Sites_Fix:26") == 1,
+    trans_loci("magma").mkString(", "))
+  check("a descendant with no sites of its own adds no rows",
+    trans("semi").isEmpty && trans_via("magma").forall(_ == "magma"),
+    trans_via("magma").mkString(", "))
 
 
   /* ---------------- 3. the plugin seam ---------------- */
