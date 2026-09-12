@@ -150,10 +150,12 @@ and exit `0` for a valid subject with no sites.
 ## The jEdit plugin
 
 Use the theory-buffer context menu or the **Isabelle Query** dockable for
-usages, definitions, instantiations, code equations, and search by name.
-Quick-open, peek definition, and toolbar/keyboard access to Isabelle's own
-back/forward navigation are also available. Name resolution uses the source
-index without waiting for the prover.
+usages, definitions, instantiations, code equations, and search by name. **Find
+instantiations (transitive)** is the menu entry for `instances -r`: it also
+lists the sites of every class or locale that extends the subject, each row
+naming the one it writes. Quick-open, peek definition, and toolbar/keyboard
+access to Isabelle's own back/forward navigation are also available. Name
+resolution uses the source index without waiting for the prover.
 
 Results show line previews grouped by file; instantiations and code equations
 also group by directory. Successive result sets remain visible. Configure
