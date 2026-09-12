@@ -298,7 +298,18 @@ object Sites {
      it -- no type or term is supplied -- and they already show up under
      `callers`, which is where a "who mentions L" question belongs.  Mixing
      them in would make "3 instantiations of monoid" mean two different
-     relations at once. */
+     relations at once.
+
+     They are not gone: they are the EDGES the transitive form walks
+     (`extends_edges` below), which is why the two relations have to stay
+     separate HERE.  `instances L` answers "which types and terms were supplied
+     to L, by name", and the answer to that is a set of lines each of which
+     writes `L`; `instances L -r` answers "and to anything that IS an L", whose
+     answer names L nowhere -- `nat` is a `comm_monoid_diff`, four extension
+     steps from `ab_semigroup_add`.  A listing that silently folded the second
+     into the first would have no spelling left for the first, and the count it
+     printed would depend on how the hierarchy was factored rather than on what
+     the project instantiates. */
   private val INST_CMD_RE: Pattern = Py.compile(
     """^(instantiation|instance|interpretation|global_interpretation|interpret""" +
       """|sublocale)(?![\w'])""")
@@ -481,35 +492,60 @@ object Sites {
       case Some(_) => name_at(live, skip_space(live, 0)).map(_._1).getOrElse("")
     }
 
-  /* Every instantiation site of `name` in the project, in section-load order
-     (the build's own order, so the listing is stable between runs). */
-  def find_instantiations(sections: List[Theory_Section], name: String): List[Site] = {
-    val out = new mutable.ListBuffer[Site]
+  /* The chain of enclosing named target blocks, per line -- what
+     `context L begin ... sublocale M ... end` writes that
+     `sublocale L \<subseteq> M` writes inline.  The block stack is built at most
+     once per section, and only for a section that actually asks: it is another
+     pass over the source, and most theories never need it. */
+  private def enclosing_lookup(sec: Theory_Section, live: Array[String],
+    outer: Array[String]
+  ): Int => String = {
+    var stacks: Array[List[(String, String)]] = null
+    (line: Int) =>
+      Commands.enclosing_entry(sec, line) match {
+        case Some(e) if e.name.nonEmpty && e.name != UNNAMED => e.name
+        case _ =>
+          if (stacks == null) stacks = Entries.block_stacks(outer, live)
+          val idx = line - 1
+          if (idx >= 0 && idx < stacks.length)
+            stacks(idx).lastOption.map(_._2).getOrElse("")
+          else ""
+      }
+  }
+
+  /* Every instantiation site of ANY of `names`, in section-load order (the
+     build's own order, so the listing is stable between runs), each paired with
+     the names it instantiates IN WRITTEN ORDER.
+     `instantiation bool :: "{mynull, ord}"` asked about both classes is ONE
+     site that names two.
+
+     One pass whatever the length of `names`, because each pass materialises
+     every section's two redacted views: calling the single-name scan once per
+     descendant would re-read the corpus once per class in the hierarchy.  A
+     line matched here is one site however many of the names it writes, which is
+     also what makes the transitive listing free of duplicates -- there is no
+     second scan to deduplicate against. */
+  private def instantiation_sites(sections: List[Theory_Section], names: List[String]
+  ): List[(Site, List[String])] = {
+    val out = new mutable.ListBuffer[(Site, List[String])]
     /* An `interpretation L` in a theory that does not import L's is a
        DIFFERENT locale of the same name -- one the AFP has plenty of.  Same
-       necessary condition the citation router applies (`Reach`). */
-    val reachable = Reach.site_filter(sections, name)
-    for (sec <- sections if reachable(sec.theory)) {
+       necessary condition the citation router applies (`Reach`), and it is per
+       NAME: a descendant declared elsewhere in the corpus has its own
+       visibility, not its ancestor's. */
+    val filters = names.map(n => (n, Reach.site_filter(sections, n)))
+    for {
+      sec <- sections
+      /* Which of the names this section may report at all.  Empty for most
+         sections and every name, which is what keeps the scan off the source. */
+      here = filters.collect { case (n, admits) if admits(sec.theory) => n }
+      if here.nonEmpty
+    } {
       val live = sec.live_source
       val outer = sec.outer_source
       val raw = sec.source
 
-      /* The chain of enclosing named target blocks, per line -- what
-         `context L begin ... sublocale M ... end` writes that
-         `sublocale L \<subseteq> M` writes inline.  Built at most once per
-         theory, and only for a theory that actually has a site: it is another
-         pass over the source, and most theories have none. */
-      var stacks: Array[List[(String, String)]] = null
-      def enclosing_name(line: Int): String =
-        Commands.enclosing_entry(sec, line) match {
-          case Some(e) if e.name.nonEmpty && e.name != UNNAMED => e.name
-          case _ =>
-            if (stacks == null) stacks = Entries.block_stacks(outer, live)
-            val idx = line - 1
-            if (idx >= 0 && idx < stacks.length)
-              stacks(idx).lastOption.map(_._2).getOrElse("")
-            else ""
-        }
+      val enclosing_name = enclosing_lookup(sec, live, outer)
 
       var i = 1
       while (i <= outer.length) {
@@ -529,10 +565,13 @@ object Sites {
              not an instantiation: neither has a `::`, so `arity_classes`
              answers nothing for both. */
           if (arity) {
-            if (arity_classes(body_live, body_outer).exists(denotes(_, name))) {
+            val via =
+              arity_classes(body_live, body_outer)
+                .flatMap(c => here.find(denotes(c, _))).distinct
+            if (via.nonEmpty) {
               val (ctor, sorts) = arity_parts(body_live, body_outer)
-              out += Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)),
-                if (ctor.nonEmpty) ctor else UNNAMED, sorts)
+              out += ((Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)),
+                if (ctor.nonEmpty) ctor else UNNAMED, sorts), via))
             }
           }
           else {
@@ -544,7 +583,8 @@ object Sites {
             val instances =
               expression_instances(body_live.substring(cut min body_live.length),
                 body_outer.substring(cut min body_outer.length))
-            val matched = instances.filter(qh => denotes(qh._2, name))
+            val matched = instances.filter(qh => here.exists(denotes(qh._2, _)))
+            val via = instances.flatMap(qh => here.find(denotes(qh._2, _))).distinct
             if (matched.nonEmpty) {
               /* Written first, derived second: the qualifier the author put on
                  THIS instance, else the target `sublocale L \<subseteq> M`
@@ -561,7 +601,8 @@ object Sites {
                   val ctx = enclosing_name(i)
                   if (ctx.nonEmpty) ctx else UNNAMED
                 }
-              out += Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)), label)
+              out += ((Site(sec.theory, sec.path, i, command, Py.rstrip(raw(i - 1)), label),
+                via))
             }
           }
         }
@@ -570,6 +611,208 @@ object Sites {
     }
     out.toList
   }
+
+  /* Every instantiation site of `name`.  The one-name case of the scan above,
+     which is what the default listing and both plugin verbs ask for. */
+  def find_instantiations(sections: List[Theory_Section], name: String): List[Site] =
+    instantiation_sites(sections, List(name)).map(_._1)
+
+
+  /* ------------------------------------------------------------------ */
+  /* the class / locale hierarchy, and the transitive listing            */
+  /* ------------------------------------------------------------------ */
+
+  /* THE EDGE RELATION, and the five ways the source writes one.  X extends Y
+     (an edge X -> Y) when live text says any of:
+
+       class X = ... Y ...        Y is a head of the class expression
+       locale X = ... Y ...       Y is a head of a locale-expression instance
+       subclass Y                 inside the block of `class X ... begin`
+       instance X ('<'|'\<subseteq>') Y
+       sublocale X ('<'|'\<subseteq>') Y ...
+       sublocale Y ...            inside `context X begin` / `locale X ... begin`
+
+     The first two are read off the DECLARATION's own header, which is why they
+     iterate entries rather than lines: an entry already knows where its command
+     starts and what it is called, and re-deriving either from the text would be
+     a second grammar.  The last four are commands that declare no entry, so
+     they are found the way the site scan finds its own -- at a line where a
+     command may start, on the outer view.
+
+     `interpretation` and its kin are NOT edges: they supply types or terms, so
+     the thing interpreted is an instance of the locale rather than a locale
+     that IS one, and its own instantiations say nothing about the subject's.
+
+     A `sublocale X \<subseteq> S` line is both a SITE of S (as it always was)
+     and an edge that pulls X's sites in.  That is the relation being what it
+     says: X is interpreted in S's terms there, and every instantiation of X is
+     therefore an instantiation of S.  Nothing special-cases it, because one
+     line yields at most one site per scan. */
+  final case class Extends(child: String, parent: String, theory: String)
+
+  private val EXTEND_CMD_RE: Pattern =
+    Py.compile("""^(subclass|instance|sublocale)(?![\w'])""")
+
+  /* Where a class or locale expression STOPS: the first context element of the
+     declaration.  `defines`, `for`, `begin` and `where` already end the header
+     (`HEADER_STOP_RE`); these four do not, because nothing before this needed
+     them -- a site command has no context elements. */
+  private val CONTEXT_ELEM_RE: Pattern =
+    Py.compile("""(?<![\w'])(fixes|constrains|assumes|notes)(?![\w'])""")
+
+  /* An explicit `(in c)` target modifier, which RETARGETS the command it
+     prefixes exactly as it retargets a declaration (`Entry.target`). */
+  private val IN_TARGET_RE: Pattern = Py.compile("""^\s*\(\s*in(?![\w'])\s*""")
+
+  /* The locales a `class X = ...` / `locale X = ...` header EXTENDS: the heads
+     of the expression after the `=`, up to the first context element.
+     Structure is decided on `outer` (a `+` or an `=` inside a term is neither)
+     and the names are read from `live`, the same division of labour every other
+     reader here uses -- a head may be quoted (`"open"`) or qualified
+     (`Groups.monoid`). */
+  def extends_heads(live: String, outer: String): List[String] = {
+    val n = live.length min outer.length
+    val stop =
+      Py.search_from(CONTEXT_ELEM_RE, outer, 0) match {
+        case Some(m) => m.start min n
+        case None => n
+      }
+    val eq = outer.indexOf('=')
+    if (eq < 0 || eq + 1 > stop) Nil
+    else expression_heads(live.substring(eq + 1, stop), outer.substring(eq + 1, stop))
+  }
+
+  /* Every edge in the project, in one pass.  A LIST rather than a map from
+     parent to children, because a parent is matched under `denotes` -- the
+     written spelling may be qualified -- and a map keyed by the written name
+     would answer `Groups.monoid` to a question about `monoid` only by being
+     asked twice. */
+  def extends_edges(sections: List[Theory_Section]): List[Extends] = {
+    val out = new mutable.ListBuffer[Extends]
+    for (sec <- sections) {
+      val live = sec.live_source
+      val outer = sec.outer_source
+
+      for (e <- sec.entries if locale_tags(e.tag) && e.name.nonEmpty && e.name != UNNAMED) {
+        val head = header_at(live, outer, e.thy_line)
+        for (parent <- extends_heads(head.live, head.outer))
+          out += Extends(e.name, parent, sec.theory)
+      }
+
+      val enclosing_name = enclosing_lookup(sec, live, outer)
+      var i = 1
+      while (i <= outer.length) {
+        val stripped = Py.lstrip(outer(i - 1))
+        Py.matches_at_start(EXTEND_CMD_RE, stripped).foreach { m =>
+          val command = m.group(1)
+          val head = header_at(live, outer, i)
+          val at0 = outer(i - 1).length - stripped.length + m.end
+          val at = at0 + marker_end(head.live.substring(at0 min head.live.length))
+          var body_live = head.live.substring(at min head.live.length)
+          var body_outer = head.outer.substring(at min head.outer.length)
+
+          /* `subclass (in c) Y` names its own child; otherwise the child of a
+             `subclass` is the class block it sits in. */
+          var child =
+            Py.matches_at_start(IN_TARGET_RE, body_outer) match {
+              case None => ""
+              case Some(t) =>
+                val nm = name_at(body_live, t.end).map(_._1).getOrElse("")
+                val e = paren_end(body_outer, body_outer.indexOf('('))
+                if (e > 0) {
+                  body_live = body_live.substring(e min body_live.length)
+                  body_outer = body_outer.substring(e min body_outer.length)
+                }
+                nm
+            }
+
+          val arrow = Py.matches_at_start(SUBLOCALE_TARGET_RE, body_outer)
+          val parents =
+            command match {
+              /* `instance X \<subseteq> Y` -- and nothing else `instance`
+                 writes: an arity has no arrow, and a bare `instance ..` has no
+                 name.  The inclusion is a class expression of exactly one
+                 head, so it is read by the same reader as the rest. */
+              case "instance" =>
+                if (arrow.isEmpty) Nil
+                else {
+                  if (child.isEmpty) child = sublocale_target(body_live, body_outer)
+                  expression_heads(body_live.substring(arrow.get.end min body_live.length),
+                    body_outer.substring(arrow.get.end min body_outer.length))
+                }
+              case "sublocale" =>
+                if (child.isEmpty)
+                  child =
+                    if (arrow.nonEmpty) sublocale_target(body_live, body_outer)
+                    else enclosing_name(i)
+                val cut = arrow.map(_.end).getOrElse(0)
+                expression_heads(body_live.substring(cut min body_live.length),
+                  body_outer.substring(cut min body_outer.length))
+              case _ =>
+                if (child.isEmpty) child = enclosing_name(i)
+                name_at(body_live, skip_space(body_live, 0)).map(_._1).toList
+            }
+          if (child.nonEmpty)
+            for (parent <- parents) out += Extends(child, parent, sec.theory)
+        }
+        i += 1
+      }
+    }
+    out.toList
+  }
+
+  /* The classes and locales that extend `name` DIRECTLY.  An edge counts only
+     where its section can see the declaration of `name`, the same necessary
+     condition a site obeys -- two AFP entries each declaring a `monoid` do not
+     extend each other's.  A self-edge (`sublocale L < dual: L ...`) is not an
+     extension and is dropped here rather than left for the caller. */
+  def extenders(sections: List[Theory_Section], name: String): List[String] =
+    extenders_of(extends_edges(sections), Reach.site_filter(sections, name), name)
+
+  private def extenders_of(edges: List[Extends], admits: String => Boolean,
+    name: String
+  ): List[String] =
+    edges.collect {
+      case e if denotes(e.parent, name) && !denotes(e.child, name) && admits(e.theory) =>
+        e.child
+    }.distinct
+
+  /* Everything that IS a `name`, transitively: breadth-first over the edge
+     relation, `name` itself excluded (it is not its own descendant) and a
+     visited set so that a cycle -- which Isabelle's own checks rule out, but a
+     text scan of a half-written theory does not -- terminates rather than
+     hangs.  Breadth-first rather than depth-first only so that the list reads
+     like the hierarchy; the listing it feeds is ordered by locus, not by
+     this. */
+  def descendants(sections: List[Theory_Section], name: String): List[String] = {
+    val edges = extends_edges(sections)
+    val filters = mutable.Map.empty[String, String => Boolean]
+    def admits(n: String): String => Boolean =
+      filters.getOrElseUpdate(n, Reach.site_filter(sections, n))
+
+    val seen = mutable.Set(name)
+    val out = new mutable.ListBuffer[String]
+    val queue = mutable.Queue(name)
+    while (queue.nonEmpty) {
+      val here = queue.dequeue()
+      for (child <- extenders_of(edges, admits(here), here) if !seen(child)) {
+        seen += child
+        out += child
+        queue += child
+      }
+    }
+    out.toList
+  }
+
+  /* The transitive instantiation sites of `name`: every site of `name` itself
+     and of everything that extends it, deduplicated by construction (one scan,
+     one row per line) and each carrying the names of the closure it actually
+     writes -- the `via` column, which is what makes a row naming neither the
+     subject nor anything the reader recognises explicable. */
+  def find_instantiations_transitive(sections: List[Theory_Section], name: String
+  ): List[(Site, String)] =
+    instantiation_sites(sections, name :: descendants(sections, name))
+      .map { case (site, via) => (site, via.mkString(", ")) }
 
 
   /* ------------------------------------------------------------------ */
@@ -1096,9 +1339,10 @@ object Sites {
      than one theory, which cost the two verbs the round trip their own
      `--names` mode exists for: on a corpus with two `Examples`, the locus a
      row printed was not one `enclosing` could resolve back to that row. */
-  private def emit(out: Out, sections: List[Theory_Section], sites: List[Site],
-    name: String, noun: String, flags: Flags
+  private def emit(out: Out, sections: List[Theory_Section], rows: List[(Site, String)],
+    name: String, noun: String, flags: Flags, transitive: Boolean = false
   ): Unit = {
+    val sites = rows.map(_._1)
     if (flags.mode == "count") out.println(sites.length.toString)
     else {
       val thy_labels = Render.locus_labels(sections)
@@ -1110,11 +1354,20 @@ object Sites {
         val loc_w = loci.map(_.length).max
         val name_w = labels.map(_.length).max
         val kind_w = sites.map(_.kind.length).max
-        out.println(s"${sites.length} $noun(s) of $name:\n")
-        for (((s, label), loc) <- sites.zip(labels).zip(loci)) {
+        /* The VIA column exists only where it says something: without `-r`
+           every row is a site of the subject, and a column repeating the
+           subject's own name on every line would be noise.  So the default
+           listing is the four columns it has always been, byte for byte. */
+        val vias = rows.map(_._2)
+        val via_w = if (transitive) vias.map(_.length).max else 0
+        out.println(
+          s"${sites.length} $noun(s) of $name${if (transitive) " (transitive)" else ""}:\n")
+        for ((((s, label), loc), via) <- sites.zip(labels).zip(loci).zip(vias)) {
           out.println(s"  ${loc + " " * (loc_w - loc.length)}  " +
             s"${label + " " * (name_w - label.length)}  " +
-            s"${s.kind + " " * (kind_w - s.kind.length)}  ${Py.strip(s.text)}")
+            s"${s.kind + " " * (kind_w - s.kind.length)}  " +
+            (if (transitive) via + " " * (via_w - via.length) + "  " else "") +
+            Py.strip(s.text))
         }
       }
     }
@@ -1143,13 +1396,21 @@ object Sites {
     flags: Flags
   ): Unit =
     with_subject(out, err, sections, name, locale_tags, "a locale or class") { _ =>
-      emit(out, sections, find_instantiations(sections, name), name, "instantiation", flags)
+      /* `-r` widens WHAT is asked about, not what counts as an answer: the
+         resolution and the exit contract above are the same question either
+         way, so a subject with no transitive sites is the family's honest zero
+         and an unknown one is still a refusal. */
+      val rows =
+        if (flags.recursive) find_instantiations_transitive(sections, name)
+        else find_instantiations(sections, name).map(s => (s, ""))
+      emit(out, sections, rows, name, "instantiation", flags, flags.recursive)
     }
 
   def cmd_codeqs(out: Out, err: Out, sections: List[Theory_Section], name: String,
     flags: Flags
   ): Unit =
     with_subject(out, err, sections, name, constant_tags, "a constant") { _ =>
-      emit(out, sections, find_code_equations(sections, name), name, "code equation", flags)
+      emit(out, sections, find_code_equations(sections, name).map(s => (s, "")), name,
+        "code equation", flags)
     }
 }

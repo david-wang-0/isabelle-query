@@ -341,6 +341,12 @@ object CLI {
       List(count_flag.copy(help = "just print the site count"),
         names_flag.copy(help =
           "bare `THEORY:LINE` loci, one per line, for piping into `enclosing`"),
+        recursive_flag.copy(help =
+          "also the sites of every class or locale that extends NAME, transitively " +
+            "(`class X = NAME + ...`, `subclass`, `instance X \\<subseteq> NAME`, " +
+            "`sublocale`).  Adds a VIA column naming, per row, which of them the " +
+            "site writes -- `nat` instantiates `comm_monoid_diff`, never " +
+            "`ab_semigroup_add` by name."),
         sorts_flag),
       List(Pos("name", "+", "locale or class name(s).  Reports the DECLARED SOURCE " +
         "sites, which is the complement of Isar's `print_interps`: that needs a " +
