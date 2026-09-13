@@ -62,7 +62,12 @@ method-vs-fact router, the `M1`–`M6` metric definitions.
 
 - **`instances NAME`** — where a locale or class is instantiated
   (`instantiation`, `instance`, `interpretation`, `global_interpretation`,
-  `sublocale`).
+  `sublocale`); with **`-r`** also the sites of everything that *extends* the
+  subject, transitively (`class X = NAME + …`, `locale X = … NAME …`,
+  `subclass`, `instance X ⊆ NAME`, `sublocale`), each row carrying a `VIA`
+  column that names which member of that closure the line writes. `nat`
+  instantiates `comm_monoid_diff` and never writes `ab_semigroup_add`, so it
+  is reported for the latter only under `-r`.
 - **`codeqs NAME`** — declared code-equation sites of a constant: `[code]` and
   kin, `declare c [code …]`, `lemmas … [code] = …`, and the constant's own
   `fun`/`primrec`/`definition` default equations.
@@ -74,7 +79,9 @@ method-vs-fact router, the `M1`–`M6` metric definitions.
 - **An Isabelle/jEdit plugin** — find usages, find definition, find
   instantiations, find code equations, search by name, quick-open, peek, and
   toolbar/keyboard exposure for Isabelle's existing navigate-back/forward
-  stacks.
+  stacks. **Find instantiations (transitive)** is the menu's form of
+  `instances -r`, and its rows name the member of the closure they write the
+  same way the CLI's `VIA` column does.
 - **Resident query hosts and cache controls** — shared jEdit/PIDE endpoints,
   dedicated servers, and a stdlib-only Python client. Retention is bounded and
   controlled per host; see [README.md](README.md#the-warm-server), including
