@@ -435,16 +435,20 @@ object P6B_Probe {
 
   println("2c. the class hierarchy -- edges, closure, transitive sites")
 
-  /* `Closure_Fix.thy` is written for this and nothing else, and the hierarchy
-     it declares was read off the file before the scan existed:
+  /* `Closure_Fix.thy` is written for this and nothing else, it is a theory
+     `isabelle build` accepts, and the hierarchy it declares was read off the
+     file before the scan existed:
 
-       mid -> base (8)   leaf -> mid (11)   both -> side, leaf (17)
-       qmid -> base (19, QUALIFIED)         alt -> base (25, a `subclass`)
+       base -> hasb (8)  mid -> base (11)   leaf -> mid (14)
+       side -> hasb (17) both -> side, leaf (20)
+       qmid -> base (22, QUALIFIED)         alt -> base (28, a `subclass`)
 
-     so the closure of `base` is everything but `side`, and its transitive sites
-     are the six arities of those classes -- not `bool :: side` (38), whose
-     class is a SIBLING, and not the `text` block, the comment or the
-     `\<^cancel>`ed line (61, 65, 67), which are not live text. */
+     so the closure of `base` is everything but `side` and its own parent
+     `hasb`, and its transitive sites are the six arities of those classes --
+     not `bool :: side` (44), whose class is a SIBLING, not
+     `prod :: (hasb, hasb) hasb` (50), whose class is ABOVE base, and not the
+     `text` block, the comment or the `\<^cancel>`ed line (78, 82, 84), which
+     are not live text. */
   def ext_of(n: String): List[String] = Sites.extenders(snapshot.sections, n).sorted
   def desc_of(n: String): List[String] = Sites.descendants(snapshot.sections, n).sorted
   def trans(n: String): List[(Sites.Site, String)] =
@@ -456,7 +460,7 @@ object P6B_Probe {
   check("the direct extenders of each class in the fixture",
     ext_of("base") == List("alt", "mid", "qmid") && ext_of("mid") == List("leaf") &&
       ext_of("leaf") == List("both") && ext_of("side") == List("both") &&
-      ext_of("both").isEmpty,
+      ext_of("both").isEmpty && ext_of("hasb") == List("alt", "base", "side"),
     ext_of("base").mkString(", ") + " / " + ext_of("leaf").mkString(", "))
   check("a `subclass` inside a class block is an edge from the BLOCK's class",
     ext_of("base").contains("alt"), ext_of("base").mkString(", "))
@@ -473,30 +477,36 @@ object P6B_Probe {
     desc_of("base").mkString(", "))
   check("a locale is not its own descendant, and a self-edge does not loop",
     desc_of("magma") == List("semi"), desc_of("magma").mkString(", "))
+  check("the closure runs DOWN the hierarchy: base's parent is not in it",
+    !desc_of("base").contains("hasb") &&
+      desc_of("hasb") == List("alt", "base", "both", "leaf", "mid", "qmid", "side"),
+    desc_of("hasb").mkString(", "))
 
   check("the transitive sites of `base` are the six arities, in locus order",
-    trans_loci("base") == List("Closure_Fix:28", "Closure_Fix:33", "Closure_Fix:43",
-      "Closure_Fix:45", "Closure_Fix:50", "Closure_Fix:55"),
+    trans_loci("base") == List("Closure_Fix:32", "Closure_Fix:38", "Closure_Fix:56",
+      "Closure_Fix:59", "Closure_Fix:65", "Closure_Fix:71"),
     trans_loci("base").mkString(", "))
   check("and each row says which member of the closure it writes",
     trans_via("base") == List("leaf", "base", "both", "mid", "qmid", "alt"),
     trans_via("base").mkString(", "))
-  check("the sibling's own arity is not among them",
-    !trans_loci("base").contains("Closure_Fix:38") &&
-      loci(inst("side")) == List("Closure_Fix:38"),
-    loci(inst("side")).mkString(", "))
+  check("neither the sibling's own arity nor the parent's is among them",
+    !trans_loci("base").contains("Closure_Fix:44") &&
+      loci(inst("side")) == List("Closure_Fix:44") &&
+      !trans_loci("base").contains("Closure_Fix:50") &&
+      loci(inst("hasb")) == List("Closure_Fix:50"),
+    loci(inst("side")).mkString(", ") + " / " + loci(inst("hasb")).mkString(", "))
   check("a subject part way down the chain sees only what is below it",
     trans_loci("mid") ==
-      List("Closure_Fix:28", "Closure_Fix:43", "Closure_Fix:45") &&
-      trans_loci("side") == List("Closure_Fix:38", "Closure_Fix:43") &&
-      trans_loci("both") == List("Closure_Fix:43"),
+      List("Closure_Fix:32", "Closure_Fix:56", "Closure_Fix:59") &&
+      trans_loci("side") == List("Closure_Fix:44", "Closure_Fix:56") &&
+      trans_loci("both") == List("Closure_Fix:56"),
     trans_loci("mid").mkString(", "))
   check("a leaf of the hierarchy answers exactly what it does without -r",
     trans_loci("both") == loci(inst("both")) &&
       trans_loci("qmid") == loci(inst("qmid")) && trans_loci("alt") == loci(inst("alt")),
     trans_loci("qmid").mkString(", "))
   check("the DEFAULT listing is untouched: one site of `base`, its own",
-    loci(inst("base")) == List("Closure_Fix:33"), loci(inst("base")).mkString(", "))
+    loci(inst("base")) == List("Closure_Fix:38"), loci(inst("base")).mkString(", "))
 
   /* `sublocale semi \<subseteq> magma f ..` (Sites_Fix:26) is BOTH a site of
      magma and the edge that brings semi's sites in.  One scan, one row per
@@ -581,8 +591,8 @@ object P6B_Probe {
     trans_result.hits.toString + " sites in " + trans_result.theories.toString + " theories")
   check("and it is the six loci of the closure, in locus order",
     trans_rows.map(h => h.theory + ":" + h.line.toString) ==
-      List("Closure_Fix:28", "Closure_Fix:33", "Closure_Fix:43", "Closure_Fix:45",
-        "Closure_Fix:50", "Closure_Fix:55"),
+      List("Closure_Fix:32", "Closure_Fix:38", "Closure_Fix:56", "Closure_Fix:59",
+        "Closure_Fix:65", "Closure_Fix:71"),
     trans_rows.map(h => h.theory + ":" + h.line.toString).mkString(", "))
   check("each row carries the closure member it writes, as the CLI's VIA column",
     trans_rows.map(_.via) == List("leaf", "base", "both", "mid", "qmid", "alt"),

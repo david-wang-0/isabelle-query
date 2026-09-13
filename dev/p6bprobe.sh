@@ -265,75 +265,102 @@ THY
 # rather than lines added to `Sites_Fix.thy`, for the same reason `Names_Fix`
 # was a third: every line number above is an expectation.
 #
+# It is REAL Isabelle: `isabelle build -d $FIX P6B_Fix` accepts this theory, so
+# every class below has a parameter something can define and an axiom something
+# can prove, and each arity is one Isabelle would grant.  A fixture the prover
+# rejects is not a fixture for a tool that answers questions about Isabelle --
+# the first draft wrote `subclass base` in a context with no `b` in it, which
+# parses and cannot hold.
+#
 # The hierarchy, read off the source below and hand-computed BEFORE the scan was
 # written (an arrow reads "extends"):
 #
-#     mid -> base   (8)          leaf -> mid   (11)
-#     both -> side, leaf  (17)   qmid -> base  (19, QUALIFIED)
-#     alt -> base   (25, a `subclass` inside `class alt ... begin`)
+#     base -> hasb  (8)          mid -> base   (11)
+#     leaf -> mid   (14)         side -> hasb  (17)
+#     both -> side, leaf  (20)   qmid -> base  (22, QUALIFIED)
+#     alt -> hasb   (25), alt -> base  (28, a `subclass` inside alt's block)
 #
 # so descendants(base) = {mid, qmid, alt, leaf, both} and the transitive sites
 # of `base` are the six arities of those classes plus its own -- every one in
-# this file except `bool :: side` (38), whose class is a SIBLING, and except the
-# three decoys (61, 65, 67) that are not live text.
+# this file except `bool :: side` (44), whose class is a SIBLING, except
+# `prod :: (hasb, hasb) hasb` (50), whose class is base's PARENT and which is
+# there so that line 56 can be a standalone `instance` with `b` already
+# defined, and except the three decoys (78, 82, 84) that are not live text.
 cat >"$FIX/Closure_Fix.thy" <<'THY'
 theory Closure_Fix
   imports Main
 begin
 
-class base =
+class hasb =
   fixes b :: 'a
 
+class base = hasb +
+  assumes base_refl: "b = b"
+
 class mid = base +
-  fixes m :: 'a
+  assumes mid_refl: "b = b"
 
 class leaf = mid +
-  fixes l :: 'a
+  assumes leaf_refl: "b = b"
 
-class side =
-  fixes s :: 'a
+class side = hasb +
+  assumes side_refl: "b = b"
 
 class both = side + leaf
 
 class qmid = Closure_Fix.base +
-  fixes qm :: 'a
+  assumes qmid_refl: "b = b"
 
-class alt =
-  fixes b' :: 'a
+class alt = hasb +
+  assumes alt_refl: "b = b"
 begin
-subclass base ..
+subclass base
+  by standard simp
 end
 
 instantiation nat :: leaf
 begin
-instance ..
+definition b_nat :: nat where "b_nat = 0"
+instance by standard simp
 end
 
 instantiation int :: base
 begin
-instance ..
+definition b_int :: int where "b_int = 0"
+instance by standard simp
 end
 
 instantiation bool :: side
 begin
+definition b_bool :: bool where "b_bool = False"
+instance by standard simp
+end
+
+instantiation prod :: (hasb, hasb) hasb
+begin
+definition b_prod :: "'a \<times> 'b" where "b_prod = (b, b)"
 instance ..
 end
 
-instance prod :: (both, both) both ..
+instance prod :: (both, both) both
+  by standard simp
 
 instantiation "fun" :: (type, mid) mid
 begin
-instance ..
+definition b_fun :: "'a \<Rightarrow> 'b" where "b_fun = (\<lambda>_. b)"
+instance by standard simp
 end
 
 instantiation unit :: qmid
 begin
-instance ..
+definition b_unit :: unit where "b_unit = ()"
+instance by standard simp
 end
 
 instantiation option :: (alt) alt
 begin
-instance ..
+definition b_option :: "'a option" where "b_option = Some b"
+instance by standard simp
 end
 
 text \<open>
@@ -509,6 +536,13 @@ expect_out "instances mid -r -c"    "3" instances mid -r -c
 expect_out "instances side -r -c"   "2" instances side -r -c
 expect_out "instances both -r -c (a leaf of the hierarchy)" "1" instances both -r -c
 expect_out "instances magma -r -c"  "5" instances magma -r -c
+# `hasb` is base's PARENT, so its own arity (50) is a site of hasb and of
+# nothing below it, while everything below hasb IS a site of hasb: 8 rows
+# against base's 6.  A closure that walked the hierarchy the other way round
+# would answer these two the same.
+expect_out "instances hasb -r -c (the root of the hierarchy)" "8" instances hasb -r -c
+expect_out "and base's closure does not contain its own parent's arity" "6" \
+  instances base -r -c
 
 # The exit contract is the same question under -r: a known subject with nothing
 # below it is an honest zero, an unknown one is still a refusal.
@@ -520,25 +554,25 @@ expect_rc  "and a wrong-kinded one as well"           1 instances uses_interpret
 
 # --names: the loci, in the order the table prints them.
 expect_out "instances base -r --names" \
-'Closure_Fix:28
-Closure_Fix:33
-Closure_Fix:43
-Closure_Fix:45
-Closure_Fix:50
-Closure_Fix:55' instances base -r --names
+'Closure_Fix:32
+Closure_Fix:38
+Closure_Fix:56
+Closure_Fix:59
+Closure_Fix:65
+Closure_Fix:71' instances base -r --names
 
-# The TABLE, column widths and all: the locus column is 14 (`Closure_Fix:28`),
+# The TABLE, column widths and all: the locus column is 14 (`Closure_Fix:32`),
 # the name column 6 (`option`), the kind column 13 (`instantiation`) and the
 # new VIA column 4 (`leaf` / `both` / `qmid`), each followed by two spaces.
 expect_out "the VIA column, and the header that says the listing is transitive" \
 '6 instantiation(s) of base (transitive):
 
-  Closure_Fix:28  nat     instantiation  leaf  instantiation nat :: leaf
-  Closure_Fix:33  int     instantiation  base  instantiation int :: base
-  Closure_Fix:43  prod    instance       both  instance prod :: (both, both) both ..
-  Closure_Fix:45  fun     instantiation  mid   instantiation "fun" :: (type, mid) mid
-  Closure_Fix:50  unit    instantiation  qmid  instantiation unit :: qmid
-  Closure_Fix:55  option  instantiation  alt   instantiation option :: (alt) alt' \
+  Closure_Fix:32  nat     instantiation  leaf  instantiation nat :: leaf
+  Closure_Fix:38  int     instantiation  base  instantiation int :: base
+  Closure_Fix:56  prod    instance       both  instance prod :: (both, both) both
+  Closure_Fix:59  fun     instantiation  mid   instantiation "fun" :: (type, mid) mid
+  Closure_Fix:65  unit    instantiation  qmid  instantiation unit :: qmid
+  Closure_Fix:71  option  instantiation  alt   instantiation option :: (alt) alt' \
   instances base -r
 
 # ... and WITHOUT -r there is no VIA column and no `(transitive)`: the default
@@ -546,7 +580,7 @@ expect_out "the VIA column, and the header that says the listing is transitive" 
 expect_out "and none of it appears without the flag" \
 '1 instantiation(s) of base:
 
-  Closure_Fix:33  int  instantiation  instantiation int :: base' \
+  Closure_Fix:38  int  instantiation  instantiation int :: base' \
   instances base
 
 # --sorts is orthogonal to -r: it re-spells the NAME cell and touches nothing
