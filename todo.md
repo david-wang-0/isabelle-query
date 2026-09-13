@@ -296,6 +296,31 @@ on the containment measurement) and `[axiom-untyped]` (the port took
       it decides what `query` means on a user's PATH, and that is an
       installer's call, not the component's.
 
+- [ ] `[p7probe-scoping]` `dev/p7probe.sh` reports 17 failures on a green
+      tree, and 15 of them are the script's own doing: line 85 exports
+      `ISABELLE_QUERY_NO_SERVER=1` for the whole run (so the cold references
+      stay cold), and the direct `query_client.py` calls in §0, §9, §9b, §10,
+      §12 and the first check of §13 are not wrapped in
+      `env -u ISABELLE_QUERY_NO_SERVER` like the fifteen that pass -- so the
+      warm client they mean to exercise declines with exit 97 or refuses the
+      client action.  Wrap them, then look at the two that remain: §13's
+      "a client that cannot start a server declines" (the `$ISABELLE_TOOL`
+      stub does not stop a real dedicated server from starting) and §15's
+      SIGPIPE check (cold and declined exit 141, warm exits 120 -- a status no
+      constant in the client names).  Found by the `[closure-instances]` test
+      run, 2026-09-13; the diff touched none of this.
+
+- [ ] `[fixtures-build]` `Sites_Fix.thy` and `Names_Fix.thy` (written by
+      `dev/p6bprobe.sh`) are parsed by every probe and built by none, and
+      the prover rejects them: 40 errors, every one an
+      `interpretation L ..` where `L` has no assumptions ("No subgoals").
+      `Closure_Fix.thy` was made valid Isabelle under `[closure-instances]`
+      after a live jEdit showed it red; the other two should follow (`by
+      unfold_locales` / a class with an axiom), which means moving pinned line
+      numbers and row texts in both `dev/p6bprobe.sh` and `dev/p6bprobe.scala`.
+      A fixture the prover accepts is one a user can open in jEdit to see the
+      plugin work.
+
 ## Done
 
 Nothing — by design. Completed work is recorded in its commit messages, which
