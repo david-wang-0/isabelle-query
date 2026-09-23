@@ -7,7 +7,7 @@ runner creates every fixture below; counts are hand-computed from those files.
 package isabelle.query.pide_mcp_dev
 
 import isabelle.*
-import isabelle.pide.mcp.{JSON_Object, PIDE_MCP_Sessions, PIDE_MCP_Tool, PIDE_MCP_Tool_Result, PIDE_MCP_Tools}
+import isabelle.pide.mcp.{JSON_Object, PIDE_MCP_Sessions, PIDE_MCP_Tool, PIDE_MCP_Tool_Result, PIDE_MCP_Tools, Result}
 import isabelle.query.Query_Server
 import isabelle.query.pide_mcp.Query_MCP_Tool
 
@@ -90,7 +90,7 @@ object P11_MCP_Probe {
     val direct_tool = new Query_MCP_Tool
     val sessions = new PIDE_MCP_Sessions(Map("query" -> direct_tool), new Logger, Options.init())
     val progress = new Progress
-    check("session manager starts with no running prover", sessions.all_running().isEmpty)
+    check("session manager starts with no running prover", Result.release(sessions.running_sessions(None)).isEmpty)
 
     def hosted(tool: PIDE_MCP_Tool, args: JSON.Object.T): Reply =
       tool.handle(sessions, args, progress) match {

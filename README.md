@@ -37,7 +37,7 @@ rm -f "$ISABELLE_HOME_USER/jedit/jars/isabelle_jedit_query.jar"
 ### Optional PIDE MCP tool
 
 The adapter targets external `isabelle-pide-mcp` revision
-`be9fdcb52c35bac9ad6df6ddc49c7af803e16b8e` on `Isabelle2025-2`. With that
+`7c43a83055b8e7bf81a905b5c527f42e6575ec8f` on `Isabelle2025-2`. With that
 component installed and registered:
 
 ```sh

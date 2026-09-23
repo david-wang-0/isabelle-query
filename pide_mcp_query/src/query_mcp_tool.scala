@@ -7,7 +7,7 @@ warm cache; this adapter owns only the MCP request/response boundary.
 package isabelle.query.pide_mcp
 
 import isabelle.*
-import isabelle.pide.mcp.{JSON_Object, PIDE_MCP_Sessions, PIDE_MCP_Tool, PIDE_MCP_Tool_Result, PIDE_MCP_Tools}
+import isabelle.pide.mcp.{JSON_Object, PIDE_MCP_Sessions, PIDE_MCP_Tool, PIDE_MCP_Tool_Result, PIDE_MCP_Tools, Result}
 import isabelle.query.{CLI, Discovery, Query_Server}
 
 import java.nio.file.{Path => JPath, Paths}
@@ -137,7 +137,7 @@ class Query_MCP_Tool extends PIDE_MCP_Tool("query") {
     progress: Progress
   ): PIDE_MCP_Tool_Result =
     PIDE_MCP_Tool_Result.result {
-      Exn.release(Query_MCP_Tool.handle(args, sessions.all_running().flatMap(_.dirs)))
+      Exn.release(Query_MCP_Tool.handle(args, Result.release(sessions.running_sessions(None)).flatMap(_.dirs)))
     }
 }
 
