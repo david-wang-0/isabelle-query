@@ -87,8 +87,9 @@ class Entry:
                             # body (the closing `qed`, the terminating `by` /
                             # `.`, or for declarations the last header line).
                             # Stops before any trailing inter-lemma `text` /
-                            # `\<comment>` block.  Safe cut boundary for
-                            # `bin/move-block.py`.
+                            # `\<comment>` block — but not at a `text` written
+                            # inside the proof, which does not end it.  Safe
+                            # cut boundary for `bin/move-block.py`.
     # Comment context attached during _parse_one:
     preamble: tuple[int, int] | None = None
         # (start, end) of the `text \<open>...\<close>` block immediately
@@ -419,6 +420,7 @@ class CmdFlags:
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find + grep: search prose)
+    ignore_case: bool = False    # -i / --ignore-case (grep; find always is)
     recursive: bool = False      # -r / --recursive
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
@@ -429,3 +431,7 @@ class CmdFlags:
     # theory can SEE; "name" is the old name-only matching, kept so a
     # corpus-scale delta can be measured against the numbers it replaces.
     reach: str = "closure"
+    # --sorts (instances / codeqs): re-spell the name cell as `c :: T` with
+    # the sort / arity / signature the SOURCE writes at that site.  Written
+    # text only — a site whose source writes none shows none.
+    sorts: bool = False

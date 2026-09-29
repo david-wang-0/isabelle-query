@@ -159,6 +159,7 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     _suggest_theory,
     cmd_callees,
     cmd_callers,
+    cmd_codeqs,
     cmd_defs,
     cmd_deps,
     cmd_enclosing,
@@ -167,6 +168,8 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     cmd_graph,
     cmd_grep,
     _dot_quote,
+    _fail_subject,
+    cmd_instances,
     cmd_largest,
     cmd_lines,
     cmd_methods,
@@ -177,6 +180,7 @@ from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade
     cmd_summary,
     cmd_theory,
     cmd_unused,
+    cmd_unused_locals,
 )
 # The `shape` proof-metrics command family, extracted to `shape_cmds.py` (it
 # sits above `commands` — reusing `_parse_locus` / `_resolve_theory` — and below
@@ -322,6 +326,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
         f.comments = "only"
     f.context = getattr(ns, "context", 2)
     f.with_comments = getattr(ns, "with_comments", False)
+    f.ignore_case = getattr(ns, "ignore_case", False)
     f.recursive = getattr(ns, "recursive", False)
     f.by_theory = getattr(ns, "by_theory", False)
     f.roots = getattr(ns, "roots", False)
@@ -331,6 +336,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
+    f.sorts = getattr(ns, "sorts", False)
     return f
 
 
@@ -565,6 +571,20 @@ def _add_names_flag(p: argparse.ArgumentParser,
     p.add_argument("--names", action="store_true", help=help_text)
 
 
+def _add_sorts_flag(p: argparse.ArgumentParser) -> None:
+    # The site verbs' one extra column, shared so the wording cannot drift:
+    # WRITTEN text only.  No type is inferred, so a site whose source writes
+    # no sort shows none — a type this tool made up would be the one thing in
+    # the output nobody could check against the source.
+    p.add_argument("--sorts", action="store_true",
+                   help="in the name column, add the sort / arity / signature "
+                        "THE SOURCE WRITES at that site (`prod :: "
+                        "(topological_space, topological_space) "
+                        "topological_space`).  Written text only -- no types "
+                        "are inferred, so a site whose source writes none "
+                        "shows none.")
+
+
 class _IgnoredFlagAction(argparse.Action):
     """A flag that parses and then does nothing.
 
@@ -604,6 +624,27 @@ def _add_line_number_noop_flag(p: argparse.ArgumentParser) -> None:
                    help="accepted and ignored — every match already prints "
                         "its `theory.thy:LINE` locus (grep-compatibility "
                         "no-op)")
+
+
+def _add_ignore_case_flag(p: argparse.ArgumentParser,
+                          noop: bool = False) -> None:
+    """`-i`/`--ignore-case`, grep's spelling, on both search verbs.
+
+    On `grep` it compiles the pattern with `re.IGNORECASE` -- the same as a
+    leading `(?i)`, which nobody guesses from "Python syntax" -- so it
+    composes with the `\\|` rewrite.  `find` already matches without regard
+    to case, so there it is `-n`'s kind of no-op: accepted so that a
+    grep-reflex caller gets the answer they asked for instead of a usage
+    error that sends them to `rg -i` (issue #13).
+    """
+    if noop:
+        p.add_argument("-i", "--ignore-case", action=_IgnoredFlagAction,
+                       help="accepted and ignored — find already matches "
+                            "case-insensitively")
+    else:
+        p.add_argument("-i", "--ignore-case", action="store_true",
+                       help="match without regard to case (as a leading "
+                            "`(?i)` in the pattern)")
 
 
 def _add_with_comments_flag(
@@ -836,11 +877,85 @@ def _run_callees(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
     _run_each(ns, "name", lambda secs, n: cmd_callees(secs, n, flags))
 
+# `THEORY:NAME` — an entry selector for `unused --locals`, the one place a PATH
+# may name an entry rather than a line window.
+_ENTRY_SELECTOR_RE = re.compile(r"^(.+):([A-Za-z][\w'.]*)$")
+
+
+def _usage_error(msg: str) -> None:
+    print(f"{_prog_name()}: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
 def _run_unused(ns: argparse.Namespace) -> None:
-    cmd_unused(_load_sections(ns), _flags_from_ns(ns))
+    flags = _flags_from_ns(ns)
+    files = list(getattr(ns, "files", None) or [])
+    if not ns.locals:
+        # Entry-level deadness is a question about the whole citation graph,
+        # so it scopes with -R and never with a file subset (CONTRIBUTING.md).
+        if files:
+            _usage_error("unused: PATH arguments need --locals; entry-level "
+                         "`unused` is corpus-wide, scope it with -R")
+        cmd_unused(_load_sections(ns), flags)
+        return
+    if flags.recursive or flags.roots:
+        _usage_error("unused: --locals takes neither -r nor --roots")
+    if not files:
+        cmd_unused_locals(load_index(), flags)
+        return
+    sections, windows = _locals_selection(files)
+    cmd_unused_locals(sections, flags, windows)
+
+
+def _locals_selection(files: list[str]
+                      ) -> tuple[list[TheorySection], dict[Path, list]]:
+    """Sections and per-file proof windows for `unused --locals PATH...`.
+
+    Each PATH is what the search family takes, plus two selectors: a line
+    window (`Foo:120..260`, `Foo:412` — grep's grammar, so a span from
+    `largest` or a locus from `sorry` pastes in) and an entry name
+    (`Foo:bar_lemma`).  Both pick the PROOFS they touch, never single lines.
+    Two selectors on one file add up; a bare file anywhere takes all of it.
+    """
+    sections: list[TheorySection] = []
+    by_path: dict[Path, TheorySection] = {}
+    windows: dict[Path, list] = {}
+    whole: set[Path] = set()
+    for token in files:
+        entry_name = None
+        m = _ENTRY_SELECTOR_RE.match(token)
+        if (m and _parse_locus(token) is None
+                and not Path(token).expanduser().exists()):
+            token, entry_name = m.group(1), m.group(2)
+        for sec in _load_sections(argparse.Namespace(files=[token]),
+                                  parse="syntax", windows=True):
+            key = sec.path.resolve()
+            if key not in by_path:
+                by_path[key] = sec
+                sections.append(sec)
+            path = by_path[key].path
+            if entry_name is not None:
+                hits = [e for e in sec.entries if e.name == entry_name]
+                if not hits:
+                    _fail_subject(f"no entry '{entry_name}' in {token}")
+                windows.setdefault(path, []).extend(
+                    (e.src_start, e.body_end_line or e.thy_end) for e in hits)
+            elif sec.line_window is not None:
+                windows.setdefault(path, []).append(sec.line_window)
+            else:
+                whole.add(path)
+    return sections, {p: w for p, w in windows.items() if p not in whole}
 
 def _run_methods(ns: argparse.Namespace) -> None:
     cmd_methods(_load_sections(ns), ns.name, _flags_from_ns(ns))
+
+def _run_instances(ns: argparse.Namespace) -> None:
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "name", lambda secs, n: cmd_instances(secs, n, flags))
+
+def _run_codeqs(ns: argparse.Namespace) -> None:
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "name", lambda secs, n: cmd_codeqs(secs, n, flags))
 
 def _load_shape_config(ns: argparse.Namespace) -> 'shape.CorpusConfig | None':
     """Resolve the optional M3 corpus config for a shape command.
@@ -1248,6 +1363,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_comment_flags(p)
     _add_context_flag(p)
     _add_with_comments_flag(p)
+    _add_ignore_case_flag(p, noop=True)
     _add_theory_scope_flag(p)
     # No `-A` short flag, for the same reason `--names` has no `-n`: `-A` is
     # grep's after-context, and squatting on it would silently change what a
@@ -1342,6 +1458,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_count_flag(p)
     _add_names_flag(p, "locations + owning entry only "
                        "(skip the matched line text)")
+    _add_ignore_case_flag(p)
     _add_line_number_noop_flag(p)
     p.set_defaults(func=_run_grep)
 
@@ -1385,6 +1502,22 @@ def _build_parser() -> argparse.ArgumentParser:
                         "unused, and stop the cascade at them).  Repeatable, "
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
+    p.add_argument("--locals", action="store_true",
+                   help="one level down: proof-local names (`have NAME:`, "
+                        "`obtain ... where NAME:`, `note NAME =`, `define`, "
+                        "`let ?NAME`) that nothing in their scope reads.  "
+                        "PATHs narrow it, as a file, `THY:A..B` / `THY:LINE` "
+                        "(the proofs that span touches) or `THY:ENTRY`.  "
+                        "CANDIDATES, not a delete list: a fact used through a "
+                        "bundle, by `case` position (`1(2)`), by its statement "
+                        "(`‹P›`) or by an `obtain`'s hand-written `that` is "
+                        "invisible to it; --keep names the deliberate ones.  A label whose fact "
+                        "is chained (`then`, `moreover`, ...) or declared "
+                        "(`[simp]`) is used, and never reported")
+    p.add_argument("files", nargs="*", metavar="PATH",
+                   help="with --locals only: the files, theories or "
+                        "`THY:A..B` / `THY:ENTRY` selections to scan "
+                        "(default: the whole project)")
     _add_drop_names_flag(p)
     _add_reach_flag(p)
     p.set_defaults(func=_run_unused)
@@ -1399,6 +1532,58 @@ def _build_parser() -> argparse.ArgumentParser:
                         "the ranked tally of every method used")
     _add_mode_flags(p)
     p.set_defaults(func=_run_methods)
+
+    # instances — where a locale / class is instantiated.  A lookup-family
+    # verb (subject list, no PATH positionals) that reports DECLARED SOURCE
+    # sites: the complement of Isar's `print_interps`, which needs a running
+    # prover and shows the processed interpretations, including those an
+    # imported session installed.  No `--reach`: a site is scoped by what its
+    # theory can see, always, since an `interpretation L` in a theory that
+    # cannot see L's declaration interprets a different L.
+    p = sub.add_parser("instances",
+                       help="where a locale or class is instantiated "
+                            "(instantiation / instance / interpretation / "
+                            "sublocale)")
+    _add_subject_list_arg(
+        p, cmd="instances", noun="locale or class name",
+        extra="Reports the DECLARED SOURCE sites, which is the complement of "
+              "Isar's `print_interps`: that needs a running prover and shows "
+              "the processed interpretations, including those an imported "
+              "session installed")
+    _add_count_flag(p, "just print the site count")
+    _add_names_flag(p, "bare `THEORY:LINE` loci, one per line, for piping "
+                       "into `enclosing`")
+    p.add_argument("-r", "--recursive", action="store_true",
+                   help="also the sites of every class or locale that extends "
+                        "NAME, transitively (`class X = NAME + ...`, "
+                        "`subclass`, `instance X \\<subseteq> NAME`, "
+                        "`sublocale`).  Adds a VIA column naming, per row, "
+                        "which of them the site writes -- `nat` instantiates "
+                        "`comm_monoid_diff`, never `ab_semigroup_add` by "
+                        "name.")
+    _add_sorts_flag(p)
+    p.set_defaults(func=_run_instances)
+
+    # codeqs — declared code-equation sites of a constant: the complement of
+    # Isar's `print_codesetup` / `code_thms`, which show the PROCESSED setup.
+    # No `-r` (a constant has no hierarchy to walk) and no `--reach`, as for
+    # `instances`.
+    p = sub.add_parser("codeqs",
+                       help="declared code-equation sites of a constant "
+                            "(`[code]` and kin, plus its own default "
+                            "equations)")
+    _add_subject_list_arg(
+        p, cmd="codeqs", noun="constant name",
+        extra="Reports the DECLARED SOURCE sites, which is the complement of "
+              "Isar's `print_codesetup` / `code_thms`: those need a running "
+              "prover and show the PROCESSED setup -- after preprocessing, "
+              "after `[code del]` has taken effect, and including what an "
+              "imported session declared")
+    _add_count_flag(p, "just print the site count")
+    _add_names_flag(p, "bare `THEORY:LINE` loci, one per line, for piping "
+                       "into `enclosing`")
+    _add_sorts_flag(p)
+    p.set_defaults(func=_run_codeqs)
 
     # shape — proof-shape metrics.  Unlike every other verb this is a *nested*
     # subcommand group (`shape summary|steps|lemma|widest|census`): the five

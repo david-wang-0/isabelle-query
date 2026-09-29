@@ -49,6 +49,9 @@ CASES = [
     ("show", ["show", "-c", "zzz"], "zero"),
     ("grep", ["grep", "-c", "zzz"], "zero"),
     ("unused", ["unused", "-c"], "zero"),
+    ("unused --locals", ["unused", "--locals", "-c"], "zero"),
+    # An entry selector names an entry that must exist, like a subject.
+    ("unused T:zzz", ["unused", "--locals", "-c", "T:zzz"], "unknown"),
     ("sorry", ["sorry", "-c"], "zero"),
     # `callers` looks like the odd one out and is not: it SCANS source for a
     # token, so "zero mentions" is a truthful answer whether or not the name is
@@ -58,8 +61,15 @@ CASES = [
     ("callees", ["callees", "-c", "zzz"], "unknown"),
     ("refs", ["refs", "-c", "zzz"], "unknown"),
     ("methods", ["methods", "-c", "zzz"], "unknown"),
+    # The site verbs need a declared subject before they can have sites: a
+    # locale from an imported session would otherwise look exactly like one
+    # nobody instantiates.
+    ("instances", ["instances", "-c", "zzz"], "unknown"),
+    ("codeqs", ["codeqs", "-c", "zzz"], "unknown"),
     ("find (hit)", ["find", "-c", "d"], "control"),
     ("methods (hit)", ["methods", "-c", "simp"], "control"),
+    # `definition d` registers its own default code equation.
+    ("codeqs (hit)", ["codeqs", "-c", "d"], "control"),
 ]
 
 
