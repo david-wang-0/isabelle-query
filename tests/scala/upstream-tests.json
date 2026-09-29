@@ -9550,8 +9550,113 @@
       "inherited": false
     },
     {
+      "id": "test_unused_locals.Corners.test_only_the_shadowed_duplicate",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Extent.test_a_following_instance_proof_is_not_the_lemmas",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Extent.test_a_text_block_does_not_end_the_proof",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Extent.test_an_apply_script_runs_past_its_subgoals",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Extent.test_parser_and_walk_agree_on_where_proofs_close",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
       "id": "test_unused_locals.Extent.test_prose_in_a_text_block_is_not_a_declaration",
-      "suite": "parser",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.HandReadFixture.test_count",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.HandReadFixture.test_exactly_the_hand_read_rows",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.HandReadFixture.test_keep_names_deliberate_ones",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.HandReadFixture.test_rows_are_pasteable_loci",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_entry_selector",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_locals_rejects_cascade_flags",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_paths_need_locals",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_two_selectors_on_one_file_add_up",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_unknown_entry_is_unresolved",
+      "suite": "cli",
+      "source": "tests/test_unused_locals.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_unused_locals.Selection.test_window_selects_whole_proofs",
+      "suite": "cli",
       "source": "tests/test_unused_locals.py",
       "subcase_sites": 0,
       "inherited": false
