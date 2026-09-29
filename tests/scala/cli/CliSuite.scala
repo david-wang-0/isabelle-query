@@ -38,5 +38,6 @@ object CliSuite {
     Cli_stdin_path.run()
     Cli_summary_aggregate.run()
     Cli_theory_name_roundtrip.run()
+    Cli_unused_locals.run()
   }
 }
