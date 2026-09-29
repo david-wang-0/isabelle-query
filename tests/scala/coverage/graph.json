@@ -68,6 +68,66 @@
       "reason": ""
     },
     {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_callers_of_a_constructor_are_scoped",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_declared_in_knows_the_binder_only_when_asked",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_name_mode_restores_the_unscoped_answer",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_the_fixture_binds_bar_without_an_entry",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheBulkGraphIsUntouched.test_a_bound_name_is_not_a_node",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheBulkGraphIsUntouched.test_the_edge_set_is_the_hand_computed_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_a_bound_name_is_admitted_where_it_is_visible",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_a_name_declared_nowhere_admits_everything",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_an_entry_is_admitted_the_same_way",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_name_mode_admits_everything",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphBoundNameReach.scala",
+      "reason": ""
+    },
+    {
       "id": "test_call_graph.CallGraphEdges.test_bare_reference",
       "status": "ported",
       "destination": "tests/scala/graph/GraphCallGraph.scala",

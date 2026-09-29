@@ -725,6 +725,76 @@
       "inherited": false
     },
     {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_callers_of_a_constructor_are_scoped",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_declared_in_knows_the_binder_only_when_asked",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_name_mode_restores_the_unscoped_answer",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.ABoundNameIsADeclaration.test_the_fixture_binds_bar_without_an_entry",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheBulkGraphIsUntouched.test_a_bound_name_is_not_a_node",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheBulkGraphIsUntouched.test_the_edge_set_is_the_hand_computed_one",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_a_bound_name_is_admitted_where_it_is_visible",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_a_name_declared_nowhere_admits_everything",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_an_entry_is_admitted_the_same_way",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_bound_name_reach.TheFacadeDecidesPerTheory.test_name_mode_admits_everything",
+      "suite": "graph",
+      "source": "tests/test_bound_name_reach.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_call_graph.CallGraphEdges.test_bare_reference",
       "suite": "graph",
       "source": "tests/test_call_graph.py",
@@ -7880,6 +7950,685 @@
       "id": "test_show_inline_proof.NoDuplicatedLines.test_structured_proof_is_unchanged",
       "suite": "cli",
       "source": "tests/test_show_inline_proof.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_abstract_equation_reads_one_level_in",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_argument_is_not_a_head",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_operand_is_not_a_head",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_each_statement_carries_its_own_attribute",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_constructor_resolves_through_its_binder",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_lemma_is_not_a_constant",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_primrec_is_a_constant",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_an_unknown_subject_still_exits_1",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_counts",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_every_locus_round_trips_through_enclosing",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_names_are_qualified",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_no_row_prints_the_bare_name",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_sections_load_alpha_then_beta",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_sorts_leaves_the_locus_column_alone",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_the_codeqs_table",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_the_instances_table",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_a_known_constant_with_no_equations",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_a_lemma_is_a_refusal",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_an_unknown_constant_is_a_refusal_in_count_mode_too",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_counts",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_names",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_sorts_only_where_a_signature_is_written",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_the_table",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_conditional_equation",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_constructor",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_declaration_with_an_attribute_has_no_default_row",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_right_hand_side_is_not_a_site",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_symbol_bearing_constant",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_fib",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_registered_here_and_retracted_there",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_decoys_are_not_sites",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_fixture_loaded_whole",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_preprocessor_attribute_is_not_a_site",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_twice",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_abstract_equation_heads",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_cited_fact_names",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_code_attrs",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_dropped_constants",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_equation_heads",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_the_config_form",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_written_type",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_no_reach_flag",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_no_recursive_flag",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_the_flags",
+      "suite": "cli",
+      "source": "tests/test_sites_codeqs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.MidLineInterpret.test_a_chained_interpret_is_a_site",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.MidLineInterpret.test_the_command_reader",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_a_locale_and_a_class_resolve",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_a_wrong_kinded_name_names_its_kind_and_theory",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_an_unknown_name_is_a_reason",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_a_name_declared_nowhere_builds_no_closure",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_each_header_is_read_at_most_once",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_one_visibility_per_request",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_a_wrong_kinded_subject_is_a_refusal",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_an_honest_zero",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_an_unknown_subject_is_a_refusal",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_count_mode_on_an_unresolved_subject_prints_nothing",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_counts",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_names_are_bare_loci",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_sorts_is_written_text",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_name_column_end_to_end",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_padded_columns",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_table_byte_for_byte",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_bare_interpretation_is_not_named_after_the_locale",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_sublocale_is_a_site_of_its_target_only",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_symbol_bearing_and_a_quoted_locale_name",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_extending_is_not_instantiating",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_magma",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_mynull",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 4,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_fixture_loaded_whole",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_hierarchy_theory_direct_sites",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_name_column_fallback_chain",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_source_cell_is_the_raw_line",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_arity_classes",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_arity_parts",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_denotes",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_expression_heads",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_expression_instances",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_a_leaf_of_the_hierarchy_is_its_direct_listing",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_a_locale_is_not_its_own_descendant",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_decoys_are_not_extenders",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_descendants",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_extenders",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_extends_heads",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_no_dedup_pass_is_needed",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_the_transitive_sites_of_base",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 6,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_the_transitive_sites_of_the_rest",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 3,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_at_least_one_subject",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_count_beats_names",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_no_reach_flag",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_recursive",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_the_flags",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_counts",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_names",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_sorts_is_orthogonal",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_default_form_is_untouched",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_exit_contract_is_the_same_question",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_table_with_its_via_column",
+      "suite": "cli",
+      "source": "tests/test_sites_instances.py",
       "subcase_sites": 0,
       "inherited": false
     },

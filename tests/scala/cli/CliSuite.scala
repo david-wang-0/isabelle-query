@@ -34,6 +34,8 @@ object CliSuite {
     Cli_preamble_attribution.run()
     Cli_search_patterns.run()
     Cli_show_inline_proof.run()
+    Cli_sites_codeqs.run()
+    Cli_sites_instances.run()
     Cli_statement_slice.run()
     Cli_stdin_path.run()
     Cli_summary_aggregate.run()
