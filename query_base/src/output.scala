@@ -70,6 +70,7 @@ final case class Flags(
   comments: String = "on",         // on / off / only
   context: Int = 2,
   with_comments: Boolean = false,
+  ignore_case: Boolean = false,    // -i / --ignore-case (grep; find always is)
   recursive: Boolean = false,
   external: Boolean = false,
   sorts: Boolean = false,        // instances / codeqs: show the WRITTEN sorts

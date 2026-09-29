@@ -3678,6 +3678,41 @@
       "inherited": false
     },
     {
+      "id": "test_ignore_case.FindAcceptsIt.test_find_parses_identically_to_its_absence",
+      "suite": "cli",
+      "source": "tests/test_ignore_case.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_both_spellings_ignore_case",
+      "suite": "cli",
+      "source": "tests/test_ignore_case.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_case_sensitive_by_default",
+      "suite": "cli",
+      "source": "tests/test_ignore_case.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_it_composes_with_the_alternation_rewrite",
+      "suite": "cli",
+      "source": "tests/test_ignore_case.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_it_is_the_inline_flag",
+      "suite": "cli",
+      "source": "tests/test_ignore_case.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_import_leaf.APathSpelledImportResolves.test_a_bare_name_finds_a_path_spelled_theory",
       "suite": "cli",
       "source": "tests/test_import_leaf.py",
