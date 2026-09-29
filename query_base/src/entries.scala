@@ -123,6 +123,26 @@ object Entries {
   val ISA_NAME: String = s"(?:$ISA_MARKUP|[A-Za-z])$ISA_NAME_CHAR*"
 
   val SYM_NAME_RE: Pattern = Py.compile(s"((?:$ISA_MARKUP|\\w)$ISA_NAME_CHAR*)")
+
+  /* Greek and variant LETTER symbols: identifier characters (a `\<Gamma>`
+     context, an `\<alpha>` ordinal), NOT operators.  `shape`'s tokeniser keeps
+     them as bare `\<sym>` because `is_name` gates on an ASCII letter, so
+     without this set they would masquerade as operator constants; `sites` asks
+     the same question of the token after an equation's head, and
+     `proof_locals` builds its identifier pattern from it.  Here rather than in
+     `Shape` because it is lexical data, and the parser layer is the one every
+     one of those readers sits above in the DAG [code-heads]. */
+  val LETTER_SYMS: Set[String] = Set(
+    """\<alpha>""", """\<beta>""", """\<gamma>""", """\<delta>""", """\<epsilon>""",
+    """\<zeta>""", """\<eta>""", """\<theta>""", """\<iota>""", """\<kappa>""",
+    """\<mu>""", """\<nu>""", """\<xi>""", """\<pi>""", """\<rho>""", """\<sigma>""",
+    """\<tau>""", """\<upsilon>""", """\<phi>""", """\<chi>""", """\<psi>""",
+    """\<omega>""", """\<varepsilon>""", """\<vartheta>""", """\<varphi>""",
+    """\<varrho>""", """\<varsigma>""", """\<varpi>""",
+    """\<Gamma>""", """\<Delta>""", """\<Theta>""", """\<Lambda>""", """\<Xi>""",
+    """\<Pi>""", """\<Sigma>""", """\<Upsilon>""", """\<Phi>""", """\<Psi>""",
+    """\<Omega>""")
+
   val QUOTED_NAME_RE: Pattern = Py.compile("^\"([^\"]+)\"")
 
   /* Outer-syntax keywords that are not fact names.  Only the BARE form is

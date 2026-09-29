@@ -1008,21 +1008,6 @@ object Shape {
 
   private val ASCII_OP_CONSTS: Set[Char] = "+-*/=<>@".toSet
 
-  /* Greek and variant LETTER symbols: identifier characters (a `\<Gamma>`
-     context, an `\<alpha>` ordinal), NOT operators — the tokeniser keeps them as
-     bare `\<sym>` because `is_name` gates on an ASCII letter, so without this
-     set they would masquerade as operator constants. */
-  private val LETTER_SYMS: Set[String] = Set(
-    """\<alpha>""", """\<beta>""", """\<gamma>""", """\<delta>""", """\<epsilon>""",
-    """\<zeta>""", """\<eta>""", """\<theta>""", """\<iota>""", """\<kappa>""",
-    """\<mu>""", """\<nu>""", """\<xi>""", """\<pi>""", """\<rho>""", """\<sigma>""",
-    """\<tau>""", """\<upsilon>""", """\<phi>""", """\<chi>""", """\<psi>""",
-    """\<omega>""", """\<varepsilon>""", """\<vartheta>""", """\<varphi>""",
-    """\<varrho>""", """\<varsigma>""", """\<varpi>""",
-    """\<Gamma>""", """\<Delta>""", """\<Theta>""", """\<Lambda>""", """\<Xi>""",
-    """\<Pi>""", """\<Sigma>""", """\<Upsilon>""", """\<Phi>""", """\<Psi>""",
-    """\<Omega>""")
-
   /* Exactly one `\<sym>` and nothing else: a spaced, standalone operator token.
      `\<And>c_b`, `\<Gamma>\<^sub>M` and an unspaced `x\<in>y` all fail this, so
      none is mistaken for an operator. */
@@ -1041,7 +1026,7 @@ object Shape {
       false
     else if (tok.length == 1 && ASCII_OP_CONSTS(tok.charAt(0))) true
     else if (Py.matches_start(SINGLE_SYM_RE, tok))
-      !BRACKET_PAIRS.contains(tok) && !CLOSERS(tok) && !BINDER_SET(tok) && !LETTER_SYMS(tok)
+      !BRACKET_PAIRS.contains(tok) && !CLOSERS(tok) && !BINDER_SET(tok) && !Entries.LETTER_SYMS(tok)
     else false
   }
 
