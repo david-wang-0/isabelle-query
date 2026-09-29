@@ -5,15 +5,37 @@ implementation, with the evidence that made it deliberate.  `PLAN.md` requires
 this list to stay near-empty and every entry to have a reason better than "hard
 to match".
 
-**The oracle is upstream 0.8.1 as of P9** (`git merge v0.8.1`, `[p9-merge]`;
-`src/isabelle_query/` and `tests/` are that release, frozen).  That matters for
-reading this file, because most of what is written down here was *found* here
-and has since been fixed **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0
-from this port's own findings (upstream ships them as
-`scripts/probe_scala_port_findings.py`), and D2 and D6 closed on both sides
-during P9.  Those entries stay, with their evidence and with the release that
-closed them, because the evidence is what made the case; they are history, not
-open differences.
+**The oracle is upstream 0.9.2 as of P14** (`git merge v0.9.2`,
+`[p14-merge]`; `src/isabelle_query/` and `tests/` are that release, frozen).  P9
+had moved it from 0.7.0 to 0.8.1 (`[p9-merge]`).  That matters for reading this
+file, because most of what is written down here was *found* here and has since
+been fixed or adopted **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0 from
+this port's own findings (upstream ships them as
+`scripts/probe_scala_port_findings.py`), D2 and D6 closed on both sides during
+P9, and D14 was adopted in 0.9.1 as `[bound-name-reach]` (`fdde693`, this
+fork's PR #11, the same PR that gave `instances` and `codeqs` an oracle).
+Those entries stay, with their evidence and with the release that closed them,
+because the evidence is what made the case; they are history, not open
+differences.
+
+## Measured at the close of P14
+
+<!-- TODO(main-session): the numbers below are placeholders; the full matrix on
+     the merged tree fills them in.  Nothing in this table is measured yet. -->
+
+`dev/difftest.sh` against oracle 0.9.2, seven gate corpora, 334 invocation
+ids (`tests/scala/coverage/matrix.json`):
+
+| | vs 0.9.2 (P14 close) |
+|---|---:|
+| cases | TODO(main-session) |
+| clean | TODO(main-session) |
+| pinned | TODO(main-session) |
+| failing | TODO(main-session) |
+| stale pins | TODO(main-session) |
+
+The entry projections (`dev/entrydiff.sh`, four dumps on each of the seven
+corpora) are 28 of 28 identical to oracle 0.9.2 on the merged S1-S4 tree.
 
 ## Measured at the close of P9 (2026-09-02)
 
@@ -779,12 +801,22 @@ improvement; now both engines answer the same question by default and six
 
 ## D14 — a BOUND name is a declaration too, for the visibility filter
 
-**Cost: nothing on any gate corpus** — no corpus in the matrix declares a name
-in one entry's bindings and mentions it from a theory that cannot see the
-binder, so nothing is pinned for this and nothing needs to be.  It is one
-refinement of D13's rule, in D13's own direction, and it is stated here because
-it is the one place where the two implementations answer a `callers` question
-differently on purpose.
+**ADOPTED UPSTREAM in 0.9.1 (`[bound-name-reach]`, `fdde693`), from this fork's
+PR #11.  Upstream's `_Visibility` folds every entry's bound names into
+`declared_in` for the single-name scans (`graph.site_filter`), which is the
+rule argued for below; the bulk graph is untouched on both sides.  The fixture
+below now gives the same answer from both tools -- `callers Bar` is one caller,
+`Z:5`, verified against oracle 0.9.2 at P14 -- and upstream ships it as
+`tests/test_bound_name_reach.py`, which the graph suite ports.  The evidence
+stays because it is what made the case; it is history, not an open
+difference.**
+
+**Cost while it lasted: nothing on any gate corpus** — no corpus in the matrix
+declares a name in one entry's bindings and mentions it from a theory that
+cannot see the binder, so nothing was pinned for this and nothing needed to
+be.  It is one refinement of D13's rule, in D13's own direction, and it was
+stated here because it was the one place where the two implementations
+answered a `callers` question differently on purpose.
 
 D13 fixes the rule: a site in theory `T` may be attributed to a declaration in
 theory `D` iff `D = T`, or `D` is in `T`'s transitive in-project `imports`
@@ -804,7 +836,7 @@ Z.thy:  theory Z imports X begin  lemma z_mentions_bar: "Bar = Bar" by simp  end
 W.thy:  theory W imports Main begin  lemma w_mentions_bar: "Bar = Bar" by simp  end
 ```
 
-`callers Bar`: upstream reports **2** — `Z:5` and `W:4` — because no ENTRY is
+`callers Bar`: upstream 0.8.1 reported **2** — `Z:5` and `W:4` — because no ENTRY is
 named `Bar`, so `declared_in["Bar"]` is empty and the filter declines to
 constrain anything.  The port reports **1**, dropping `W:4`: `Bar` IS declared
 here, by `datatype colour` in `X`, and `W` imports only `Main`.  The `Bar` on
@@ -815,8 +847,8 @@ here, by `datatype colour` in `X`, and `W` imports only `Main`.  The `Bar` on
 the citing theory positively cannot see, and a constructor bound in `X` is not
 visible from a `W` that does not import `X`.  Dropping bindings from the
 declared set would not make the port more correct, only more permissive in the
-one case the rule was written for; and `codeqs Cons` — a rewrite-only verb with
-no oracle — is precisely the question "where is this CONSTRUCTOR given a code
+one case the rule was written for; and `codeqs Cons` — a verb that had no
+oracle until 0.9.1 — is precisely the question "where is this CONSTRUCTOR given a code
 equation", which needs the binding to be a declaration or the verb has no
 subject at all.  `instances` and `codeqs` therefore use the same rule, and
 `callers` uses it too rather than carrying two answers to one question.
@@ -834,8 +866,8 @@ Everything else about the declared set now agrees: an entry of ANY tag counts
 
 ## D15 — a theory a ROOT addresses by PATH is named by its LEAF
 
-**Cost: 178 of `dev/difftest.sh`'s 2,149 cases, on the three gate corpora whose
-ROOT addresses a theory by path (FOL 33, Sequents 47, CTT 98) and on no other;
+**Cost: 183 of `dev/difftest.sh`'s 2,338 cases, on the three gate corpora whose
+ROOT addresses a theory by path (FOL 33, Sequents 52, CTT 98) and on no other;
 0 records on `dev/entrydiff.sh`, whose dumps key by path.  Every case is pinned
 below, by id.**  It is the only deliberate difference in oracle-shared STDOUT
 that this port carries by choice rather than by defect, and it is here because
@@ -960,8 +992,12 @@ maps that spelling by its leaf as it always did.
 
 ### The pinned cases
 
-**178 of the 2,149 matrix cases, and not one on a corpus without a
-path-declared theory.**  The other four gate corpora (`Abstract_Completeness`,
+**183 of the 2,338 matrix cases, and not one on a corpus without a
+path-declared theory.**  P14 added five: the site verbs gained an oracle in
+0.9.1, and on Sequents `instances term` prints the locus of
+`instance nat :: "term"` as `Nat:13` where the oracle prints the ROOT's
+`LK/Nat:13` (`instances-default`, `instances-names`, `instances-r`,
+`instances-r-sorts`, `instances-sorts`).  The other four gate corpora (`Abstract_Completeness`,
 `AODV`, `Category3`, `ZF`) and both demo corpora are byte-identical, as they
 were.  Each case is pinned by its own id in `dev/difftest-pins` — no family
 glob, because not one command family moves whole: `grep-anchored` moves on FOL
@@ -975,10 +1011,10 @@ and `grep-count` does not, since only the first prints a locus.
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps-all`, `shape-steps-all-long`
 
-**Sequents** — 47 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
+**Sequents** — 52 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
 
-- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (37):
-  `graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`, `largest-default`, `methods-least-used`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-recursive`
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (42):
+  `graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`, `instances-default`, `instances-names`, `instances-r`, `instances-r-sorts`, `instances-sorts`, `largest-default`, `methods-least-used`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-recursive`
 
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `shape-steps-all`, `shape-steps-all-long`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
