@@ -123,6 +123,26 @@ object Entries {
   val ISA_NAME: String = s"(?:$ISA_MARKUP|[A-Za-z])$ISA_NAME_CHAR*"
 
   val SYM_NAME_RE: Pattern = Py.compile(s"((?:$ISA_MARKUP|\\w)$ISA_NAME_CHAR*)")
+
+  /* Greek and variant LETTER symbols: identifier characters (a `\<Gamma>`
+     context, an `\<alpha>` ordinal), NOT operators.  `shape`'s tokeniser keeps
+     them as bare `\<sym>` because `is_name` gates on an ASCII letter, so
+     without this set they would masquerade as operator constants; `sites` asks
+     the same question of the token after an equation's head, and
+     `proof_locals` builds its identifier pattern from it.  Here rather than in
+     `Shape` because it is lexical data, and the parser layer is the one every
+     one of those readers sits above in the DAG [code-heads]. */
+  val LETTER_SYMS: Set[String] = Set(
+    """\<alpha>""", """\<beta>""", """\<gamma>""", """\<delta>""", """\<epsilon>""",
+    """\<zeta>""", """\<eta>""", """\<theta>""", """\<iota>""", """\<kappa>""",
+    """\<mu>""", """\<nu>""", """\<xi>""", """\<pi>""", """\<rho>""", """\<sigma>""",
+    """\<tau>""", """\<upsilon>""", """\<phi>""", """\<chi>""", """\<psi>""",
+    """\<omega>""", """\<varepsilon>""", """\<vartheta>""", """\<varphi>""",
+    """\<varrho>""", """\<varsigma>""", """\<varpi>""",
+    """\<Gamma>""", """\<Delta>""", """\<Theta>""", """\<Lambda>""", """\<Xi>""",
+    """\<Pi>""", """\<Sigma>""", """\<Upsilon>""", """\<Phi>""", """\<Psi>""",
+    """\<Omega>""")
+
   val QUOTED_NAME_RE: Pattern = Py.compile("^\"([^\"]+)\"")
 
   /* Outer-syntax keywords that are not fact names.  Only the BARE form is
@@ -1157,6 +1177,66 @@ object Entries {
     }
   }
 
+  /* The words and marks that open or close a block of a proof, read in
+     command position on the outer view.  A dot FOLLOWED by a name character is
+     inside a qualified name (`Suc.IH`, `local.x`, `INV.\<Phi>o_def`); one after
+     a name is a terminator, as Isabelle lexes it — `unfolding foo..` and
+     `using bar.` close their goals, and `qed.` is `qed` then `.`.  `?proof` is
+     a schematic variable, not the command.  Verbatim from upstream's
+     `_PROOF_STRUCT_RE` [body-end-text]: the five slips named there are all in
+     the lookarounds, so a paraphrase would be a sixth. */
+  val PROOF_STRUCT_RE: Pattern = Py.compile(
+    """(?<![\w'.?])(proof|qed|subgoal|by|done|sorry|oops)(?![\w']|\.[\w\\])""" +
+      """|(?<!\.)(\.\.|\.)(?![\w'.\\])|([{}()\[\]])""")
+  private val PROOF_TERMINATORS: Set[String] = Set("by", "done", "sorry", "oops", ".", "..")
+
+  /* The line on which the proof starting at `proof_line` closes its goal, or
+     0 when the walk reaches `thy_end` without seeing it close.
+
+     Block structure alone: `proof` / `{` / `subgoal` open, `qed` / `}` close,
+     and a terminator (`by`, `done`, `.`, `..`, `sorry`, `oops`) at the entry's
+     own level closes its goal — deeper, it closes a nested goal, or the
+     `subgoal` it ends.  Words inside parentheses or brackets are method and
+     attribute arguments, never structure.  `outer` must have terms AND
+     comments blanked.  `unused --locals` walks the same structure and records
+     the same line as its proof end; upstream's `test_unused_locals` holds the
+     two equal. */
+  def proof_close_line(outer: Array[String], proof_line: Int, thy_end: Int): Int = {
+    val kinds = new mutable.ArrayBuffer[String]   // open blocks above the entry's own goal
+    var nest = 0
+    val last = thy_end min outer.length
+    var ln = proof_line
+    while (ln <= last) {
+      val m = PROOF_STRUCT_RE.matcher(outer(ln - 1))
+      while (m.find()) {
+        val mark = m.group(3)
+        if (mark != null) {
+          mark match {
+            case "(" | "[" => nest += 1
+            case ")" | "]" => nest = (nest - 1) max 0
+            case "{" => if (nest == 0) kinds += "{"
+            case _ => if (nest == 0 && kinds.nonEmpty) kinds.remove(kinds.length - 1)   // "}"
+          }
+        }
+        else if (nest == 0) {
+          val word = if (m.group(1) != null) m.group(1) else m.group(2)
+          if (word == "proof" || word == "subgoal") kinds += word
+          else if (word == "qed") {
+            if (kinds.nonEmpty) kinds.remove(kinds.length - 1)
+            if (kinds.isEmpty) return ln
+            if (kinds.last == "subgoal") kinds.remove(kinds.length - 1)
+          }
+          else if (PROOF_TERMINATORS(word)) {
+            if (kinds.isEmpty) return ln
+            if (kinds.last == "subgoal") kinds.remove(kinds.length - 1)
+          }
+        }
+      }
+      ln += 1
+    }
+    0
+  }
+
   /* Walk forward from proof_line; the last line that belongs to the proof.
      Stops at top-level documentation blocks but NOT at in-proof `\<comment>`
      annotations, which are routine inside proof bodies.
@@ -1172,29 +1252,58 @@ object Entries {
      The mask governs the BOUNDARY tests only.  A noise line still advances
      `last` exactly as before: whether a trailing comment block belongs to the
      proof is a separate question, and answering it here would be a second
-     change hiding inside this one. */
+     change hiding inside this one.
+
+     A `text` block or heading ends the proof only once the proof has CLOSED
+     [body-end-text].  Both are legal in proof mode, and stopping at the first
+     one cut 302 AFP proofs short upstream — every one of them long, since a
+     proof with a remark in its middle is a proof big enough to want one — and
+     the `shape` step scan and `enclosing` saw only the part above it.  `outer`
+     (terms and comments blanked) supplies the block structure, through
+     `proof_close_line`; where that walk never sees the proof close, or no view
+     is given (`show`'s preview, as upstream's `render` calls it), the boundary
+     stands as before.
+
+     `prose` masks each `text` block's BODY, where "lemma reduction1 ..." at
+     the start of a line is English (`Kyber_gpv_IND_CPA:273`).  Unreachable
+     while every `text` ended the proof; reachable now that one inside a proof
+     does not.  A block's first line stays unmasked: that is where the command
+     itself is recognised. */
   def proof_extent(lines: Array[String], proof_line: Int, thy_end: Int,
-    noise: Array[Boolean]
+    noise: Array[Boolean], outer: Array[String] = null, prose: Array[Boolean] = null
   ): Int = {
+    /* Where the proof closes, asked only when a prose boundary is reached:
+       few proofs meet one, and walking every proof's structure doubled parse
+       time upstream.  -1 is "not asked yet". */
+    var closes = -1
     var last = proof_line
     var line_no = proof_line + 1
     var go = true
     while (go && line_no <= thy_end && line_no <= lines.length) {
       val cline = lines(line_no - 1)
       val stripped = Py.strip(cline)
-      if (!noise(line_no) &&
+      val live = !noise(line_no) && (prose == null || !prose(line_no))
+      if (live &&
           (stripped.startsWith("text ") || stripped.startsWith("""text\<open>""") ||
            /* `heading_at`, not a regex of its own: this was a THIRD asker of
               "is this a heading", and it disagreed — a marked heading and a
               split heading both ended a proof for `outline` and the prose mask
               but not here. */
-           heading_at(lines, line_no - 1, null).isDefined ||
-           /* The column-0 anchor stays.  `thy_end` is already bounded by the
-              declaration positions the scan found, so an indented declaration
-              never falls strictly inside a proof's span; deanchoring it here
-              moves 0 records. */
-           Py.matches_start(DECL_RE, cline))) go = false
-      else {
+           heading_at(lines, line_no - 1, null).isDefined)) {
+        if (closes < 0)
+          closes =
+            if (outer != null && outer.nonEmpty) proof_close_line(outer, proof_line, thy_end)
+            else 0
+        /* Before the proof has closed, it is prose in the middle of the
+           proof, not the end of it. */
+        if (closes == 0 || line_no > closes) go = false
+      }
+      /* The column-0 anchor stays.  `thy_end` is already bounded by the
+         declaration positions the scan found, so an indented declaration
+         never falls strictly inside a proof's span; deanchoring it here
+         moves 0 records. */
+      if (go && live && Py.matches_start(DECL_RE, cline)) go = false
+      if (go) {
         if (stripped.nonEmpty) last = line_no
         line_no += 1
       }

@@ -2772,6 +2772,12 @@
       "status": "ported",
       "destination": "tests/scala/parser/Parser_test_txt_prose.scala",
       "reason": ""
+    },
+    {
+      "id": "test_unused_locals.Extent.test_prose_in_a_text_block_is_not_a_declaration",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_unused_locals.scala",
+      "reason": ""
     }
   ]
 }

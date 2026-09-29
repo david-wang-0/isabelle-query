@@ -140,10 +140,18 @@ object Theory {
        asks it per line, and the ranges it comes from are the same for every
        entry in the file. */
     val noise_mask = Entries.line_mask(lines.length, nonisar_ranges)
+    /* Terms AND comments blanked: the block structure `proof_extent` reads
+       must not see a `qed` in a comment or a `.` in a term [body-end-text]. */
+    val outer_live = Model.blank_all(outer, regions.nonisar)
+    /* Each `text` block's body, its first line excluded: that line is where
+       the command is recognised. */
+    val prose_body = Entries.line_mask(lines.length,
+      for ((lo, hi) <- text_blocks if hi > lo) yield (lo + 1, hi))
     for (e <- entries) {
       e.theory = theory
       e.body_end_line =
-        if (e.proof_line > 0) Entries.proof_extent(lines, e.proof_line, e.thy_end, noise_mask)
+        if (e.proof_line > 0)
+          Entries.proof_extent(lines, e.proof_line, e.thy_end, noise_mask, outer_live, prose_body)
         else if (e.decl_end_line > 0) e.decl_end_line
         else e.thy_line
     }
