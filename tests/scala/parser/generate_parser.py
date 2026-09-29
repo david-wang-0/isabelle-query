@@ -281,11 +281,15 @@ class Gen:
         out += ['def run(): Unit = { ' + '; '.join(runs) + ' }', '}']
         return '\n'.join(out) + '\n'
 SPECIAL = {'test_balanced.BalancedEnd.test_quote_aware_skips_a_quoted_paren', 'test_live_source.Shape.test_result_is_cached', 'test_live_source.Shape.test_clean_theory_shares_the_source_list'}
+# Whole modules ported by hand; their source hashes are still audited above.
+# test_proposition and test_unused_locals (P14, upstream 0.9.x) sit under the
+# generated-file naming but are hand-written ports, not translator output.
+HANDWRITTEN = ('test_api_surface', 'test_corpus', 'test_proposition', 'test_unused_locals')
 COVER = []
 fails = []
 generated = {}
 for m in mods:
-    if m in ('test_api_surface', 'test_corpus'):
+    if m in HANDWRITTEN:
         continue
     try:
         before = len(COVER)
@@ -298,7 +302,9 @@ for m in mods:
 print('generated', len(COVER), 'failures', fails)
 if fails:
     raise SystemExit(1)
-expected = {case['id'] for case in ledger if pathlib.Path(case['destination']).name.startswith('Parser_test_')}
+expected = {case['id'] for case in ledger
+            if pathlib.Path(case['destination']).name.startswith('Parser_test_')
+            and case['id'].split('.')[0] not in HANDWRITTEN}
 if {case['id'] for case in COVER} != expected:
     raise SystemExit('generated IDs disagree with frozen manifest')
 drift = []

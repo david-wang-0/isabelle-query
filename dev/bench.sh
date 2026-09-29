@@ -408,7 +408,7 @@ bench3() {  # label, root, then argv
   return 0
 }
 
-bench2() {  # rewrite-only verbs: no oracle column exists to compare with
+bench2() {  # the site verbs: timed without an oracle column (this table predates 0.9.1, which gave them one)
   local label="$1" root="$2"; shift 2
   ensure_index "$root"
   local c w
@@ -450,7 +450,7 @@ if [ "$TIER" = "small" ] || [ "$TIER" = "all" ] || [ "$TIER" = "full" ]; then
   echo
 
   CASE_PREFIX=hol
-  echo "## (c) the two rewrite-only verbs -- src/HOL"
+  echo "## (c) the two site verbs -- src/HOL"
   echo
   row "invocation" "oracle ms" "cold ms" "warm ms"
   printf '|%s|%s|%s|%s|\n' "-------------------------------------------" \

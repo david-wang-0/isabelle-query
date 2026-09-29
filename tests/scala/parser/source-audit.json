@@ -204,35 +204,38 @@
   {
     "module": "test_corpus",
     "source_assertion_lines": [
-      93,
-      95,
-      115,
-      127,
-      142,
-      144,
-      147,
-      157,
-      165
+      100,
+      102,
+      122,
+      134,
+      149,
+      151,
+      154,
+      175,
+      183,
+      204,
+      209
     ],
     "source_loop_lines": [
-      70,
-      78,
-      88,
-      89,
-      105,
-      110,
-      124,
-      125,
-      136,
-      141,
-      146,
-      151,
-      156,
-      162,
-      163
+      77,
+      85,
+      95,
+      96,
+      112,
+      117,
+      131,
+      132,
+      143,
+      148,
+      153,
+      157,
+      174,
+      180,
+      181,
+      199
     ],
-    "source_sha256": "5e2c4c93e15b132af85f82d443ffecf2055fff85546bc65ea3158e67ad15caf5",
-    "collected_ids": 5
+    "source_sha256": "7c264b7a2e7bb79b86601cfbc9987a6995c074c4c10316d16428bbf47a67074a",
+    "collected_ids": 6
   },
   {
     "module": "test_decl_body_comment",
@@ -866,6 +869,26 @@
     "collected_ids": 25
   },
   {
+    "module": "test_proposition",
+    "source_assertion_lines": [
+      78,
+      83,
+      86,
+      91,
+      107,
+      113,
+      116
+    ],
+    "source_loop_lines": [
+      75,
+      99,
+      107,
+      108
+    ],
+    "source_sha256": "c392147c7e3a10a2608dd15e7add3c8ffa40fc2d2bff08d36369ed7a60d74f63",
+    "collected_ids": 7
+  },
+  {
     "module": "test_record_fields",
     "source_assertion_lines": [
       55,
@@ -1007,5 +1030,42 @@
     ],
     "source_sha256": "bd70b45f71da586e656a1af488b5860100912ab0df680f6f4734fa175c164693",
     "collected_ids": 11
+  },
+  {
+    "module": "test_unused_locals",
+    "source_assertion_lines": [
+      151,
+      154,
+      158,
+      163,
+      174,
+      179,
+      180,
+      185,
+      188,
+      193,
+      196,
+      197,
+      268,
+      327,
+      328,
+      331,
+      332,
+      335,
+      338,
+      343,
+      354
+    ],
+    "source_loop_lines": [
+      117,
+      121,
+      130,
+      132,
+      322,
+      328,
+      351
+    ],
+    "source_sha256": "11ef1988e07f480184bf5ee32735e5f48be79599ed292143a77aa87b781a9d9f",
+    "collected_ids": 16
   }
 ]

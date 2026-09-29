@@ -5,15 +5,42 @@ implementation, with the evidence that made it deliberate.  `PLAN.md` requires
 this list to stay near-empty and every entry to have a reason better than "hard
 to match".
 
-**The oracle is upstream 0.8.1 as of P9** (`git merge v0.8.1`, `[p9-merge]`;
-`src/isabelle_query/` and `tests/` are that release, frozen).  That matters for
-reading this file, because most of what is written down here was *found* here
-and has since been fixed **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0
-from this port's own findings (upstream ships them as
-`scripts/probe_scala_port_findings.py`), and D2 and D6 closed on both sides
-during P9.  Those entries stay, with their evidence and with the release that
-closed them, because the evidence is what made the case; they are history, not
-open differences.
+**The oracle is upstream 0.9.2 as of P14** (`git merge v0.9.2`,
+`[p14-merge]`; `src/isabelle_query/` and `tests/` are that release, frozen).  P9
+had moved it from 0.7.0 to 0.8.1 (`[p9-merge]`).  That matters for reading this
+file, because most of what is written down here was *found* here and has since
+been fixed or adopted **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0 from
+this port's own findings (upstream ships them as
+`scripts/probe_scala_port_findings.py`), D2 and D6 closed on both sides during
+P9, and D14 was adopted in 0.9.1 as `[bound-name-reach]` (`fdde693`, this
+fork's PR #11, the same PR that gave `instances` and `codeqs` an oracle).
+Those entries stay, with their evidence and with the release that closed them,
+because the evidence is what made the case; they are history, not open
+differences.
+
+D16 and D17 are the other kind: places where this port reproduces the
+oracle's reading ON PURPOSE although it is not Isabelle's, so the matrix
+agrees there and nothing is pinned.  They are written down so that the
+agreement is not mistaken for evidence that either side is right.
+
+## Measured at the close of P14
+
+<!-- TODO(main-session): the numbers below are placeholders; the full matrix on
+     the merged tree fills them in.  Nothing in this table is measured yet. -->
+
+`dev/difftest.sh` against oracle 0.9.2, seven gate corpora, 334 invocation
+ids (`tests/scala/coverage/matrix.json`):
+
+| | vs 0.9.2 (P14 close) |
+|---|---:|
+| cases | TODO(main-session) |
+| clean | TODO(main-session) |
+| pinned | TODO(main-session) |
+| failing | TODO(main-session) |
+| stale pins | TODO(main-session) |
+
+The entry projections (`dev/entrydiff.sh`, four dumps on each of the seven
+corpora) are 28 of 28 identical to oracle 0.9.2 on the merged S1-S4 tree.
 
 ## Measured at the close of P9 (2026-09-02)
 
@@ -779,12 +806,22 @@ improvement; now both engines answer the same question by default and six
 
 ## D14 — a BOUND name is a declaration too, for the visibility filter
 
-**Cost: nothing on any gate corpus** — no corpus in the matrix declares a name
-in one entry's bindings and mentions it from a theory that cannot see the
-binder, so nothing is pinned for this and nothing needs to be.  It is one
-refinement of D13's rule, in D13's own direction, and it is stated here because
-it is the one place where the two implementations answer a `callers` question
-differently on purpose.
+**ADOPTED UPSTREAM in 0.9.1 (`[bound-name-reach]`, `fdde693`), from this fork's
+PR #11.  Upstream's `_Visibility` folds every entry's bound names into
+`declared_in` for the single-name scans (`graph.site_filter`), which is the
+rule argued for below; the bulk graph is untouched on both sides.  The fixture
+below now gives the same answer from both tools -- `callers Bar` is one caller,
+`Z:5`, verified against oracle 0.9.2 at P14 -- and upstream ships it as
+`tests/test_bound_name_reach.py`, which the graph suite ports.  The evidence
+stays because it is what made the case; it is history, not an open
+difference.**
+
+**Cost while it lasted: nothing on any gate corpus** — no corpus in the matrix
+declares a name in one entry's bindings and mentions it from a theory that
+cannot see the binder, so nothing was pinned for this and nothing needed to
+be.  It is one refinement of D13's rule, in D13's own direction, and it was
+stated here because it was the one place where the two implementations
+answered a `callers` question differently on purpose.
 
 D13 fixes the rule: a site in theory `T` may be attributed to a declaration in
 theory `D` iff `D = T`, or `D` is in `T`'s transitive in-project `imports`
@@ -804,7 +841,7 @@ Z.thy:  theory Z imports X begin  lemma z_mentions_bar: "Bar = Bar" by simp  end
 W.thy:  theory W imports Main begin  lemma w_mentions_bar: "Bar = Bar" by simp  end
 ```
 
-`callers Bar`: upstream reports **2** — `Z:5` and `W:4` — because no ENTRY is
+`callers Bar`: upstream 0.8.1 reported **2** — `Z:5` and `W:4` — because no ENTRY is
 named `Bar`, so `declared_in["Bar"]` is empty and the filter declines to
 constrain anything.  The port reports **1**, dropping `W:4`: `Bar` IS declared
 here, by `datatype colour` in `X`, and `W` imports only `Main`.  The `Bar` on
@@ -815,8 +852,8 @@ here, by `datatype colour` in `X`, and `W` imports only `Main`.  The `Bar` on
 the citing theory positively cannot see, and a constructor bound in `X` is not
 visible from a `W` that does not import `X`.  Dropping bindings from the
 declared set would not make the port more correct, only more permissive in the
-one case the rule was written for; and `codeqs Cons` — a rewrite-only verb with
-no oracle — is precisely the question "where is this CONSTRUCTOR given a code
+one case the rule was written for; and `codeqs Cons` — a verb that had no
+oracle until 0.9.1 — is precisely the question "where is this CONSTRUCTOR given a code
 equation", which needs the binding to be a declaration or the verb has no
 subject at all.  `instances` and `codeqs` therefore use the same rule, and
 `callers` uses it too rather than carrying two answers to one question.
@@ -834,8 +871,8 @@ Everything else about the declared set now agrees: an entry of ANY tag counts
 
 ## D15 — a theory a ROOT addresses by PATH is named by its LEAF
 
-**Cost: 178 of `dev/difftest.sh`'s 2,149 cases, on the three gate corpora whose
-ROOT addresses a theory by path (FOL 33, Sequents 47, CTT 98) and on no other;
+**Cost: 183 of `dev/difftest.sh`'s 2,338 cases, on the three gate corpora whose
+ROOT addresses a theory by path (FOL 33, Sequents 52, CTT 98) and on no other;
 0 records on `dev/entrydiff.sh`, whose dumps key by path.  Every case is pinned
 below, by id.**  It is the only deliberate difference in oracle-shared STDOUT
 that this port carries by choice rather than by defect, and it is here because
@@ -960,8 +997,12 @@ maps that spelling by its leaf as it always did.
 
 ### The pinned cases
 
-**178 of the 2,149 matrix cases, and not one on a corpus without a
-path-declared theory.**  The other four gate corpora (`Abstract_Completeness`,
+**183 of the 2,338 matrix cases, and not one on a corpus without a
+path-declared theory.**  P14 added five: the site verbs gained an oracle in
+0.9.1, and on Sequents `instances term` prints the locus of
+`instance nat :: "term"` as `Nat:13` where the oracle prints the ROOT's
+`LK/Nat:13` (`instances-default`, `instances-names`, `instances-r`,
+`instances-r-sorts`, `instances-sorts`).  The other four gate corpora (`Abstract_Completeness`,
 `AODV`, `Category3`, `ZF`) and both demo corpora are byte-identical, as they
 were.  Each case is pinned by its own id in `dev/difftest-pins` — no family
 glob, because not one command family moves whole: `grep-anchored` moves on FOL
@@ -975,10 +1016,10 @@ and `grep-count` does not, since only the first prints a locus.
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps-all`, `shape-steps-all-long`
 
-**Sequents** — 47 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
+**Sequents** — 52 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
 
-- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (37):
-  `graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`, `largest-default`, `methods-least-used`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-recursive`
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (42):
+  `graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`, `instances-default`, `instances-names`, `instances-r`, `instances-r-sorts`, `instances-sorts`, `largest-default`, `methods-least-used`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-recursive`
 
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `shape-steps-all`, `shape-steps-all-long`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
@@ -996,3 +1037,155 @@ and `grep-count` does not, since only the first prints a locus.
 
 - **an oracle-written resume prefix** — `shape census --resume` skips records keyed by (theory, lemma), and `dev/difftest.sh` derives the prefix from the ORACLE, so this engine re-emits the eleven CTT records its keys name.  A prefix this engine wrote resumes to nothing (1):
   `shape-census-resume`
+
+---
+
+## D16 — a backquoted fact is outer text to `unused --locals`, as the oracle reads it
+
+**MATCHED ON PURPOSE (`[unused-locals]`, `f7764b3`).  Cost: nothing on the gate
+corpora -- both tools print the same rows, so nothing is pinned.  It is here
+because the port reproduces a reading that is not Isabelle's.**
+
+Isabelle's lexer makes `` `j < p n` `` one token, an `ALT_STRING`: the
+backquoted proposition is inner syntax, a reference to a fact BY ITS
+STATEMENT.  `Regions` follows `Token.explode`, so the port's outer view blanks
+it, as it blanks every other string.  The oracle's region scanner has no
+backquote state and leaves the text as outer syntax, so its `unused --locals`
+walk reads the `j` inside as a citation of the FACT `j`.  The port restores the
+alt-string spans in the walk's own copy of the outer view
+(`Proof_Locals.with_alt_strings`), and only there; `Regions` and every other
+reader of the outer view are unchanged.
+
+```isabelle
+      ultimately have j: "j < p n"                          -- Cook_Levin/Reducing:2434
+        using m_def by auto
+      ...
+          using PHI4_def satisfies_concat_map[OF _ `j < p n`] by auto   -- :2444
+```
+
+The fact `j` is used, by its statement, and by nothing else.  The oracle calls
+it read because the statement happens to spell the label.  The port did not
+until the walk took the oracle's reading: the whole-AFP comparison found 4 rows
+the oracle does not print, every one a fact cited only in backquotes
+(`Reducing:2434` `j`, `k_coloring:501` `v`, `KoenigLemma:1763` `n` and `:1769`
+`u`).  With the walk's view unchanged (`f7764b3` reverted on the P14 tree):
+
+```
+$ isabelle query -R $QUERY_TEST_AFP/Cook_Levin unused --locals Reducing:sat_PHI_imp_ex_u
+Reducing:2434  j  have  sat_PHI_imp_ex_u               WITHOUT f7764b3
+$ query -R $QUERY_TEST_AFP/Cook_Levin unused --locals Reducing:sat_PHI_imp_ex_u
+No unread local names found.                           ORACLE 0.9.2, and this engine
+```
+
+Neither reading is Isabelle's, and a two-lemma fixture shows the error running
+both ways.  In `by_accident` the label `a` is never used, and the backquoted
+`a = a` is the statement of `b`:
+
+```isabelle
+lemma by_name_too: "(j::nat) < Suc j"          --  5
+proof -
+  have j: "j < Suc j" by simp                  --  7
+  show ?thesis using `j < Suc j` by simp       --  8
+qed
+
+lemma by_accident: "(a::nat) = a"              -- 11
+proof -
+  have a: "True" by simp                       -- 13
+  have b: "a = a" by simp                      -- 14
+  show ?thesis using `a = a` by simp           -- 15
+qed
+```
+
+```
+$ query -R FIX unused --locals                        ORACLE 0.9.2, and this engine
+Backquote:14  b  have  by_accident
+
+$ isabelle query -R FIX unused --locals               WITHOUT f7764b3
+Backquote:7   j  have  by_name_too
+Backquote:13  a  have  by_accident
+Backquote:14  b  have  by_accident
+```
+
+What Isabelle reads: `j` and `b` are used (by statement), `a` is not.  The
+oracle's reading gets `j` right by the accident of spelling, hides the unread
+`a` behind a variable of the same name, and still reports `b`.  Isabelle's
+lexing reports `a` correctly and `j` and `b` wrongly.  Resolving a citation by
+statement needs the statement, which is the prover's business; upstream's
+`proof_locals` docstring already lists "by its statement (`using ‹P›`)" among
+the uses no scan sees and "a same-named variable in outer syntax" among the
+false readers, and the backquote case is both at once.  Matching the oracle
+costs nothing it does not already concede, and keeps the rows comparable.
+
+Any other reader of the outer view that looked inside a backquote would
+diverge from the oracle the same way.  None is known to; if one surfaces, the
+remedy is the same local restoration in that reader, not a change to
+`Regions`, whose blanking is Isabelle's.
+
+## D17 — M5a fan-in counts a fact twice when a forward chain and a `using` cite it
+
+**MATCHED ON PURPOSE (`[cite-direction]`, `cf8098a`), and a candidate upstream
+report.  Cost: nothing on the gate corpora -- both tools print the same
+numbers, so nothing is pinned.**
+
+`annotate_fanin` defines a goal's fan-in as the number of *distinct* facts
+cited for it (upstream's docstring: "the number of distinct facts cited *for*
+it").  A backward `using` / `unfolding` line credits the open goal with
+`facts - seen`, and a goal step is meant to record what it has been credited
+with.  But `shape.py:792-793` clears `pending` first and then writes
+
+```python
+pending, pending_covered = set(), True
+open_goal, seen = s, facts | pending        # pending is already empty here
+```
+
+so `seen` holds only the goal line's own facts, and a fact the goal received by
+FORWARD chaining is credited a second time when a `using` names it again:
+
+```isabelle
+lemma twice: "True"                            --  5
+proof -
+  have a: "True" by simp                       --  7
+  from a                                       --  8
+  have x: "True"                               --  9
+    using a by simp                            -- 10
+  show ?thesis using x by simp                 -- 11
+qed
+
+lemma oneline: "True"                          -- 14
+proof -
+  have a: "True" by simp
+  from a have x: "True" using a by simp        -- 17
+  show ?thesis using x by simp
+qed
+```
+
+```
+$ query -R FIX shape lemma twice                ORACLE 0.9.2, and this engine, byte for byte
+twice  (LEMMA Fanin:5..13)
+
+ line kind       w2   w1  fan live  statement
+    7 goal        1    0    0    1  True
+    8 plumbing    0    0    0    1  
+    9 goal        1    0    2    2  True
+   10 plumbing    0    0    0    2  
+   11 goal        0    0    1    1  
+   12 closing     0    0    0    0  
+
+3 goals (1 bare)  w2 max 1 mean 1.0  w1 max 0  fan-in max 2  live max 2 mean 1.2
+
+$ query -R FIX shape steps Fanin:5..12 --json   (both; line 9)
+{"theory": "Fanin", "lemma": "twice", "line": 9, ..., "kind": "goal", "kw": "have", ..., "label": "x", ..., "fanin": 2, "fanin_covered": true, ...}
+```
+
+`have x` cites one distinct fact, `a`, and the definition gives 1; both tools
+print 2.  The same proof written on one line, `oneline:17`, prints 1 on both,
+because there the `from a` and the `using a` are one line's fact set.  Setting
+`seen = facts | pending` BEFORE `pending` is cleared makes `twice:9` read 1 and
+changes nothing else in the fixture; on the seven gate corpora it moves no
+number at all (the total goal fan-in of `shape steps --all --json` is identical
+on each, measured with the one-line change built into a scratch copy of the P14
+engine).  The port keeps upstream's order, with a
+comment at the assignment in `Shape.annotate_fanin`, so that the M5a figures
+stay comparable; the fix belongs upstream, where `[cite-direction]`'s own
+test (`test_shape.py::CitationDirection`) cites a different fact from each
+line and so cannot see a repeat.

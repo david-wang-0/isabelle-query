@@ -69,8 +69,11 @@ passing regressions, not divergence dispositions.
 `python3 tests/scala/parser/generate_parser.py` checks frozen-source
 reproducibility and manifest IDs; `--write` regenerates only the mechanical
 cases. It reads the original source AST, never imports the Python tests or runs
-an oracle. `source-audit.json` pins all 27 source hashes and enumerates every
-original assertion/loop site. Changed upstream source requires an explicit audit
+an oracle. `source-audit.json` pins all 29 source hashes and enumerates every
+original assertion/loop site (27 at 0.8.1; P14 added the hand-written
+`Parser_test_proposition.scala` and `Parser_test_unused_locals.scala`, which
+the generator skips as it skips `ParserApi`/`ParserCorpus`, and re-audited
+0.9.2's `test_corpus.py`). Changed upstream source requires an explicit audit
 update before regeneration; handwritten cases must be reviewed alongside it.
 The routine `dev/scala-tests.sh --suite parser` never invokes this generator.
 
