@@ -59,7 +59,8 @@ The gate checks working Python bytes and executable modes, not merely HEAD or
 the version string. Same-version source/metadata drift fails the cheap check;
 reviewed maintenance can use `--force`. Version changes trigger complete
 compatibility by default. All seven standard corpora are mandatory. The copied
-harness executes 28 entry projections and 2,149 warm differential comparisons,
+harness executes 28 entry projections and 2,338 warm differential comparisons
+(the count is `comparisons_per_mode` in `scala/coverage/matrix.json`),
 including stale-pin rejection. Entry projections require successful producers
 as well as equal bytes. Failed/partial runs never update the baseline. On Linux,
 timeout/error cleanup terminates owned command groups and detached servers only

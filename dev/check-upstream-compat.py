@@ -16,6 +16,9 @@ import tomllib
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINE = REPO / 'dev/upstream-compat-baseline.json'
+# The invocation manifest the Scala runner holds exhaustive against the matrix;
+# its header says how many (case x corpus) comparisons a complete run makes.
+MATRIX = REPO / 'tests/scala/coverage/matrix.json'
 CORPORA = ('Abstract_Completeness', 'AODV', 'Category3', 'FOL', 'ZF', 'Sequents', 'CTT')
 REQUIRED_CONFIGS = ('configs/m3.toml',)
 PRIVATE_INPUTS = ('query_base', 'dev', 'src', 'tests/fixtures', 'configs')
@@ -177,7 +180,22 @@ def run_owned(args, *, env, cwd, timeout, stdout=None, stderr=None, private_serv
                 terminate_group(group)
 
 
+def expected_comparisons():
+    """The complete matrix size, from the manifest rather than typed here.
+
+    Counting `c` lines times corpora would be wrong: some cases run only on the
+    corpora where their subject exists.  The manifest's header is the number
+    `dev/difftest.sh` reports on a complete run, and the Scala runner refuses a
+    header that disagrees with the manifest's own rows.
+    """
+    count = json.loads(MATRIX.read_text())['comparisons_per_mode']
+    if not isinstance(count, int) or count <= 0:
+        raise ValueError('matrix manifest lacks a positive comparisons_per_mode')
+    return count
+
+
 def full_compat(repo, before, required_configs):
+    comparisons = expected_comparisons()
     if required_config_identity(repo) != required_configs:
         raise ValueError('required compatibility config changed before private copy')
     if os.environ.get('QUERY_CORPORA'):
@@ -234,8 +252,8 @@ def full_compat(repo, before, required_configs):
         result = log.read_text()
         if script == 'difftest.sh':
             match = re.search(r'^(\d+) cases: (\d+) clean, (\d+) pinned, 0 failing, 0 stale pins$', result, re.M)
-            if not match or int(match[1]) != 2149 or int(match[2]) + int(match[3]) != 2149:
-                raise ValueError('matrix did not report all 2149 successful comparisons')
+            if not match or int(match[1]) != comparisons or int(match[2]) + int(match[3]) != comparisons:
+                raise ValueError(f'matrix did not report all {comparisons} successful comparisons')
             pinned = int(match[3])
         elif len(re.findall(r'^ok\s', result, re.M)) != 28:
             raise ValueError('entrydiff did not report all 28 projections')
@@ -249,7 +267,7 @@ def full_compat(repo, before, required_configs):
         raise ValueError('corpus changed during compatibility; refusing stamp')
     return {'schema_version': 2, 'upstream': before,
             'evidence': {'kind': 'complete-run', 'checked_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                         'mode': 'warm', 'comparisons': 2149, 'pins': pinned, 'entry_projections': 28},
+                         'mode': 'warm', 'comparisons': comparisons, 'pins': pinned, 'entry_projections': 28},
             'layout': dependency, 'corpora': corpus_ids,
             'matrix_sha256': digest(guard_bytes['difftest.sh']),
             'owned_server_sha256': digest(guard_bytes['owned-server.sh']),
