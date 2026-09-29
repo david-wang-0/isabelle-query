@@ -30,12 +30,14 @@ It answers four kinds of question:
   locale/class target).
 - **Usage** — *which facts cite which*: `callers`, `callees`, `deps`, `uses`,
   `refs`, `graph`, `unused`, `methods` (built on a call graph constructed only
-  when needed). `deps`/`uses` read the `imports` clause; `refs` rolls the
+  when needed), and one level down `unused --locals`: proof-local names bound
+  and never read. `deps`/`uses` read the `imports` clause; `refs` rolls the
   *citation* graph up by theory, so the two disagreeing is the signal.
 - **Sites** — *where a name is used in a particular syntactic role*:
   `instances` (locale/class instantiation) and `codeqs` (code equations).
-  Rewrite-only: no Python counterpart, so no differential coverage — they are
-  gated by `dev/p6bprobe.sh` against hand-computed fixtures instead.
+  Born here, upstream verbs since 0.9.1 (`[instantiation-sites]`,
+  `[code-equations]`, this fork's PR #11), so oracle-covered by the difftest
+  since P14; `dev/p6bprobe.sh` stays as their hand-computed fixture probe.
 - **Shape** — *the proof-complexity shape of individual steps*: `shape`
   (`summary`/`steps`/`lemma`/`widest`/`census`).
 
@@ -54,16 +56,18 @@ One component tree, chained through `etc/components`:
     src/*.scala
     lib/scripts/query_client.py   ← the non-JVM thin client
   jedit_query/                 ← the jEdit plugin (depends on query_base's jar)
-  src/isabelle_query/          ← the PYTHON reference implementation, 0.8.1 (FROZEN — read only)
+  src/isabelle_query/          ← the PYTHON reference implementation, 0.9.2 (FROZEN — read only)
   tests/                       ← the Python test suite (reference for semantics; not run here)
   dev/                         ← differential harness, probes, benchmarks, phase notes
 ```
 
-`query_base/src` is a strict module DAG — each imports only from earlier links:
+`query_base/src` is a strict module DAG — each imports only from earlier links,
+in the order `sources` lists them in `query_base/etc/build.props`:
 
     py_text → namespace → model → regions → entries → discovery → theory
-      → output → render → usage_graph → commands → usage → sites
-      → shape_data → shape → shape_cmds → cli → server → query_tool
+      → output → render → usage_graph → proof_locals → reach → commands
+      → usage → sites → shape_data → shape → shape_cmds → cli → server
+      → query_host → query_server → query_tool
 
 - `py_text` — the Python-semantics primitives the port needs (`re` dialect
   bridging, `str.split`/`strip` edge cases). Nothing above it re-derives them.
@@ -78,7 +82,9 @@ One component tree, chained through `etc/components`:
   from the `begin`/`end` pair every target block shares.
 - `discovery` / `theory` — ROOT/ROOTS, sessions, the in-entry import closure,
   and the root-wide custom-keyword union built before any body is parsed.
-- `usage_graph` / `usage` / `sites` / `shape` — the analyses.
+- `usage_graph` / `reach` / `usage` / `sites` / `shape` — the analyses;
+  `proof_locals` is `unused --locals`' walk over one proof body
+  (`[unused-locals]`, a port of upstream's `proof_locals.py`).
 - `cli` — the argument grammar and `cmd_*` dispatch. `CLI.run_result` is the
   whole CLI minus the two things only a process may do (write to file
   descriptors, exit); `CLI.run` is that plus those two. The server uses the
@@ -172,7 +178,7 @@ all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 
 | harness | what it establishes |
 |---|---|
-| `dev/difftest.sh` | 2,149 (corpus × invocation) cases against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. 181 are pinned to a `dev/DIVERGENCES.md` entry — 178 of them to D15, the deliberate one. The oracle's version is pinned to the frozen tree's (0.8.1) and a mismatch is a refusal |
+| `dev/difftest.sh` | 2,338 (case × corpus) runs against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. `dev/difftest-pins` carries 189 pins to a `dev/DIVERGENCES.md` entry — 183 of them to D15, the deliberate one, and 6 to D8. The oracle's version is pinned to the frozen tree's (0.9.2) and a mismatch is a refusal |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
 | `dev/p9probe.sh` | 153 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on fixtures of ROOTs that collide by theory name, bare and path-spelled |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter and `--reach name` |
@@ -198,7 +204,8 @@ hand-compute a fixture value first, then make the code match.
 | `CONTRIBUTING.md` | **normative**: the CLI contract, the verification habits, where design decisions are recorded |
 | `query_base/src/shape.scala` + the Python `shape.py` | **authoritative** metric definitions |
 | `dev/DIVERGENCES.md` | every deliberate difference from the oracle, with its evidence |
-| `dev/P1..P10-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P1..P11-STATUS.md`, `dev/P14-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P9..P14-PLAN.md` | a phase's task list; `P14-PLAN.md` is the sync with upstream 0.9.2 |
 | `dev/BENCH.md` | the three-column benchmark and how it was taken |
 | `todo.md` | **open work only** — not a changelog |
 | `.claude/memory/` | granular working rules (written for the Python project) |
@@ -232,22 +239,25 @@ does not.
 
 ## Release status
 
-`pyproject.toml` tracks the **Python** package — now **0.8.1**, still frozen:
-the reference tree is upstream's 0.8.1 release, and it is the oracle every
+`pyproject.toml` tracks the **Python** package — now **0.9.2**, still frozen:
+the reference tree is upstream's 0.9.2 release, and it is the oracle every
 harness here compares against. The Scala tool's version is `CLI.version` — now
-**0.8.1-scala.0.1**, two axes in one string. The NUMBER in front of `-scala`
+**0.9.2-scala.0.3**, two axes in one string. The NUMBER in front of `-scala`
 names the upstream release whose contract this port matches (P9 is where that
-became 0.8.1); it moves only when the oracle moves, and `dev/difftest.sh`
-refuses to run if it differs from the oracle version the matrix pins, so the
-policy is a checked invariant rather than a convention. The `-scala` marker is
-what lets a script tell the two tools apart, since they answer to the same
-verbs. The `MINOR.PATCH` after it is this tree's own release history: port-side
-changes that leave the oracle's contract alone (the plugin, the server, the
-rewrite-only verbs, a fix the oracle does not share). A breaking one takes the
-minor slot, an additive one the patch slot, and the counter is monotone — it
-does not reset when the number in front of it moves. Dots rather than a second
-hyphen so a semver comparison reads the identifiers numerically. P10 is where
-the counter started, at `0.1`.
+became 0.8.1, P14 where it became 0.9.2); it moves only when the oracle moves,
+and `dev/difftest.sh` refuses to run if it differs from the oracle version the
+matrix pins, so the policy is a checked invariant rather than a convention.
+The `-scala` marker is what lets a script tell the two tools apart, since they
+answer to the same verbs. The `MINOR.PATCH` after it is this tree's own release
+history: port-side changes that leave the oracle's contract alone (the plugin,
+the server, a verb upstream does not have yet, a fix the oracle does not
+share). A breaking one takes the minor slot, an additive one the patch slot,
+and the counter is monotone — it does not reset when the number in front of it
+moves. Dots rather than a second hyphen so a semver comparison reads the
+identifiers numerically. P10 is where the counter started, at `0.1`. P14 did
+not move it: that phase was an oracle-side sync — the port took upstream's
+0.9.2 contract, which is exactly what the number in front records — so
+`0.8.1-scala.0.3` became `0.9.2-scala.0.3`.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.
@@ -256,8 +266,8 @@ commit messages.
 
 Two layers, credited separately. The original Python tool (the frozen
 `src/isabelle_query/` tree and everything inherited from upstream) is "By
-András Salamon, with Claude Opus 4.6, 4.7, 4.8, and 5." The Scala component,
-the `instances` and `codeqs` verbs, the jEdit plugin and its IDE features,
-the warm server and thin client, and `demo/` are "By David Wang, with Claude
-Fable 5 and Claude Opus 5." Do not credit new artifacts or new features to
-the upstream author.
+András Salamon, with Claude Opus 4.6, 4.7, 4.8, 5, and 5.5." The Scala
+component, the `instances` and `codeqs` verbs, the jEdit plugin and its IDE
+features, the warm server and thin client, and `demo/` are "By David Wang,
+with Claude Fable 5 and 5.1 and Claude Opus 5 and 5.5." Do not credit new
+artifacts or new features to the upstream author.
