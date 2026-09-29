@@ -167,6 +167,21 @@ object CLI {
         "topological_space`).  Written text only -- no types are inferred, so a " +
         "site whose source writes none shows none.")
 
+  /* `unused --locals` [unused-locals]: the same question one level down, and
+     the one `unused` form that takes PATHs.  The guillemets are code points,
+     as `Render.EM_DASH` is: the source encoding is not ours to assume. */
+  private val locals_flag =
+    flag("--locals")("locals",
+      "one level down: proof-local names (`have NAME:`, `obtain ... where NAME:`, " +
+        "`note NAME =`, `define`, `let ?NAME`) that nothing in their scope reads.  " +
+        "PATHs narrow it, as a file, `THY:A..B` / `THY:LINE` (the proofs that span " +
+        "touches) or `THY:ENTRY`.  CANDIDATES, not a delete list: a fact used through " +
+        "a bundle, by `case` position (`1(2)`), by its statement (`" +
+        0x2039.toChar + "P" + 0x203a.toChar + "`) or by an `obtain`'s hand-written " +
+        "`that` is invisible to it; --keep names the deliberate ones.  A label whose " +
+        "fact is chained (`then`, `moreover`, ...) or declared (`[simp]`) is used, " +
+        "and never reported")
+
   private val files_pos = Pos("files", "*",
     "restrict the search to .thy files, directories or theory names; `-` reads stdin")
 
@@ -326,8 +341,9 @@ object CLI {
         Opt(List("--keep"), "keep", unary = true, append = true,
           help = "treat these names as live roots (never flag as unused, and stop the " +
             "cascade at them).  Repeatable, or a comma-separated list."),
-        drop_names_flag, reach_flag),
-      Nil),
+        locals_flag, drop_names_flag, reach_flag),
+      List(Pos("files", "*", "with --locals only: the files, theories or " +
+        "`THY:A..B` / `THY:ENTRY` selections to scan (default: the whole project)"))),
     Cmd(List("methods", "method"),
       "proof-method usage tally; `methods NAME` lists that method's uses",
       List(all_flag, count_flag, names_flag),
@@ -1039,6 +1055,75 @@ object CLI {
   }
 
 
+  /* A usage error the COMMAND diagnoses rather than the grammar: the
+     reference prints `PROG: MSG` and exits 2, with none of argparse's
+     `error:` framing, because the argv parsed and only its combination is
+     refused. */
+  private def fail_usage(s: Session, msg: String): Nothing = {
+    s.out.flush()
+    s.err.println(s"isabelle query: $msg")
+    throw Exit_Code(2)
+  }
+
+  /* `THEORY:NAME` — an entry selector for `unused --locals`, the one place a
+     PATH may name an entry rather than a line window [unused-locals]. */
+  private val ENTRY_SELECTOR_RE: java.util.regex.Pattern =
+    Py.compile("""^(.+):([A-Za-z][\w'.]*)$""")
+
+  /* Sections and per-file proof windows for `unused --locals PATH...`.
+
+     Each PATH is what the search family takes, plus two selectors: a line
+     window (`Foo:120..260`, `Foo:412` — grep's grammar, so a span from
+     `largest` or a locus from `sorry` pastes in) and an entry name
+     (`Foo:bar_lemma`).  Both pick the PROOFS they touch, never single lines.
+     Two selectors on one file add up; a bare file anywhere takes all of it.
+     An entry selector is read only where the token is neither a locus nor an
+     existing path, so a file whose name ends in `:x` still loads as one. */
+  def locals_selection(s: Session, files: List[String]
+  ): (List[Theory_Section], Map[JPath, List[Proof_Locals.Window]]) = {
+    val sections = new mutable.ListBuffer[Theory_Section]
+    val by_path = mutable.Map.empty[JPath, Theory_Section]
+    val windows = mutable.LinkedHashMap.empty[JPath, mutable.ListBuffer[Proof_Locals.Window]]
+    val whole = mutable.Set.empty[JPath]
+    for (token0 <- files) {
+      var token = token0
+      var entry_name: Option[String] = None
+      Py.matches_at_start(ENTRY_SELECTOR_RE, token0) match {
+        case Some(m) if Commands.parse_locus(token0).isEmpty &&
+            !path_of(token0).exists(Files.exists(_)) =>
+          token = m.group(1)
+          entry_name = Some(m.group(2))
+        case _ =>
+      }
+      val one = new Ns
+      one.positional("files") = List(token)
+      for (sec <- load_sections(s, one, parse_policy = "syntax", windows = true)) {
+        val key = Discovery.real(sec.path.toAbsolutePath)
+        if (!by_path.contains(key)) {
+          by_path(key) = sec
+          sections += sec
+        }
+        val path = by_path(key).path
+        entry_name match {
+          case Some(name) =>
+            val hits = sec.entries.filter(_.name == name)
+            if (hits.isEmpty) Commands.fail_subject(s.out, s.err, s"no entry '$name' in $token")
+            windows.getOrElseUpdate(path, new mutable.ListBuffer) ++=
+              hits.map(e => (e.src_start,
+                Some(if (e.body_end_line != 0) e.body_end_line else e.thy_end)))
+          case None =>
+            sec.line_window match {
+              case Some(w) => windows.getOrElseUpdate(path, new mutable.ListBuffer) += w
+              case None => whole += path
+            }
+        }
+      }
+    }
+    (sections.toList,
+      windows.iterator.filter(pw => !whole(pw._1)).map(pw => pw._1 -> pw._2.toList).toMap)
+  }
+
+
   /* ------------------------------------------------------------------ */
   /* dispatch                                                           */
   /* ------------------------------------------------------------------ */
@@ -1233,7 +1318,24 @@ object CLI {
         each(out, ns.pos("name"))(n =>
           Usage.cmd_callees(out, err, sections, n, flags, s.namespace))
       case "unused" =>
-        Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace)
+        val files = ns.pos("files")
+        if (!ns.bool("locals")) {
+          /* Entry-level deadness is a question about the whole citation graph,
+             so it scopes with -R and never with a file subset [unused-locals]. */
+          if (files.nonEmpty)
+            fail_usage(s, "unused: PATH arguments need --locals; entry-level " +
+              "`unused` is corpus-wide, scope it with -R")
+          Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace)
+        }
+        else {
+          if (flags.recursive || flags.roots)
+            fail_usage(s, "unused: --locals takes neither -r nor --roots")
+          if (files.isEmpty) Usage.cmd_unused_locals(out, s.load_index(), flags)
+          else {
+            val (sections, windows) = locals_selection(s, files)
+            Usage.cmd_unused_locals(out, sections, flags, windows)
+          }
+        }
       case "methods" =>
         Usage.cmd_methods(out, err, s.load_index(), ns.pos("name").headOption, flags,
           s.namespace)

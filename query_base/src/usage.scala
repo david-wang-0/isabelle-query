@@ -805,6 +805,47 @@ object Usage {
   }
 
 
+  /* `unused --locals`: proof-local names bound and never read
+     [unused-locals].  One row per binding — `LOCUS  NAME  KIND  ENTRY` — in
+     source order, the locus first so the row's first field pastes back into
+     `enclosing` or `lines`; the scan and its caveats are `Proof_Locals`'.
+     Widths are counted in code points, as the reference's `format` counts
+     them. */
+  def cmd_unused_locals(out: Out, sections: List[Theory_Section], flags: Flags,
+    windows: Map[java.nio.file.Path, List[Proof_Locals.Window]] = Map.empty
+  ): Unit = {
+    val rows = Proof_Locals.unread_locals(sections, windows, flags.keep)
+    def width(s: String): Int = s.codePointCount(0, s.length)
+    def pad(s: String, w: Int): String = s + (" " * ((w - width(s)) max 0))
+    if (flags.mode == "count") out.println(rows.length.toString)
+    else if (rows.isEmpty) out.println("No unread local names found.")
+    else {
+      val labels = Render.locus_labels(sections)
+      def label(sec: Theory_Section): String = labels.getOrElse(sec.path, sec.theory)
+      if (flags.by_theory) {
+        /* `Counter.most_common()`: by count, descending, ties in first-seen
+           order — a stable sort over insertion order. */
+        val counts = mutable.LinkedHashMap.empty[String, Int]
+        for ((sec, _) <- rows) {
+          val thy = label(sec)
+          counts(thy) = counts.getOrElse(thy, 0) + 1
+        }
+        out.println(s"${rows.length} unread local names across ${counts.size} theories:\n")
+        for ((thy, n) <- counts.toList.sortBy(-_._2))
+          out.println(s"  ${pad_left(n.toString, 4)}  $thy")
+      }
+      else {
+        val cells = rows.map { case (sec, b) => (s"${label(sec)}:${b.line}", b.name, b.kind, b.entry) }
+        val w0 = cells.map(c => width(c._1)).max
+        val w1 = cells.map(c => width(c._2)).max
+        val w2 = cells.map(c => width(c._3)).max
+        for ((locus, name, kind, entry) <- cells)
+          out.println(s"${pad(locus, w0)}  ${pad(name, w1)}  ${pad(kind, w2)}  $entry")
+      }
+    }
+  }
+
+
   /* ------------------------------------------------------------------ */
   /* graph                                                              */
   /* ------------------------------------------------------------------ */
