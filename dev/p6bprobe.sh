@@ -4,10 +4,13 @@
 # equations.
 #
 # Sibling of dev/p5probe.sh and dev/p6probe.sh, which stay as they are: those
-# are the P5/P6 regression gates.  This one covers the two REWRITE-ONLY verbs,
-# which have no Python counterpart and therefore no oracle and no differential
-# case -- so every expectation here is hand-computed, and the fixture theories
-# this script writes are the place they were computed from.
+# are the P5/P6 regression gates.  This one covers the two SITE verbs.  They
+# began as rewrite-only verbs with no Python counterpart, so every expectation
+# here is hand-computed, and the fixture theories this script writes are the
+# place they were computed from.  Upstream 0.9.1 took both (this fork's PR #11),
+# so since P14 dev/difftest.sh also compares them with the oracle on the gate
+# corpora (`instances-*`, `codeqs-*`); the fixtures stay, because a matrix says
+# the two tools agree and only a hand-computed answer says either is right.
 #
 # Three parts:
 #   * the fixtures, written below (read them: they are the spec);
@@ -502,7 +505,7 @@ else bad "-c on an unresolved subject prints nothing" "$(cat "$OUT/o2.txt")"; fi
 # Since P9 S1 the whole lookup family obeys the rule these two verbs were held
 # to first [unresolved-subject], so two of the nine are checked HERE as well --
 # the point being that the contract is the family's and not a property of the
-# two rewrite-only verbs.  The other seven, and the byte-exact texts, are
+# two site verbs.  The other seven, and the byte-exact texts, are
 # dev/p9probe.sh §1.
 expect_rc "and so does callees, since P9 S1"          1 callees no_such_name_xyz
 expect_rc "and theory"                                1 theory No_Such_Theory_Xyz

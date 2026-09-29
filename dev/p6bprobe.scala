@@ -2,9 +2,11 @@
 
 Headless probe for P6b -- find instantiations, find code equations.
 
-These are the first verbs in this fork with NO Python counterpart, so there is
-no oracle and no differential case: everything below is a hand-computed
-expectation.  The fixture theories `Sites_Fix.thy` / `Code_Fix.thy` are written
+These were the first verbs in this fork with NO Python counterpart, so there
+was no oracle and no differential case: everything below is a hand-computed
+expectation.  (Upstream 0.9.1 took both verbs from this fork's PR #11, and
+since P14 `dev/difftest.sh` compares them with the oracle as well; the
+hand-computed answers stay the evidence that either tool is right.)  The fixture theories `Sites_Fix.thy` / `Code_Fix.thy` are written
 by `dev/p6bprobe.sh` and every count here was worked out by reading them before
 the code was run -- which is why the two bugs the fixtures caught (a qualifier
 pattern that walked past a quoted locale name, an arity scan that walked past a

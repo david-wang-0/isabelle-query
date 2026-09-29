@@ -4,7 +4,7 @@
 #
 # Sibling of dev/p5probe.sh, p6probe.sh, p6bprobe.sh, p7probe.sh and
 # p7cprobe.sh, which stay as they are.  Those cover the plugin, the server and
-# the rewrite-only verbs; this one covers the BEHAVIOUR CHANGES of P9, one `§`
+# the site verbs; this one covers the BEHAVIOUR CHANGES of P9, one `§`
 # per item of dev/P9-PLAN.md, each tagged with the upstream tag so that
 # `git log --grep='\[count-mode-zero\]'` and this file name the same thing.
 #
@@ -1953,11 +1953,12 @@ expect "and refs rolls it up to X" 0 \
 expect "unused -c" 0 "3" "" unused -c
 
 echo
-echo "15b. D14 -- a BOUND name is a declaration too (deliberate, see DIVERGENCES)"
+echo "15b. D14 -- a BOUND name is a declaration too (adopted upstream in 0.9.1, see DIVERGENCES)"
 
 # `Bar` is no ENTRY: it is a name `datatype colour` BINDS, in X.  Upstream
-# consults entries only, so `declared_in["Bar"]` is empty there and the filter
-# declines to constrain anything -- oracle 0.8.1 answers 2 here, Z:5 and W:4.
+# 0.8.1 consulted entries only, so `declared_in["Bar"]` was empty there and the
+# filter declined to constrain anything -- oracle 0.8.1 answered 2 here, Z:5
+# and W:4.  0.9.1 adopted this port's reading ([bound-name-reach]) and answers 1.
 #
 # This port counts a bound name as a declaration, so `Bar` IS declared, in X,
 # and W imports only Main: W:4 cannot be naming X's constructor.  1 is
@@ -1965,7 +1966,7 @@ echo "15b. D14 -- a BOUND name is a declaration too (deliberate, see DIVERGENCES
 # than an exception to it.  `codeqs Cons` -- a verb whose whole subject is a
 # bound name -- needs the same reading, so `callers` uses it too rather than
 # carrying two answers to one question.
-expect "callers Bar -- the port drops W (upstream: 2)" 0 \
+expect "callers Bar -- the port drops W (upstream 0.8.1: 2)" 0 \
   '1 caller(s) of Bar:
 
   Z:5  z_mentions_bar (LEMMA) 5..5  lemma z_mentions_bar: "Bar = Bar" by simp' \

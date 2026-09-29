@@ -118,7 +118,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,149-case matrix, taken through
+# answers the oracle gives?  It is the same 2,338-case matrix, taken through
 # the socket. The harness retains a private query_server stdin pipe until
 # completion; historical auto-daemon expectations in p7probe are superseded.
 #
@@ -214,7 +214,7 @@ fi
 # The oracle is pinned to a VERSION, and a mismatch is a refusal.
 #
 # The frozen reference tree moves when upstream moves (0.7.0 -> 0.8.1 at
-# [p9-merge]), and every expectation in this matrix is that release's output.
+# [p9-merge], 0.8.1 -> 0.9.2 at [p14-merge]), and every expectation in this matrix is that release's output.
 # An older `query` still runs, still answers, and still diffs -- it just diffs
 # against the wrong contract, so the failures it reports name the oracle's age
 # rather than the port's defects.  Refuse instead, before any corpus is read.
@@ -240,7 +240,7 @@ fi
 # `UPSTREAM-scala.MINOR.PATCH`, and the number in front of `-scala` is a claim
 # that this tree matches that upstream release's contract.  This matrix is the
 # evidence for the claim, so the two numbers must agree -- a port that says
-# 0.8.1 while the oracle pinned here is something else is either a stale
+# 0.9.2 while the oracle pinned here is something else is either a stale
 # constant or a stale pin, and either way the run would be certifying the
 # wrong thing.  Refuse, the same way and for the same reason as above.
 port_version=$(run_scala --version 2>/dev/null | awk '{print $NF}')
