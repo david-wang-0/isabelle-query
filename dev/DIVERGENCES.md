@@ -18,6 +18,11 @@ Those entries stay, with their evidence and with the release that closed them,
 because the evidence is what made the case; they are history, not open
 differences.
 
+D16 is the other kind: a place where this port reproduces the oracle's
+reading ON PURPOSE although it is not Isabelle's, so the matrix agrees there
+and nothing is pinned.  It is written down so that the agreement is not
+mistaken for evidence that either side is right.
+
 ## Measured at the close of P14
 
 <!-- TODO(main-session): the numbers below are placeholders; the full matrix on
@@ -1032,3 +1037,86 @@ and `grep-count` does not, since only the first prints a locus.
 
 - **an oracle-written resume prefix** — `shape census --resume` skips records keyed by (theory, lemma), and `dev/difftest.sh` derives the prefix from the ORACLE, so this engine re-emits the eleven CTT records its keys name.  A prefix this engine wrote resumes to nothing (1):
   `shape-census-resume`
+
+---
+
+## D16 — a backquoted fact is outer text to `unused --locals`, as the oracle reads it
+
+**MATCHED ON PURPOSE (`[unused-locals]`, `f7764b3`).  Cost: nothing on the gate
+corpora -- both tools print the same rows, so nothing is pinned.  It is here
+because the port reproduces a reading that is not Isabelle's.**
+
+Isabelle's lexer makes `` `j < p n` `` one token, an `ALT_STRING`: the
+backquoted proposition is inner syntax, a reference to a fact BY ITS
+STATEMENT.  `Regions` follows `Token.explode`, so the port's outer view blanks
+it, as it blanks every other string.  The oracle's region scanner has no
+backquote state and leaves the text as outer syntax, so its `unused --locals`
+walk reads the `j` inside as a citation of the FACT `j`.  The port restores the
+alt-string spans in the walk's own copy of the outer view
+(`Proof_Locals.with_alt_strings`), and only there; `Regions` and every other
+reader of the outer view are unchanged.
+
+```isabelle
+      ultimately have j: "j < p n"                          -- Cook_Levin/Reducing:2434
+        using m_def by auto
+      ...
+          using PHI4_def satisfies_concat_map[OF _ `j < p n`] by auto   -- :2444
+```
+
+The fact `j` is used, by its statement, and by nothing else.  The oracle calls
+it read because the statement happens to spell the label.  The port did not
+until the walk took the oracle's reading: the whole-AFP comparison found 4 rows
+the oracle does not print, every one a fact cited only in backquotes
+(`Reducing:2434` `j`, `k_coloring:501` `v`, `KoenigLemma:1763` `n` and `:1769`
+`u`).  With the walk's view unchanged (`f7764b3` reverted on the P14 tree):
+
+```
+$ isabelle query -R $QUERY_TEST_AFP/Cook_Levin unused --locals Reducing:sat_PHI_imp_ex_u
+Reducing:2434  j  have  sat_PHI_imp_ex_u               WITHOUT f7764b3
+$ query -R $QUERY_TEST_AFP/Cook_Levin unused --locals Reducing:sat_PHI_imp_ex_u
+No unread local names found.                           ORACLE 0.9.2, and this engine
+```
+
+Neither reading is Isabelle's, and a two-lemma fixture shows the error running
+both ways.  In `by_accident` the label `a` is never used, and the backquoted
+`a = a` is the statement of `b`:
+
+```isabelle
+lemma by_name_too: "(j::nat) < Suc j"          --  5
+proof -
+  have j: "j < Suc j" by simp                  --  7
+  show ?thesis using `j < Suc j` by simp       --  8
+qed
+
+lemma by_accident: "(a::nat) = a"              -- 11
+proof -
+  have a: "True" by simp                       -- 13
+  have b: "a = a" by simp                      -- 14
+  show ?thesis using `a = a` by simp           -- 15
+qed
+```
+
+```
+$ query -R FIX unused --locals                        ORACLE 0.9.2, and this engine
+Backquote:14  b  have  by_accident
+
+$ isabelle query -R FIX unused --locals               WITHOUT f7764b3
+Backquote:7   j  have  by_name_too
+Backquote:13  a  have  by_accident
+Backquote:14  b  have  by_accident
+```
+
+What Isabelle reads: `j` and `b` are used (by statement), `a` is not.  The
+oracle's reading gets `j` right by the accident of spelling, hides the unread
+`a` behind a variable of the same name, and still reports `b`.  Isabelle's
+lexing reports `a` correctly and `j` and `b` wrongly.  Resolving a citation by
+statement needs the statement, which is the prover's business; upstream's
+`proof_locals` docstring already lists "by its statement (`using ‹P›`)" among
+the uses no scan sees and "a same-named variable in outer syntax" among the
+false readers, and the backquote case is both at once.  Matching the oracle
+costs nothing it does not already concede, and keeps the rows comparable.
+
+Any other reader of the outer view that looked inside a backquote would
+diverge from the oracle the same way.  None is known to; if one surfaces, the
+remedy is the same local restoration in that reader, not a change to
+`Regions`, whose blanking is Isabelle's.
