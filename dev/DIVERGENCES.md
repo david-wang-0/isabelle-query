@@ -18,10 +18,10 @@ Those entries stay, with their evidence and with the release that closed them,
 because the evidence is what made the case; they are history, not open
 differences.
 
-D16 is the other kind: a place where this port reproduces the oracle's
-reading ON PURPOSE although it is not Isabelle's, so the matrix agrees there
-and nothing is pinned.  It is written down so that the agreement is not
-mistaken for evidence that either side is right.
+D16 and D17 are the other kind: places where this port reproduces the
+oracle's reading ON PURPOSE although it is not Isabelle's, so the matrix
+agrees there and nothing is pinned.  They are written down so that the
+agreement is not mistaken for evidence that either side is right.
 
 ## Measured at the close of P14
 
@@ -1120,3 +1120,72 @@ Any other reader of the outer view that looked inside a backquote would
 diverge from the oracle the same way.  None is known to; if one surfaces, the
 remedy is the same local restoration in that reader, not a change to
 `Regions`, whose blanking is Isabelle's.
+
+## D17 — M5a fan-in counts a fact twice when a forward chain and a `using` cite it
+
+**MATCHED ON PURPOSE (`[cite-direction]`, `cf8098a`), and a candidate upstream
+report.  Cost: nothing on the gate corpora -- both tools print the same
+numbers, so nothing is pinned.**
+
+`annotate_fanin` defines a goal's fan-in as the number of *distinct* facts
+cited for it (upstream's docstring: "the number of distinct facts cited *for*
+it").  A backward `using` / `unfolding` line credits the open goal with
+`facts - seen`, and a goal step is meant to record what it has been credited
+with.  But `shape.py:792-793` clears `pending` first and then writes
+
+```python
+pending, pending_covered = set(), True
+open_goal, seen = s, facts | pending        # pending is already empty here
+```
+
+so `seen` holds only the goal line's own facts, and a fact the goal received by
+FORWARD chaining is credited a second time when a `using` names it again:
+
+```isabelle
+lemma twice: "True"                            --  5
+proof -
+  have a: "True" by simp                       --  7
+  from a                                       --  8
+  have x: "True"                               --  9
+    using a by simp                            -- 10
+  show ?thesis using x by simp                 -- 11
+qed
+
+lemma oneline: "True"                          -- 14
+proof -
+  have a: "True" by simp
+  from a have x: "True" using a by simp        -- 17
+  show ?thesis using x by simp
+qed
+```
+
+```
+$ query -R FIX shape lemma twice                ORACLE 0.9.2, and this engine, byte for byte
+twice  (LEMMA Fanin:5..13)
+
+ line kind       w2   w1  fan live  statement
+    7 goal        1    0    0    1  True
+    8 plumbing    0    0    0    1  
+    9 goal        1    0    2    2  True
+   10 plumbing    0    0    0    2  
+   11 goal        0    0    1    1  
+   12 closing     0    0    0    0  
+
+3 goals (1 bare)  w2 max 1 mean 1.0  w1 max 0  fan-in max 2  live max 2 mean 1.2
+
+$ query -R FIX shape steps Fanin:5..12 --json   (both; line 9)
+{"theory": "Fanin", "lemma": "twice", "line": 9, ..., "kind": "goal", "kw": "have", ..., "label": "x", ..., "fanin": 2, "fanin_covered": true, ...}
+```
+
+`have x` cites one distinct fact, `a`, and the definition gives 1; both tools
+print 2.  The same proof written on one line, `oneline:17`, prints 1 on both,
+because there the `from a` and the `using a` are one line's fact set.  Setting
+`seen = facts | pending` BEFORE `pending` is cleared makes `twice:9` read 1 and
+changes nothing else in the fixture; on the seven gate corpora it moves no
+number at all (the total goal fan-in of `shape steps --all --json` is identical
+on each, measured with the one-line change built into a scratch copy of the P14
+engine).  The port keeps upstream's order, with a
+comment at the assignment in `Shape.annotate_fanin`, so that the M5a figures
+stay comparable; the fix belongs upstream, where `[cite-direction]`'s own
+test (`test_shape.py::CitationDirection`) cites a different fact from each
+line and so cannot see a repeat.
