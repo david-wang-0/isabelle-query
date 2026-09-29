@@ -9586,7 +9586,7 @@
     },
     {
       "id": "test_unused_locals.Extent.test_prose_in_a_text_block_is_not_a_declaration",
-      "suite": "cli",
+      "suite": "parser",
       "source": "tests/test_unused_locals.py",
       "subcase_sites": 0,
       "inherited": false

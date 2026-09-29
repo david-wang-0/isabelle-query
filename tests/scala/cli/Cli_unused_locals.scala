@@ -189,21 +189,6 @@ qed
 end
 """
 
-  /* The two body_end_line tests of `Extent` belong half to [body-end-text]
-     (P14 S2), and the walks-agree test compares against S2's
-     `proof_close_line`.  Until S2 lands they hold the walk to the values the
-     0.9.2 oracle gives, and S5 restores the upstream assertions. */
-  val PENDING_BODY_END: String =
-    "[body-end-text] pending: the body_end_line half of this test belongs to P14 S2; " +
-      "this port asserts the walk's own proof_end at the same line, and S5 restores " +
-      "the upstream assertion once S2 has landed."
-  val PENDING_CLOSE_LINE: String =
-    "[body-end-text] pending: upstream compares the walk against " +
-      "parsing._proof_close_line, which P14 S2 ports; until then proof_end is held to " +
-      "the value the 0.9.2 oracle's _proof_close_line gives for each fixture entry " +
-      "(before 9, sub 24, remark 31, prose_decl 39), and S5 restores the " +
-      "two-walks-agree form."
-
   /* upstream's `_Root`: a one-session root over the given theories */
   private def project[A](theories: (String, String)*)(body: JPath => A): A =
     withProject(theories.map { case (n, t) => s"$n.thy" -> t } :+
@@ -312,30 +297,23 @@ end
       project("Extent" -> EXTENT) { root =>
         val (sec, e) = extent_entry(root, "remark")
         equal(Proof_Locals.proof_end(sec, e), 31)
+        // [body-end-text]: the parser's own extent agrees, where it used to
+        // stop at the `text` on line 29.
+        equal(e.body_end_line, 31)
       }
     }
-    disposition("test_unused_locals.Extent.test_a_text_block_does_not_end_the_proof",
-      "known-difference", PENDING_BODY_END)
-    test("test_unused_locals.Extent.test_prose_in_a_text_block_is_not_a_declaration") {
-      // Line 37 begins with `lemma`, inside the block: English, not the next
-      // entry.
-      project("Extent" -> EXTENT) { root =>
-        val (sec, e) = extent_entry(root, "prose_decl")
-        equal(Proof_Locals.proof_end(sec, e), 39)
-      }
-    }
-    disposition("test_unused_locals.Extent.test_prose_in_a_text_block_is_not_a_declaration",
-      "known-difference", PENDING_BODY_END)
     test("test_unused_locals.Extent.test_parser_and_walk_agree_on_where_proofs_close") {
-      val oracle_close = Map("before" -> 9, "sub" -> 24, "remark" -> 31, "prose_decl" -> 39)
+      // Two walks of one structure: `Entries.proof_close_line` (for
+      // `body_end_line`) and `Proof_Locals` (which also tracks names).  They
+      // must not drift.  The plain outer view, as upstream's test passes it.
       project("Extent" -> EXTENT) { root =>
         val sec = load(root).head
-        val proved = sec.entries.filter(_.proof_line != 0)
-        equal(proved.map(_.name).toSet, oracle_close.keySet)
-        for (e <- proved) equal(Proof_Locals.proof_end(sec, e), oracle_close(e.name), e.name)
+        val outer = sec.outer_source
+        for (e <- sec.entries if e.proof_line != 0) subcase(e.name) {
+          equal(Entries.proof_close_line(outer, e.proof_line, e.thy_end),
+            Proof_Locals.proof_end(sec, e), e.name)
+        }
       }
     }
-    disposition("test_unused_locals.Extent.test_parser_and_walk_agree_on_where_proofs_close",
-      "known-difference", PENDING_CLOSE_LINE)
   }
 }
