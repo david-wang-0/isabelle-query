@@ -407,6 +407,91 @@ derive_subjects() {
   # (`$tag` is shadowed by a local in the loop above, hence the basename.)
   CENSUS_PREFIX=$outdir/$(basename "$corpus").census-prefix.jsonl
   run_oracle -R "$corpus" shape census 2>/dev/null | head -n 200 >"$CENSUS_PREFIX"
+
+  derive_site_subjects "$corpus"
+}
+
+# The subjects of the two site verbs, `instances` and `codeqs` [p14-s4].  The
+# oracle lists every entry with its tag; a subject is then the locale / class
+# (constant) whose name is written most often on a line the oracle's own
+# `grep` finds carrying an instantiating command (a `[code` attribute), so a
+# case is non-vacuous wherever the corpus has any such site at all.  Where it
+# has none the subject falls back to the first declaration of the kind, and
+# where it has no declaration of the kind either, to a lemma: the case then
+# pins the refusal, which is still a comparison.
+derive_site_subjects() {
+  local corpus=$1
+  local listing
+  listing=$(run_oracle -R "$corpus" find . -a --names 2>/dev/null)
+  # `NAME (TAG) — THEORY [...]`, one per entry.
+  local locales classes consts
+  locales=$(awk '$2 == "(LOCALE)" || $2 == "(CLASS)" { print $1 }' <<<"$listing" | sort -u)
+  classes=$(awk '$2 == "(CLASS)" { print $1 }' <<<"$listing" | sort -u)
+  consts=$(awk '$2 ~ /^\((DEF|FUN|ABBREV|IND|INDSET|DATATYPE|RECORD|AXIOM)\)$/ && $1 != "?" { print $1 }' \
+    <<<"$listing" | sort -u)
+
+  # Words on the matched source lines (the indented line under each locus),
+  # ranked by frequency, kept only when they are in the given name set.
+  ranked() {  # PATTERN NAMES
+    local pat=$1 names=$2
+    [ -z "$names" ] && return 0
+    run_oracle -R "$corpus" grep "$pat" 2>/dev/null |
+      awk '/^    / { n = split($0, w, /[^A-Za-z0-9_.\047]+/); for (i = 1; i <= n; i++) if (w[i] != "") print w[i] }' |
+      sort | uniq -c | sort -k1,1nr -k2 | awk '{ print $2 }' |
+      grep -Fxf <(printf '%s\n' "$names") || true
+  }
+  local inst_pat='(?<![\w.])(interpretation|interpret|instantiation|instance|sublocale|global_interpretation)\s'
+  local -a cands
+  mapfile -t cands < <(ranked "$inst_pat" "$locales" | head -8)
+  LOCALE1=${cands[0]:-$(head -1 <<<"$locales")}
+  # For `-r`: of the likeliest few, the one whose transitive listing adds the
+  # most to its direct one, so the hierarchy walk is what the case exercises.
+  LOCALE_R=$LOCALE1
+  local best=-1 n d r cand
+  for cand in "${cands[@]}"; do
+    d=$(run_oracle -R "$corpus" instances "$cand" -c 2>/dev/null)
+    r=$(run_oracle -R "$corpus" instances "$cand" -r -c 2>/dev/null)
+    n=$(( ${r:-0} - ${d:-0} ))
+    if [ "$n" -gt "$best" ]; then best=$n; LOCALE_R=$cand; fi
+  done
+  # `--sorts` writes an arity only for a class instantiation.
+  mapfile -t cands < <(ranked "$inst_pat" "$classes" | head -1)
+  CLASS1=${cands[0]:-$LOCALE1}
+  [ -z "$LOCALE1" ] && LOCALE1=$LEMMA_NAME
+  [ -z "$LOCALE_R" ] && LOCALE_R=$LOCALE1
+  [ -z "$CLASS1" ] && CLASS1=$LOCALE1
+
+  # Of the likeliest few, the one with the most rows: a `[code]` site beyond
+  # the constant's own default equations, where the corpus writes one.
+  mapfile -t cands < <({ ranked '\[code' "$consts" | head -5
+    awk '($2 == "(DEF)" || $2 == "(FUN)") && $1 != "?" { print $1 }' <<<"$listing" | head -2; })
+  CONST1=""
+  best=-1
+  for cand in "${cands[@]}"; do
+    n=$(run_oracle -R "$corpus" codeqs "$cand" -c 2>/dev/null | tail -1)
+    case $n in ''|*[!0-9]*) continue ;; esac
+    if [ "$n" -gt "$best" ]; then best=$n; CONST1=$cand; fi
+  done
+  [ -z "$CONST1" ] && CONST1=$LEMMA_NAME
+
+  # A constructor: a name a datatype BINDS without an entry of its own, which
+  # `codeqs` resolves through its binder.  The first word after the `=` of
+  # the declaration (read with `lines` off the listing's own span, since a
+  # datatype's name may be shared with a type synonym), kept if the oracle
+  # resolves it.
+  CTOR1=""
+  local dt thy span text
+  while read -r dt _ _ thy _ span _; do
+    [ -z "$dt" ] && continue
+    span=${span%,}
+    text=$(run_oracle -R "$corpus" lines "$thy" "$span" 2>/dev/null |
+      sed -E 's/^ *[0-9]+\| ?//' | tr '\n' ' ')
+    cand=$(sed -nE 's/^[^=]*=[[:space:]|]*"?([A-Za-z][A-Za-z0-9_\x27]*).*/\1/p' <<<"$text")
+    if [ -n "$cand" ] && run_oracle -R "$corpus" codeqs "$cand" -c >/dev/null 2>&1; then
+      CTOR1=$cand; break
+    fi
+  done < <(awk '$2 == "(DATATYPE)"' <<<"$listing" | head -5)
+  [ -z "$CTOR1" ] && CTOR1=$CONST1
 }
 
 # --------------------------------------------------------------------------
@@ -708,6 +793,28 @@ emit_cases() {
   c graph-bad-kind         graph no_such_kind
   c graph-bad-format       graph -f xml
   c graph-reach-name       graph --reach name
+
+  # -- instances / codeqs (the site verbs) [p14-s4] -----------------------
+  # Subjects from `derive_site_subjects`.  The refusals exit 1 with nothing
+  # on stdout: an unknown name, a lemma, and a constructor -- a name a
+  # datatype binds, which is a constant and so not a locale or class.
+  c instances-default      instances "$LOCALE1"
+  c instances-count        instances "$LOCALE1" -c
+  c instances-names        instances "$LOCALE1" --names
+  c instances-sorts        instances "$CLASS1" --sorts
+  c instances-r            instances "$LOCALE_R" -r
+  c instances-r-count      instances "$LOCALE_R" -r -c
+  c instances-r-sorts      instances "$CLASS1" -r --sorts
+  c instances-unknown      instances zzz_no_such_locale_zzz
+  c instances-not-locale   instances "$LEMMA_NAME"
+  c instances-bound-name   instances "$CTOR1"
+  c codeqs-default         codeqs "$CONST1"
+  c codeqs-count           codeqs "$CONST1" -c
+  c codeqs-names           codeqs "$CONST1" --names
+  c codeqs-sorts           codeqs "$CONST1" --sorts
+  c codeqs-unknown         codeqs zzz_no_such_const_zzz
+  c codeqs-not-constant    codeqs "$LEMMA_NAME"
+  c codeqs-constructor     codeqs "$CTOR1"
 
   # -- shape summary -------------------------------------------------------
   c shape-summary          shape summary

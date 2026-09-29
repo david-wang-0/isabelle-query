@@ -89,19 +89,19 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 # `theories "ex/Typechecking"` declares a theory Isabelle calls
 # `Typechecking` (`Thy_Header.import_name`, cited in dev/DIVERGENCES.md D15);
 # the reference prints the ROOT's own spelling.  This is the one deliberate
-# difference in oracle-shared STDOUT, and these are all 178 cases it moves --
+# difference in oracle-shared STDOUT, and these are all 183 cases it moves --
 # every one of them on a corpus whose ROOT declares a theory by path, and
 # nothing else on any corpus moved at all:
 #
 #   FOL       33   "Locale_Test/Locale_Test"
-#   Sequents  47   "LK/Propositional", "LK/Quantifiers",
+#   Sequents  52   "LK/Propositional", "LK/Quantifiers",
 #                  "LK/Hard_Quantifiers", "LK/Nat"
 #   CTT       98   "ex/Typechecking", "ex/Elimination", "ex/Equality",
 #                  "ex/Synthesis"
 #
 # Four shapes of difference, and the reason column names which:
 #
-#   the theory name          134 cases.  Substituting leaf for declared string
+#   the theory name          139 cases.  Substituting leaf for declared string
 #                            in the ORACLE's stdout gives this engine's, byte
 #                            for byte.
 #   the locus column width    41 cases.  `grep`, `methods`, `shape steps` size
@@ -167,6 +167,11 @@ graph-reach-name                Sequents  D15  the theory name
 grep-alternation                Sequents  D15  the locus column width
 grep-anchored                   Sequents  D15  the locus column width
 grep-cartouche                  Sequents  D15  the locus column width
+instances-default               Sequents  D15  the theory name
+instances-names                 Sequents  D15  the theory name
+instances-r                     Sequents  D15  the theory name
+instances-r-sorts               Sequents  D15  the theory name
+instances-sorts                 Sequents  D15  the theory name
 largest-default                 Sequents  D15  the theory name
 methods-least-used              Sequents  D15  the theory name
 shape-census                    Sequents  D15  the theory name
