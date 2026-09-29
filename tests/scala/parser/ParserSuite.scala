@@ -25,6 +25,7 @@ object ParserSuite { def run(): Unit = {
   Parser_test_src_doc_attribution.run()
   Parser_test_targets.run()
   Parser_test_txt_prose.run()
+  Parser_test_unused_locals.run()
   ParserApi.run()
   ParserSpecial.run()
   ParserCorpus.run()
