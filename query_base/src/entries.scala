@@ -145,21 +145,6 @@ object Entries {
 
   val QUOTED_NAME_RE: Pattern = Py.compile("^\"([^\"]+)\"")
 
-  /* Greek and variant LETTER symbols: identifier characters (a `\<Gamma>`
-     context, an `\<alpha>` ordinal), NOT operators — the tokeniser keeps them as
-     bare `\<sym>` because `is_name` gates on an ASCII letter, so without this
-     set they would masquerade as operator constants. */
-  val LETTER_SYMS: Set[String] = Set(
-    """\<alpha>""", """\<beta>""", """\<gamma>""", """\<delta>""", """\<epsilon>""",
-    """\<zeta>""", """\<eta>""", """\<theta>""", """\<iota>""", """\<kappa>""",
-    """\<mu>""", """\<nu>""", """\<xi>""", """\<pi>""", """\<rho>""", """\<sigma>""",
-    """\<tau>""", """\<upsilon>""", """\<phi>""", """\<chi>""", """\<psi>""",
-    """\<omega>""", """\<varepsilon>""", """\<vartheta>""", """\<varphi>""",
-    """\<varrho>""", """\<varsigma>""", """\<varpi>""",
-    """\<Gamma>""", """\<Delta>""", """\<Theta>""", """\<Lambda>""", """\<Xi>""",
-    """\<Pi>""", """\<Sigma>""", """\<Upsilon>""", """\<Phi>""", """\<Psi>""",
-    """\<Omega>""")
-
   /* Outer-syntax keywords that are not fact names.  Only the BARE form is
      rejected: a quoted keyword (`fun "for"`) is a legitimate name and is
      parsed by the quoted branch before this guard is reached. */
