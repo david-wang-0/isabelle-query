@@ -23,6 +23,7 @@ object CliSuite {
     Cli_grep_window.run()
     Cli_heading_outline.run()
     Cli_heaps_dirs.run()
+    Cli_ignore_case.run()
     Cli_import_leaf.run()
     Cli_largest.run()
     Cli_layout_surface.run()

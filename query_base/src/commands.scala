@@ -934,7 +934,7 @@ object Commands {
   def cmd_grep(out: Out, err: Out, sections: List[Theory_Section], pattern: String,
     flags: Flags
   ): Unit = {
-    val pat = compile_user_pattern(err, out, pattern)
+    val pat = compile_user_pattern(err, out, pattern, ignore_case = flags.ignore_case)
     val all_hits = grep_sections(sections, pat)
     val live_hits = all_hits.filter(_.is_live)
     val dead_hits = all_hits.filterNot(_.is_live)

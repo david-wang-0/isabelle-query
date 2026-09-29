@@ -110,7 +110,13 @@ object Shape {
   /* goal / context / plumbing / closing / other, by the leading command
      sequence.  A goal command anywhere in the prefix dominates; otherwise the
      FIRST command token decides.  A terminal method reached later in a prefix
-     that no step keyword leads still closes the goal (`unfolding x by simp`). */
+     that no step keyword leads still closes the goal -- a line led by a fact
+     name or by a word this classifier does not know.  It used to carry
+     `unfolding <facts> by <method>` as well, back when `unfolding` was not a
+     step keyword; that line is now claimed by the plumbing head check, exactly
+     as `using <facts> by <method>` always was [markup-step-model].  `by` /
+     `done` / `..` are matched anywhere; a bare single `.` is not, since `.` is
+     also the token split inside a dotted fact name (`Foo.bar`). */
   def classify_step_line(stripped: String): String = {
     val prefix = command_prefix(stripped)
     val tokens = find_all(CMD_TOKEN_RE, prefix)
@@ -533,17 +539,49 @@ object Shape {
     if (step.kind == "other") (Set.empty, true)
     else Usage_Graph.cited_facts_on_line(lines(step.line - 1))
 
-  /* M5a fan-in: the number of distinct facts cited FOR each goal step — the
+  /* Plumbing commands that cite BACKWARD -- for the goal already stated, not
+     the next one.  Isar admits `using` / `unfolding` only in `proof(prove)`
+     mode, i.e. after a goal statement and before its method, so their facts
+     serve that goal:
+
+         have a: "P"
+           using q by simp        <- q is a premise OF a, not of the next goal
+
+     `from` / `with` / `then` / `moreover` / `ultimately` are the forward half
+     (`proof(state)` mode, before a goal statement) and keep the pending-chain
+     behaviour.  Isabelle's own keyword kinds put the forward four under
+     `prf_chain` and these two under `prf_decl`, which is the same distinction
+     read off the grammar rather than inferred from usage.  [cite-direction] */
+  private val BACKWARD_CITE_CMDS: Set[String] = Set("using", "unfolding")
+
+  /* M5a fan-in: the number of distinct facts cited FOR each goal step -- the
      union of its own line's facts and those of the standalone plumbing lines
-     that serve it.  A closing step is a boundary that discards not-yet-consumed
-     plumbing.  Implicit `this` chaining brings an UNNAMED fact, so it adds
-     nothing here; that pressure is M5b's. */
+     that serve it.  WHICH goal a plumbing line serves depends on its keyword
+     (`BACKWARD_CITE_CMDS`): the forward chain words accumulate facts for the
+     NEXT goal, `using` / `unfolding` credit the goal already OPEN with the
+     facts it has not yet been credited.  Treating both as forward was an
+     off-by-one-goal misattribution that kept the totals plausible -- each goal
+     received some other goal's premises -- and also lost every citation whose
+     `using` line had no following goal [cite-direction].  A closing step is a
+     boundary: it discards not-yet-consumed forward plumbing and ends the
+     backward-citable goal.  Implicit `this` chaining brings an UNNAMED fact,
+     so it adds nothing here; that pressure is M5b's. */
   def annotate_fanin(steps: List[Step], lines: Array[String]): Unit = {
     var pending = Set.empty[String]
     var pending_covered = true
+    var open_goal: Option[Step] = None   // the goal a BACKWARD cite would serve
+    var seen = Set.empty[String]         // what that goal has already been credited
     for (s <- steps) {
       val (facts, covered) = line_facts(s, lines)
-      if (s.kind == "plumbing") {
+      if (s.kind == "plumbing" && BACKWARD_CITE_CMDS(s.kw)) {
+        for (g <- open_goal) {
+          val fresh = facts -- seen
+          g.fanin += fresh.size
+          g.fanin_covered = g.fanin_covered && covered
+          seen = seen | fresh
+        }
+      }
+      else if (s.kind == "plumbing") {
         pending = pending | facts
         pending_covered = pending_covered && covered
       }
@@ -552,10 +590,16 @@ object Shape {
         s.fanin_covered = covered && pending_covered
         pending = Set.empty
         pending_covered = true
+        /* Upstream writes `seen = facts | pending` AFTER clearing `pending`,
+           so the goal's own line is what it has been credited with. */
+        open_goal = Some(s)
+        seen = facts | pending
       }
       else if (s.kind == "closing") {
         pending = Set.empty
         pending_covered = true
+        open_goal = None
+        seen = Set.empty
       }
     }
   }

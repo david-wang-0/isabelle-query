@@ -1388,6 +1388,36 @@
       "reason": "Python namespace-resolver installation/heap lookup and fingerprint mechanism with patched process environment; Scala uses compiled namespace tables and has no corresponding external-heap lookup API. Retain Python reference coverage."
     },
     {
+      "id": "test_ignore_case.FindAcceptsIt.test_find_parses_identically_to_its_absence",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_ignore_case.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_both_spellings_ignore_case",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_ignore_case.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_case_sensitive_by_default",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_ignore_case.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_it_composes_with_the_alternation_rewrite",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_ignore_case.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_ignore_case.GrepIgnoreCase.test_it_is_the_inline_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_ignore_case.scala",
+      "reason": ""
+    },
+    {
       "id": "test_import_leaf.APathSpelledImportResolves.test_a_bare_name_finds_a_path_spelled_theory",
       "status": "known-difference",
       "destination": "tests/scala/cli/Cli_import_leaf.scala",

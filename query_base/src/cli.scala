@@ -130,6 +130,19 @@ object CLI {
   private val line_number_noop =
     Opt(List("-n", "--line-number"), "line_number", noop = true,
       help = "accepted and ignored (grep-compatibility no-op)")
+  /* `-i` / `--ignore-case`, grep's spelling, on both search verbs
+     [ignore-case].  On `grep` it compiles the pattern case-insensitively --
+     what a leading `(?i)` already spelled, which nobody guesses from "Python
+     syntax" -- so it composes with the `\|` rewrite.  `find` has always
+     matched without regard to case, so there it is `-n`'s kind of no-op: a
+     grep-reflex caller gets the answer instead of a usage error that sends
+     them to `rg -i` and loses ROOT scoping. */
+  private val ignore_case_flag =
+    flag("-i", "--ignore-case")("ignore_case",
+      "match without regard to case (as a leading `(?i)` in the pattern)")
+  private val ignore_case_noop =
+    Opt(List("-i", "--ignore-case"), "ignore_case", noop = true,
+      help = "accepted and ignored — find already matches case-insensitively")
   private val theory_scope_flag =
     Opt(List("--theory"), "theory_scope", unary = true, append = true,
       help = "confine the search to theory THY; repeatable")
@@ -274,7 +287,7 @@ object CLI {
     Cmd(List("find"), "find entries by name (regex; --statement matches the statement)",
       List(all_flag, count_flag, names_flag, verbatim_flag, statement_flag,
         no_comments_flag, comments_only_flag, context_flag, with_comments_flag,
-        theory_scope_flag,
+        ignore_case_noop, theory_scope_flag,
         flag("--and")("conjunction", "keep only entries matched by EVERY pattern")),
       List(Pos("pattern", "+", "regex pattern(s)")),
       List(List("no_comments", "comments_only"))),
@@ -285,7 +298,8 @@ object CLI {
       List(List("no_comments", "comments_only"), List("verbatim", "statement"))),
     Cmd(List("grep"), "regex search across live theory source",
       List(with_comments_flag, count_flag,
-        names_flag.copy(help = "locations + owning entry only"), line_number_noop),
+        names_flag.copy(help = "locations + owning entry only"), ignore_case_flag,
+        line_number_noop),
       List(Pos("pattern", "1", "regex pattern"), files_pos)),
     Cmd(List("sorry"), "list open goals: every live `sorry` with its location",
       List(count_flag.copy(help = "just print the count"), line_number_noop),
@@ -1152,6 +1166,7 @@ object CLI {
     val keep = ns.list("keep").flatMap(_.split(",", -1)).filter(Py.strip(_).nonEmpty).toSet
     Flags(mode = mode, verbatim = ns.bool("verbatim"), statement = ns.bool("statement"),
       comments = comments, context = context, with_comments = ns.bool("with_comments"),
+      ignore_case = ns.bool("ignore_case"),
       recursive = ns.bool("recursive"), external = ns.bool("external"),
       sorts = ns.bool("sorts"),
       by_theory = ns.bool("by_theory"), roots = ns.bool("roots"), keep = keep,

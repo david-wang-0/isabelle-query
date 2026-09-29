@@ -2438,6 +2438,48 @@
       "reason": ""
     },
     {
+      "id": "test_proposition.ItsProofIsScannedAsItsOwn.test_identical_proofs_scan_identically",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.ItsProofIsScannedAsItsOwn.test_the_lemma_above_does_not_swallow_them",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.ItsProofIsScannedAsItsOwn.test_the_propositions_own_proof_has_more_than_one_step",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.PropositionIsADeclaration.test_it_bounds_the_declaration_above_it",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.PropositionIsADeclaration.test_it_is_indexed_in_source_order",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.PropositionIsADeclaration.test_it_starts_where_it_is_written",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_proposition.PropositionIsADeclaration.test_it_tags_as_a_lemma",
+      "status": "ported",
+      "destination": "tests/scala/parser/Parser_test_proposition.scala",
+      "reason": ""
+    },
+    {
       "id": "test_record_fields.FieldsAreCitableAndDeclared.test_a_field_resolves_to_the_record_that_declares_it",
       "status": "ported",
       "destination": "tests/scala/parser/Parser_test_record_fields.scala",

@@ -19,6 +19,7 @@ object ParserSuite { def run(): Unit = {
   Parser_test_names.run()
   Parser_test_nonisar_regions.run()
   Parser_test_outer_source.run()
+  Parser_test_proposition.run()
   Parser_test_proof_extent_view.run()
   Parser_test_proof_line.run()
   Parser_test_record_fields.run()
