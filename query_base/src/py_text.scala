@@ -42,6 +42,17 @@ object Py {
       (c >= FS && c <= US) || c == NEL ||
       Character.isSpaceChar(c)
 
+  /* Python's `str.isalnum` on one character: a letter (`isalpha`: the L*
+     categories) or a number (`isnumeric`: Nd, Nl, No).  Java's
+     `isLetterOrDigit` leaves Nl and No out, so a `²` would read differently. */
+  def is_alnum(c: Char): Boolean =
+    Character.getType(c) match {
+      case Character.UPPERCASE_LETTER | Character.LOWERCASE_LETTER |
+        Character.TITLECASE_LETTER | Character.MODIFIER_LETTER | Character.OTHER_LETTER |
+        Character.DECIMAL_DIGIT_NUMBER | Character.LETTER_NUMBER | Character.OTHER_NUMBER => true
+      case _ => false
+    }
+
   def strip(s: String): String = {
     var a = 0
     var b = s.length
