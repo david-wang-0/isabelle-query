@@ -314,6 +314,49 @@ object Sites {
     """^(instantiation|instance|interpretation|global_interpretation|interpret""" +
       """|sublocale)(?![\w'])""")
 
+  /* `interpret` is a PROOF command, and a proof command need not start a
+     line: `then interpret`, `from assms(2) interpret`, `have ... by simp then
+     interpret` -- about one AFP `interpret` in eight is written that way.
+     Searched on the OUTER view, where terms, text and comments are already
+     blank, so what is left standing at a word boundary is outer syntax; the
+     lookbehind keeps `M.interpret` and `interpret_foo` (fact names) out.  The
+     theory-level commands above are not searched mid-line: they follow a
+     finished command, which in practice means a new line
+     [midline-interpret]. */
+  private val MIDLINE_INTERPRET_RE: Pattern =
+    Py.compile("""(?<=\s)(interpret)(?![\w'.])""")
+
+  /* `(command, start, end)` columns of the instantiating command on this
+     OUTER line -- at the line's start, else a mid-line `interpret`. */
+  def inst_command(outer_line: String): Option[(String, Int, Int)] = {
+    val stripped = Py.lstrip(outer_line)
+    Py.matches_at_start(INST_CMD_RE, stripped) match {
+      case Some(m) =>
+        val lead = outer_line.length - stripped.length
+        Some((m.group(1), lead, lead + m.end))
+      case None =>
+        Py.search(MIDLINE_INTERPRET_RE, outer_line).map(m => (m.group(1), m.start, m.end))
+    }
+  }
+
+  /* `header_at` for a command starting at column `col`.  What precedes it on
+     the line is a different command -- `have "..." by simp` before `then
+     interpret` -- whose `by` would otherwise stop the header before it began.
+     Blanked to spaces rather than cut, so every column offset into the first
+     line still holds in both views [midline-interpret]. */
+  private def header_from(live: Array[String], outer: Array[String], line: Int, col: Int
+  ): Header =
+    if (Py.strip(outer(line - 1).substring(0, col)).isEmpty) header_at(live, outer, line)
+    else {
+      val stop = (line - 1 + HEADER_LINES) min live.length
+      val lv = live.slice(line - 1, stop)
+      val ov = outer.slice(line - 1, stop)
+      lv(0) = " " * col + lv(0).substring(col)
+      ov(0) = " " * col + ov(0).substring(col)
+      val h = header_at(lv, ov, 1)
+      h.copy(start = line, end = h.end + line - 1)
+    }
+
   /* A name as WRITTEN at a use site: like a declaration name, but possibly
      qualified.  Spelled out from `Entries.ISA_MARKUP` rather than reusing the
      compiled `Entries.TARGET_NAME_RE`, because it has to be embedded in longer
@@ -549,13 +592,10 @@ object Sites {
 
       var i = 1
       while (i <= outer.length) {
-        val stripped = Py.lstrip(outer(i - 1))
-        Py.matches_at_start(INST_CMD_RE, stripped).foreach { m =>
-          val command = m.group(1)
-          val head = header_at(live, outer, i)
+        inst_command(outer(i - 1)).foreach { case (command, start, at0) =>
+          val head = header_from(live, outer, i, start)
           /* Past the command keyword, in both views at once: the keyword is
              matched on outer but the head is read from live. */
-          val at0 = outer(i - 1).length - stripped.length + m.end
           val at = at0 + marker_end(head.live.substring(at0 min head.live.length))
           val body_live = head.live.substring(at min head.live.length)
           val body_outer = head.outer.substring(at min head.outer.length)
