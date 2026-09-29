@@ -680,6 +680,22 @@ emit_cases() {
   c unused-reach-name      unused --reach name -c
   c ambiguous-unused-r     unused --r
 
+  # -- unused --locals [unused-locals] -------------------------------------
+  # The mode takes PATHs; plain `unused` refuses them (exit 2), as it refuses
+  # `--locals` with the cascade flags.  The selectors reuse the largest
+  # lemma's span, so a window, a locus inside it and its entry name select
+  # the same proof three ways; an unknown entry is an unresolved subject.
+  c unused-locals-default     unused --locals
+  c unused-locals-count       unused --locals -c
+  c unused-locals-by-theory   unused --locals --by-theory
+  c unused-locals-file        unused --locals "$THY1_PATH"
+  c unused-locals-window      unused --locals "$LEMMA_THY:$LEMMA_LO..$LEMMA_HI"
+  c unused-locals-locus       unused --locals "$LEMMA_THY:$MID"
+  c unused-locals-entry       unused --locals "$LEMMA_THY:$LEMMA_NAME"
+  c unused-locals-unknown-entry unused --locals "$THY1:zzz_no_such_entry_zzz"
+  c unused-locals-recursive   unused --locals -r
+  c unused-path               unused "$THY1_PATH"
+
   # -- methods / method ----------------------------------------------------
   c methods-default        methods
   c methods-all            methods -a
