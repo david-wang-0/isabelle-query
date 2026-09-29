@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "upstream_version": "0.8.1",
-  "python_tree_id": "daf9cf80879213b62cda12725ba487897e6ddbf6",
+  "upstream_version": "0.9.2",
+  "python_tree_id": "b56776692c7e1ab969a10ad6063feb11c74688b2",
   "cases": [
     {
       "id": "test_annotations.DefinitionBodies.test_a_definition_contributes_no_roadmap",
