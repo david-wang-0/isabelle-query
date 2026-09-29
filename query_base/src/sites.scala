@@ -1136,6 +1136,33 @@ object Sites {
         inner.map(_._1).getOrElse("")
     }
 
+  /* A later statement of a multi-statement declaration: `lemma a [code]: "p"
+     and b [code]: "q"`.  Read on the OUTER view, where a term is blank, so
+     the `:` is the clause's own; `::` is a type constraint
+     (`fun f and g :: ...`), not a clause [code-clauses]. */
+  private val CLAUSE_RE: Pattern = Py.compile(
+    """(?<![\w'])and\s+(?:([^\s\[:]+)\s*)?(?:\[[^\]]*\]\s*)?:(?!:)""")
+
+  /* `(start, name)` of each statement in a declaration header: the first at 0
+     under the declaration's own name (`""` here), then one per
+     `and NAME [attrs]:`.  Only past the last `shows` when there is one:
+     before it, `assumes "a" and b: "c"` names a premise, not a statement. */
+  def statement_clauses(outer: String): List[(Int, String)] = {
+    var at = 0
+    val sm = SHOWS_RE.matcher(outer)
+    while (sm.find()) at = sm.end
+    val out = new mutable.ListBuffer[(Int, String)]
+    out += ((0, ""))
+    val m = CLAUSE_RE.matcher(outer)
+    var from = at
+    while (from <= outer.length && m.find(from)) {
+      val nm = m.group(1)
+      out += ((m.start, if (nm == null || nm.isEmpty) UNNAMED else nm))
+      from = if (m.end > m.start) m.end else m.end + 1
+    }
+    out.toList
+  }
+
   /* The constant at the head of each proposition's left-hand side -- of the
      projection's argument, for an `abstract_eq` equation. */
   def equation_heads(statement: String, abstract_eq: Boolean = false): List[String] = {
@@ -1347,17 +1374,29 @@ object Sites {
                shape its defining equation is written in. */
             val subject_here =
               constant_tags(e.tag) && (e.name == name || e.bound_names.contains(name))
+            val clauses = statement_clauses(head_outer)
             for (attr <- attrs) {
+              /* The statement the attribute is attached to, and only that
+                 one: `lemma insert_code [code]: "..." and union_code [code]:
+                 "..."` is two equations of two constants, not two of each
+                 [code-clauses]. */
+              val k = clauses.lastIndexWhere(_._1 <= attr.from)
+              val lo = clauses(k)._1
+              val hi = if (k + 1 < clauses.length) clauses(k + 1)._1 else head_live.length
               val hit =
                 if (attr.config) dropped_constants(head_live, attr).exists(denotes(_, name))
-                else subject_here || heads_denote(head_live, attr)
+                else subject_here || heads_denote(head_live.substring(lo, hi), attr)
               if (hit) {
                 attributed = true
                 /* The PROVIDING fact, which for a declaration is its own name
                    -- the `lemma` carrying the attribute, or the `definition`
-                   when the attribute sits on the defining equation. */
-                found += Site(sec.theory, sec.path, e.thy_line, "[" + attr.spelling + "]",
-                  Py.rstrip(raw(e.thy_line - 1)), entry_name, signature)
+                   when the attribute sits on the defining equation -- and for
+                   a later statement of it, that statement's own name and
+                   line. */
+                val line = e.thy_line + head_live.substring(0, lo).count(_ == '\n')
+                val label = if (clauses(k)._2.nonEmpty) clauses(k)._2 else entry_name
+                found += Site(sec.theory, sec.path, line, "[" + attr.spelling + "]",
+                  Py.rstrip(raw(line - 1)), label, signature)
               }
             }
           }
