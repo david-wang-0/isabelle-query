@@ -168,9 +168,51 @@ object Proof_Locals {
   /* The two views and the prose mask of one section, built once and shared by
      every proof in it. */
   private final class Views(sec: Theory_Section) {
-    val outer: Array[String] = sec.outer_source
     val live: Array[String] = sec.live_source
+    val outer: Array[String] = with_alt_strings(sec.outer_source, live, sec.regions.inner)
     val noise: Array[Boolean] = Entries.line_mask(outer.length, Usage_Graph.noise_spans(sec))
+  }
+
+  /* The outer view with every backquoted ALT_STRING (`` `j < p n` ``) put
+     back.  Isabelle's lexer makes one a string token, so `Regions` blanks it
+     as inner syntax; the reference's region scanner has no backquote state
+     and leaves it outer text, so its walk reads the `j` there as a citation of
+     the FACT `j` — which on the AFP is how the fact it abbreviates gets
+     counted as used (`Reducing:2434`, `KoenigLemma:1763`).  Matched here, for
+     this walk only, rather than in `Regions`, whose other readers are not
+     asked to change: the difference is recorded for `dev/DIVERGENCES.md`. */
+  private def with_alt_strings(outer: Array[String], live: Array[String],
+    inner: Regions.Spans
+  ): Array[String] = {
+    var carry = false     // a line ended inside a backquote string
+    var i = 0
+    while (i < outer.length && i < inner.bound.length - 1) {
+      val line = live(i)
+      var buf: Array[Char] = null
+      var next_carry = false
+      var first = true
+      inner.each(i) { (lo, hi0) =>
+        val hi = hi0 min line.length
+        val continued = first && carry && lo == 0
+        val opens = lo < hi && line.charAt(lo) == '`'
+        if (continued || opens) {
+          if (buf == null) buf = outer(i).toCharArray
+          var k = lo
+          while (k < hi && k < buf.length) { buf(k) = line.charAt(k); k += 1 }
+          val closed =
+            hi < line.length ||
+              (line.charAt(hi - 1) == '`' && (continued || hi - lo >= 2))
+          next_carry = !closed
+        }
+        else next_carry = false
+        first = false
+      }
+      if (buf != null) outer(i) = new String(buf)
+      // An empty line inside a multi-line string carries no span of its own.
+      carry = if (line.isEmpty) carry else next_carry
+      i += 1
+    }
+    outer
   }
 
   /* The proof body of `entry` as one token stream, in source order. */
