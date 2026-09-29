@@ -169,9 +169,16 @@ object P6B_Probe {
   check("premises are dropped",
     eq(""" "n > 0 \<Longrightarrow> half n = n div 2" """) == List("half"),
     eq(""" "n > 0 \<Longrightarrow> half n = n div 2" """).mkString(","))
-  check("an abstract equation names the projection AND the constant",
-    eq(""" "rep_pos (mk n) = max 1 n" """) == List("rep_pos", "mk"),
+  /* Changed by [code-heads] (upstream 9a93f83): the first token after EVERY
+     `(` was a head, which made `insert x (set xs)` an equation of `set`.  The
+     after-`(` rule is now `[code abstract]`'s alone, and there it names the
+     projection's argument, not the projection. */
+  check("a plain equation names its first token only",
+    eq(""" "rep_pos (mk n) = max 1 n" """) == List("rep_pos"),
     eq(""" "rep_pos (mk n) = max 1 n" """).mkString(","))
+  check("an abstract equation names the constant under the projection",
+    Sites.equation_heads(""" "rep_pos (mk n) = max 1 n" """, abstract_eq = true) == List("mk"),
+    Sites.equation_heads(""" "rep_pos (mk n) = max 1 n" """, abstract_eq = true).mkString(","))
   check("a meta equality is an equality",
     eq(""" "f x \<equiv> g x" """) == List("f"), eq(""" "f x \<equiv> g x" """).mkString(","))
   check("a boolean equation is an equality",
