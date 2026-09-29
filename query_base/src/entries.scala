@@ -40,13 +40,21 @@ object Entries {
 
   val DECL_RE: Pattern = Py.compile(
     "^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma" +
-      "|corollary|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\\s|$)")
+      "|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\\s|$)")
 
   val tag_map: Map[String, String] = Map(
     "definition" -> "DEF", "abbreviation" -> "ABBREV",
     "function" -> "FUN", "fun" -> "FUN", "primrec" -> "FUN",
     "inductive_set" -> "INDSET", "inductive" -> "IND",
-    "lemma" -> "LEMMA", "corollary" -> "LEMMA",
+    /* `proposition` is `lemma` under another display string: Pure declares
+       `theorem` `lemma` `corollary` `proposition` together on one line as
+       `thy_goal_stmt` (Pure.thy:54) and registers all four through the same
+       combinator, differing only in the word they print (Pure.thy:574-577).
+       It rides with `corollary` -- from that same line -- rather than with
+       `theorem`, since the LEMMA/THEOREM split here is presentational
+       (`summary`'s two counts) and has no counterpart in Isabelle.
+       [decl-commands] */
+    "lemma" -> "LEMMA", "corollary" -> "LEMMA", "proposition" -> "LEMMA",
     "theorem" -> "THEOREM",
     "axiomatization" -> "AXIOM",
     "datatype" -> "DATATYPE", "type_synonym" -> "TYPE", "record" -> "RECORD",
