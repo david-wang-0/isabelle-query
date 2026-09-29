@@ -50,10 +50,27 @@ contract of the site verbs.
 ## What the survey established (2026-09-29)
 
 The 2,149-case matrix run against oracle 0.9.2, with the Scala side pinned
-exactly as `dev/difftest.sh` pins it at `9f2ad6b`: **see `dev/P14-STATUS.md`
-once the baseline run completes** (`.dev/p14/difftest-baseline.log`). The
-matrix has no cases for `instances`, `codeqs`, `unused --locals` or `grep -i`
-yet — S7 adds them — so the baseline measures S1–S3 only.
+exactly as `dev/difftest.sh` pins it at `9f2ad6b`, cold, seven corpora:
+
+| | vs 0.8.1 (P13 close) | vs 0.9.2 |
+|---|---:|---:|
+| clean | 1,968 | 1,722 |
+| pinned | 181 | 181 |
+| failing | 0 | 246 |
+| stale pins | 0 | 0 |
+
+Every one of the 246 is attributed before any code moves. **118 are
+`shape-*`** on Abstract_Completeness (39), AODV (37), ZF (32) and FOL (10):
+`[markup-step-model]` + `[cite-direction]` (S1) and `[body-end-text]` (S2)
+move the step census and M5a. **128 are Category3, across every verb**
+(`shape` 46, `find` 14, `unused` 14, `show` 10, `enclosing` 9, `graph` 9,
+`summary` 7, and one to three each of `methods`, `deps`, `refs`, `uses`,
+`grep`, `outline`, `theory` and the root/env/cwd forms): that corpus writes
+16 INDENTED `proposition` commands (`CategoryWithPullbacks:1145`,
+`ConcreteCategory`, `CartesianCategory`), which the oracle now indexes as
+LEMMA entries and the port does not — `[decl-commands]`, S1. The matrix has
+no cases for `instances`, `codeqs`, `unused --locals` or `grep -i` yet; S7
+adds them.
 
 ## Ground rules for every step
 
@@ -97,7 +114,7 @@ yet — S7 adds them — so the baseline measures S1–S3 only.
 - [x] `ORACLE_VERSION=0.9.2`, `CLI.version = "0.9.2-scala.0.3"`, plugin.props,
       `dev/p13-loading.scala`. The oracle venv re-installed (`pip install -e .`
       refreshes the editable metadata; the old dist-info said 0.8.1). `9f2ad6b`.
-- [ ] Baseline matrix recorded in `dev/P14-STATUS.md`.
+- [x] Baseline matrix recorded above (`.dev/p14/difftest-baseline.log`).
 
 ### S1 — the small parser and shape rules `[decl-commands]` `[markup-step-model]` `[cite-direction]` `[ignore-case]`
 
