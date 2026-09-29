@@ -195,8 +195,12 @@ object Usage_Graph {
       "also", "finally", "interpret")
   val CONTEXT_KEYWORDS: Set[String] =
     Set("fix", "assume", "presume", "define", "let", "case")
+  /* `unfolding` is a proof command of Isabelle's `prf_decl` kind, the same as
+     `using`: without it a line carrying nothing else classified as `other`
+     and vanished from the step model.  [markup-step-model] */
   val PLUMBING_KEYWORDS: Set[String] =
-    Set("from", "using", "with", "note", "moreover", "ultimately", "then")
+    Set("from", "using", "with", "note", "moreover", "ultimately", "then",
+      "unfolding")
   val CLOSING_KEYWORDS: Set[String] = Set("by", "apply", "done", "qed")
 
   /* `note` is excluded: it INTRODUCES a fact (`note x = …`), it does not cite. */

@@ -7009,6 +7009,27 @@
       "inherited": false
     },
     {
+      "id": "test_shape.CitationDirection.test_a_backward_cite_with_no_open_goal_is_dropped",
+      "suite": "shape",
+      "source": "tests/test_shape.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_shape.CitationDirection.test_forward_chain_still_serves_the_next_goal",
+      "suite": "shape",
+      "source": "tests/test_shape.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_shape.CitationDirection.test_using_and_unfolding_credit_the_goal_above",
+      "suite": "shape",
+      "source": "tests/test_shape.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
       "id": "test_shape.ClassifyIdentifier.test_context_wins_over_entry_and_corpus",
       "suite": "shape",
       "source": "tests/test_shape.py",
@@ -7079,14 +7100,21 @@
       "inherited": false
     },
     {
-      "id": "test_shape.ClassifyLine.test_prefixed_terminal_method_is_closing",
+      "id": "test_shape.ClassifyLine.test_structural_is_other",
       "suite": "shape",
       "source": "tests/test_shape.py",
       "subcase_sites": 0,
       "inherited": false
     },
     {
-      "id": "test_shape.ClassifyLine.test_structural_is_other",
+      "id": "test_shape.ClassifyLine.test_unfolding_is_a_step_keyword_like_using",
+      "suite": "shape",
+      "source": "tests/test_shape.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_unknown_head_with_a_terminal_method_is_closing",
       "suite": "shape",
       "source": "tests/test_shape.py",
       "subcase_sites": 0,
@@ -7254,7 +7282,14 @@
       "inherited": false
     },
     {
-      "id": "test_shape.FlatProof.test_single_line_unfolding_by_is_one_closing_step",
+      "id": "test_shape.FlatProof.test_single_line_unfolding_by_is_one_step",
+      "suite": "shape",
+      "source": "tests/test_shape.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_shape.FlatProof.test_standalone_unfolding_line_is_its_own_step",
       "suite": "shape",
       "source": "tests/test_shape.py",
       "subcase_sites": 1,

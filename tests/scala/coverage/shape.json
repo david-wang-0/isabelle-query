@@ -464,6 +464,24 @@
       "reason": ""
     },
     {
+      "id": "test_shape.CitationDirection.test_a_backward_cite_with_no_open_goal_is_dropped",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.CitationDirection.test_forward_chain_still_serves_the_next_goal",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.CitationDirection.test_using_and_unfolding_credit_the_goal_above",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
       "id": "test_shape.ClassifyIdentifier.test_context_wins_over_entry_and_corpus",
       "status": "ported",
       "destination": "tests/scala/shape/ShapeCore.scala",
@@ -524,13 +542,19 @@
       "reason": ""
     },
     {
-      "id": "test_shape.ClassifyLine.test_prefixed_terminal_method_is_closing",
+      "id": "test_shape.ClassifyLine.test_structural_is_other",
       "status": "ported",
       "destination": "tests/scala/shape/ShapeCore.scala",
       "reason": ""
     },
     {
-      "id": "test_shape.ClassifyLine.test_structural_is_other",
+      "id": "test_shape.ClassifyLine.test_unfolding_is_a_step_keyword_like_using",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.ClassifyLine.test_unknown_head_with_a_terminal_method_is_closing",
       "status": "ported",
       "destination": "tests/scala/shape/ShapeCore.scala",
       "reason": ""
@@ -674,7 +698,13 @@
       "reason": ""
     },
     {
-      "id": "test_shape.FlatProof.test_single_line_unfolding_by_is_one_closing_step",
+      "id": "test_shape.FlatProof.test_single_line_unfolding_by_is_one_step",
+      "status": "ported",
+      "destination": "tests/scala/shape/ShapeCore.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_shape.FlatProof.test_standalone_unfolding_line_is_its_own_step",
       "status": "ported",
       "destination": "tests/scala/shape/ShapeCore.scala",
       "reason": ""

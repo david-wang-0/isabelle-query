@@ -1,6 +1,6 @@
 /*  Title:      tests/scala/shape/ShapeCore.scala
 
-Scala port of tests/test_shape.py (97 cases): the step scanner, the per-step
+Scala port of tests/test_shape.py (102 cases): the step scanner, the per-step
 metrics (M1..M6, fan-in, live space, introduce/consume), the classifier, the
 per-proof pipeline and the JSONL records.  Every expected value is the one the
 Python module hand-computed from tests/fixtures/Shape.thy; original test IDs
@@ -155,19 +155,24 @@ object ShapeCore {
       equal(Shape.classify_step_line("show \"collect_have x = y\""), "goal")
       equal(Shape.classify_step_line("note x = \"no have here\""), "plumbing")
     }
-    test("test_shape.ClassifyLine.test_prefixed_terminal_method_is_closing") {
-      equal(Shape.classify_step_line("unfolding foo_def by simp"), "closing")
-      equal(Shape.classify_step_line("unfolding a b .."), "closing")
-      equal(Shape.classify_step_line("unfolding foo_def"), "other")
-      equal(Shape.classify_step_line("unfolding Foo.bar_def"), "other")
-      equal(Shape.classify_step_line("using a by auto"), "plumbing")
+    test("test_shape.ClassifyLine.test_unfolding_is_a_step_keyword_like_using") {
+      for (line <- List("unfolding foo_def", "unfolding foo_def by simp",
+          "unfolding a b ..", "unfolding Foo.bar_def"))
+        subcase(line) { equal(Shape.classify_step_line(line), "plumbing", line) }
+      for (line <- List("using a", "using a by auto", "using a ..", "using Foo.bar"))
+        subcase(line) { equal(Shape.classify_step_line(line), "plumbing", line) }
+    }
+    test("test_shape.ClassifyLine.test_unknown_head_with_a_terminal_method_is_closing") {
+      equal(Shape.classify_step_line("foo_def by simp"), "closing")
+      equal(Shape.classify_step_line("foo bar .."), "closing")
+      equal(Shape.classify_step_line("Foo.bar_def"), "other")
     }
 
     /* ---------------- FlatProof ---------------- */
     test("test_shape.FlatProof.test_only_the_closing_step") {
       equal(shape(steps("flat_proof")), List((6, 0, "by", "closing")))
     }
-    test("test_shape.FlatProof.test_single_line_unfolding_by_is_one_closing_step") {
+    test("test_shape.FlatProof.test_single_line_unfolding_by_is_one_step") {
       val thy = "theory T imports Main begin\n" +
         "lemma foo: \"True\"\n" +
         "  unfolding refl by simp\n" +
@@ -176,8 +181,20 @@ object ShapeCore {
         "end\n"
       val s = section_from(thy, "T")
       val foo = entry(s, "foo"); val c = ctx_of(s)
-      equal(Shape.scan_steps(c, foo).map(x => (x.kind, x.kw)), List(("closing", "unfolding")))
+      equal(Shape.scan_steps(c, foo).map(x => (x.kind, x.kw)), List(("plumbing", "unfolding")))
       check(Shape.analyze_proof(c, foo).isDefined, "analyze_proof returns a record")
+    }
+    test("test_shape.FlatProof.test_standalone_unfolding_line_is_its_own_step") {
+      val thy = "theory T imports Main begin\n" +
+        "lemma foo: \"True\"\n" +
+        "  unfolding refl\n" +
+        "  by simp\n" +
+        "lemma bar: \"True\"\n" +
+        "  by simp\n" +
+        "end\n"
+      val s = section_from(thy, "T")
+      equal(Shape.scan_steps(ctx_of(s), entry(s, "foo")).map(x => (x.line, x.kind, x.kw)),
+        List((3, "plumbing", "unfolding"), (4, "closing", "by")))
     }
 
     /* ---------------- ChainedProof ---------------- */
@@ -248,6 +265,45 @@ object ShapeCore {
     }
     test("test_shape.FanIn.test_flat_proof_has_no_goal_steps") {
       equal(goal_fanins("flat_proof"), Nil)
+    }
+
+    /* ---------------- CitationDirection ---------------- */
+    /* Each goal cites a DIFFERENT fact, so crediting the wrong goal yields the
+       wrong list rather than the same multiset reordered. [cite-direction] */
+    val CITE_THY = "theory T imports Main begin\n" +     // 1
+      "lemma a1: \"True\" by simp\n" +                  // 2
+      "lemma a2: \"True\" by simp\n" +                  // 3
+      "lemma r: \"True\"\n" +                           // 4
+      "proof -\n" +                                     // 5
+      "  have p: \"True\"\n" +                          // 6
+      "    using a1 by simp\n" +                        // 7
+      "  have q: \"True\"\n" +                          // 8
+      "    unfolding a2 by simp\n" +                    // 9
+      "  from p show \"True\" by blast\n" +             // 10
+      "qed\n" +                                         // 11
+      "end\n"                                           // 12
+    def annotated_from(thy: String, name: String): List[Shape.Step] = {
+      val s = section_from(thy, "T")
+      val c = ctx_of(s)
+      val st = Shape.scan_steps(c, entry(s, name))
+      Shape.annotate_fanin(st, c.lines)
+      st
+    }
+    test("test_shape.CitationDirection.test_using_and_unfolding_credit_the_goal_above") {
+      equal(annotated_from(CITE_THY, "r").filter(_.kind == "goal").map(s => (s.line, s.fanin)),
+        List((6, 1), (8, 1), (10, 1)))
+    }
+    test("test_shape.CitationDirection.test_forward_chain_still_serves_the_next_goal") {
+      equal(annotated("standalone").filter(_.kind == "goal").map(_.fanin), List(1, 0))
+    }
+    test("test_shape.CitationDirection.test_a_backward_cite_with_no_open_goal_is_dropped") {
+      val thy = "theory T imports Main begin\n" +
+        "lemma a1: \"True\" by simp\n" +
+        "lemma r: \"True\"\n" +
+        "  using a1 by simp\n" +
+        "end\n"
+      equal(annotated_from(thy, "r").map(s => (s.line, s.kind, s.fanin)),
+        List((4, "plumbing", 0)))
     }
 
     /* ---------------- Introduces ---------------- */
