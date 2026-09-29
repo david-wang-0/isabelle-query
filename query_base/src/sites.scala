@@ -1522,7 +1522,10 @@ object Sites {
      thing for a typo, for a locale from an imported session, and for a locale
      that is genuinely never instantiated.  A KNOWN subject with no sites keeps
      the family's honest zero -- the same message shape and the same exit 0
-     `callers` gives an entry nothing calls. */
+     `callers` gives an entry nothing calls.  Through `Commands.fail_subject`,
+     the family's one refusal, so the diagnostic reads like every other verb's
+     rather than as an `ERROR:` of its own -- the upstream port's
+     `_fail_subject`, pinned by its `test_*_is_a_refusal` fixtures. */
   private def with_subject(out: Out, err: Out, sections: List[Theory_Section],
     name: String, tags: Set[String], what: String
   )(body: Subject => Unit): Unit =
@@ -1530,10 +1533,7 @@ object Sites {
       case Right(subject) =>
         if (subject.how.nonEmpty) out.println(s"# '$name' is ${subject.how}.")
         body(subject)
-      case Left(msg) =>
-        out.flush()
-        err.println(s"ERROR: $msg")
-        throw Exit_Code(1)
+      case Left(msg) => Commands.fail_subject(out, err, msg)
     }
 
   def cmd_instances(out: Out, err: Out, sections: List[Theory_Section], name: String,
