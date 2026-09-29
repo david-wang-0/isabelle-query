@@ -36,10 +36,11 @@ immutable blocks internally; this does not change excerpts or command output.
 
 **Everything in the differential matrix**, which is the whole verb surface:
 `summary`, `theory`, `defs`, `outline`, `enclosing`/`at`, `largest`, `lines`,
-`grep`, `sorry`, `find`, `show`, `callers`, `callees`, `deps`, `uses`, `refs`,
-`graph`, `unused`, `methods`/`method`, and every `shape` view. Same
-subcommands, same flags, same abbreviations, same positional grammar, same
-`-R/--root` on either side of the command name.
+`grep` (with `-i`), `sorry`, `find`, `show`, `callers`, `callees`, `deps`,
+`uses`, `refs`, `graph`, `unused` (with `--locals`), `methods`/`method`,
+`instances`, `codeqs`, and every `shape` view. Same subcommands, same flags,
+same abbreviations, same positional grammar, same `-R/--root` on either side
+of the command name.
 
 The compatibility harness compares **output byte for byte** and exit statuses
 across seven corpora, plus whole entry and theory sets over AFP and the
@@ -58,7 +59,21 @@ Same **semantics**: live-text scanning, locale scope, session discovery, the
 method-vs-fact router, the `M1`–`M6` metric definitions.
 [SCANNING.md](SCANNING.md) and [METRICS.md](METRICS.md) describe both implementations.
 
+## Coming from Python 0.9.x
+
+The port matches upstream **0.9.2**, the frozen tree's release. That includes
+the three changes that move numbers 0.8.x printed: `using` / `unfolding` cite
+backward in `shape`'s fan-in `[cite-direction]`, `proposition` is a
+declaration `[decl-commands]`, and a `text` block inside a proof no longer ends
+it `[body-end-text]`. So, as upstream says of 0.8.x → 0.9.0, **a census taken
+with the 0.8.1-era port (`0.8.1-scala.*`) will not reproduce** and should be
+re-run. `instances` and `codeqs` are upstream verbs since 0.9.1 — this fork's
+PR #11 — so they, `unused --locals` and `grep -i` now answer byte for byte
+like the Python tool.
+
 ## What is new
+
+The first two are new only against Python 0.8.x: upstream took them in 0.9.1.
 
 - **`instances NAME`** — where a locale or class is instantiated
   (`instantiation`, `instance`, `interpretation`, `global_interpretation`,
@@ -93,13 +108,14 @@ method-vs-fact router, the `M1`–`M6` metric definitions.
   entire result set cancels its pending refresh, while a deleted child group or
   hit may reappear when that refresh finishes. Clear removes all results and
   cancels all pending results.
-- **`-V/--version`** reports `0.8.1-scala.0.3`, not `0.8.1`. Deliberately:
+- **`-V/--version`** reports `0.9.2-scala.0.3`, not `0.9.2`. Deliberately:
   the number in front of `-scala` names the upstream release whose contract
   this port matches, the `-scala` marker is what lets a script that pins a
   version tell the two tools apart, and the `MINOR.PATCH` after it is the
   port's own release counter for changes that leave that contract alone. A
-  script that wants "the same contract as `0.8.1`" should compare the prefix
-  up to `-scala`.
+  script that wants "the same contract as `0.9.2`" should compare the prefix
+  up to `-scala`. The counter did not move for the 0.9.2 sync: that moved the
+  number in front of it.
 
 ## What is deliberately different
 
@@ -113,24 +129,26 @@ evidence. The migration-relevant cases are:
 | **D9** | Two Python-only regex spellings — `(?P<n>…)` and `(?#…)` — are *rejected with a diagnostic*, not silently misread. Neither appears in the docs or tests. |
 | **D11** | The method/attribute table is the **committed** one, not one resolved from whichever heaps happen to be built on your machine — so two machines give the same answer. Step down to the Pure floor happens by base logic, as before. |
 | **D12** | `\w` is Java's, not Python's: `²`/`½` are word characters to the oracle and not here; a combining mark is one here and not there. 1 record in 306,525 over the whole AFP, in two derived count fields. **Not fixed** — see `dev/DIVERGENCES.md` for why the fix is a lexer-level change needing its own gate. |
-| **D14** | For the visibility filter below, a name an entry *binds* (a datatype constructor, a `shows` conjunct, a `.simps`) counts as a declaration of that name. Upstream consults entries only, so `callers <constructor>` can differ on a corpus where the name is mentioned outside the binder's import cone. |
 | **D15** | A theory a `ROOT` addresses by path — `theories "ex/Typechecking"` — is called `Typechecking`, which is what `Thy_Header.import_name` calls it and what `isabelle build` compiles. The Python tool prints `ex/Typechecking`, a name no Isabelle command answers to, and then `theory Typechecking` finds nothing. Here both spellings resolve: the leaf is the name, `ex/Typechecking` is the label. |
 
 Closed parser and analysis differences remain documented there. D13's import
 visibility filter is now shared: a citation is attributed only to a declaration
 the citing theory can see. Both tools default to `--reach closure`; use
-`--reach name` to restore name-only attribution.
+`--reach name` to restore name-only attribution. Since 0.9.1 so is D14's
+refinement: for the single-name scans (`callers`, `instances`, `codeqs`) a
+name an entry *binds* — a datatype constructor, a `shows` conjunct — counts as
+a declaration of that name.
 
 ## Things that move
 
 - **An unresolvable subject now answers on stderr with exit `1`, and a count
-  mode prints `0`.** This is the Python tool's own 0.8.1 contract, which the
-  port matches; against **0.7.0** — and against earlier builds of this port —
-  it is a **breaking change**, because both used to print the diagnostic on
-  stdout and exit `0`:
+  mode prints `0`.** This is the Python tool's own contract since 0.8.1, which
+  the port matches; against **0.7.0** — and against earlier builds of this
+  port — it is a **breaking change**, because both used to print the
+  diagnostic on stdout and exit `0`:
 
   ```
-  # 0.7.0                              # 0.8.1 and this port
+  # 0.7.0                              # 0.8.1 on, and this port
   $ query callees zzz -c               $ isabelle query callees zzz -c
   'zzz' not found in the entry index.  isabelle query: 'zzz' is not in the entry index
   $ echo $?                            $ echo $?
@@ -149,10 +167,10 @@ the citing theory can see. Both tools default to `--reach closure`; use
   `Virtual_Substitution/QE:3495` rather than an ambiguous `QE:3495`. A name used
   once is unchanged, so a single-session run looks exactly as it did. Both
   spellings resolve, and the qualified one is the one a locus pastes back as.
-  This is the Python tool's own 0.8.1 behaviour; against **0.7.0** and against
-  earlier builds of this port it moves the first column of those verbs, so a
-  script that split on `:` still works and one that compared the theory field
-  against a bare name needs the suffix rule instead.
+  This is the Python tool's own behaviour since 0.8.1; against **0.7.0** and
+  against earlier builds of this port it moves the first column of those
+  verbs, so a script that split on `:` still works and one that compared the
+  theory field against a bare name needs the suffix rule instead.
 - **`$ISABELLE_QUERY_REACHABILITY` is gone**, replaced by
   `--reach {closure,name}` on `callers`, `callees`, `refs`, `unused` and
   `graph`. It never existed in the Python tool — it was this port's own channel
