@@ -1719,6 +1719,13 @@
       "inherited": false
     },
     {
+      "id": "test_corpus.Corpus.test_reach_scoping_only_drops_edges",
+      "suite": "parser",
+      "source": "tests/test_corpus.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_corpus.Corpus.test_unparsed_name_rate_is_low",
       "suite": "parser",
       "source": "tests/test_corpus.py",

@@ -5,14 +5,14 @@ import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 import TestSupport.*
 
-/** Opt-in port of all five corpus tests, retaining their full-tree loops,
+/** Opt-in port of all six corpus tests, retaining their full-tree loops,
   * 120-file reference subset and original ceilings. Never part of fast runs.
   */
 private[regression] object ParserCorpus {
   val reason = "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
   val methods = List("test_unparsed_name_rate_is_low","test_bodies_stay_inside_their_own_spans",
     "test_no_locale_prefix_leaks","test_custom_commands_bound_aot_spans",
-    "test_fast_call_graph_matches_oracle_on_subset")
+    "test_fast_call_graph_matches_oracle_on_subset","test_reach_scoping_only_drops_edges")
   def id(method: String): String = "test_corpus.Corpus."+method
   def run(): Unit = {
     methods.foreach(m => disposition(id(m),"optional",reason))
@@ -65,6 +65,19 @@ private[regression] object ParserCorpus {
           val total=ref.callers.values.map(_.size).sum
           val dropped=ref.callers.iterator.map((n,cs) => (cs -- fast.callers.getOrElse(n,Set.empty)).size).sum
           check(dropped <= math.max(2,(total*0.005).toInt),s"dropped $dropped/$total caller edges")
+        }
+        test(id("test_reach_scoping_only_drops_edges")) {
+          /* `TheRuleOnlyDrops` at corpus scale [oracle-drop-rate]: the shipped
+             `closure` reach may only DROP edges against name-only matching,
+             never invent one; and the subset must still exercise the filter. */
+          val secs=files.take(120).map(section)
+          def edges(g: Usage_Graph.Call_Graph): Set[(String,String)] =
+            (for((n,cs) <- g.callers.toSet;c <- cs) yield (c,n))
+          val closure=edges(Usage_Graph.build_call_graph(secs,reach="closure"))
+          val by_name=edges(Usage_Graph.build_call_graph(secs,reach="name"))
+          val invented=closure -- by_name
+          check(invented.isEmpty,s"reach scoping INVENTED ${invented.size} edges; first ${invented.toList.sorted.take(5)}")
+          check((by_name -- closure).nonEmpty,"reach scoping dropped nothing -- the subset check is vacuous")
         }
       }
     }

@@ -542,6 +542,12 @@
       "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
     },
     {
+      "id": "test_corpus.Corpus.test_reach_scoping_only_drops_edges",
+      "status": "optional",
+      "destination": "tests/scala/parser/ParserCorpus.scala",
+      "reason": "Opt-in full corpus assertions require ISABELLE_QUERY_CORPUS; AOT span case additionally requires AOT/AOT_PLM.thy."
+    },
+    {
       "id": "test_corpus.Corpus.test_unparsed_name_rate_is_low",
       "status": "optional",
       "destination": "tests/scala/parser/ParserCorpus.scala",
