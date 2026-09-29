@@ -69,7 +69,7 @@ identities; local corpus and installation paths are not recorded in the baseline
 
 The initial baseline explicitly cites prior `dev/P11-STATUS.md` evidence:
 2,149 comparisons, including 181 pins. Its unknown historical layout/corpus
-identities remain null; bootstrapping did not run a fresh matrix. All 307
+identities remain null; bootstrapping did not run a fresh matrix. All 334
 invocation IDs in `scala/coverage/matrix.json` retain their exact corpus/process
 compatibility tier. That mapping does not claim that a small semantic unit
 fixture repeats a seven-corpus byte comparison.

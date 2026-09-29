@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "cases_per_corpus": 307,
+  "cases_per_corpus": 334,
   "corpora": [
     "Abstract_Completeness",
     "AODV",
@@ -10,10 +10,10 @@
     "Sequents",
     "CTT"
   ],
-  "comparisons_per_mode": 2149,
+  "comparisons_per_mode": 2338,
   "pins": {
-    "total": 181,
-    "D15": 178,
+    "total": 186,
+    "D15": 183,
     "D8": 3
   },
   "policy": "Every matrix invocation remains in the explicit upstream-compatibility corpus/process tier. Semantic unit-test ports have their own exhaustive original-ID manifests; no automatic equivalence is inferred from command names. argv_expression is documentation, never evaluated by the runner.",
@@ -2129,6 +2129,106 @@
       "scala_ids": []
     },
     {
+      "id": "unused-locals-default",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-count",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals -c",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-by-theory",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals --by-theory",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-file",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals \"$THY1_PATH\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-window",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals \"$LEMMA_THY:$LEMMA_LO..$LEMMA_HI\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-locus",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals \"$LEMMA_THY:$MID\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-entry",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals \"$LEMMA_THY:$LEMMA_NAME\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-unknown-entry",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals \"$THY1:zzz_no_such_entry_zzz\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-locals-recursive",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused --locals -r",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "unused-path",
+      "mode": "root",
+      "family": "unused --locals",
+      "argv_expression": "unused \"$THY1_PATH\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
       "id": "methods-default",
       "mode": "root",
       "family": "methods / method",
@@ -2373,6 +2473,176 @@
       "mode": "root",
       "family": "graph",
       "argv_expression": "graph --reach name",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-default",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LOCALE1\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-count",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LOCALE1\" -c",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-names",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LOCALE1\" --names",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-sorts",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$CLASS1\" --sorts",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-r",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LOCALE_R\" -r",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-r-count",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LOCALE_R\" -r -c",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-r-sorts",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$CLASS1\" -r --sorts",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-unknown",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances zzz_no_such_locale_zzz",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-not-locale",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$LEMMA_NAME\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "instances-bound-name",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "instances \"$CTOR1\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-default",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$CONST1\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-count",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$CONST1\" -c",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-names",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$CONST1\" --names",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-sorts",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$CONST1\" --sorts",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-unknown",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs zzz_no_such_const_zzz",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-not-constant",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$LEMMA_NAME\"",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "codeqs-constructor",
+      "mode": "root",
+      "family": "instances / codeqs (the site verbs)",
+      "argv_expression": "codeqs \"$CTOR1\"",
       "status": "corpus",
       "destination": "dev/difftest.sh",
       "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",

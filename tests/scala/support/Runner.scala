@@ -51,8 +51,14 @@ object Runner {
     try {
       val matrix = read(s"$root/coverage/matrix.json")
       val cases = rows(matrix("cases"))
-      require(cases.size == 307 && cases.map(_("id")).distinct.size == 307,
-        "matrix must contain 307 unique invocation IDs")
+      require(cases.size == 334 && cases.map(_("id")).distinct.size == 334,
+        "matrix must contain 334 unique invocation IDs")
+      // The header is what `dev/check-upstream-compat.py` reads the expected
+      // comparison count from, so it must agree with the rows it heads.
+      val corpora = matrix("corpora") match { case xs: List[?] => xs.size case _ => 0 }
+      require(matrix("cases_per_corpus").toString.toDouble == cases.size &&
+        matrix("comparisons_per_mode").toString.toDouble == cases.size * corpora,
+        "matrix header counts disagree with its cases and corpora")
       cases.foreach { row =>
         require(Set("corpus", "process")(row("status").toString), "unknown matrix tier")
         require(row("reason").toString.trim.nonEmpty, "empty matrix reason")
