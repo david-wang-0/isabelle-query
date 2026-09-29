@@ -63,6 +63,14 @@ command, so it continues the one above, across blank lines and `(* ... *)` notes
 alike. What stops the scan is outer syntax: a `text` block between two rules
 does end the declaration, because it is a command.
 
+Inside a proof it does not. A remark between two steps is legal in proof mode,
+so a `text` block or heading ends a proof only once the proof has **closed** —
+its outermost `qed`, or the terminator of its own goal — and the prose inside
+the block is masked from the declaration test, so a remark whose line begins
+"lemma reduction1 …" declares nothing. Before 0.9.2 both tools ended the body
+at the first remark, and `shape` and `enclosing` saw only the part above it
+`[body-end-text]`.
+
 ## The names one declaration binds
 
 Isabelle binds more than one name per command, and each of them is citable:
@@ -79,10 +87,14 @@ Isabelle binds more than one name per command, and each of them is citable:
 
 `show`, `find`, `callers` and `callees` all resolve these to the declaration
 that binds them, and say how — `'termi_z' is an introduction rule of terminate`,
-`'ip' is a field of state`. They are deliberately **not** separate entries: one
-command has one span, so counting `fun f and g and h` three times would
-triple-count it under `largest` and give `enclosing` three owners for each of
-its lines.
+`'ip' is a field of state`. `instances` and `codeqs` accept them as subjects the
+same way, so `codeqs Cons` asks about the constructor and not about the
+`datatype` that binds it. And for the reachability rule below they **are**
+declarations: a constructor is declared where its datatype is, and a theory
+that cannot see the datatype cannot be writing that constructor. They are
+deliberately **not** separate entries: one command has one span, so counting
+`fun f and g and h` three times would triple-count it under `largest` and give
+`enclosing` three owners for each of its lines.
 
 `axiomatization` is the exception, and for the same reason read the other way:
 its constants and its labelled axioms are written one per line and each is
@@ -167,8 +179,48 @@ bind a name at a line other than its declaration's, so a linear check would
 prune real citations. `dev/p7cprobe.sh` §2 pins it, and `[reach-position]` in
 `todo.md` is where the refinement would go.
 
+For the single-name scans — `callers`, `instances`, `codeqs` — the declared set
+is the entries **and the names an entry binds** (the table above). Isabelle
+binds `Bar` in the theory that writes `datatype colour = Bar | Baz`, and a
+theory that does not import it cannot write that `Bar` either; so `callers Bar`
+is scoped to the theories that can see the datatype, exactly as `callers colour`
+is. The bulk citation graph (`callees`, `refs`, `unused`, `graph citation`)
+keys on entries only, since it has no bound-name nodes, so its totals do not
+move. This was the port's own rule (D14) until upstream adopted it in 0.9.1
+`[bound-name-reach]`.
+
 `--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
-`graph` and `refs` — every verb the scoping moves.
+`graph` and `refs` — every verb the scoping moves. `instances` and `codeqs`
+have no such switch: an `interpretation L` in a theory that cannot see `L`'s
+declaration interprets a different `L`, and there is no name-only answer worth
+offering.
+
+## Names bound inside a proof
+
+`unused --locals` reads a proof as a token stream over two views at once:
+`outer_source` for structure and fact names (a citation is outer syntax), and
+the inner terms `live_source` keeps, where a `let ?x` or a `define`d name is
+read. Comments and `text` blocks are in neither, so a name mentioned only there
+is still reported. Three pieces of Isar semantics decide the answer, and a flat
+"the name occurs once" count gets each of them wrong:
+
+- **Scope.** A name bound inside `proof … qed` or `{ … }` is invisible after the
+  block closes, and `next` starts a fresh branch: the same label in two `case`
+  branches is two bindings, each needing its own reader.
+- **Binding time.** A goal's label binds when its proof finishes, so
+  `have a: "P" using a` cites the *previous* `a`; `note`, `define` and `let`
+  bind at the end of their own command.
+- **`this`.** A fact consumed by chaining (`then`, `moreover`, `ultimately`, …,
+  or a written `this`) is used although its name is not. The question is dead
+  facts, not redundant labels, so it is not reported. Likewise a label declared
+  into a rule set (`[simp]`); a transforming attribute (`[rule_format]`)
+  protects nothing.
+
+The walk stops where the entry's own proof does — its outermost `qed` or its
+goal's terminator — so a following `instance` or `termination` proof is not
+charged to the lemma above it. A PATH window selects whole proofs, because
+whether a name is read depends on the rest of its proof. The rules, rule for
+rule, are in `query_base/src/proof_locals.scala`.
 
 ## Locale scope
 

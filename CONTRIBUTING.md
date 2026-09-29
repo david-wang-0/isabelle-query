@@ -8,11 +8,11 @@ session) and `METRICS.md` (the `shape` reference).
 
 **Two trees, one contract.** `query_base/` and `jedit_query/` are the live
 Isabelle/Scala component. `src/isabelle_query/` and `tests/` are the **frozen**
-Python reference implementation and its suite — read them, never edit them;
-they are the oracle the Scala side is checked against, and an oracle that moves
-is not one. Rules below marked *(Python)* describe that frozen tree and are
-kept because they explain why the contract is what it is; rules marked *(Scala)*
-are what a change to the live tree must satisfy.
+Python reference implementation, upstream **0.9.2**, and its suite — read
+them, never edit them; they are the oracle the Scala side is checked against,
+and an oracle that moves is not one. Rules below marked *(Python)* describe
+that frozen tree and are kept because they explain why the contract is what
+it is; rules marked *(Scala)* are what a change to the live tree must satisfy.
 
 ## Where design decisions are recorded
 
@@ -51,17 +51,31 @@ positional decides which one it is.
   PATH positionals**: "who calls X" is corpus-global, so scope with the
   global `-R/--root` and narrow with *semantic* flags (`--external`,
   `-r/--recursive`), never a file subset. Members: `show`, `callers`,
-  `callees`, `deps`, `uses`, `theory`, `defs`, `outline`, `methods`.
+  `callees`, `deps`, `uses`, `theory`, `defs`, `outline`, `methods`,
+  `instances`, `codeqs`.
 - **search** (grep/rg: `grep PAT PATH...`) — the primary positional is a
   pattern (or nothing), and **paths are the trailing positionals**, added
   with `_add_path_files_arg` (resolved by `_load_sections`). Members:
   `grep`, `largest`, `sorry` (and `find` once it gains PATH/`--theory`
   scope under `[theory-refs]`).
 
-**The two rewrite-only verbs sit in the lookup family, and their exit contract
-is the reason they were allowed to exist.** *(Scala)* `instances` and `codeqs`
-take a subject list and no PATH positionals. Because they have no oracle, they
-carry the discipline the oracle would otherwise have supplied:
+`unused` is both, split by a flag. Entry-level deadness is a question about the
+whole citation graph, so plain `unused` takes no PATH and rejects one (exit 2).
+`unused --locals` asks about names bound *inside* a proof, and a proof's answer
+depends on nothing outside it, so there the trailing PATHs are search-family
+scoping. They are not the shared trailing-PATH positional's, though: besides
+grep's `A..B` window they take a `THY:ENTRY` selector, and both select whole
+**proofs**, because whether a name is read depends on the rest of its proof
+`[unused-locals]`. *(Scala: the shared positional is `CLI.files_pos`, resolved
+by `CLI.load_sections`; `unused`'s own `files` is resolved by
+`CLI.locals_selection`.)*
+
+**The two site verbs sit in the lookup family, and their exit contract is the
+reason they were allowed to exist.** `instances` and `codeqs` take a subject
+list and no PATH positionals. They began in this port, went upstream in 0.9.1
+(`[instantiation-sites]`, `[code-equations]`, this fork's PR #11), and are in
+the differential matrix since P14. Neither has a prover-side oracle to compare
+against, so they carry the discipline an oracle would otherwise have supplied:
 
 - A subject that is **not a locale/class** (resp. **not a constant**) declared
   in the project exits `1` with a diagnostic on stderr — never `0` with zero
@@ -75,7 +89,7 @@ carry the discipline the oracle would otherwise have supplied:
   under-reports where mixfix notation hides the head symbol. A verb that leans
   the unsafe way says so where the user reads about it.
 
-A third rewrite-only verb would need the same three things before it ships.
+A third verb of this kind would need the same three things before it ships.
 
 **Never return an empty success for a question you could not ask.** A silent
 zero is indistinguishable from an honest zero, so a caller cannot tell a broken
@@ -185,6 +199,7 @@ inline:
 | `_add_context_flag` | `-U/--context` — one short flag everywhere, default per-command |
 | `_add_drop_names_flag` | `--drop-names-upto` |
 | `_add_line_number_noop_flag` | `-n/--line-number` — accepted and ignored on the search verbs |
+| `_add_sorts_flag` | `--sorts` — the site verbs' written sort / arity / signature column |
 
 The **program name is not a literal**. The tool installs under two console
 script names (`query`, `isabelle-query`) and reports whichever was invoked, via
@@ -237,24 +252,29 @@ missing feature but a hole, and a hole prunes `[import-leaf]`.
 
 ## Verification — the Scala tree
 
-Routine validation is `make test`: cached Scala regressions, a cheap upstream
-identity gate, and the shipping Python client's small transport suite. No Python
-oracle or JVM per case runs in the Scala suite. Use `dev/scala-tests.sh --suite
-parser` (also `graph`, `shape`, `cli`) to compile support and that group only.
-See `tests/README.md` for coverage accounting and the shared helper contract.
+The fast loop is `make test-scala`: the four cached Scala regression suites
+and nothing else. Use `dev/scala-tests.sh --suite parser` (also `graph`,
+`shape`, `cli`) to compile support and that group only. Routine validation is
+`make test`: those suites, a cheap upstream identity gate, and the shipping
+Python client's small transport suite. No Python oracle or JVM per case runs in
+the Scala suite. The suites carry every unittest ID of upstream 0.9.2 — 1,396 —
+each ported or given an explicit disposition. See `tests/README.md` for
+coverage accounting and the shared helper contract.
 Upstream expected-failure decorators are preserved as a separate nonpass tier:
 only inventory-marked IDs may use the strict shared assertion bracket, and an
 unexpected pass or unrelated runtime/bridge error fails the suite.
 
 The full Python/Scala comparison is an upstream compatibility gate. The default
 checks the Python version, working source tree and project metadata against
-`dev/upstream-compat-baseline.json`. Unchanged 0.8.1 uses explicitly recorded P11
-evidence; this is not a new matrix result. Same-version source drift fails the
-cheap check. A changed upstream version runs all seven required corpora and
-records the new identity only after successful entry projections and the full
-warm differential matrix. `make compat` explicitly forces that maintenance
-check. Supply `QUERY_TEST_AFP`, `QUERY_TEST_DISTRO` and `QUERY_ORACLE`; a missing
-corpus or partial `QUERY_CORPORA` override is a refusal, never a pass. A separate
+`dev/upstream-compat-baseline.json`. An unchanged version uses the evidence
+recorded for it — for 0.9.2, P14's forced run; this is not a new matrix result.
+Same-version source drift fails the cheap check. A changed upstream version
+makes `make test` run the full comparison — all seven required corpora, hours
+rather than seconds — and records the new identity only after successful entry
+projections and the full warm differential matrix. `make compat` explicitly
+forces that maintenance check. Supply `QUERY_TEST_AFP`, `QUERY_TEST_DISTRO`
+and `QUERY_ORACLE`; a missing corpus or partial `QUERY_CORPORA` override is a
+refusal, never a pass. A separate
 `python3 dev/check-upstream-compat.py --check-only` refuses changed versions
 without launching the expensive job. The full gate copies its engine and
 harnesses into a private scratch checkout, preserving production components.
@@ -276,7 +296,7 @@ group and the relevant host/plugin probe instead. The corpus harnesses read
 | harness | what it establishes | when |
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | upstream-version compatibility or explicit maintenance |
-| `dev/difftest.sh` | 2,149 (corpus × invocation) cases: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.8.1) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
+| `dev/difftest.sh` | 2,338 (case × corpus) runs — P14 added 27 case IDs, for what 0.9.x brought: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.9.2) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
 | `dev/p9probe.sh` | 153 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter itself: the closure, the leaf rule, position-blindness, and `--reach name` as the compatibility mode | any change to `Reach` or to the citation router's candidate filter |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |

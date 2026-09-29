@@ -306,6 +306,9 @@ differ, and the port is the one that is right), `[decl-body-blank]` (the port
 took `[decl-body-comment]` and, like upstream, rejected the blank-line variant
 on the containment measurement) and `[axiom-untyped]` (the port took
 `[axiom-names]`; this half is a grammar, not a regex tweak, on either side).
+The two that arrived with upstream 0.9.x describe the port exactly as they
+describe the reference: `[decl-commands]` (P14 took `proposition`; the rest is
+open on both sides) and `[proof-bearing-commands]`, the same scope call here.
 
 - [ ] `[regex-dialect]` D12: `\w` is `java.util.regex`'s here and Python's in
       the oracle, so `²`/`½` are word characters to the oracle and not to us,

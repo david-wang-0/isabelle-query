@@ -87,7 +87,7 @@ isabelle query show <name>             # declaration and body
 isabelle query outline [THEORY]        # sections and entries
 isabelle query enclosing FILE:LINE     # owning entry/proof block (alias: at)
 isabelle query largest [-N n]          # biggest entries by span
-isabelle query grep <regex> [PATH...]  # live source text
+isabelle query grep <regex> [PATH...]  # live source text; -i ignores case
 isabelle query lines FILE A..B         # numbered source lines
 isabelle query defs <theory>           # definitions
 isabelle query sorry                   # outstanding sorry sites
@@ -97,6 +97,7 @@ isabelle query deps <theory> [-r]      # imports; uses is the reverse direction
 isabelle query refs <theory>           # citations grouped by owning theory
 isabelle query graph [citation|imports] # JSON; -f dot for Graphviz
 isabelle query unused                  # unused-entry analysis
+isabelle query unused --locals [PATH]  # proof-local names nothing reads
 isabelle query methods                 # proof-method frequencies (alias: method)
 isabelle query instances <loc> [-r]    # instantiation sites; -r walks the hierarchy
 isabelle query codeqs <const>          # declared code-equation sites
@@ -136,16 +137,40 @@ name, so it appears only under `-r`. Without the flag the listing is the direct
 sites alone.
 
 **`codeqs` under-reports when mixfix notation hides the statement's head
-symbol.** Check source with `grep` if an answer looks short. Neither finder
-separates same-named declarations that are visible within a theory. Visibility
-requires a declaration in that theory or its transitive imports within the
-scanned project; heap-only declarations are not discovered.
+symbol**: an equation of an operator (`"xs @ ys = ..."`) names no constant at
+its head, and is listed under neither the operator nor an operand. Check source
+with `grep` if an answer looks short. Neither finder separates same-named
+declarations that are visible within a theory. Visibility requires a
+declaration in that theory or its transitive imports within the scanned
+project; heap-only declarations are not discovered.
 
 This import-closure filter also applies to `callers`, `callees`, `refs`,
 `unused`, and `graph citation`. Their `--reach name` option restores name-only
 attribution; `closure` is the default. `instances` and `codeqs` return exit `1`
-for a subject that is not a declared locale/class or constant respectively,
-and exit `0` for a valid subject with no sites.
+for a subject that is not a declared locale/class or constant respectively — a
+typo and a locale from an imported session would otherwise look exactly like
+one nobody instantiates — and exit `0` for a declared subject with no sites.
+
+### Unread proof-local names
+
+`unused --locals` asks `unused`'s question one level down, inside a proof: which
+`have NAME:`, `obtain … where NAME:`, `note NAME =`, `define NAME` or `let ?NAME`
+binds a name that nothing in its scope reads — the litter a copied-then-trimmed
+proof leaves behind. It follows Isar's scoping (a name bound inside `proof … qed`
+or after `next` is invisible outside it) and binding time (`have a: … using a`
+cites the *previous* `a`). A label whose fact is consumed by `then` / `moreover`
+/ `ultimately`, or declared by `[simp]`, is used and never reported.
+
+```sh
+isabelle query unused --locals Foo.thy:120..260   # the proofs a diff hunk touches
+isabelle query unused --locals Foo:bar_lemma      # one proof
+```
+
+The rows are **candidates, not a delete list**: a fact read through a bundle
+cited under another name, by `case` position (`1(2)`), by its statement
+(`‹P›`), or by an `obtain`'s hand-written `that` is invisible to the scan.
+`--keep` names the deliberate ones. Plain `unused` stays corpus-wide and
+rejects a PATH (exit `2`).
 
 ## The jEdit plugin
 
@@ -260,9 +285,11 @@ becomes an empty success.
 
 ## Reference and development
 
-The frozen Python original, [ott2/isabelle-query](https://github.com/ott2/isabelle-query),
-lives in `src/isabelle_query/` with its reference tests. Routine validation is
-`make test`; full upstream compatibility is `make compat`. See
+The frozen Python original, [ott2/isabelle-query](https://github.com/ott2/isabelle-query)
+0.9.2, lives in `src/isabelle_query/` with its reference tests; `instances` and
+`codeqs` are upstream verbs too since 0.9.1, contributed from this fork as PR
+#11. Routine validation is `make test`; full upstream compatibility is
+`make compat`. See
 [tests/README.md](tests/README.md) for test accounting, gates, and evidence.
 
 | Reference | Contents |
@@ -278,11 +305,12 @@ lives in `src/isabelle_query/` with its reference tests. Routine validation is
 ## Authors & license
 
 The original (Python) isabelle-query is by András Salamon, with Claude Opus
-4.6, 4.7, 4.8, and 5 — see [upstream](https://github.com/ott2/isabelle-query),
+4.6, 4.7, 4.8, 5, and 5.5 — see [upstream](https://github.com/ott2/isabelle-query),
 kept in-tree under `src/isabelle_query/` as the frozen reference
 implementation. The Scala rewrite, the `instances` and `codeqs` verbs, the
 jEdit plugin and its IDE features (find usages/definition/instantiations/code
 equations, quick-open, peek, search-by-name, navigation exposure), the warm
 server and thin client, and the demo project are by David Wang, with Claude
 Fable 5 and Claude Opus 5. P13 contributions are by GPT-6 Astra, Claude Fable
-5.1, and GPT-5.6 Sol. [MIT](LICENSE).
+5.1, and GPT-5.6 Sol; P14's, the sync with upstream 0.9.2, by Claude Fable 5.1
+and Claude Opus 5.5. [MIT](LICENSE).

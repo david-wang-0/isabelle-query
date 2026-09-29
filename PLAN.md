@@ -50,10 +50,11 @@ conflicts with this file (e.g. "pure-Python", pytest habits), this file wins.
 ```
 
 The Python tree is **frozen**: never edit it, only read it. It is upstream's
-0.8.1 release since `[p9-merge]`. The runtime oracle is a `query` built from
-*that* tree and named by `$QUERY_ORACLE`; `dev/difftest.sh` pins its version
-and refuses to run against any other, so a stale `query` on `PATH` is a
-refusal rather than a plausible red.
+0.9.2 release since `[p14-merge]` (0.8.1 from `[p9-merge]` to then). The
+runtime oracle is a `query` built from *that* tree and named by
+`$QUERY_ORACLE`; `dev/difftest.sh` pins its version and refuses to run against
+any other, so a stale `query` on `PATH` is a refusal rather than a plausible
+red.
 
 ## Build / dev loop (verified mechanics)
 
@@ -93,10 +94,11 @@ The Scala tool must be a drop-in replacement for the Python CLI:
 - stderr: must be non-empty exactly where Python's is; wording may differ.
 - `-V/--version`: report the fork's own version, `UPSTREAM-scala.MINOR.PATCH`.
   The NUMBER names the upstream release whose contract the port matches
-  (`0.8.1` since P9, and `dev/difftest.sh` refuses to run if it differs from
-  the oracle version it pins); the `-scala` marker is what lets a script tell
-  the two tools apart; the `MINOR.PATCH` after it counts the port's own
-  releases (`0.8.1-scala.0.1` since P10).
+  (`0.8.1` since P9, `0.9.2` since P14, and `dev/difftest.sh` refuses to run
+  if it differs from the oracle version it pins); the `-scala` marker is what
+  lets a script tell the two tools apart; the `MINOR.PATCH` after it counts the
+  port's own releases (`0.8.1-scala.0.1` since P10; P14 moved only the number
+  in front, `0.8.1-scala.0.3` → `0.9.2-scala.0.3`).
 
 Regex dialect: user patterns are Python `re` in the oracle, `java.util.regex`
 in Scala. For the pattern subset that appears in docs/tests (literals,
@@ -252,6 +254,14 @@ necessary but not sufficient.
   drop-in warm parity. A `query_version` handshake detects a stale server
   predating a component rebuild. The in-process Scala API stays the
   documented path for headless-PIDE hosts.
+- **P14 — sync with upstream 0.9.2** (`dev/P14-PLAN.md`). Merge upstream's
+  three releases and port what they brought: `unused --locals`, `grep -i`,
+  `proposition` as a declaration, the backward citation of `using` /
+  `unfolding`, the proof extent past a mid-proof `text` block, and upstream's
+  three fixes to the site verbs. 0.9.1 took `instances` / `codeqs` and D14
+  from this fork (PR #11), so the P6b verbs are no longer rewrite-only: they
+  join the differential matrix. **Gate:** the matrix and entry sets green
+  against oracle 0.9.2, the Scala suites exhaustive over its unittest IDs.
 
 ## Conventions
 
