@@ -104,7 +104,7 @@ oracle_bin=${QUERY_ORACLE:-query}
 # exit 127 -- nine failures that name the harness's own usage line rather
 # than the port.
 case "$oracle_bin" in */*) oracle_bin=$(cd -- "$(dirname -- "$oracle_bin")" && pwd)/$(basename -- "$oracle_bin") ;; esac
-ORACLE_VERSION=0.8.1
+ORACLE_VERSION=0.9.2
 run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 
 # WHICH JVM ANSWERS, and why it is a switch rather than a default.
