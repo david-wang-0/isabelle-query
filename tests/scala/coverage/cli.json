@@ -2144,6 +2144,588 @@
       "reason": ""
     },
     {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_abstract_equation_reads_one_level_in",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_argument_is_not_a_head",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_an_operand_is_not_a_head",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.MixfixAttribution.test_each_statement_carries_its_own_attribute",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_constructor_resolves_through_its_binder",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_lemma_is_not_a_constant",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.SubjectResolution.test_a_primrec_is_a_constant",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_an_unknown_subject_still_exits_1",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_counts",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_every_locus_round_trips_through_enclosing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_names_are_qualified",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_no_row_prints_the_bare_name",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_sections_load_alpha_then_beta",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_sorts_leaves_the_locus_column_alone",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_the_codeqs_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCollisionFixture.test_the_instances_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_a_known_constant_with_no_equations",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_a_lemma_is_a_refusal",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_an_unknown_constant_is_a_refusal_in_count_mode_too",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_counts",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_sorts_only_where_a_signature_is_written",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheCommand.test_the_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_conditional_equation",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_constructor",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_declaration_with_an_attribute_has_no_default_row",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_right_hand_side_is_not_a_site",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_a_symbol_bearing_constant",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_fib",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_registered_here_and_retracted_there",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_decoys_are_not_sites",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_fixture_loaded_whole",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_the_preprocessor_attribute_is_not_a_site",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheEngineOnTheFixture.test_twice",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_abstract_equation_heads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_cited_fact_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_code_attrs",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_dropped_constants",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_equation_heads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_the_config_form",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheGrammars.test_written_type",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_no_reach_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_no_recursive_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_codeqs.TheParser.test_the_flags",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_codeqs.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.MidLineInterpret.test_a_chained_interpret_is_a_site",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.MidLineInterpret.test_the_command_reader",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_a_locale_and_a_class_resolve",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_a_wrong_kinded_name_names_its_kind_and_theory",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.SubjectResolution.test_an_unknown_name_is_a_reason",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_a_name_declared_nowhere_builds_no_closure",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_each_header_is_read_at_most_once",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheClosureIsBuiltOnce.test_one_visibility_per_request",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_a_wrong_kinded_subject_is_a_refusal",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_an_honest_zero",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_an_unknown_subject_is_a_refusal",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_count_mode_on_an_unresolved_subject_prints_nothing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_counts",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_names_are_bare_loci",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_sorts_is_written_text",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_name_column_end_to_end",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_padded_columns",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheCommand.test_the_table_byte_for_byte",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_bare_interpretation_is_not_named_after_the_locale",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_sublocale_is_a_site_of_its_target_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_a_symbol_bearing_and_a_quoted_locale_name",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_extending_is_not_instantiating",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_magma",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_mynull",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_fixture_loaded_whole",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_hierarchy_theory_direct_sites",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_name_column_fallback_chain",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheEngineOnTheFixture.test_the_source_cell_is_the_raw_line",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_arity_classes",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_arity_parts",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_denotes",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_expression_heads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheGrammars.test_expression_instances",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_a_leaf_of_the_hierarchy_is_its_direct_listing",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_a_locale_is_not_its_own_descendant",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_decoys_are_not_extenders",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_descendants",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_extenders",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_extends_heads",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_no_dedup_pass_is_needed",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_the_transitive_sites_of_base",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheHierarchy.test_the_transitive_sites_of_the_rest",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_at_least_one_subject",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_count_beats_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_no_reach_flag",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_recursive",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheParser.test_the_flags",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_counts",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_names",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_sorts_is_orthogonal",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_default_form_is_untouched",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_exit_contract_is_the_same_question",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_sites_instances.TheTransitiveCommand.test_the_table_with_its_via_column",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_sites_instances.scala",
+      "reason": ""
+    },
+    {
       "id": "test_statement_slice.CliSurface.test_both_spellings_set_statement",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_statement_slice.scala",

@@ -3,6 +3,7 @@ package isabelle.query.regression
 object GraphSuite {
   def run(): Unit = {
     GraphBfsDepths.run()
+    GraphBoundNameReach.run()
     GraphCallGraph.run()
     GraphCitationReach.run()
     GraphFactCitations.run()

@@ -377,6 +377,11 @@ object Reach {
      closure cost measures the closure and not a hit. */
   def clear_cache(): Unit = synchronized { cache.clear() }
 
+  /* Development / probe hook: how many closures the memo holds, so a test can
+     pin that a request built exactly one -- or, for a name the project
+     declares nowhere, none (`site_filter`'s cheap path). */
+  def cached_closures: Int = synchronized { clean_cache(); cache.length }
+
 
   /* ------------------------------------------------------------------ */
   /* the filters                                                        */

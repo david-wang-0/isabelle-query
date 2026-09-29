@@ -314,6 +314,49 @@ object Sites {
     """^(instantiation|instance|interpretation|global_interpretation|interpret""" +
       """|sublocale)(?![\w'])""")
 
+  /* `interpret` is a PROOF command, and a proof command need not start a
+     line: `then interpret`, `from assms(2) interpret`, `have ... by simp then
+     interpret` -- about one AFP `interpret` in eight is written that way.
+     Searched on the OUTER view, where terms, text and comments are already
+     blank, so what is left standing at a word boundary is outer syntax; the
+     lookbehind keeps `M.interpret` and `interpret_foo` (fact names) out.  The
+     theory-level commands above are not searched mid-line: they follow a
+     finished command, which in practice means a new line
+     [midline-interpret]. */
+  private val MIDLINE_INTERPRET_RE: Pattern =
+    Py.compile("""(?<=\s)(interpret)(?![\w'.])""")
+
+  /* `(command, start, end)` columns of the instantiating command on this
+     OUTER line -- at the line's start, else a mid-line `interpret`. */
+  def inst_command(outer_line: String): Option[(String, Int, Int)] = {
+    val stripped = Py.lstrip(outer_line)
+    Py.matches_at_start(INST_CMD_RE, stripped) match {
+      case Some(m) =>
+        val lead = outer_line.length - stripped.length
+        Some((m.group(1), lead, lead + m.end))
+      case None =>
+        Py.search(MIDLINE_INTERPRET_RE, outer_line).map(m => (m.group(1), m.start, m.end))
+    }
+  }
+
+  /* `header_at` for a command starting at column `col`.  What precedes it on
+     the line is a different command -- `have "..." by simp` before `then
+     interpret` -- whose `by` would otherwise stop the header before it began.
+     Blanked to spaces rather than cut, so every column offset into the first
+     line still holds in both views [midline-interpret]. */
+  private def header_from(live: Array[String], outer: Array[String], line: Int, col: Int
+  ): Header =
+    if (Py.strip(outer(line - 1).substring(0, col)).isEmpty) header_at(live, outer, line)
+    else {
+      val stop = (line - 1 + HEADER_LINES) min live.length
+      val lv = live.slice(line - 1, stop)
+      val ov = outer.slice(line - 1, stop)
+      lv(0) = " " * col + lv(0).substring(col)
+      ov(0) = " " * col + ov(0).substring(col)
+      val h = header_at(lv, ov, 1)
+      h.copy(start = line, end = h.end + line - 1)
+    }
+
   /* A name as WRITTEN at a use site: like a declaration name, but possibly
      qualified.  Spelled out from `Entries.ISA_MARKUP` rather than reusing the
      compiled `Entries.TARGET_NAME_RE`, because it has to be embedded in longer
@@ -549,13 +592,10 @@ object Sites {
 
       var i = 1
       while (i <= outer.length) {
-        val stripped = Py.lstrip(outer(i - 1))
-        Py.matches_at_start(INST_CMD_RE, stripped).foreach { m =>
-          val command = m.group(1)
-          val head = header_at(live, outer, i)
+        inst_command(outer(i - 1)).foreach { case (command, start, at0) =>
+          val head = header_from(live, outer, i, start)
           /* Past the command keyword, in both views at once: the keyword is
              matched on outer but the head is read from live. */
-          val at0 = outer(i - 1).length - stripped.length + m.end
           val at = at0 + marker_end(head.live.substring(at0 min head.live.length))
           val body_live = head.live.substring(at min head.live.length)
           val body_outer = head.outer.substring(at min head.outer.length)
@@ -955,15 +995,25 @@ object Sites {
          -- since a conditional code equation's conclusion is the equation;
        * take the left of the first top-level equality (`=`, `\<equiv>`, `==`,
          `\<longleftrightarrow>`);
-       * the heads are the identifiers in HEAD POSITION there: the first token,
-         and the first token after each `(`.
+       * the head is the identifier in HEAD POSITION there: the first token,
+         read as a whole qualified name (`HOL.equal`, not `HOL`).
 
-     The second half of that last rule is what makes `[code abstract]` work:
-     an abstract equation reads `Rep_T (f x) = ...`, whose outermost head is
-     the projection and whose subject is `f`.  It over-reports by exactly one
-     case -- `f (g x) y = ...` names `g` too -- which is the direction this
-     repo's other approximations lean (SCANNING.md, "an unlisted method may add
-     a spurious citation, never remove a true one").
+     An ABSTRACT equation (`[code abstract]`) reads `Rep_T (f x) = ...`: the
+     outermost head is the projection and the subject is `f`, the head of its
+     first argument, so that one attribute reads one level further in.  Only
+     that one: in a plain `[code]` equation the first token of a parenthesised
+     argument is a pattern (`ntrancl (Suc n) r`) or an argument
+     (`insert x (set xs)`), and naming it as a head attributed 30% of the
+     single-line `[code]` lemmas in HOL to a second, wrong constant.
+
+     When mixfix notation hides the head symbol there is no head: an operator
+     symbol at the top level of the left-hand side (`"xs @ ys = ..."`,
+     `"A - set xs"`, `"set xs \<union> A"`) means the first token is an
+     operand, and a leading `(` means the head is inside a bracketed operand.
+     Nothing is reported rather than the operand -- which may be a constant,
+     and would then be credited with an equation of `-` -- so the
+     approximation leans the one way the README states: it under-reports under
+     mixfix [code-heads].
 
      What it is NOT is "the constant is mentioned in the statement".  That was
      the cheaper option and it is wrong here in a way it is not wrong for
@@ -973,7 +1023,9 @@ object Sites {
   private val BINDER_RE: Pattern =
     Py.compile("""^\s*\\<(?:And|forall)>[^.]*\.\s*""")
   private val META_IMP: List[String] = List("""\<Longrightarrow>""", "==>")
-  private val HEAD_TOKEN_RE: Pattern = Py.compile(s"^(${Entries.ISA_NAME})")
+  private val HEAD_TOKEN_RE: Pattern =
+    Py.compile(s"^(${Entries.ISA_NAME}(?:\\.${Entries.ISA_NAME})*)")
+  private val SYMBOL_RE: Pattern = Py.compile("""\\<\^?\w+>""")
 
   /* An equality at top level (parenthesis depth 0) in a proposition. `=` is
      rejected where it is part of a longer operator (`==>`, `\<le>`-style
@@ -1020,23 +1072,100 @@ object Sites {
     }
   }
 
-  private def head_identifiers(lhs: String): List[String] = {
-    val out = new mutable.ListBuffer[String]
-    def take(at: Int): Unit = {
-      val pos = skip_space(lhs, at)
-      if (pos < lhs.length)
-        Py.matches_at_start(HEAD_TOKEN_RE, lhs.substring(pos)).foreach(m => out += m.group(1))
+  /* Whether an operator symbol stands at the top level of `lhs` past `pos`.
+     Application binds tighter than any infix, so one anywhere -- `xs @ ys`,
+     and `set xs \<union> A` after an argument -- means the first token is an
+     operand, not the head.  Names, numerals, brackets and letter symbols
+     (`Entries.LETTER_SYMS`: `\<alpha>` is an argument) are arguments;
+     anything else is syntax (`@`, `-`, `\<union>`, a record update's
+     `\<lparr>`) [code-heads]. */
+  private def mixfix_after(lhs: String, pos0: Int): Boolean = {
+    val n = lhs.length
+    var pos = pos0
+    while (pos < n) {
+      val c = lhs.charAt(pos)
+      if (Py.is_space(c) || Py.is_alnum(c) || "_'?.".indexOf(c) >= 0) pos += 1
+      else if ("([{".indexOf(c) >= 0) {
+        val close = c match { case '(' => ')' case '[' => ']' case _ => '}' }
+        var depth = 0
+        var go = true
+        while (go && pos < n) {
+          val d = lhs.charAt(pos)
+          if (d == c) depth += 1
+          else if (d == close) { depth -= 1; if (depth == 0) go = false }
+          if (go) pos += 1
+        }
+        pos += 1
+      }
+      else if (c == '\\') {
+        val sym = Py.matches_at(SYMBOL_RE, lhs, pos).map(_.group(0)).getOrElse("")
+        if (!(Entries.LETTER_SYMS(sym) || sym.startsWith("\\<^"))) return true
+        pos += sym.length
+      }
+      else return true
     }
-    take(0)
-    var i = 0
-    while (i < lhs.length) {
-      if (lhs.charAt(i) == '(') take(i + 1)
-      i += 1
+    false
+  }
+
+  /* The head of the application starting at `at` and where it ends, or None
+     when mixfix syntax hides it. */
+  private def head_at(lhs: String, at: Int): Option[(String, Int)] = {
+    val pos = skip_space(lhs, at)
+    Py.matches_at_start(HEAD_TOKEN_RE, lhs.substring(pos min lhs.length)).flatMap { m =>
+      val end = pos + m.end
+      if (mixfix_after(lhs, end)) None else Some((m.group(1), end))
+    }
+  }
+
+  /* The head of one left-hand side -- of the projection's argument, for an
+     `abstract` equation: `Rep_T (f x)` -> `f`; `Rep_T c` -> `c`. */
+  private def lhs_head(lhs: String, abstract_eq: Boolean): String =
+    head_at(lhs, 0) match {
+      case None => ""
+      case Some((head, _)) if !abstract_eq => head
+      case Some((_, end)) =>
+        val pos = skip_space(lhs, end)
+        val inner =
+          if (lhs.startsWith("(", pos)) {
+            val close = paren_end(lhs, pos)
+            if (close > 0) head_at(lhs.substring(pos + 1, close - 1), 0) else None
+          }
+          else
+            Py.matches_at_start(HEAD_TOKEN_RE, lhs.substring(pos min lhs.length))
+              .map(m => (m.group(1), pos + m.end))
+        inner.map(_._1).getOrElse("")
+    }
+
+  /* A later statement of a multi-statement declaration: `lemma a [code]: "p"
+     and b [code]: "q"`.  Read on the OUTER view, where a term is blank, so
+     the `:` is the clause's own; `::` is a type constraint
+     (`fun f and g :: ...`), not a clause [code-clauses]. */
+  private val CLAUSE_RE: Pattern = Py.compile(
+    """(?<![\w'])and\s+(?:([^\s\[:]+)\s*)?(?:\[[^\]]*\]\s*)?:(?!:)""")
+
+  /* `(start, name)` of each statement in a declaration header: the first at 0
+     under the declaration's own name (`""` here), then one per
+     `and NAME [attrs]:`.  Only past the last `shows` when there is one:
+     before it, `assumes "a" and b: "c"` names a premise, not a statement. */
+  def statement_clauses(outer: String): List[(Int, String)] = {
+    var at = 0
+    val sm = SHOWS_RE.matcher(outer)
+    while (sm.find()) at = sm.end
+    val out = new mutable.ListBuffer[(Int, String)]
+    out += ((0, ""))
+    val m = CLAUSE_RE.matcher(outer)
+    var from = at
+    while (from <= outer.length && m.find(from)) {
+      val nm = m.group(1)
+      out += ((m.start, if (nm == null || nm.isEmpty) UNNAMED else nm))
+      from = if (m.end > m.start) m.end else m.end + 1
     }
     out.toList
   }
 
-  def equation_heads(statement: String): List[String] = {
+  /* The constant at the head of each proposition's left-hand side -- of the
+     projection's argument, for an `abstract_eq` equation. */
+  def equation_heads(statement: String, abstract_eq: Boolean = false): List[String] = {
     val body = Py.search(SHOWS_RE, statement) match {
       case Some(m) => statement.substring(m.end)
       case None => statement
@@ -1048,10 +1177,11 @@ object Sites {
       if (prop != null && prop.nonEmpty) {
         val concl = strip_premises(prop)
         val eq = top_equality(concl)
-        out ++= head_identifiers(if (eq >= 0) concl.substring(0, eq) else concl)
+        val h = lhs_head(if (eq >= 0) concl.substring(0, eq) else concl, abstract_eq)
+        if (h.nonEmpty && !out.contains(h)) out += h
       }
     }
-    out.toList.distinct
+    out.toList
   }
 
 
@@ -1195,10 +1325,13 @@ object Sites {
     /* A fact name resolves to the constant when it SPELLS it, or when the
        entry it names is a lemma whose own equation head is the constant --
        `declare card_set [code]` for `card_set: "card (set xs) = ..."`. */
-    def fact_denotes(token: String): Boolean =
+    def heads_denote(statement_text: String, attr: Code_Attr): Boolean =
+      equation_heads(statement_text, abstract_eq = attr.arg == "abstract").exists(denotes(_, name))
+
+    def fact_denotes(token: String, attr: Code_Attr): Boolean =
       spells(token, name) || (by_name.get(token) match {
         case Some((_, e)) if e.tag == "LEMMA" || e.tag == "THEOREM" =>
-          equation_heads(statement(live_of(sec_by_name.get(token)), e)).contains(name)
+          heads_denote(statement(live_of(sec_by_name.get(token)), e), attr)
         case _ => false
       })
 
@@ -1241,18 +1374,29 @@ object Sites {
                shape its defining equation is written in. */
             val subject_here =
               constant_tags(e.tag) && (e.name == name || e.bound_names.contains(name))
-            val heads = if (subject_here) Nil else equation_heads(head_live)
+            val clauses = statement_clauses(head_outer)
             for (attr <- attrs) {
+              /* The statement the attribute is attached to, and only that
+                 one: `lemma insert_code [code]: "..." and union_code [code]:
+                 "..."` is two equations of two constants, not two of each
+                 [code-clauses]. */
+              val k = clauses.lastIndexWhere(_._1 <= attr.from)
+              val lo = clauses(k)._1
+              val hi = if (k + 1 < clauses.length) clauses(k + 1)._1 else head_live.length
               val hit =
                 if (attr.config) dropped_constants(head_live, attr).exists(denotes(_, name))
-                else subject_here || heads.contains(name)
+                else subject_here || heads_denote(head_live.substring(lo, hi), attr)
               if (hit) {
                 attributed = true
                 /* The PROVIDING fact, which for a declaration is its own name
                    -- the `lemma` carrying the attribute, or the `definition`
-                   when the attribute sits on the defining equation. */
-                found += Site(sec.theory, sec.path, e.thy_line, "[" + attr.spelling + "]",
-                  Py.rstrip(raw(e.thy_line - 1)), entry_name, signature)
+                   when the attribute sits on the defining equation -- and for
+                   a later statement of it, that statement's own name and
+                   line. */
+                val line = e.thy_line + head_live.substring(0, lo).count(_ == '\n')
+                val label = if (clauses(k)._2.nonEmpty) clauses(k)._2 else entry_name
+                found += Site(sec.theory, sec.path, line, "[" + attr.spelling + "]",
+                  Py.rstrip(raw(line - 1)), label, signature)
               }
             }
           }
@@ -1286,7 +1430,7 @@ object Sites {
                 if (attr.config) dropped_constants(head.live, attr).filter(denotes(_, name))
                 else Nil
               val cited = if (attr.config) Nil else cited_fact_names(head.outer, at)
-              val hit = dropped.nonEmpty || cited.exists(fact_denotes)
+              val hit = dropped.nonEmpty || cited.exists(fact_denotes(_, attr))
               if (hit) {
                 /* The BINDING LABEL: the fact the attribute is attached to,
                    which is the first name the command writes -- `card_set` in
@@ -1378,7 +1522,10 @@ object Sites {
      thing for a typo, for a locale from an imported session, and for a locale
      that is genuinely never instantiated.  A KNOWN subject with no sites keeps
      the family's honest zero -- the same message shape and the same exit 0
-     `callers` gives an entry nothing calls. */
+     `callers` gives an entry nothing calls.  Through `Commands.fail_subject`,
+     the family's one refusal, so the diagnostic reads like every other verb's
+     rather than as an `ERROR:` of its own -- the upstream port's
+     `_fail_subject`, pinned by its `test_*_is_a_refusal` fixtures. */
   private def with_subject(out: Out, err: Out, sections: List[Theory_Section],
     name: String, tags: Set[String], what: String
   )(body: Subject => Unit): Unit =
@@ -1386,10 +1533,7 @@ object Sites {
       case Right(subject) =>
         if (subject.how.nonEmpty) out.println(s"# '$name' is ${subject.how}.")
         body(subject)
-      case Left(msg) =>
-        out.flush()
-        err.println(s"ERROR: $msg")
-        throw Exit_Code(1)
+      case Left(msg) => Commands.fail_subject(out, err, msg)
     }
 
   def cmd_instances(out: Out, err: Out, sections: List[Theory_Section], name: String,

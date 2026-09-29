@@ -49,4 +49,26 @@ private[regression] object CliSupport {
       tok.contains(":") && tail.nonEmpty && tail.endsWith("-") == context &&
         tail.stripSuffix("-").matches("[0-9]+")
     }
+  /** `tests/support.py`'s `blank_terms`: the outer view of a one-line header,
+    * simulated -- every `"..."` term and `\<open>...\<close>` cartouche
+    * blanked to spaces, which is what `Theory_Section.outer_source` does to the
+    * same characters.  For pinning the site grammars
+    * (`Sites.expression_heads`, `Sites.code_attrs`, ...) on strings: each
+    * takes the live text and the outer text of one span. */
+  def blank_terms(s: String): String = {
+    val buf = new StringBuilder
+    var i = 0
+    var quoted = false
+    while (i < s.length) {
+      val c = s.charAt(i)
+      if (c == '"') { quoted = !quoted; buf += ' '; i += 1 }
+      else if (!quoted && s.startsWith("\\<open>", i)) {
+        val e = Entries.balanced_end(s, "\\<open>", "\\<close>", i)
+        val stop = if (e < 0) s.length else e
+        while (i < stop) { buf += ' '; i += 1 }
+      }
+      else { buf += (if (quoted) ' ' else c); i += 1 }
+    }
+    buf.toString
+  }
 }
