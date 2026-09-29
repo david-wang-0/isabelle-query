@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "cases_per_corpus": 334,
+  "cases_per_corpus": 337,
   "corpora": [
     "Abstract_Completeness",
     "AODV",
@@ -10,7 +10,7 @@
     "Sequents",
     "CTT"
   ],
-  "comparisons_per_mode": 2338,
+  "comparisons_per_mode": 2359,
   "pins": {
     "total": 186,
     "D15": 183,
@@ -563,6 +563,36 @@
       "mode": "root",
       "family": "grep",
       "argv_expression": "grep \"$NAME1\" -n",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "grep-ignore-case",
+      "mode": "root",
+      "family": "grep",
+      "argv_expression": "grep \"$NAME1_UPPER\" -i",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "grep-ignore-case-count",
+      "mode": "root",
+      "family": "grep",
+      "argv_expression": "grep \"$NAME1_UPPER\" --ignore-case -c",
+      "status": "corpus",
+      "destination": "dev/difftest.sh",
+      "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",
+      "scala_ids": []
+    },
+    {
+      "id": "find-ignore-case-noop",
+      "mode": "root",
+      "family": "find",
+      "argv_expression": "find \"$NAME1_UPPER\" -i",
       "status": "corpus",
       "destination": "dev/difftest.sh",
       "reason": "Retains exact corpus-wide Python/Scala byte/status comparison with per-corpus oracle-derived subjects; unit regressions do not claim this full-corpus comparison.",

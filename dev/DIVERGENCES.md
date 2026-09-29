@@ -28,7 +28,7 @@ agreement is not mistaken for evidence that either side is right.
 <!-- TODO(main-session): the numbers below are placeholders; the full matrix on
      the merged tree fills them in.  Nothing in this table is measured yet. -->
 
-`dev/difftest.sh` against oracle 0.9.2, seven gate corpora, 334 invocation
+`dev/difftest.sh` against oracle 0.9.2, seven gate corpora, 337 invocation
 ids (`tests/scala/coverage/matrix.json`):
 
 | | vs 0.9.2 (P14 close) |
@@ -871,7 +871,7 @@ Everything else about the declared set now agrees: an entry of ANY tag counts
 
 ## D15 — a theory a ROOT addresses by PATH is named by its LEAF
 
-**Cost: 183 of `dev/difftest.sh`'s 2,338 cases, on the three gate corpora whose
+**Cost: 183 of `dev/difftest.sh`'s 2,359 cases, on the three gate corpora whose
 ROOT addresses a theory by path (FOL 33, Sequents 52, CTT 98) and on no other;
 0 records on `dev/entrydiff.sh`, whose dumps key by path.  Every case is pinned
 below, by id.**  It is the only deliberate difference in oracle-shared STDOUT
@@ -997,7 +997,7 @@ maps that spelling by its leaf as it always did.
 
 ### The pinned cases
 
-**183 of the 2,338 matrix cases, and not one on a corpus without a
+**183 of the 2,359 matrix cases, and not one on a corpus without a
 path-declared theory.**  P14 added five: the site verbs gained an oracle in
 0.9.1, and on Sequents `instances term` prints the locus of
 `instance nat :: "term"` as `Nat:13` where the oracle prints the ROOT's

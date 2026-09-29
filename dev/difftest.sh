@@ -118,7 +118,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,338-case matrix, taken through
+# answers the oracle gives?  It is the same 2,359-case matrix, taken through
 # the socket. The harness retains a private query_server stdin pipe until
 # completion; historical auto-daemon expectations in p7probe are superseded.
 #
@@ -363,6 +363,9 @@ derive_subjects() {
   done
   [ -z "$LEMMA_NAME" ] && LEMMA_NAME=$NAME1
   [ -z "$NAME1" ] && NAME1=$THY1
+  # The same subject spelled in capitals: what `grep -i` must still find and
+  # what `find -i` (a no-op: find always ignores case) finds anyway [ignore-case].
+  NAME1_UPPER=$(printf %s "$NAME1" | tr a-z A-Z)
   [ -z "$NAME2" ] && NAME2=$NAME1
   if [ -z "$LEMMA_THY" ]; then
     LEMMA_THY=$THY1; LEMMA_LO=1; LEMMA_HI=2
@@ -577,6 +580,9 @@ emit_cases() {
   c grep-names             grep "$NAME1" --names
   c grep-with-comments     grep "$NAME1" --with-comments
   c grep-noop-n            grep "$NAME1" -n
+  c grep-ignore-case       grep "$NAME1_UPPER" -i
+  c grep-ignore-case-count grep "$NAME1_UPPER" --ignore-case -c
+  c find-ignore-case-noop  find "$NAME1_UPPER" -i
   c grep-scoped-thy        grep "$NAME1" "$THY1"
   c grep-window            grep "$NAME1" "$THY1:1..80"
   c grep-alternation       grep "lemma\\|definition"
