@@ -484,7 +484,8 @@ follow, the same rule that keeps `HOL-*` out.
 
 # 3. Sites — `instances` and `codeqs`
 
-These two have no Python counterpart. Both report **declared source sites** —
+These two began in this port; the Python tool has them too since 0.9.1.
+Both report **declared source sites** —
 the complement of Isar's `print_interps` / `print_codesetup`, which need a
 running prover and show the *processed* setup. A static scan sees the text; the
 prover sees the result.
@@ -742,7 +743,7 @@ isabelle query --client-stop
 ```
 server        isabelle_query
 protocol      1 (client 1)
-version       0.8.1-scala.0.3
+version       0.9.2-scala.0.3
 index         <checkout>/demo  6 theories, 62 entries, 147 ms build / 4 ms recheck, 1 uses
 ```
 
