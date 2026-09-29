@@ -25,19 +25,24 @@ agreement is not mistaken for evidence that either side is right.
 
 ## Measured at the close of P14
 
-<!-- TODO(main-session): the numbers below are placeholders; the full matrix on
-     the merged tree fills them in.  Nothing in this table is measured yet. -->
-
 `dev/difftest.sh` against oracle 0.9.2, seven gate corpora, 337 invocation
 ids (`tests/scala/coverage/matrix.json`):
 
-| | vs 0.9.2 (P14 close) |
-|---|---:|
-| cases | TODO(main-session) |
-| clean | TODO(main-session) |
-| pinned | TODO(main-session) |
-| failing | TODO(main-session) |
-| stale pins | TODO(main-session) |
+| | vs 0.9.2, at 9f2ad6b (S0) | vs 0.9.2, P14 close |
+|---|---:|---:|
+| cases | 2,149 | 2,359 |
+| clean | 1,722 | 2,173 |
+| pinned | 181 | 186 |
+| failing | 246 | **0** |
+| stale pins | 0 | 0 |
+
+The closing column is the forced `make compat` run (warm mode, 2026-09-29),
+which stamped `dev/upstream-compat-baseline.json` for 0.9.2; the cold run on
+the merged tree before the three `-i` cases were added gave the same clean set
+(2,151 of 2,338) with one transient JVM class-loading failure that reran
+clean.  The 210 cases the matrix grew by are the site verbs (17 ids),
+`unused --locals` / `unused PATH` (10) and `grep -i` / `find -i` (3), all clean
+except the five Sequents `instances term` cases that are D15.
 
 The entry projections (`dev/entrydiff.sh`, four dumps on each of the seven
 corpora) are 28 of 28 identical to oracle 0.9.2 on the merged S1-S4 tree.

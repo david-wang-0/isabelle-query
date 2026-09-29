@@ -1,6 +1,7 @@
 # P14 — sync the port with upstream 0.9.2
 
-**Status: IN PROGRESS** (started 2026-09-29). This is the task list for
+**Status: DONE** (2026-09-29; the closing measurements are in
+`dev/P14-STATUS.md`). This is the task list for
 bringing the Scala engine to parity with upstream isabelle-query **0.9.2**
 (from 0.8.1), and for retiring every divergence upstream has since closed.
 It is the plan; the per-step evidence goes into commit messages under the
@@ -120,31 +121,31 @@ adds them.
 
 Worktree `p14/s1-small`. Upstream commits `305ca40`, `910008c`, `b725141`.
 
-- [ ] `[decl-commands]` — `proposition` joins `Entries.DECL_RE` and
+- [x] `[decl-commands]` — `proposition` joins `Entries.DECL_RE` and
       `TAG_MAP` (`entries.scala:43,49`), tag LEMMA, riding with `corollary`.
       Fixture: `tests/test_proposition.py` (7 tests; the central one is the
       symmetry — two identical one-line proofs bracketing a proposition must
       scan to the same steps). Check `namespace.scala:110` (it already lists
       `proposition` as a keyword) and `Discovery`'s custom-keyword union for
       any second table.
-- [ ] `[markup-step-model]` — `"unfolding"` joins `Usage_Graph.PLUMBING_KEYWORDS`
+- [x] `[markup-step-model]` — `"unfolding"` joins `Usage_Graph.PLUMBING_KEYWORDS`
       (`usage_graph.scala:198`); the `classify_step_line` comment at
       `shape.scala:110-113` is rewritten as upstream's is (the fallback now
       carries only lines led by a fact name or an unknown word).
-- [ ] `[cite-direction]` — `Shape.annotate_fanin` (`shape.scala:535`) gains
+- [x] `[cite-direction]` — `Shape.annotate_fanin` (`shape.scala:535`) gains
       `BACKWARD_CITE_CMDS = {using, unfolding}`: such a plumbing step credits
       the OPEN goal with its fresh facts (`fresh = facts -- seen`), a goal
       step sets `open_goal = s, seen = facts | pending`, a closing step
       clears both. Fixture: `tests/test_shape.py::CitationDirection` (each
       goal cites a different fact — with `[1, 1]` a direction error is
       invisible) plus the four other new `test_shape.py` tests.
-- [ ] `[ignore-case]` — `grep -i/--ignore-case` sets `Flags.ignore_case`
+- [x] `[ignore-case]` — `grep -i/--ignore-case` sets `Flags.ignore_case`
       and `Commands.compile_user_pattern(…, ignore_case)` (the parameter
       exists, `commands.scala:478`); `find -i` is a no-op flag like `-n`.
       Fixture: `tests/test_ignore_case.py` (5 tests).
-- [ ] Scala test ports: parser (`test_proposition`), shape (the 5 new
+- [x] Scala test ports: parser (`test_proposition`), shape (the 5 new
       `test_shape` IDs), cli (`test_ignore_case`); inventory rows.
-- [ ] Gate: `difftest -k 'shape-*'` and `-k 'grep-*'` on one corpus; the
+- [x] Gate: `difftest -k 'shape-*'` and `-k 'grep-*'` on one corpus; the
       full matrix on landing (expect the `shape-*` census/lemma families and
       any `summary`/`defs` case on a corpus with a `proposition` to clear).
 
@@ -152,7 +153,7 @@ Worktree `p14/s1-small`. Upstream commits `305ca40`, `910008c`, `b725141`.
 
 Worktree `p14/s2-extent`. Upstream commits `857b35f`, `a70ee34`.
 
-- [ ] `Entries.proof_extent` (`entries.scala:1176`) takes the outer view
+- [x] `Entries.proof_extent` (`entries.scala:1176`) takes the outer view
       with terms AND comments blanked (`blank_all(outer, nonisar_spans)` —
       find the Scala spelling in `theory.scala`/`regions.scala`) and a
       `prose` line mask of every text block's BODY (`(lo+1, hi)` for
@@ -160,23 +161,23 @@ Worktree `p14/s2-extent`. Upstream commits `857b35f`, `a70ee34`.
       `line_no > proof_close_line(outer, proof_line, thy_end)`, computed
       lazily at the first prose boundary met; `DECL_RE` is not tested on
       masked lines; a block's first line stays live.
-- [ ] `proof_close_line`: `_PROOF_STRUCT_RE` verbatim through `Py`
+- [x] `proof_close_line`: `_PROOF_STRUCT_RE` verbatim through `Py`
       (`(?<![\w'.?])(proof|qed|subgoal|by|done|sorry|oops)(?![\w']|\.[\w\\])`
       `|(?<!\.)(\.\.|\.)(?![\w'.\\])|([{}()\[\]])`), the `kinds` stack with
       `nest` for `(`/`[`, terminators closing the entry's own goal or a
       `subgoal`. The five lexical slips upstream fixed are in that regex:
       `foo..`, `bar.`, `INV.\<Phi>o_def`, `qed.`, `?proof`.
-- [ ] Also `LETTER_SYMS` moves from `Shape` (private, `shape.scala:1015`) to
+- [x] Also `LETTER_SYMS` moves from `Shape` (private, `shape.scala:1015`) to
       `Entries` (public) — S4 and S3 both read it; do the move HERE so the
       two other worktrees rebase onto it (or, if they land first, take
       theirs).
-- [ ] Fixture: the proof-extent halves of `tests/test_unused_locals.py`
+- [x] Fixture: the proof-extent halves of `tests/test_unused_locals.py`
       (`body_end_line` reaches the `qed` past a mid-proof `text`; the
       "lemma reduction1 …" prose line is not a boundary) plus a hand-written
       one for each lexical slip. Cross-check every `body_end_line` on the
       seven gate corpora against the oracle (`dev/entrydiff.sh` compares
       `body_end`).
-- [ ] Gate: `dev/entrydiff.sh` on all seven corpora; `difftest -k
+- [x] Gate: `dev/entrydiff.sh` on all seven corpora; `difftest -k
       'enclosing-*'`, `-k 'shape-*'`, `-k 'largest*'`, `-k 'show*'`.
 
 ### S3 — `[unused-locals]`
@@ -186,7 +187,7 @@ module `proof_locals.scala` (474 Python lines) between `usage_graph` and
 `usage` in the DAG, the `Usage.cmd_unused_locals` renderer, and the CLI's
 `unused` gaining `--locals` and PATH positionals.
 
-- [ ] `Proof_Locals`: `_TOKEN_RE` / `_TERM_TOKEN_RE` built from
+- [x] `Proof_Locals`: `_TOKEN_RE` / `_TERM_TOKEN_RE` built from
       `Entries.LETTER_SYMS` (S2's move — replicate the one-line move if S2
       has not landed; the merge takes one copy); `body_tokens` over the two
       views with the noise spans skipped; the `Walk` state (scopes keyed
@@ -196,7 +197,7 @@ module `proof_locals.scala` (474 Python lines) between `usage_graph` and
       `_unqualified` (`local.`), the `define … where … for` rule, the
       `[unfolded I_defs]` attribute-argument reads. Public: `scan_proof`,
       `proof_end`, `unread_locals(sections, windows, keep)`.
-- [ ] CLI: `unused` gets `--locals` and `files*` (PATH); plain `unused` with
+- [x] CLI: `unused` gets `--locals` and `files*` (PATH); plain `unused` with
       a PATH exits 2 with `isabelle query: unused: PATH arguments need
       --locals; entry-level \`unused\` is corpus-wide, scope it with -R`;
       `--locals` with `-r`/`--roots` exits 2 (`unused: --locals takes neither
@@ -206,16 +207,16 @@ module `proof_locals.scala` (474 Python lines) between `usage_graph` and
       path) selecting `(src_start, body_end_line or thy_end)`, unknown
       entry → `fail_subject("no entry 'X' in TOKEN")` exit 1; a bare file
       anywhere takes all of it.
-- [ ] Renderer `cmd_unused_locals`: rows `LOCUS  NAME  KIND  ENTRY` with
+- [x] Renderer `cmd_unused_locals`: rows `LOCUS  NAME  KIND  ENTRY` with
       column widths as upstream (`{locus:<w0}  {name:<w1}  {kind:<w2}  {entry}`),
       `-c`, `--by-theory` (`N unread local names across K theories:` then
       `  %4d  thy`), empty → `No unread local names found.`; `--keep` names.
-- [ ] Fixture: `tests/test_unused_locals.py` (16 tests, the nine hand-read
+- [x] Fixture: `tests/test_unused_locals.py` (16 tests, the nine hand-read
       rows first). Port to the cli suite; the walks-agree test needs S2's
       `proof_close_line` — if S2 has not landed, port it as a test that
       compares `proof_end` to the oracle's value on the fixture and leave a
       note for the merge.
-- [ ] Gate: `unused --locals` on all seven corpora byte-equal to the oracle
+- [x] Gate: `unused --locals` on all seven corpora byte-equal to the oracle
       (`-c`, default, `--by-theory`, a window, an entry, an unknown entry,
       `-r` refusal, plain `unused PATH` refusal) — these become S7's matrix
       cases, so write them as `c` lines for `dev/difftest.sh` now.
@@ -224,73 +225,73 @@ module `proof_locals.scala` (474 Python lines) between `usage_graph` and
 
 Worktree `p14/s4-sites`. Upstream commits `34eaaca`, `9a93f83`, `115a9a8`.
 
-- [ ] `[midline-interpret]` — `interpret` is also searched mid-line on the
+- [x] `[midline-interpret]` — `interpret` is also searched mid-line on the
       outer view, at a word boundary with the lookbehind that keeps
       `M.interpret` / `interpret_foo` out; the header of a mid-line command is
       read with the line's prefix BLANKED, not cut. Theory-level commands stay
       line-start only.
-- [ ] `[code-heads]` — `head_identifiers`: the first token of the lhs, a
+- [x] `[code-heads]` — `head_identifiers`: the first token of the lhs, a
       qualified name read whole and matched with `denotes`; the after-`(`
       rule only for `[code abstract]`; any top-level operator symbol in the
       lhs (`xs @ ys`, `A - set xs`, `set xs \<union> A`) → no head.
       `LETTER_SYMS` (now `Entries.LETTER_SYMS`, S2) decides that `\<alpha>`
       is an argument, not an operator.
-- [ ] `[code-clauses]` — each `[code…]` attribute reads only its own
+- [x] `[code-clauses]` — each `[code…]` attribute reads only its own
       statement; clause boundaries `and NAME [attrs]:` on the outer view,
       only past the last `shows`; a later statement's row carries its own
       name and line.
-- [ ] Fixtures: `tests/test_sites_instances.py` (53) and
+- [x] Fixtures: `tests/test_sites_instances.py` (53) and
       `tests/test_sites_codeqs.py` (44) — port to the cli suite; also
       `tests/test_bound_name_reach.py` (10) to the graph suite, since it is
       the same PR. Re-run `dev/p6bprobe.sh` (its hand-computed fixtures must
       still hold; where a fixture encoded the old head rule, upstream's
       commit message is the evidence for changing it).
-- [ ] Gate: the S7 matrix cases for `instances`/`codeqs` (write them now as
+- [x] Gate: the S7 matrix cases for `instances`/`codeqs` (write them now as
       `c` lines: default, `-c`, `--names`, `--sorts`, `-r`, `-r -c`, an
       unknown subject, a bound-name subject, a non-locale subject) byte-equal
       to the oracle on the seven corpora.
 
 ### S5 — land the four branches on `main`
 
-- [ ] Merge in the order S2, S1, S4, S3 (S2 carries the `LETTER_SYMS` move
+- [x] Merge in the order S2, S1, S4, S3 (S2 carries the `LETTER_SYMS` move
       the other two need; S3 has the widest `cli.scala` footprint and goes
       last). Resolve `cli.scala` / `entries.scala` overlaps by hand; rebuild;
       `make test-scala`.
-- [ ] Full `dev/difftest.sh` and `dev/entrydiff.sh`; every remaining red case
+- [x] Full `dev/difftest.sh` and `dev/entrydiff.sh`; every remaining red case
       named to S7 or pinned to a `dev/DIVERGENCES.md` entry with evidence.
 
 ### S6 — the plugin and the server see the new verbs
 
-- [ ] `jedit_query`: nothing in the plugin drives `unused`, but its
+- [x] `jedit_query`: nothing in the plugin drives `unused`, but its
       `Query_Index` and the server's `Server.Commands` route by verb name —
       confirm `unused --locals` and `grep -i` pass through `CLI.run_result`
       unchanged (they should: one dispatch path). `dev/p7probe.sh` over the
       socket for `unused --locals -c` and `grep -i`.
-- [ ] `query_client.py`'s `COLD_ONLY_COMMANDS` untouched (nothing new needs
+- [x] `query_client.py`'s `COLD_ONLY_COMMANDS` untouched (nothing new needs
       the cold path).
 
 ### S7 — the matrix, the pins, the divergence list, the compat baseline
 
-- [ ] `dev/difftest.sh`: new `c` lines for `instances` (9 forms), `codeqs`
+- [x] `dev/difftest.sh`: new `c` lines for `instances` (9 forms), `codeqs`
       (7), `unused --locals` (8), `grep -i` (2), `find -i` (1), `unused PATH`
       (exit-2 contract). Corpus-specific subject names via the existing
       `$NAME1`-style variables; every new case must be non-vacuous on at
       least one corpus (the count of 2,149 moves; record the new total).
-- [ ] `tests/scala/coverage/matrix.json` rows for the new invocation IDs.
-- [ ] `dev/DIVERGENCES.md`: D14 moves to the resolved-upstream preamble
+- [x] `tests/scala/coverage/matrix.json` rows for the new invocation IDs.
+- [x] `dev/DIVERGENCES.md`: D14 moves to the resolved-upstream preamble
       (0.9.1 adopted it); the `instances`/`codeqs` "no oracle" wording
       everywhere (CLAUDE.md, README, CONTRIBUTING, `p6bprobe.sh` header)
       goes; a new entry for anything S5 left red, with evidence.
-- [ ] `dev/difftest-pins`: no new pins without an entry; stale pins deleted.
-- [ ] `tests/scala/upstream-tests.json`: `upstream_version` 0.9.2 and the
+- [x] `dev/difftest-pins`: no new pins without an entry; stale pins deleted.
+- [x] `tests/scala/upstream-tests.json`: `upstream_version` 0.9.2 and the
       new `python_tree_id` (`dev/check-upstream-compat.py`'s `source_tree`);
       1,396 IDs; each `coverage/<suite>.json` exhaustive.
-- [ ] `make compat` (the forced full comparison) stamps
+- [x] `make compat` (the forced full comparison) stamps
       `dev/upstream-compat-baseline.json` for 0.9.2. Only after S5 is green.
 
 ### S8 — docs, version, status
 
-- [ ] Fold upstream's user-facing material from `.dev/p14/upstream-docs.diff`
+- [x] Fold upstream's user-facing material from `.dev/p14/upstream-docs.diff`
       (`git diff v0.8.1 v0.9.2 -- README.md SCANNING.md CONTRIBUTING.md`)
       into OUR docs: README (`unused --locals` and the site-verb sections,
       `-i`, the site verbs' exit contract, the 22-verb line already true);
@@ -301,11 +302,11 @@ Worktree `p14/s4-sites`. Upstream commits `34eaaca`, `9a93f83`, `115a9a8`.
       discipline); MIGRATING (what 0.9.x brought, `-V` now
       `0.9.2-scala.0.3`); CLAUDE.md release status and the sentence saying the
       site verbs have no oracle; `demo/DEMO.md` version line; `PLAN.md`.
-- [ ] `dev/P14-STATUS.md`: the closing measurements (matrix, entrydiff,
+- [x] `dev/P14-STATUS.md`: the closing measurements (matrix, entrydiff,
       scala-tests, probes), what moved in `shape` numbers on the gate corpora
       (upstream's own figures: `[cite-direction]` +15.9% fanin over 40 AFP
       entries, `[decl-commands]` +0.44% steps, `[body-end-text]` +1.65%
       steps), and what is left open.
-- [ ] `todo.md`: nothing new opens unless a step leaves something.
-- [ ] Memory: `p14-upstream-sync` (method, decisions, what is open); the
+- [x] `todo.md`: nothing new opens unless a step leaves something.
+- [x] Memory: `p14-upstream-sync` (method, decisions, what is open); the
       `upstream-pr-branch` memory becomes DONE (PR #11 merged as 0.9.1).
