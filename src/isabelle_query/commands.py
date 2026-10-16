@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from isabelle_query.model import (
     _BINDING_KINDS,
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
+    label_chain,
 )
 from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern
 from isabelle_query.graph import (
@@ -39,6 +41,7 @@ from isabelle_query.graph import (
     _build_call_graph,
     _build_def_sites,
     _build_line_index,
+    _declarations_by_name,
     _entry_at_line,
     _entry_by_name,
     _import_depths,
@@ -74,6 +77,30 @@ from isabelle_query.render import (
 # because those are the distinctions a caller has to make.  Documented in
 # `README.md`'s exit-status table.
 EXIT_UNRESOLVED = 1
+
+
+# The last call graph built, for the subject loop [graph-once].  `callers -r A
+# B C`, `callees A B C` and `refs A B C` each built the whole graph once per
+# SUBJECT -- 1.18 s each on a 10-session development, against milliseconds
+# for the walk over it.  One slot is enough: a run loads one section list.
+# The list itself is held, not its id(), so a freed list's id cannot be
+# reused by another and hit.
+_GRAPH_MEMO: list = []
+
+
+def _call_graph(sections: list[TheorySection], flags: 'CmdFlags',
+                derived: bool = False) -> CallGraph:
+    """`_build_call_graph` for this run's sections and flags, built once.
+
+    Safe to share because no command mutates a graph; every consumer reads
+    `callers` / `callees` / `all_names` and walks into a fresh dict."""
+    key = (flags.drop_names_upto, derived, flags.reach)
+    if _GRAPH_MEMO and _GRAPH_MEMO[0] is sections and _GRAPH_MEMO[1] == key:
+        return _GRAPH_MEMO[2]
+    g = _build_call_graph(sections, flags.drop_names_upto, derived=derived,
+                          reach=flags.reach)
+    _GRAPH_MEMO[:] = [sections, key, g]
+    return g
 
 
 def _fail_subject(what: str) -> None:
@@ -272,14 +299,13 @@ def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection |
         # A label that looks paste-able and lands on a DIFFERENT theory is a
         # worse answer than a bare ambiguous name, which at least reads as
         # ambiguous.  Only a unique hit counts; anything else falls through.
-        # Matched against the directory chain plus the declared theory NAME —
-        # the exact tuple `render.theory_labels` builds the label out of, so
-        # the two cannot drift.  (On disk the name is the stem, since Isabelle
-        # requires it; a buffer-parsed section is where they part company.)
+        # Matched against `label_chain` — the exact tuple `theory_labels`
+        # builds the label out of, so the two cannot drift [label-depth].
+        # (On disk the name is the stem, since Isabelle requires it; a
+        # buffer-parsed section is where they part company.)
         want = tuple(Path(name).with_suffix("").parts)
         hits = [s for s in sections
-                if (s.path.resolve().parent.parts
-                    + (s.theory,))[-len(want):] == want]
+                if label_chain(s)[-len(want):] == want]
         if len(hits) == 1:
             return hits[0]
         # Path that doesn't match a known section: fall back to its
@@ -557,6 +583,9 @@ def _find_in_comments(sections: list[TheorySection], pat: re.Pattern,
 def cmd_show(sections: list[TheorySection], name: str,
              flags: "CmdFlags") -> None:
     by_theory = _sections_by_theory(sections)
+    # A note, not an answer: under `--names` / `--count` it would be read as a
+    # name or break the number, so there it goes to stderr.
+    note = sys.stderr if flags.mode in ("names", "count") else None
     matches: list[Entry] = []
     for s in sections:
         for e in s.entries:
@@ -580,13 +609,19 @@ def cmd_show(sections: list[TheorySection], name: str,
                         how = _BINDING_KINDS[kind]
         if matches:
             parents = ", ".join(sorted({e.name for e in matches}))
-            print(f"# '{name}' is {how} {parents}:")
+            print(f"# '{name}' is {how} {parents}:", file=note)
     if not matches:
-        # Substring fallback
+        # Substring fallback.  Said so up front [show-near-names]: a near name
+        # rendered under a header of its own reads as the answer, and `show
+        # table_tape_len` printed `dth_descriptor_table_tape_length` as if it
+        # were (issue #16).
         for s in sections:
             for e in s.entries:
                 if name.lower() in e.name.lower():
                     matches.append(e)
+        if matches:
+            print(f"# no entry named '{name}'; {len(matches)} whose name "
+                  f"contains it:", file=note)
     # On `show`, `--statement` is the render selector: declaration only.
     _emit_matches(by_theory, matches, name, flags, statement=flags.statement)
 
@@ -731,8 +766,7 @@ def cmd_refs(sections: list[TheorySection], theory: str,
         _fail_subject(f"no theory '{theory}'")
         return
 
-    graph_ = _build_call_graph(sections, flags.drop_names_upto,
-                               reach=flags.reach)
+    graph_ = _call_graph(sections, flags)
     by_theory = _sections_by_theory(sections)
     own = target.theory
     closure = _import_depths(own, by_theory)
@@ -960,11 +994,72 @@ def _find_callers(sections: list[TheorySection], name: str,
     return results
 
 
+Declarations = list[tuple[TheorySection, Entry]]
+
+
+def _first_wins(sections: list[TheorySection]
+                ) -> Callable[[str], Declarations]:
+    """Each name's first declaration in load order, as a resolver."""
+    decls = _declarations_by_name(sections)
+    return lambda n: decls.get(n, [])[:1]
+
+
+def _seen_from(sections: list[TheorySection], seed: str,
+               reach: str) -> Callable[[str], Declarations]:
+    """Each name's declarations that ``seed``'s theory can see, nearest
+    first [callee-attribution].
+
+    The call graph is keyed by name, so an edge says only that SOME
+    declaration of the callee is visible; this says which.  It holds at every
+    depth of `callees -r` too: an import closure is transitive, so whatever a
+    callee's theory can see, the seed's theory can see as well.
+    """
+    decls = _declarations_by_name(sections)
+    # Memoised: a seed declared in several theories alternates between them.
+    vis = _graph._Visibility(sections, reach, memo_closures=True)
+    home = {sec.theory for sec, _e in decls.get(seed, ())}
+    return lambda n: vis.visible(decls.get(n, []), home)
+
+
+def _seeing(sections: list[TheorySection], seed: str,
+            reach: str) -> Callable[[str], Declarations]:
+    """Each name's declarations whose theory can see some declaration of
+    ``seed`` — the `callers -r` direction of :func:`_seen_from`
+    [callee-attribution].
+
+    Necessary, not sufficient: a caller at any depth cites its way down to
+    the seed, so its theory's closure holds one of the seed's.  A declaration
+    that fails it cannot be the caller, and dropping it is all this does.
+    Every declaration under ``reach="name"``, or when a closure cannot be
+    read, or when none passes — the rule may only drop where it is confident.
+    """
+    decls = _declarations_by_name(sections)
+    vis = _graph._Visibility(sections, reach, memo_closures=True)
+    targets = {sec.theory for sec, _e in decls.get(seed, ())}
+
+    def resolve(n: str) -> Declarations:
+        ds = decls.get(n, [])
+        if reach != "closure" or len(ds) < 2:
+            return ds
+        kept = []
+        for sec, e in ds:
+            depths = vis.depths(sec.theory)
+            if depths is None:
+                return ds
+            if not targets.isdisjoint(depths):
+                kept.append((sec, e))
+        return kept or ds
+    return resolve
+
+
 def _render_graph_results(sections: list[TheorySection],
                           reachable: dict[str, int],
                           label: str, seed: str,
-                          flags: 'CmdFlags') -> None:
-    """Shared rendering for callers -r and uses -r."""
+                          flags: 'CmdFlags',
+                          resolve: Callable[[str], Declarations] | None = None,
+                          ) -> None:
+    """Shared rendering for callers -r and uses -r.  ``resolve`` names the
+    declarations a row stands for; one row is printed per declaration."""
     if flags.mode == "count":
         print(len(reachable))
         return
@@ -972,26 +1067,28 @@ def _render_graph_results(sections: list[TheorySection],
         print(f"No {label}s found for '{seed}'.")
         return
 
-    # Build name → (theory, Entry) lookup for rendering.
-    by_name = _entry_by_name(sections)
+    resolve = resolve or _first_wins(sections)
+    labels = locus_labels(sections)
 
     if flags.mode == "names":
         for name in sorted(reachable):
-            if name in by_name:
-                thy, e = by_name[name]
-                print(f"  {name} ({e.tag}) — {thy}")
-            else:
-                print(f"  {name}")
+            for sec, e in resolve(name) or [(None, None)]:
+                if e is None:
+                    print(f"  {name}")
+                else:
+                    thy = labels.get(sec.path, sec.theory)
+                    print(f"  {name} ({e.tag}) — {thy}")
         return
 
     print(f"{len(reachable)} transitive {label}(s) of {seed}:\n")
     for name, depth in sorted(reachable.items(), key=lambda x: (x[1], x[0])):
         indent = "  " * (depth + 1)
-        if name in by_name:
-            thy, e = by_name[name]
-            print(f"{indent}{name} ({e.tag}) — {thy} [L{e.thy_line}]")
-        else:
-            print(f"{indent}{name}")
+        for sec, e in resolve(name) or [(None, None)]:
+            if e is None:
+                print(f"{indent}{name}")
+            else:
+                thy = labels.get(sec.path, sec.theory)
+                print(f"{indent}{name} ({e.tag}) — {thy} [L{e.thy_line}]")
 
 
 def _enclosing_entry(sec: TheorySection, line_no: int) -> Entry | None:
@@ -1447,37 +1544,119 @@ def cmd_codeqs(sections: list[TheorySection], name: str,
     _emit_sites(sections, rows, name, "code equation", flags)
 
 
+def _callers_tsv(sections: list[TheorySection], subject: str,
+                 flags: 'CmdFlags', rows: list,
+                 resolve: Callable[[str], Declarations] | None = None,
+                 ) -> None:
+    """`callers -f tsv`: one row per caller, each naming its subject [callers-tsv].
+
+    Columns: subject, caller, tag, theory, session, depth, locus.  No header,
+    so several subjects concatenate into one table.  Issue #14: the block
+    output names its subject only when there are no callers, so a script had
+    to attribute blocks by position, and recovered each caller's SESSION by
+    globbing theory files -- a fact query already holds.
+
+    ``rows`` is ``(caller, depth, site)``: ``site`` is ``(section, line,
+    enclosing entry)`` for a located hit (plain `callers`, depth 1), or None
+    for a closure member
+    (`-r`), which is located at its declaration.  The theory is the locus
+    label, qualified only as far as it must be, so the locus pastes back into
+    `enclosing` like every other locus query prints.
+
+    A citation no entry owns is tagged TOPLEVEL and named `THEORY:<toplevel>`
+    in both modes, with its theory and session filled (issue #15).  Plain mode
+    passes its caller as None and the name is minted here; `-r` passes the
+    graph's node, located by :func:`_toplevel_site`.
+
+    A closure member is resolved to its declarations by ``resolve``
+    (:func:`_seeing`), one row each, so a name declared twice is not placed
+    in a theory that cannot reach the subject [callee-attribution]."""
+    if flags.mode == "count":
+        print(f"{subject}\t{len(rows)}")
+        return
+    labels = locus_labels(sections)
+    resolve = resolve or _first_wins(sections)
+    for caller, depth, site in rows:
+        if site is not None:
+            sec, line, encl = site
+            located = [(sec, line, encl.tag if encl else "TOPLEVEL")]
+        else:
+            located = [(sec, e.thy_line, e.tag) for sec, e in resolve(caller)]
+        if not located:
+            print(f"{subject}\t{caller}\t\t\t\t{depth}\t")
+            continue
+        for sec, line, tag in located:
+            thy = labels.get(sec.path, sec.theory)
+            who = caller if caller is not None else f"{thy}:<toplevel>"
+            print(f"{subject}\t{who}\t{tag}\t{thy}\t{sec.session or ''}\t"
+                  f"{depth}\t{thy}:{line}")
+
+
+def _toplevel_site(graph: CallGraph, depths: dict[str, int], node: str,
+                   depth: int):
+    """Where a `<toplevel>` closure member cites its way in, or None for an
+    entry (located at its declaration instead).
+
+    A synthetic caller has no declaration line.  Its locus is its first
+    citation of a name one step nearer the subject -- the edge that put it in
+    the closure at this depth -- so the row points at the line responsible."""
+    site = graph.toplevel.get(node)
+    if site is None:
+        return None
+    sec, first = site
+    line = min(ln for m, ln in first.items() if depths.get(m) == depth - 1)
+    return (sec, line, None)
+
+
 def cmd_callers(sections: list[TheorySection], name: str,
                 flags: 'CmdFlags') -> None:
     """Print proof-body usages of a lemma/definition."""
+    tsv = flags.fmt == "tsv"
+    subject = name               # as typed: what a TSV row is attributed to
     if flags.recursive:
-        graph = _build_call_graph(sections, flags.drop_names_upto,
-                                  reach=flags.reach)
+        graph = _call_graph(sections, flags)
         if name not in graph.all_names:
             bound = _resolve_binding(sections, name)
             if bound is not None:
                 parent, how = bound
+                # A note, not an answer: in a table it would be a malformed
+                # row, so there it goes to stderr.
                 print(f"# '{name}' is {how} {parent}; "
                       f"recursive caller closure operates at the {parent} "
-                      f"(entry) level.")
+                      f"(entry) level.", file=sys.stderr if tsv else None)
                 name = parent
             else:
                 _fail_subject(f"'{name}' is not in the entry index")
                 return
         reachable = _bfs_depths(lambda n: graph.callers.get(n, set()), {name})
+        resolve = _seeing(sections, name, flags.reach)
+        if tsv:
+            rows = [(n, d, _toplevel_site(graph, reachable, n, d))
+                    for n, d in sorted(reachable.items(),
+                                       key=lambda x: (x[1], x[0]))
+                    if n != name]
+            _callers_tsv(sections, subject, flags, rows, resolve)
+            return
         reachable.pop(name, None)
-        _render_graph_results(sections, reachable, "caller", name, flags)
+        _render_graph_results(sections, reachable, "caller", name, flags,
+                              resolve)
         return
 
     hits = _find_callers(sections, name, external=flags.external,
                          reach=flags.reach)
+    if tsv:
+        rows = []
+        for sec, line_no, _text in hits:
+            encl = _enclosing_entry(sec, line_no)
+            rows.append((encl.name if encl else None, 1, (sec, line_no, encl)))
+        _callers_tsv(sections, subject, flags, rows)
+        return
     if flags.mode == "count":
         print(len(hits))
         return
     if not hits:
         print(f"No callers found for '{name}'.")
         return
-    n_after = max(0, flags.context)
     # Align the match loci into a column; each is a clean `theory:line` that
     # pastes into `enclosing` / `lines` / an editor (no trailing marker) — and
     # is qualified far enough to name one theory, so what pastes back is the
@@ -1485,7 +1664,45 @@ def cmd_callers(sections: list[TheorySection], name: str,
     labels = locus_labels(sections)
     loci = [f"{labels.get(s.path, s.theory)}:{ln}" for s, ln, _ in hits]
     loc_w = max((len(loc) for loc in loci), default=0)
-    print(f"{len(hits)} caller(s) of {name}:\n")
+    decls = [(sec, e) for sec in sections for e in sec.entries
+             if e.name == name or name in e.bound_names]
+    if len(decls) < 2:
+        print(f"{len(hits)} caller(s) of {name}:\n")
+        _print_caller_rows(hits, loci, loc_w, flags)
+        return
+    # Declared more than once: group the sites by the declarations each can
+    # see, so two unrelated `sim_tape`s are not one list [callee-attribution].
+    vis = _graph._Visibility(sections, flags.reach, bound_names=True)
+    index = {id(e): i for i, (_s, e) in enumerate(decls)}
+    groups: dict[tuple[int, ...], list[int]] = {}
+    for k, (sec, _ln, _t) in enumerate(hits):
+        seen = vis.visible(decls, [sec.theory])
+        groups.setdefault(tuple(sorted(index[id(e)] for _s, e in seen)),
+                          []).append(k)
+
+    def decl(i: int) -> str:
+        sec, e = decls[i]
+        return f"({e.tag}) — {labels.get(sec.path, sec.theory)} [L{e.thy_line}]"
+
+    print(f"{len(hits)} caller(s) of {name}, "
+          f"which has {len(decls)} declarations:")
+    for key in sorted(groups, key=lambda g: (len(g), g)):
+        ks = groups[key]
+        # A corpus name can be in reach many times over (`mono`, 40+), so
+        # the list is capped; the rows below still say where each site is.
+        shown = "; ".join(decl(i) for i in key[:3])
+        more = f"; +{len(key) - 3} more" if len(key) > 3 else ""
+        which = (f"{name} {decl(key[0])}" if len(key) == 1 else
+                 f"{name}, any of {len(key)}: {shown}{more}")
+        print(f"\n{which}: {len(ks)} caller(s)\n")
+        _print_caller_rows([hits[k] for k in ks], [loci[k] for k in ks],
+                           loc_w, flags)
+
+
+def _print_caller_rows(hits: list, loci: list[str], loc_w: int,
+                       flags: 'CmdFlags') -> None:
+    """The located rows of `callers`, each with its owner and ``-A`` context."""
+    n_after = max(0, flags.context)
     for (sec, line_no, text), loc in zip(hits, loci):
         encl = _enclosing_entry(sec, line_no)
         print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
@@ -1506,8 +1723,7 @@ def cmd_callees(sections: list[TheorySection], name: str,
     """Entry-level forward edge: the entries this entry references in
     its proof body (its callees).  Pairs with `cmd_callers` (reverse).
     Not to be confused with the theory-level `deps` / `uses` pair."""
-    graph = _build_call_graph(sections, flags.drop_names_upto,
-                              reach=flags.reach)
+    graph = _call_graph(sections, flags)
     if name not in graph.all_names:
         bound = _resolve_binding(sections, name)
         if bound is not None:
@@ -1519,10 +1735,12 @@ def cmd_callees(sections: list[TheorySection], name: str,
             _fail_subject(f"'{name}' is not in the entry index")
             return
 
+    resolve = _seen_from(sections, name, flags.reach)
     if flags.recursive:
         reachable = _bfs_depths(lambda n: graph.callees.get(n, set()), {name})
         reachable.pop(name, None)
-        _render_graph_results(sections, reachable, "dependency", name, flags)
+        _render_graph_results(sections, reachable, "dependency", name, flags,
+                              resolve)
         return
 
     by_name = _entry_by_name(sections)
@@ -1531,9 +1749,10 @@ def cmd_callees(sections: list[TheorySection], name: str,
     if flags.external:
         # Mirror of `callers --external`: drop callees defined in NAME's
         # own theory, leaving only its cross-theory dependencies.
+        # A callee is local when a declaration it resolves to is.
         own_theory = by_name.get(name, (None,))[0]
         used = {u for u in used
-                if by_name.get(u, (None,))[0] != own_theory}
+                if all(sec.theory != own_theory for sec, _e in resolve(u))}
     if flags.mode == "count":
         print(len(used))
         return
@@ -1543,12 +1762,16 @@ def cmd_callees(sections: list[TheorySection], name: str,
         return
 
     print(f"{len(used)} callee(s) of {name}:\n")
+    labels = locus_labels(sections)
     for uname in sorted(used):
-        if uname in by_name:
-            thy, e = by_name[uname]
-            print(f"  {uname} ({e.tag}) — {thy} [L{e.thy_line}]")
-        else:
-            print(f"  {uname}")
+        # One row per declaration the citing theory can see: a name declared
+        # twice is attributed to the one in reach, never by load order.
+        for sec, e in resolve(uname) or [(None, None)]:
+            if e is None:
+                print(f"  {uname}")
+            else:
+                thy = labels.get(sec.path, sec.theory)
+                print(f"  {uname} ({e.tag}) — {thy} [L{e.thy_line}]")
 
 
 def cmd_methods(sections: list[TheorySection], name: str | None,
@@ -1846,8 +2069,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     # is a question about the DECLARATION: deleting `definition foo` breaks every
     # proof citing `foo_def`, so such a proof keeps `foo` alive.  Asking the
     # fact-level question here would report live definitions as dead.
-    graph = _build_call_graph(sections, flags.drop_names_upto, derived=True,
-                              reach=flags.reach)
+    graph = _call_graph(sections, flags, derived=True)
 
     keep = set(flags.keep)
     if keep:
@@ -2211,7 +2433,7 @@ def _dot_quote(s: str) -> str:
 def _citation_graph_data(sections: list[TheorySection],
                          flags: "CmdFlags") -> dict:
     """Nodes = indexed entries; edges = caller -> callee."""
-    g = _build_call_graph(sections, flags.drop_names_upto, reach=flags.reach)
+    g = _call_graph(sections, flags)
     by_name = _entry_by_name(sections)
     nodes = [{"name": n, "theory": by_name[n][0], "tag": by_name[n][1].tag,
               "line": by_name[n][1].thy_line}

@@ -10,11 +10,11 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
 - [ ] `[decl-commands]` Three fact-declaring commands are **not declarations**,
       so `query` cannot see them and — worse — they do not bound the previous
       entry either, so the lemma above them swallows their proof.  `DECL_RE`
-      now lists `lemma|corollary|proposition|theorem` and stops.
+      now lists `lemmas|lemma|corollary|proposition|theorem` and stops.
       Measured over **11,604 theories** (the whole AFP + HOL/FOL/ZF) by
       `scripts/probe_missing_decl_commands.py`, command position only:
 
-          lemmas           14,133      proposition      SHIPPED (v0.9.0)
+          lemmas           SHIPPED     proposition      SHIPPED (v0.9.0)
           named_theorems      696      schematic_goal     810
           private lemma     1,193      qualified lemma    345   (+~1,000 modified)
 
@@ -35,11 +35,15 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
       of proof text for `proposition`+`schematic_goal` and the realised census
       move was **+0.44% `n_steps`**, so the probe's estimate is worth trusting
       for `schematic_goal`'s remaining 0.18% rather than re-deriving.
+      **`lemmas` / `theorems` shipped as `LEMMAS` entries** (issue #16) —
+      `git log --grep='\[lemmas-entries\]'`; 10,608 AFP entries.  `lemmas` had
+      already bounded the entry above it, as one of `_SPAN_BOUNDARY_COMMANDS`.
       `private` / `qualified` are a different shape: namespace MODIFIERS that
       may precede any declaration, so the fix is a prefix skip, not four more
-      table rows.  `lemmas` / `named_theorems` declare a citable fact with no
-      proof (they touch `find` / `show` / `callers`, not `shape`);
-      `schematic_goal` has one.  Worth splitting if they do not share a change.
+      table rows.  `named_theorems` declares a citable fact with no proof and
+      no right-hand side (it touches `find` / `show` / `callers`, not
+      `shape`); `schematic_goal` has a proof.  Worth splitting if they do not
+      share a change.
 
 - [ ] `[proof-bearing-commands]` **(scope call, not a defect.)**  A command that
       proves something but declares no fact — `instance`, `sublocale`,
@@ -150,6 +154,18 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
       real fix reports an unexpected success rather than going unnoticed.
       Low priority at 5 records: filed so the rejection is not re-litigated.
 
+- [ ] `[decl-identity]` The citation graph is keyed by NAME, so the verbs
+      that print ONE declaration per node still pick it first-wins in load
+      order: `graph citation`'s node table and `codeqs`'s `sec_by_name`.
+      `[callee-attribution]` (issue #18) fixed the rows of `callees`,
+      `callers -r` and `callers NAME` by asking visibility again at render
+      time; those two cannot, since a node there is one record.  Over the AFP,
+      66% of edges into a name declared in several theories were rendered at a
+      declaration the citer could not see (`scripts/probe_callee_attribution.py`).
+      The real fix is declaration-keyed nodes, which moves every graph verb.
+      Related and separate: the index has one namespace, so `datatype t` and
+      `definition t` collide (NDTHT's `sim_tape`: 13 `Diagonal_Arms` sites are
+      "any of 2", though Isabelle reads each as the type, unambiguously).
 - [ ] `[feature-audit]` Standing critical pass over each subcommand:
       output formats, defaults, and past design choices.  Re-benchmark
       against AWS AutoCorrode's `iq` tool

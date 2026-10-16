@@ -44,7 +44,7 @@ from isabelle_query.model import Entry, TheorySection, blank_all
 # It stays a whole-word test (`definitions`/`inductively` do not match), and
 # being zero-width it leaves the `line[len(keyword):]` slicing untouched.
 DECL_RE = re.compile(
-    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\s|$)"
+    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemmas|theorems|lemma|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\s|$)"
 )
 
 TAG_MAP = {
@@ -60,6 +60,11 @@ TAG_MAP = {
     # (`summary`'s two counts) and has no counterpart in Isabelle.
     "lemma": "LEMMA", "corollary": "LEMMA", "proposition": "LEMMA",
     "theorem": "THEOREM",
+    # `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
+    # no statement and no proof, but a citable fact all the same, and the
+    # names on its right-hand side are what it cites.  `theorems` is the same
+    # command under another display string (Pure.thy declares both).
+    "lemmas": "LEMMAS", "theorems": "LEMMAS",
     "axiomatization": "AXIOM",
     "datatype": "DATATYPE", "type_synonym": "TYPE", "record": "RECORD",
     # A locale/class DECLARES a name — `find hpk` found nothing, and its
@@ -125,6 +130,8 @@ def _route_for(keyword: str, tag: str) -> str:
         return "typedecl"
     if tag in ("LEMMA", "THEOREM"):
         return "goal"
+    if tag == "LEMMAS":
+        return "facts"
     return "def"  # DEF, ABBREV, FUN, INDSET, IND, and custom thy_decl/thy_defn
 
 PROOF_RE = re.compile(
@@ -478,16 +485,26 @@ def _entries_by_line(
     return pairs, [line for line, _ in pairs]
 
 
-# `and` at outer-syntax position, separating two items of one `axiomatization`.
-# Only ever applied to the OUTER view, so the `and` inside a proposition — or
-# the `\<and>` connective, whose letters this would otherwise match — is already
+# What follows an item of one `axiomatization` at outer-syntax position: `and`
+# before the next item, or the `if` / `for` tail that ends the names.  Only
+# ever applied to the OUTER view, so the `and` inside a proposition — or the
+# `\<and>` connective, whose letters this would otherwise match — is already
 # blanked.
-_AXIOM_AND_RE = re.compile(r"(?<![\w'])and(?![\w'])")
+_AXIOM_SEP_RE = re.compile(r"(?<![\w'])(and|for|if)(?![\w'])")
+# Where an axiomatization stops declaring names [axiom-for].  Isabelle's
+# grammar is `vars? (where (thm_name: prop) and ... if_assumes? for_fixes?)?`
+# (Pure.thy, `val axiomatization`): `if` introduces premises and `for` the
+# variables fixed for the axioms, and nothing after either is a constant or a
+# label — `for F :: T` read as a label `F`.
+_AXIOM_CLOSERS = frozenset({"for", "if"})
 
 
-def _axiom_line(text: str) -> tuple[list[str], bool]:
-    """Read one `axiomatization` line: the names it declares, and whether it
-    opened with a continuation keyword.
+def _axiom_line(text: str, closed: bool = False
+                ) -> tuple[list[str], bool, bool]:
+    """Read one `axiomatization` line: the names it declares, whether it
+    opened with a continuation keyword, and whether the command has reached
+    its `if` / `for` tail, after which it declares nothing (``closed``, passed
+    in for the lines that follow).
 
     *Names*, plural, because `and` separates items **within** a line as
     readily as it ends one:
@@ -515,20 +532,26 @@ def _axiom_line(text: str) -> tuple[list[str], bool]:
     stripped = text.strip()
     cont = bool(_STATEMENT_CONT_RE.match(stripped))
     names: list[str] = []
-    while stripped:
+    while stripped and not closed:
         kw = _STATEMENT_CONT_RE.match(stripped)
         if kw:                       # `where` / `and` / ... introducing an item
+            if kw.group(0).strip() in _AXIOM_CLOSERS:
+                closed = True
+                break
             stripped = stripped[kw.end():].lstrip()
             continue
         m = _AXIOM_NAME_RE.match(stripped)
         if not m:
             break
         names.append(m.group(1))
-        nxt = _AXIOM_AND_RE.search(stripped, m.end())
+        nxt = _AXIOM_SEP_RE.search(stripped, m.end())
         if not nxt:                  # nothing further on this line
             break
+        if nxt.group(1) in _AXIOM_CLOSERS:
+            closed = True
+            break
         stripped = stripped[nxt.end():].lstrip()
-    return names, cont
+    return names, cont, closed
 
 
 def _constructors(outer: list[str], start: int, end: int,
@@ -799,6 +822,63 @@ def _and_siblings(outer: list[str], start: int, end: int, own: str,
         name = m.group(1) or m.group(2)
         if name != own and name not in found:
             found.append(name)
+    return found
+
+
+# `lemmas` / `theorems` [lemmas-entries].  Isabelle's grammar is
+#
+#     lemmas (in TARGET)? (thmdef? thms) and ... for_fixes?
+#     thmdef = NAME [attrs]? =
+#
+# so a group binds a name only when it opens `NAME =` or `NAME [attrs] =`; a
+# group without one (`lemmas [simp] = foo`, `lemmas foo [simp]`) declares an
+# attribute and binds nothing.  Over 11,604 theories (`probe_lemmas_forms.py`)
+# 11,889 commands bind one name, 2,964 none, and about 50 several.
+_THMDEF_RE = re.compile(rf"\s*({_ISA_NAME})\s*(?:\[[^\]]*\]\s*)?=(?!=)")
+_THMS_TOKEN_RE = re.compile(r"[\[\]()]|(?<![\w'])and(?![\w'])")
+_IN_TARGET_PREFIX_RE = re.compile(r"\s*\(\s*in\s+[^)]*\)")
+
+
+def _thmdefs(outer: list[str], start: int, end: int,
+             col: int) -> list[tuple[str, int, int]]:
+    """`(name, first line, last line)` for each named group of the `lemmas`
+    command on lines `start..end`, whose keyword ends at column `col` of line
+    `start`.
+
+    Read on the outer view, so an `and` or `=` inside a term (`[of "a = b"]`)
+    is blanked and cannot split a group.  A group's lines run from its own
+    `and` (the command line, for the first) to the line before the next
+    group's, or to `end`.
+    """
+    text = "\n".join(outer[start - 1:end])
+    m = _IN_TARGET_PREFIX_RE.match(text, col)
+    pos = m.end() if m else col
+    starts, depth = [pos], 0
+    for t in _THMS_TOKEN_RE.finditer(text, pos):
+        tok = t.group()
+        if tok in "[(":
+            depth += 1
+        elif tok in "])":
+            depth -= 1
+        elif depth == 0:
+            starts.append(t.end())
+
+    def line_of(k: int) -> int:
+        return start + text.count("\n", 0, k)
+
+    # A later group starts on the line of its own first token, so in
+    # `four = base and` / `five = other` the first line is `four`'s alone; the
+    # first group starts on the command line.
+    firsts = [start] + [line_of(len(text) - len(text[k:].lstrip()))
+                        for k in starts[1:]]
+    found: list[tuple[str, int, int]] = []
+    for g, k in enumerate(starts):
+        m = _THMDEF_RE.match(text, k)
+        if not m:
+            continue
+        last = (max(firsts[g], firsts[g + 1] - 1) if g + 1 < len(starts)
+                else end)
+        found.append((m.group(1), firsts[g], last))
     return found
 
 
@@ -2115,7 +2195,8 @@ def extract_entries(lines: list[str],
             # The command line itself may already carry the first name —
             # `axiomatization where process_finite:` or `axiomatization
             # f :: "nat"` — so read its remainder before stepping below it.
-            head_names, _ = _axiom_line(outer[i][indent + len(keyword):])
+            head_names, _, closed = _axiom_line(
+                outer[i][indent + len(keyword):])
             for head_name in head_names:
                 entries.append(
                     Entry("AXIOM", head_name,
@@ -2123,7 +2204,7 @@ def extract_entries(lines: list[str],
                           thy_line=decl_line, decl_end_line=decl_line))
             i += 1
             while i < len(lines):
-                found, cont = _axiom_line(outer[i])
+                found, cont, closed = _axiom_line(outer[i], closed)
                 if found:
                     for name in found:
                         entries.append(
@@ -2170,6 +2251,31 @@ def extract_entries(lines: list[str],
                                      (r, "rule") for r in _rule_labels(
                                          outer, decl_line, decl_end_line,
                                          name)]))
+            continue
+
+        # --- `lemmas` / `theorems`: names bound to existing facts ---
+        if route == "facts":
+            # One entry per bound name: `lemmas a = x and b = y` declares two
+            # facts, and a citation of `b` is a use of `y` alone.  An anonymous
+            # command declares nothing and stays a `<toplevel>` citation.
+            i, decl_end_line, _body = _scan_decl_body(
+                lines, outer, live, open_at, table, i + 1, decl_line, keyword)
+            for name, first, last in _thmdefs(
+                    outer, decl_line, decl_end_line, indent + len(keyword)):
+                head = lines[first - 1]
+                if first == decl_line:      # past the command word
+                    head = head[indent + len(keyword):]
+                text = "\n".join(
+                    [f"{tag} {head.strip()}".rstrip()]
+                    + [f"  {ln.strip()}" for ln in lines[first:last]
+                       if ln.strip()])
+                entries.append(Entry(tag, name, text, thy_line=first,
+                                     decl_end_line=last))
+                # `(in foo)` is written once, on the command line, and
+                # `_attach_targets` reads an entry's own first line.
+                mt = _IN_TARGET_RE.search(outer[decl_line - 1])
+                if mt:
+                    entries[-1].in_target = mt.group(1)
             continue
 
         # --- Lemmas / theorems / corollaries ---
@@ -2727,6 +2833,7 @@ def _parse_one(thy: str, thy_path: Path,
                                             e.thy_end, outer_live, prose_body)
         else:
             e.body_end_line = e.decl_end_line or e.thy_line
+    _mark_shared_lines(entries)
     sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                         outline=outline, text_blocks=text_blocks,
                         heading_spans=heading_spans,
@@ -2738,6 +2845,21 @@ def _parse_one(thy: str, thy_path: Path,
         # No disk path to lazily re-read (stdin); pin the source we already have.
         sec._source_cache = lines
     return sec
+
+
+def _mark_shared_lines(entries: list[Entry]) -> None:
+    """Flag each entry whose cut span meets a neighbour's [cut-span].
+
+    `Entry.cut_span` promises a span holding one entry and nothing of another.
+    `thy_end` caps it below the next entry's start, which is enough unless the
+    next entry starts on this one's last line — two declarations on one line
+    (226 AFP entries, e.g. `consts F G`).  Then no line span separates them, and
+    BOTH are flagged: cutting either line takes the other with it."""
+    placed = sorted((e for e in entries if e.thy_line),
+                    key=lambda e: e.thy_line)
+    for a, b in zip(placed, placed[1:]):
+        if a._line_cut()[1] >= b.src_start:
+            a.shares_line = b.shares_line = True
 
 
 def _parse_plain(thy: str, path: Path,
@@ -2840,6 +2962,20 @@ def _sections_from_dir(root_dir: Path,
     build the custom-command union (so a use can precede its declaration in
     parse order), then parse each theory's entries.
     """
+    pairs, session_of = _root_theories(root_dir)
+    _populate_custom_commands(pairs)
+    for name, thy_path in pairs:
+        _add_one_section(name, thy_path, seen_paths, sections,
+                         session=session_of.get(thy_path.resolve()))
+
+
+def _root_theories(root_dir: Path
+                   ) -> tuple[list[tuple[str, Path]], dict[Path, str]]:
+    """The theories `query -R root_dir` loads, as ``(name, path)`` pairs, and
+    the owning session of each by resolved path.  Reads ROOT files and theory
+    headers only — the first phase of :func:`_sections_from_dir`, split out so
+    a single-theory parse can build the same keyword table without parsing
+    every body."""
     roots = discover_roots(root_dir)
     pairs: list[tuple[str, Path]] = []
     session_of: dict[Path, str] = {}  # resolved path -> owning session name
@@ -2857,11 +2993,7 @@ def _sections_from_dir(root_dir: Path,
     else:
         for thy_path in sorted(root_dir.rglob("*.thy")):
             pairs.append((thy_path.stem, thy_path))
-
-    _populate_custom_commands(pairs)
-    for name, thy_path in pairs:
-        _add_one_section(name, thy_path, seen_paths, sections,
-                         session=session_of.get(thy_path.resolve()))
+    return pairs, session_of
 
 
 def sections_for_session(session: SessionInfo,

@@ -37,6 +37,8 @@ per-subparser declarations stay short and uniform.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import re
 import sys
@@ -137,6 +139,7 @@ from isabelle_query.render import (  # noqa: F401  (re-exported for the facade)
 # / `_parse_locus` / the stdin sentinels, and the test suite's `cli.cmd_*` /
 # `cli._proof_blocks` / `cli._owner_field` references keep resolving.
 from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade)
+    EXIT_UNRESOLVED,
     _STDIN_NAME,
     _STDIN_PATH,
     _STDIN_SENTINEL,
@@ -320,6 +323,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
         f.mode = "count"
     f.verbatim = getattr(ns, "verbatim", False)
     f.statement = getattr(ns, "statement", False)
+    f.premises = getattr(ns, "premises", False)
     if getattr(ns, "no_comments", False):
         f.comments = "off"
     elif getattr(ns, "comments_only", False):
@@ -337,6 +341,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
     f.sorts = getattr(ns, "sorts", False)
+    f.fmt = getattr(ns, "out_format", "text")
     return f
 
 
@@ -800,7 +805,7 @@ def _scope_to_theories(ns: argparse.Namespace,
     return kept
 
 
-def _run_each(ns: argparse.Namespace, attr: str, fn) -> None:
+def _run_each(ns: argparse.Namespace, attr: str, fn, sep: str = "\n") -> None:
     """Load sections once, then apply ``fn(sections, subject)`` to each subject
     in ``getattr(ns, attr)``, blank-line-separated — the shared spine of the
     list-taking subcommands (``deps``/``uses``/``find``/``show``/``callers``/
@@ -808,10 +813,36 @@ def _run_each(ns: argparse.Namespace, attr: str, fn) -> None:
     ``for`` loop does in N.
     """
     sections = _scope_to_theories(ns, _load_sections(ns))
-    for i, subject in enumerate(getattr(ns, attr)):
-        if i > 0:
-            print()
-        fn(sections, subject)
+    subjects = getattr(ns, attr)
+    if len(subjects) == 1:
+        fn(sections, subjects[0])      # nothing to align: stream as before
+        return
+    # All or nothing [subject-batch].  An unresolvable subject exits 1 with
+    # stdout untouched ([unresolved-subject]), and that has to hold for the
+    # batch too: answering the others and leaving a gap would misalign every
+    # answer after it for a reader attributing by position -- `callers -r -c A
+    # bogus C` printing two counts for three names.  So every subject is run
+    # into a buffer, every unknown one is reported (not just the first, which
+    # was all a batch used to say before stopping), and stdout gets everything
+    # or nothing.
+    blocks: list[str] = []
+    failed = 0
+    for subject in subjects:
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                fn(sections, subject)
+        except SystemExit as e:
+            if e.code != EXIT_UNRESOLVED:
+                raise
+            failed += 1
+            continue
+        blocks.append(buf.getvalue())
+    if failed:
+        sys.exit(EXIT_UNRESOLVED)
+    # `sep` is the blank line between blocks; a table format passes "" so
+    # several subjects make one table.
+    sys.stdout.write(sep.join(blocks))
 
 
 def _run_summary(ns: argparse.Namespace) -> None:
@@ -871,7 +902,8 @@ def _run_show(ns: argparse.Namespace) -> None:
 
 def _run_callers(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
-    _run_each(ns, "name", lambda secs, n: cmd_callers(secs, n, flags))
+    _run_each(ns, "name", lambda secs, n: cmd_callers(secs, n, flags),
+              sep="" if flags.fmt == "tsv" else "\n")
 
 def _run_callees(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
@@ -1383,12 +1415,18 @@ def _build_parser() -> argparse.ArgumentParser:
                           extra="each name is matched exact-then-substring")
     _add_mode_flags(p)
     # `-V` (full slice) and `--statement` (declaration only) are opposite
-    # ends of the slice spectrum, so they can't be combined.
+    # ends of the slice spectrum, so they can't be combined; `--premises` is
+    # narrower than either, a different view rather than a slice.
     slice_group = p.add_mutually_exclusive_group()
     _add_verbatim_flag(slice_group)
     _add_statement_flag(
         slice_group, help_text="render only the statement slice (the "
                                "declaration, without the proof)")
+    slice_group.add_argument(
+        "--premises", action="store_true",
+        help="one line per premise, keyed by how a proof cites it "
+             "(assms(k) / that(k), plus its label), then the number of "
+             "conclusions: short however long the statement is")
     _add_comment_flags(p)
     _add_context_flag(p)
     p.set_defaults(func=_run_show)
@@ -1418,6 +1456,12 @@ def _build_parser() -> argparse.ArgumentParser:
                         "affects the non-recursive form; "
                         "transitive closure via -r ignores this flag.")
     _add_reach_flag(p)
+    p.add_argument("-f", "--format", dest="out_format",
+                   choices=("text", "tsv"), default="text",
+                   help="tsv: one row per caller, every row naming its "
+                        "subject, no header -- subject, caller, tag, theory, "
+                        "session, depth, locus.  With -c, `subject<TAB>count`. "
+                        "Several subjects make one table, not blocks")
     p.set_defaults(func=_run_callers)
 
     # callees

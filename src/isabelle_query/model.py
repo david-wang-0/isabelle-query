@@ -13,10 +13,15 @@ without risking a cycle.
 * The tag frozensets (:data:`_DEFINITION_TAGS`, :data:`_CITABLE_TAGS`) and the
   call-graph short-name floor (:data:`_DROP_NAMES_UPTO`) — membership lists
   named once here so they can't drift between the call sites that share them.
+* :func:`theory_labels` / :func:`locus_labels` — the name a theory prints
+  as.  Here rather than in ``render`` because ``graph`` needs it too: a
+  synthetic ``<toplevel>`` caller is named by its theory's label.
 """
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -88,8 +93,8 @@ class Entry:
                             # `.`, or for declarations the last header line).
                             # Stops before any trailing inter-lemma `text` /
                             # `\<comment>` block — but not at a `text` written
-                            # inside the proof, which does not end it.  Safe
-                            # cut boundary for `bin/move-block.py`.
+                            # inside the proof, which does not end it.  Never
+                            # past thy_end; see `cut_span` for the write span.
     # Comment context attached during _parse_one:
     preamble: tuple[int, int] | None = None
         # (start, end) of the `text \<open>...\<close>` block immediately
@@ -186,6 +191,40 @@ class Entry:
         documents THIS entry, so it counts as part of this entry's extent
         (and is excluded from the preceding entry's `thy_end`)."""
         return self.preamble[0] if self.preamble else self.thy_line
+
+    shares_line: bool = False
+        # Another entry's line span meets this one's: two declarations written
+        # on one line (`consts F G`, a one-line `axiomatization`), or a body
+        # ending on the line the next declaration starts.  Lines cannot
+        # separate them, so `cut_span` is None.  Set by `_mark_shared_lines`.
+
+    def _line_cut(self) -> tuple[int, int]:
+        """`cut_span` before the shared-line check: the extent alone."""
+        if not self.thy_line:
+            return (0, 0)
+        end = min(self.body_end_line or self.thy_end, self.thy_end)
+        return (self.src_start, max(end, self.thy_line))
+
+    @property
+    def cut_span(self) -> tuple[int, int] | None:
+        """The lines to cut to remove or relocate this entry: ``src_start``
+        (its doc preamble, if any) through ``body_end_line`` (the `qed` / `by`
+        / `.` that closes its proof), inclusive.
+
+        This is the span a tool *writes through*, and the one guarantee that
+        makes that safe is that it holds this entry and no part of another:
+        the upper end is capped at ``thy_end``, which stops before the next
+        entry's ``src_start``, so a delete cannot take the following lemma's
+        documentation with it.  Unlike ``src_start..thy_end`` it leaves the
+        trailing blank lines and any inter-lemma `text` after the proof in
+        place, since those are not part of the entry's body.
+
+        ``None`` when no line span has that property — the entry shares a line
+        with another (:attr:`shares_line`) — and for an unplaced entry.  A
+        caller that writes must handle it, not fall back to a wider span."""
+        if not self.thy_line or self.shares_line:
+            return None
+        return self._line_cut()
 
     @property
     def line_count(self) -> int:
@@ -352,6 +391,11 @@ class CallGraph:
     callers: dict[str, set[str]]   # callee_name → {caller entry names}
     callees: dict[str, set[str]]   # caller_name → {callee names referenced}
     all_names: set[str]            # universe of indexed entry names
+    # `THEORY:<toplevel>` node -> (its section, {cited name: first line}).  A
+    # synthetic caller has no Entry to locate it, so the graph keeps the place
+    # of each of its citations [toplevel-label].
+    toplevel: dict[str, tuple["TheorySection", dict[str, int]]] = field(
+        default_factory=dict)
 
 
 # Tag families shared across commands.  Named so the membership lists can't
@@ -377,7 +421,7 @@ _DEFINITION_TAGS = frozenset(
 #
 # Ordered, so a display can iterate them in the order they appear in source.
 _ANNOTATION_KINDS = ("decl", "statement", "proof")
-_CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "FUN", "DEF", "ABBREV"})
+_CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "LEMMAS", "FUN", "DEF", "ABBREV"})
 
 # The kinds of extra name an `Entry` may bind (see `Entry.bindings`), each with
 # the phrasing a command uses to explain the resolution to the reader.  They
@@ -413,10 +457,12 @@ _DROP_NAMES_UPTO = 1
 class CmdFlags:
     """Uniform flag bundle passed to command functions."""
     mode: str = "first"          # first / all / count / names
+    fmt: str = "text"            # -f / --format: text / tsv (callers)
     verbatim: bool = False       # -V / --verbatim
     statement: bool = False      # --statement / --stmt
                                  # find: match the statement slice (input);
                                  # show: render only the statement slice (output)
+    premises: bool = False       # --premises (show): one line per premise
     comments: str = "on"         # on / off / only
     context: int = 2             # -U N / --context N
     with_comments: bool = False  # --with-comments (find + grep: search prose)
@@ -435,3 +481,129 @@ class CmdFlags:
     # the sort / arity / signature the SOURCE writes at that site.  Written
     # text only — a site whose source writes none shows none.
     sorts: bool = False
+
+
+def label_chain(sec: "TheorySection") -> tuple[str, ...]:
+    """The segments a theory's label is a suffix of: its resolved directory
+    chain, then its declared name split at `/`.
+
+    A ROOT may spell a theory with a directory (`theories "While/Hoare"`), and
+    then the file sits in that directory, so the name repeats the tail of the
+    chain.  The repeat is dropped, which keeps every suffix a real path suffix
+    -- `Van_Emde_Boas_Trees/Separation_Logic_Imperative_HOL/Automation`, not a
+    doubled `.../Separation_Logic_Imperative_HOL/Separation_Logic_Imperative_HOL
+    /Automation` that names no file.  Shared by :func:`theory_labels` and the
+    resolver's label match [label-depth].
+    """
+    parents = sec.path.resolve().parent.parts
+    segs = tuple(sec.theory.split("/"))
+    k = len(segs) - 1
+    if k and parents[len(parents) - k:] == segs[:-1]:
+        parents = parents[:-k]
+    return parents + segs
+
+
+def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
+    r"""``{resolved path: the shortest directory-qualified name unique here}``.
+
+    A theory prints as its bare name, which is right for a session and wrong
+    for a corpus: **461 AFP theory names are used by more than one theory**,
+    covering 1,219 of its 9,910 — `Examples` names nineteen different files.
+    A `largest` run over the AFP was a wall of unqualified `Bla` with no way
+    to tell one from another [disambig-names].
+
+    Qualified by the *minimal distinguishing* suffix, not by the full path.
+    Two reasons, and the second is the load-bearing one:
+
+    * a shared root prefix carries no information — every row would gain the
+      same `thys/` and be no easier to read;
+    * the name is INPUT as well as output.  `theory:line` is meant to round-
+      trip, so the emitter has to qualify far enough for the resolver to get
+      back to one theory, and no further.  Since [name-roundtrip] a name
+      containing a separator resolves *as a name*, so `List_Space/Bla` is not
+      mistaken for a path that does not exist — which is what makes a
+      qualified label paste-able.
+
+    Scoped to the sections actually being shown, so a single-session run keeps
+    bare `Bla` and only a genuine collision grows a prefix.  Two sections at
+    the same resolved path are one theory and share a label.
+
+    The label grows from the theory's declared NAME with its directory chain
+    in front, not from the file's stem.  Isabelle requires the two to agree
+    (`theory Foo` must live in `Foo.thy`) so on disk it is usually the same
+    string, and three things follow from preferring the name anyway:
+
+    * a section parsed from a BUFFER has no such file, and taking the stem
+      made a label out of the scratch file's name.  A label whose unqualified
+      case is not what every other verb prints is not a label;
+    * a ROOT may spell a theory with a directory (`theories "While/Hoare"`),
+      and then the NAME already carries it — 902 AFP theories, which now
+      label as themselves rather than as a bare `Hoare` that no verb accepts;
+    * it decides collisions on the right thing.  Growing from stems qualified
+      1,316 AFP labels, growing from names qualifies **1,219**: the extra 97
+      were theories whose FILES collide while their declared names do not,
+      given a prefix that separated nothing a reader could ever have typed.
+
+    A label is unique among ALL suffixes, not among the suffixes of one length
+    [label-depth].  A path-spelled name is one string but several segments, so
+    comparing only like depths let Van_Emde_Boas_Trees' copy, NAMED
+    `Separation_Logic_Imperative_HOL/Automation`, settle on that string at
+    depth 1 while the genuine `Separation_Logic_Imperative_HOL/Automation.thy`
+    settled on the same string at depth 2.  The two printed alike and the
+    label resolved to the copy.  Built over :func:`label_chain`, the tuple the
+    resolver matches too, so the two cannot disagree.
+    """
+    chains: dict[Path, tuple[str, ...]] = {}
+    least: dict[Path, int] = {}
+    named: dict[str, set[Path]] = {}
+    for sec in sections:
+        p = sec.path.resolve()
+        if p not in chains:
+            chains[p] = label_chain(sec)
+            least[p] = sec.theory.count("/") + 1   # never cut the name itself
+            named.setdefault(sec.theory, set()).add(p)
+    labels: dict[Path, str] = {}
+    pending = dict(least)
+    depth = 1
+    while pending:
+        # A label is safe when the resolver takes it back to THIS theory.  It
+        # tries an exact theory name first, so a label that is some theory's
+        # name is safe only if it is this one's; otherwise it matches a suffix
+        # of the chain, so no other chain may end in it.  Counted over every
+        # theory, settled or not.
+        held = Counter("/".join(c[-depth:]) for c in chains.values())
+        nxt: dict[Path, int] = {}
+        for p, low in pending.items():
+            chain = chains[p]
+            label = "/".join(chain[-depth:])
+            # Exhausted: the chains are equal, so no suffix separates them.
+            # Settle rather than loop — a label that repeats is a poor answer,
+            # an infinite loop is not an answer.
+            owner = named.get(label)
+            safe = owner == {p} if owner else held[label] == 1
+            if depth >= low and (safe or depth >= len(chain)):
+                labels[p] = label
+            else:
+                nxt[p] = low
+        pending = nxt
+        depth += 1
+    return labels
+
+
+def locus_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
+    r"""``theory_labels`` re-keyed by each section's path *as stored*.
+
+    The emitter-side view.  ``theory_labels`` keys on the RESOLVED path, so
+    that two spellings of one file are one theory and one label; a located hit
+    carries the section's path as the section holds it, and resolving that per
+    ROW is a syscall per row — `grep obtain` over the AFP prints 73,296 of
+    them.  Resolving once per section and looking the stored path up is the
+    same answer for free.
+
+    Use it wherever a ``theory:line`` is printed.  A theory NAME cannot be the
+    key: 461 AFP theory names are shared, which is the whole reason the label
+    exists [disambig-loci].
+    """
+    sections = list(sections)
+    labels = theory_labels(sections)
+    return {sec.path: labels[sec.path.resolve()] for sec in sections}

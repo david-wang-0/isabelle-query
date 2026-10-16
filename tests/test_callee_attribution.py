@@ -1,0 +1,158 @@
+r"""A callee row names a declaration the citing theory can SEE
+[callee-attribution].
+
+Issue #18: NDTHT declares `sim_tape` twice, in two sessions that do not import
+each other, and `callees pass_block_count` reported the one its theory cannot
+reach.  The call graph is keyed by NAME and `--reach closure` keeps an edge
+when SOME declaration is visible; the row then named one first-wins, by load
+order.  A row now lists every declaration the seed's theory can see, nearest
+by import depth first.
+
+Here `Arms` loads first and declares `tape`; `Guess` declares it too.  Only
+`Guess` is in `Sim`'s closure, so first-wins named the wrong one.  Real files,
+because visibility reads `imports` clauses off disk.
+"""
+
+import contextlib
+import io
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+from isabelle_query import cli, commands  # noqa: E402
+from isabelle_query.model import CmdFlags  # noqa: E402
+
+THYS = {
+    "Arms": 'theory Arms\nimports Main\nbegin\n'
+            'definition tape :: "nat" where "tape = 0"\nend\n',
+    "Guess": 'theory Guess\nimports Main\nbegin\n'
+             'definition tape :: "nat" where "tape = 1"\n'
+             'lemma local_use: "tape = 1" by (simp add: tape_def)\nend\n',
+    # Loads before `Top`, and cannot see `pass_lemma`: its `wrap` is not a
+    # caller of it, whatever the name says.
+    "Lone": 'theory Lone\nimports Main\nbegin\n'
+            'lemma wrap: "True" by simp\nend\n',
+    "Sim": 'theory Sim\nimports Guess\nbegin\n'
+           'lemma pass_lemma: "tape = 1" by (simp add: tape_def)\nend\n',
+    "Top": 'theory Top\nimports Sim\nbegin\n'
+           'lemma top_lemma: "True" using pass_lemma by simp\n'
+           'lemma wrap: "True" using pass_lemma by simp\nend\n',
+    # Both visible: `Guess` directly, `Arms` through `Mid`.
+    "Mid": 'theory Mid\nimports Arms\nbegin\nend\n',
+    "Near": 'theory Near\nimports Mid Guess\nbegin\n'
+            'lemma near_lemma: "tape = tape" by simp\nend\n',
+}
+
+ARMS = "tape (DEF) — Arms [L4]"
+GUESS = "tape (DEF) — Guess [L4]"
+
+
+class Fixture(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        d = Path(self._tmp.name)
+        for name, text in THYS.items():
+            (d / f"{name}.thy").write_text(text, encoding="utf-8")
+        (d / "ROOT").write_text(
+            "session Demo = HOL +\n  theories\n"
+            + "".join(f"    {n}\n" for n in THYS), encoding="utf-8")
+        cli._ROOT_OVERRIDE = d
+        self.sections = cli.load_index()
+
+    def tearDown(self):
+        cli._ROOT_OVERRIDE = None
+        self._tmp.cleanup()
+
+    def rows(self, name, **kw):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            commands.cmd_callees(self.sections, name, CmdFlags(**kw))
+        return [ln.strip() for ln in out.getvalue().splitlines()
+                if ln.strip().startswith("tape")]
+
+
+class TheVisibleDeclaration(Fixture):
+
+    def test_first_wins_would_name_the_invisible_one(self):
+        # The premise of the fixture: load order puts `Arms` first.
+        self.assertEqual("Arms", self.sections[0].theory)
+
+    def test_direct(self):
+        self.assertEqual(self.rows("pass_lemma"), [GUESS])
+
+    def test_recursive(self):
+        # Whatever `Sim` sees, `Top` sees: the seed's closure scopes every depth.
+        self.assertEqual(self.rows("top_lemma", recursive=True), [GUESS])
+
+    def test_several_visible_nearest_first(self):
+        # `Guess` is a direct import, `Arms` two hops away: depth beats load
+        # order.
+        self.assertEqual(self.rows("near_lemma"), [GUESS, ARMS])
+
+    def test_name_mode_lists_every_declaration(self):
+        self.assertEqual(self.rows("pass_lemma", reach="name"), [ARMS, GUESS])
+
+    def test_external_asks_the_visible_declaration(self):
+        # `local_use` cites its own theory's `tape`; first-wins called it
+        # cross-theory because `Arms` is not `Guess`.
+        self.assertEqual(self.rows("local_use", external=True), [])
+
+
+class TheCallerThatCanReachTheSeed(Fixture):
+    """`callers -r` the other way round: a caller row keeps the declarations
+    whose theory can see the seed."""
+
+    def out(self, **kw):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            commands.cmd_callers(self.sections, "pass_lemma",
+                                 CmdFlags(recursive=True, **kw))
+        return [ln.strip() for ln in buf.getvalue().splitlines()
+                if "wrap" in ln]
+
+    def test_block(self):
+        self.assertEqual(self.out(), ["wrap (LEMMA) — Top [L5]"])
+
+    def test_names(self):
+        self.assertEqual(self.out(mode="names"), ["wrap (LEMMA) — Top"])
+
+    def test_tsv(self):
+        self.assertEqual(self.out(fmt="tsv"),
+                         ["pass_lemma\twrap\tLEMMA\tTop\tDemo\t1\tTop:5"])
+
+    def test_name_mode_lists_both(self):
+        self.assertEqual(self.out(reach="name"),
+                         ["wrap (LEMMA) — Lone [L4]", "wrap (LEMMA) — Top [L5]"])
+
+
+class CallersOfACollidingName(Fixture):
+    """Issue #18 item 2: `callers NAME` for a name declared twice says so,
+    and groups the sites by the declarations each can see."""
+
+    def out(self, name="tape"):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            commands.cmd_callers(self.sections, name, CmdFlags(context=0))
+        # A row is reduced to its locus; headers are kept whole.
+        return [ln.split()[0] if ln.startswith("  ") else ln
+                for ln in buf.getvalue().splitlines() if ln]
+
+    def test_grouped(self):
+        # `Guess` and `Sim` see Guess's `tape` alone; `Near` imports both.
+        self.assertEqual(self.out(), [
+            "3 caller(s) of tape, which has 2 declarations:",
+            "tape (DEF) — Guess [L4]: 2 caller(s)",
+            "Guess:5", "Sim:4",
+            "tape, any of 2: (DEF) — Arms [L4]; (DEF) — Guess [L4]: 1 caller(s)",
+            "Near:4"])
+
+    def test_one_declaration_is_unchanged(self):
+        self.assertEqual(self.out("pass_lemma")[0], "2 caller(s) of pass_lemma:")
+
+
+if __name__ == "__main__":
+    unittest.main()

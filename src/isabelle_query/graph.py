@@ -40,6 +40,7 @@ from isabelle_query.model import (
     TheorySection,
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
+    locus_labels,
 )
 from isabelle_layout import parse_thy_imports
 from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
@@ -114,6 +115,20 @@ def _entry_by_name(sections: list[TheorySection]
             if e.name not in by_name:
                 by_name[e.name] = (sec.theory, e)
     return by_name
+
+
+def _declarations_by_name(sections: list[TheorySection]
+                          ) -> dict[str, list[tuple[TheorySection, Entry]]]:
+    """Every declaration of each name, in load order — the all-wins partner
+    of :func:`_entry_by_name`, for a row that must name the declaration a
+    citation can actually reach (`_Visibility.visible`) [callee-attribution].
+    The SECTION, not its theory name: 461 AFP theory names are shared, and
+    the row has to say which file [name-is-not-identity]."""
+    decls: dict[str, list[tuple[TheorySection, Entry]]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            decls.setdefault(e.name, []).append((sec, e))
+    return decls
 
 
 def _noise_spans(sec: TheorySection) -> list[tuple[int, int]]:
@@ -537,7 +552,7 @@ class _Visibility:
         # edge order, and a single slot then recomputes the same closure once
         # per edge.  A per-theory dict is bounded by the corpus and lives no
         # longer than the request that asked for it.
-        self._closures: dict[str, frozenset[str] | None] | None = (
+        self._closures: dict[str, dict[str, int] | None] | None = (
             {} if memo_closures else None)
         self.by_theory = _sections_by_theory(sections)
         self._leaf = _leaf_index(self.by_theory)
@@ -550,7 +565,7 @@ class _Visibility:
         self._sections_of: dict[str, list[TheorySection]] = {}
         for sec in sections:
             self._sections_of.setdefault(sec.theory, []).append(sec)
-        self._closure: tuple[str, frozenset[str] | None] | None = None
+        self._closure: tuple[str, dict[str, int] | None] | None = None
         # theory -> its in-project imports, read once; None = could not read.
         self._imports: dict[str, list[str] | None] = {}
         # name -> the theories declaring it.  A name declared NOWHERE is never
@@ -604,9 +619,10 @@ class _Visibility:
         self._imports[theory] = got
         return got
 
-    def closure(self, theory: str) -> frozenset[str] | None:
-        """``{theory} | its transitive in-project imports``, or None if any
-        header on the walk could not be read — see the class docstring."""
+    def depths(self, theory: str) -> dict[str, int] | None:
+        """``{theory: 0}`` and each transitive in-project import at its
+        shortest import depth, or None if any header on the walk could not be
+        read — see the class docstring."""
         if self._closures is not None and theory in self._closures:
             return self._closures[theory]
         if self._closure is not None and self._closure[0] == theory:
@@ -621,12 +637,48 @@ class _Visibility:
                 return []
             return got
 
-        depths = _bfs_depths(children, [theory], seed_depth=-1)
-        reach = None if unknown else frozenset(depths) | {theory}
+        depths = _bfs_depths(children, [theory])
+        reach = None if unknown else depths
         self._closure = (theory, reach)
         if self._closures is not None:
             self._closures[theory] = reach
         return reach
+
+    def closure(self, theory: str) -> frozenset[str] | None:
+        """``{theory} | its transitive in-project imports``, or None if any
+        header on the walk could not be read — see the class docstring."""
+        depths = self.depths(theory)
+        return None if depths is None else frozenset(depths)
+
+    def visible(self, decls: list[tuple[TheorySection, Entry]],
+                theories: Iterable[str]) -> list[tuple[TheorySection, Entry]]:
+        """The declarations in ``decls`` that a site in one of ``theories``
+        can name, nearest by import depth first [callee-attribution].
+
+        The graph is keyed by NAME, so `sees` keeps an edge when SOME
+        declaration of the name is visible; a row that then names one has to
+        ask again which.  Every visible one is returned, not a pick: two
+        visible theories declaring the same name is a collision this index
+        cannot resolve, and naming one of them would be a guess.
+
+        All of ``decls`` under ``mode="name"``, or when some closure cannot
+        be read, or when none is visible (the edge was kept on an unknown
+        closure) — the rule may only drop where it is confident.
+        """
+        if self.mode != "closure":
+            return decls
+        best: dict[int, int] = {}
+        for t in theories:
+            depths = self.depths(t)
+            if depths is None:
+                return decls
+            for i, (sec, _e) in enumerate(decls):
+                d = depths.get(sec.theory)
+                if d is not None and d < best.get(i, d + 1):
+                    best[i] = d
+        if not best:
+            return decls
+        return [decls[i] for i in sorted(best, key=lambda i: (best[i], i))]
 
     def sees(self, theory: str, name: str) -> bool:
         """May a site in ``theory`` be naming the project's ``name``?"""
@@ -637,7 +689,7 @@ class _Visibility:
             return True                 # declared nowhere: nothing to scope to
         if theory in decl:
             return True                 # the fast path, and the common one
-        reach = self.closure(theory)
+        reach = self.depths(theory)
         if reach is None:
             return True                 # unknown closure: do not drop an edge
         return not decl.isdisjoint(reach)
@@ -792,6 +844,7 @@ def _build_call_graph(sections: list[TheorySection],
     #    than testing every one of ~10^5 names against the line.
     callers: dict[str, set[str]] = {n: set() for n in name_set}
     callees: dict[str, set[str]] = {}
+    toplevel: dict[str, tuple[TheorySection, dict[str, int]]] = {}
 
     # Bind the per-line hot callables to locals: this loop runs once per source
     # line (millions of times), and a local is a fast LOAD_FAST vs an attribute
@@ -805,7 +858,11 @@ def _build_call_graph(sections: list[TheorySection],
     quoted_findall = quoted_re.findall
 
     vis = _Visibility(sections, reach)
+    labels = locus_labels(sections)
     for sec in sections:
+        # Named by the theory's LABEL, not its bare name: over a corpus, same-
+        # named theories would otherwise share one node [toplevel-label].
+        top_name = f"{labels.get(sec.path, sec.theory)}:<toplevel>"
         # The redacted view (`live_source`), not the raw source: a comment, an
         # `\<^cancel>` region or an inline ML body that SHARES its line with
         # live proof text is blanked in place, so `by simp (* see foo *)` stops
@@ -874,7 +931,7 @@ def _build_call_graph(sections: list[TheorySection],
             # own `equal_*` definition exists.  Attribute them to a synthetic
             # per-theory top-level caller so the edge exists and carries a place.
             caller_name = (caller_entry.name if caller_entry is not None
-                           else f"{sec.theory}:<toplevel>")
+                           else top_name)
             for name in cand:
                 d_ranges = d_map.get(name)
                 if d_ranges and any(line_no in r for r in d_ranges):
@@ -888,8 +945,12 @@ def _build_call_graph(sections: list[TheorySection],
                     continue
                 callers[name].add(caller_name)
                 callees.setdefault(caller_name, set()).add(name)
+                if caller_entry is None:   # lines run in order: first wins
+                    toplevel.setdefault(caller_name, (sec, {}))[1].setdefault(
+                        name, line_no)
 
-    return CallGraph(callers=callers, callees=callees, all_names=name_set)
+    return CallGraph(callers=callers, callees=callees, all_names=name_set,
+                     toplevel=toplevel)
 
 
 # A proof method is introduced by one of the three pure proof keywords

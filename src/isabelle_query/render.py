@@ -15,7 +15,6 @@ commands that consume them, not here.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from pathlib import Path
 
 from isabelle_query.model import (
@@ -23,98 +22,11 @@ from isabelle_query.model import (
     CmdFlags,
     Entry,
     TheorySection,
+    locus_labels,
+    theory_labels,
 )
 from isabelle_query.parsing import LATEX_LINE_RE, _proof_extent
-
-
-def theory_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
-    r"""``{resolved path: the shortest directory-qualified name unique here}``.
-
-    A theory prints as its bare name, which is right for a session and wrong
-    for a corpus: **461 AFP theory names are used by more than one theory**,
-    covering 1,219 of its 9,910 — `Examples` names nineteen different files.
-    A `largest` run over the AFP was a wall of unqualified `Bla` with no way
-    to tell one from another [disambig-names].
-
-    Qualified by the *minimal distinguishing* suffix, not by the full path.
-    Two reasons, and the second is the load-bearing one:
-
-    * a shared root prefix carries no information — every row would gain the
-      same `thys/` and be no easier to read;
-    * the name is INPUT as well as output.  `theory:line` is meant to round-
-      trip, so the emitter has to qualify far enough for the resolver to get
-      back to one theory, and no further.  Since [name-roundtrip] a name
-      containing a separator resolves *as a name*, so `List_Space/Bla` is not
-      mistaken for a path that does not exist — which is what makes a
-      qualified label paste-able.
-
-    Scoped to the sections actually being shown, so a single-session run keeps
-    bare `Bla` and only a genuine collision grows a prefix.  Two sections at
-    the same resolved path are one theory and share a label.
-
-    The label grows from the theory's declared NAME with its directory chain
-    in front, not from the file's stem.  Isabelle requires the two to agree
-    (`theory Foo` must live in `Foo.thy`) so on disk it is usually the same
-    string, and three things follow from preferring the name anyway:
-
-    * a section parsed from a BUFFER has no such file, and taking the stem
-      made a label out of the scratch file's name.  A label whose unqualified
-      case is not what every other verb prints is not a label;
-    * a ROOT may spell a theory with a directory (`theories "While/Hoare"`),
-      and then the NAME already carries it — 902 AFP theories, which now
-      label as themselves rather than as a bare `Hoare` that no verb accepts;
-    * it decides collisions on the right thing.  Growing from stems qualified
-      1,316 AFP labels, growing from names qualifies **1,219**: the extra 97
-      were theories whose FILES collide while their declared names do not,
-      given a prefix that separated nothing a reader could ever have typed.
-    """
-    by_path: dict[Path, list[str]] = {}
-    for sec in sections:
-        p = sec.path.resolve()
-        if p not in by_path:
-            by_path[p] = list(p.parent.parts) + [sec.theory]
-    labels: dict[Path, str] = {}
-    pending = dict(by_path)
-    depth = 1
-    while pending:
-        groups: dict[str, list[Path]] = {}
-        for p, parts in pending.items():
-            groups.setdefault("/".join(parts[-depth:]), []).append(p)
-        nxt: dict[Path, list[str]] = {}
-        for label, paths in groups.items():
-            if len(paths) == 1:
-                labels[paths[0]] = label
-            else:
-                for p in paths:
-                    # Exhausted: the paths are equal, so no suffix separates
-                    # them.  Settle rather than loop — a label that repeats is
-                    # a poor answer, an infinite loop is not an answer.
-                    if depth >= len(pending[p]):
-                        labels[p] = label
-                    else:
-                        nxt[p] = pending[p]
-        pending = nxt
-        depth += 1
-    return labels
-
-
-def locus_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
-    r"""``theory_labels`` re-keyed by each section's path *as stored*.
-
-    The emitter-side view.  ``theory_labels`` keys on the RESOLVED path, so
-    that two spellings of one file are one theory and one label; a located hit
-    carries the section's path as the section holds it, and resolving that per
-    ROW is a syscall per row — `grep obtain` over the AFP prints 73,296 of
-    them.  Resolving once per section and looking the stored path up is the
-    same answer for free.
-
-    Use it wherever a ``theory:line`` is printed.  A theory NAME cannot be the
-    key: 461 AFP theory names are shared, which is the whole reason the label
-    exists [disambig-loci].
-    """
-    sections = list(sections)
-    labels = theory_labels(sections)
-    return {sec.path: labels[sec.path.resolve()] for sec in sections}
+from isabelle_query.premises import statement_of
 
 
 def file_locus(labels: dict[Path, str], path: Path) -> str:
@@ -166,7 +78,7 @@ def _format_extent(entry: Entry) -> str:
     span ``thy_line..body_end_line`` is surfaced separately whenever it is
     narrower at either end: a leading doc block (``src_start < thy_line``) or
     a trailing inter-lemma block (``body_end < thy_end``).  The body end is
-    the safe cut boundary for `bin/move-block.py`; `src` is the
+    the end of `Entry.cut_span`, the safe cut boundary; `src` is the
     end-of-region the next entry-or-section starts after.
     """
     if not entry.thy_line:
@@ -334,11 +246,65 @@ def _statement_text(sec: TheorySection, entry: Entry) -> str:
     return "\n".join(sec.slice(entry.thy_line, entry.decl_end_line))
 
 
+def _entry_header(sec: TheorySection, entry: Entry,
+                  rank: tuple[int, int] | None = None) -> str:
+    pos = f"[{rank[0]} of {rank[1]}] " if rank else ""
+    return (f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy "
+            f"{pos}{_format_extent(entry)} ---")
+
+
+def render_premises(sec: TheorySection, entry: Entry,
+                    rank: tuple[int, int] | None = None) -> str:
+    r"""The `--premises` view [show-premises]: the header, one line per
+    premise keyed by the name a proof cites it by, then the conclusion count.
+
+        --- foo (LEMMA) — T.thy [src 2..7, 6 lines] ---
+          assms(1) wf:  well_formed M
+          assms(2):     0 < q
+          defines:      d \<equiv> x
+          shows: 2 conclusions
+
+    A premise written inside the term (`"P \<Longrightarrow> C"`) has no such
+    name and is keyed `term k`.  When the statement cannot be read the view
+    says so, rather than print a count it does not know."""
+    out = [_entry_header(sec, entry, rank)]
+    st = statement_of(sec, entry)
+    if st is None:
+        if entry.tag in ("LEMMA", "THEOREM"):
+            out.append("  (statement not recognised; see --statement)")
+        else:
+            out.append(f"  (no goal statement: a {entry.tag})")
+        return "\n".join(out)
+    rows: list[tuple[str, str]] = []
+    terms = 0
+    for p in st.premises:
+        if p.kind == "term":
+            terms += 1
+            key = f"term {terms}"
+        elif p.kind == "defines":
+            key = " ".join(x for x in ("defines", p.label) if x)
+        else:
+            key = " ".join(x for x in (p.cite, p.label) if x)
+        rows.append((key + ":", p.text))
+    width = max((len(k) for k, _t in rows), default=0)
+    out.extend(f"  {k:<{width}}  {t}" for k, t in rows)
+    if not rows:
+        out.append("  (no premises)")
+    if st.cases:
+        out.append(f"  obtains: {st.cases} case{'s' * (st.cases != 1)}")
+    else:
+        out.append(f"  shows: {st.conclusions} "
+                   f"conclusion{'s' * (st.conclusions != 1)}")
+    return "\n".join(out)
+
+
 def render_entry(sec: TheorySection, entry: Entry, *,
                  verbatim: bool = False,
                  statement: bool = False,
                  comments: str = "on",
-                 context: int = 2) -> str:
+                 context: int = 2,
+                 rank: tuple[int, int] | None = None,
+                 premises: bool = False) -> str:
     """Render a single entry.
 
     statement:       just the declaration slice [thy_line..decl_end_line]
@@ -350,13 +316,17 @@ def render_entry(sec: TheorySection, entry: Entry, *,
     comments='only': preamble (full) + header + annotations (full, grouped by
                      which part of the entry each one annotates), no statement
     context:         lines of preamble preview / annotations shown
+    rank:            `(k, n)` when this is match k of n, shown in the header
+                     as `[k of n]` [show-match-count]
+    premises:        the `--premises` view instead (:func:`render_premises`)
 
     `statement` and `verbatim` are opposite ends of the slice spectrum
     (declaration-only vs declaration+proof); `show` declares them mutually
     exclusive at the CLI.  If both somehow arrive, the narrower one wins.
     """
-    ext = _format_extent(entry)
-    header = f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy {ext} ---"
+    if premises:
+        return render_premises(sec, entry, rank)
+    header = _entry_header(sec, entry, rank)
 
     # No source location (e.g. AXIOM placeholder) → fall back to entry.text
     if not entry.thy_line:
@@ -471,13 +441,24 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
         print(f"No entries matching '{pattern}'.")
         return
 
+    # Each header carries `[k of n]` when there is more than one match
+    # [show-match-count].  The footer below says so too, but it is the first
+    # line `head` or a line filter drops, and a caller who lost it concluded
+    # that `show` collapsed a twice-defined name (issue #17).
+    n = len(matches)
+
+    def rank(k: int) -> tuple[int, int] | None:
+        return (k, n) if n > 1 else None
+
     if flags.mode == "all":
-        for e in matches:
+        for k, e in enumerate(matches, start=1):
             print(render_entry(sections_by_theory[e.theory], e,
                                verbatim=flags.verbatim,
                                statement=statement,
                                comments=flags.comments,
-                               context=flags.context))
+                               context=flags.context,
+                               rank=rank(k),
+                               premises=flags.premises))
             print()
         return
 
@@ -487,7 +468,9 @@ def _emit_matches(sections_by_theory: dict[str, TheorySection],
                        verbatim=flags.verbatim,
                        statement=statement,
                        comments=flags.comments,
-                       context=flags.context))
+                       context=flags.context,
+                       rank=rank(1),
+                       premises=flags.premises))
     if len(matches) > 1:
         print()
         print(f"[+{len(matches) - 1} more match(es).  Use --all to show, "
