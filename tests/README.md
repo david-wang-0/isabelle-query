@@ -18,8 +18,8 @@ selected suite; a cache hit runs one JVM. No production jar, global component
 registration, prover session, or live host is changed. Python 3.11+ orchestrates
 builds and reads gate metadata only; Isabelle must be on `PATH`.
 
-`scala/upstream-tests.json` preserves all 1,396 original unittest IDs of
-upstream 0.9.2 (the frozen `src/isabelle_query/` tree, identified by its
+`scala/upstream-tests.json` preserves all 1,482 original unittest IDs of
+upstream 0.9.8 (the frozen `src/isabelle_query/` tree, identified by its
 `python_tree_id`) and their disjoint groups. Each `scala/coverage/GROUP.json`
 is exhaustive for that group. `ported` rows must execute real
 `TestSupport.test(id)` assertions. Explicit `python-only`, `optional`,

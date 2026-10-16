@@ -257,7 +257,7 @@ and nothing else. Use `dev/scala-tests.sh --suite parser` (also `graph`,
 `shape`, `cli`) to compile support and that group only. Routine validation is
 `make test`: those suites, a cheap upstream identity gate, and the shipping
 Python client's small transport suite. No Python oracle or JVM per case runs in
-the Scala suite. The suites carry every unittest ID of upstream 0.9.2 — 1,396 —
+the Scala suite. The suites carry every unittest ID of upstream 0.9.8 — 1,482 —
 each ported or given an explicit disposition. See `tests/README.md` for
 coverage accounting and the shared helper contract.
 Upstream expected-failure decorators are preserved as a separate nonpass tier:
