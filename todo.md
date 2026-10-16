@@ -322,9 +322,12 @@ differ, and the port is the one that is right), `[decl-body-blank]` (the port
 took `[decl-body-comment]` and, like upstream, rejected the blank-line variant
 on the containment measurement) and `[axiom-untyped]` (the port took
 `[axiom-names]`; this half is a grammar, not a regex tweak, on either side).
-The two that arrived with upstream 0.9.x describe the port exactly as they
-describe the reference: `[decl-commands]` (P14 took `proposition`; the rest is
-open on both sides) and `[proof-bearing-commands]`, the same scope call here.
+The three that arrived with upstream 0.9.x describe the port exactly as they
+describe the reference: `[decl-commands]` (P14 took `proposition`, P15
+`lemmas` / `theorems`; the rest is open on both sides),
+`[proof-bearing-commands]`, the same scope call here, and `[decl-identity]`
+(P15 took `[callee-attribution]`; `graph citation` and `codeqs` still pick one
+declaration per name here too).
 
 - [ ] `[regex-dialect]` D12: `\w` is `java.util.regex`'s here and Python's in
       the oracle, so `²`/`½` are word characters to the oracle and not to us,
@@ -376,6 +379,24 @@ open on both sides) and `[proof-bearing-commands]`, the same scope call here.
       which is what `PLAN.md` §P7 anticipated.  Still deliberately not taken:
       it decides what `query` means on a user's PATH, and that is an
       installer's call, not the component's.
+
+- [ ] `[client-status-stale]` `--client-status` against a dedicated server
+      whose `component_id` no longer matches the jar (selected by
+      `$ISABELLE_QUERY_CLIENT_SERVER`, as `dev/p7probe.sh` does) fails with
+      "selected server is unavailable or incompatible", exit 2: `connect`
+      selects only a compatible host and keeps a stale one for
+      `--client-restart` alone.  So the `[STALE: jar is …]` marker that
+      `status` prints for exactly such a server is not reached by a plain
+      `--client-status`; P15's S6 saw it only on the `--client-restart`
+      route.  Either status accepts a verified stale dedicated server, or the
+      marker is dead code and goes.
+
+- [ ] `[client-restart-owned]` `--client-restart` on a MANUALLY managed
+      server (`isabelle query_server -n NAME`, stdin held open) stops it and
+      starts an owned fallback under the same name, which exits when that
+      invocation ends — so the restart leaves no server where the user ran
+      one.  Observed in P15 S6.  A restart should preserve the lifetime of
+      what it replaces, or refuse a server it does not own and say so.
 
 - [ ] `[fixtures-build]` `Sites_Fix.thy` and `Names_Fix.thy` (written by
       `dev/p6bprobe.sh`) are parsed by every probe and built by none, and

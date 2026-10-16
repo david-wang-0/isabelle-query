@@ -55,7 +55,7 @@ Isar is whitespace-insensitive, so a declaration is recognised wherever a
 *command* can start — at any indentation and at any block depth, inside a
 `locale`, a `context`, or a theory body its author simply chose to indent.
 Declarations end at a real terminator: the next command, or an `end` /
-`context` / `lemmas` / `ML`.
+`context` / `declare` / `ML`.
 
 A blank line ends nothing structural, and a rule or equation list spaced out for
 legibility is still one declaration — a line beginning `|` cannot start a new
@@ -100,7 +100,18 @@ deliberately **not** separate entries: one command has one span, so counting
 its constants and its labelled axioms are written one per line and each is
 independently locatable, so each *is* an entry. `and` separates them within a
 line as readily as it ends one, so `axiomatization f :: ty and g :: ty` declares
-two.
+two. Its trailing `for` / `if` clause declares nothing: in `axiomatization where
+ax: "P F" for F :: ty` the `F` is a variable fixed for the axiom, not a constant,
+and `for` runs to the end of the command, so an `and` after it is a second
+variable `[axiom-for]`.
+
+`lemmas` follows `axiomatization`: `lemmas a = x y and b = z` binds two facts,
+each with its own right-hand side, so each is an entry (tagged `LEMMAS`) and
+cites only its own facts. A citation of `a` is then a use of `x` and `y`, and
+`callers -r x` passes through it. A group with no name, as in `lemmas [simp] =
+foo`, only attaches an attribute; it binds nothing and is not an entry, so its
+citation of `foo` belongs to the theory's `<toplevel>` caller. `theorems` is
+the same command `[lemmas-entries]`.
 
 This matters for precision as much as recall. A name the tool cannot find has no
 declaration site to exclude, so its own definition reads as a citation of
@@ -188,6 +199,19 @@ is. The bulk citation graph (`callees`, `refs`, `unused`, `graph citation`)
 keys on entries only, since it has no bound-name nodes, so its totals do not
 move. This was the port's own rule (D14) until upstream adopted it in 0.9.1
 `[bound-name-reach]`.
+
+The graph is keyed by **name**, so an edge says only that *some* declaration of
+the name is visible. A row that names a declaration therefore asks again which
+one: `callees` lists every declaration the subject's theory can see, nearest by
+import depth first, and `callers -r` places each caller in a theory that can see
+the subject. When a name has several declarations, `callers NAME` says so in its
+header and groups the sites by the declarations each one can see. A site that
+sees more than one is listed under "any of", because two visible theories
+declaring one name is a collision the index cannot resolve. The index also keeps
+types and constants in one namespace, so a `datatype t` and a `definition t`
+collide here even though they never do in Isabelle `[callee-attribution]`.
+`graph citation`'s node table and `codeqs` still name one declaration per name,
+the first loaded — `[decl-identity]` in `todo.md`, open on both sides.
 
 `--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
 `graph` and `refs` — every verb the scoping moves. `instances` and `codeqs`
@@ -333,7 +357,11 @@ that theory, and a bare `QE:3495` still works when the name is unique. `grep`
 and `sorry` report a **file** rather than a theory, so they qualify the same way
 with the suffix kept (`alpha/Examples.thy:12`), which leaves a non-`.thy`
 positional's own filename intact. `instances` and `codeqs` report a theory, and
-so print the label bare: a site is reported where a caller is.
+so print the label bare: a site is reported where a caller is. The synthetic
+caller that owns a citation no entry owns (an anonymous `lemmas`, a `declare`,
+an `instance`) is named by its theory's label too, `LABEL:<toplevel>`, so two
+same-named theories' top-level citations are two nodes rather than one
+`[toplevel-label]`.
 
 The same collision decides which entry owns a line, which lines are prose, and
 which are declaration sites — all three are answered per *file*, so two

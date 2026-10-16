@@ -50,7 +50,7 @@ isabelle query -R demo summary --by-session
 ```
 
 ```
-62 entries · 683 source lines across 6 theories in 2 sessions  (parsed live from .thy files)
+63 entries · 683 source lines across 6 theories in 2 sessions  (parsed live from .thy files)
 
 | Session | Thy | Src | D | L | T |
 |---------|----:|----:|--:|--:|--:|
@@ -354,8 +354,8 @@ isabelle query -R demo unused --by-theory
 ```
 
 ```
-25
-25 unused entries across 5 theories (135 source lines):
+26
+26 unused entries across 5 theories (141 source lines):
 
    10  Demo_Proofs    72 lines  reachable_four, total_snoc_twice, demo_export, account_settlement, ... (+6)
     6  Demo_Ops       18 lines  f\<^sub>1_le_double, f\<^sub>1_mono_rule, f\<^sub>1_le_suc, assoc_right, ... (+2)
@@ -363,7 +363,7 @@ isabelle query -R demo unused --by-theory
 ```
 
 `dead_helper` is in the `Demo_Ops` group and is the one entry here that is dead
-**on purpose** — declared, proved, cited by nothing. The other 24 are a fair
+**on purpose** — declared, proved, cited by nothing. The other 25 are a fair
 picture of a real answer: most are top-level results a corpus this size exports
 rather than consumes. That is what `--keep` is for, and why `-h` calls this a
 source-text citation graph rather than ground truth:
@@ -743,8 +743,8 @@ isabelle query --client-stop
 ```
 server        isabelle_query
 protocol      1 (client 1)
-version       0.9.2-scala.0.3
-index         <checkout>/demo  6 theories, 62 entries, 147 ms build / 4 ms recheck, 1 uses
+version       0.9.8-scala.0.3
+index         <checkout>/demo  6 theories, 63 entries, 147 ms build / 4 ms recheck, 1 uses
 ```
 
 Timing, on this corpus — the floor is the JVM, and the warm path removes it:

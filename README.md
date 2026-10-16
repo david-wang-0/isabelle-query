@@ -83,7 +83,7 @@ otherwise the CLI discovers the nearest project at or above the working director
 isabelle query summary                 # theory overview; --by-session for a corpus
 isabelle query theory MyTheory         # entries; --names for names only
 isabelle query find <regex>            # names; --statement for statements
-isabelle query show <name>             # declaration and body
+isabelle query show <name>             # declaration and body; --premises for premises
 isabelle query outline [THEORY]        # sections and entries
 isabelle query enclosing FILE:LINE     # owning entry/proof block (alias: at)
 isabelle query largest [-N n]          # biggest entries by span
@@ -91,7 +91,7 @@ isabelle query grep <regex> [PATH...]  # live source text; -i ignores case
 isabelle query lines FILE A..B         # numbered source lines
 isabelle query defs <theory>           # definitions
 isabelle query sorry                   # outstanding sorry sites
-isabelle query callers <name> [-r]     # references to a name; -r is transitive
+isabelle query callers <name> [-r]     # references to a name; -r transitive, -f tsv
 isabelle query callees <name> [-r]     # references from a name
 isabelle query deps <theory> [-r]      # imports; uses is the reverse direction
 isabelle query refs <theory>           # citations grouped by owning theory
@@ -283,10 +283,15 @@ For example, `find zzz -c` prints `0` and succeeds, while an unknown subject
 in `callees zzz -c` reports an error and exits `1`. An unreadable root never
 becomes an empty success.
 
+Given several subjects, one that does not exist fails the whole run the same
+way: each unknown name is reported, stdout stays empty, and the status is `1`
+— so an answer never lands in the slot of the name before it. A usage error in
+any one of them (a bad regex) likewise leaves stdout empty, with status `2`.
+
 ## Reference and development
 
 The frozen Python original, [ott2/isabelle-query](https://github.com/ott2/isabelle-query)
-0.9.2, lives in `src/isabelle_query/` with its reference tests; `instances` and
+0.9.8, lives in `src/isabelle_query/` with its reference tests; `instances` and
 `codeqs` are upstream verbs too since 0.9.1, contributed from this fork as PR
 #11. Routine validation is `make test`; full upstream compatibility is
 `make compat`. See
@@ -313,4 +318,5 @@ equations, quick-open, peek, search-by-name, navigation exposure), the warm
 server and thin client, and the demo project are by David Wang, with Claude
 Fable 5 and Claude Opus 5. P13 contributions are by GPT-6 Astra, Claude Fable
 5.1, and GPT-5.6 Sol; P14's, the sync with upstream 0.9.2, by Claude Fable 5.1
-and Claude Opus 5.5. [MIT](LICENSE).
+and Claude Opus 5.5; P15's, the sync with upstream 0.9.8, by Claude Opus 5.5.
+[MIT](LICENSE).

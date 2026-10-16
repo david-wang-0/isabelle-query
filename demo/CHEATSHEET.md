@@ -74,7 +74,7 @@
 
 ## Corpus-wide
 - `Q shape summary` → per-theory maxes; `Q shape census` → 31 JSONL records
-- `Q unused -c` → 24; `--by-theory` groups, `--keep a,b` prunes, `-r` cascades
+- `Q unused -c` → 26; `--by-theory` groups, `--keep a,b` prunes, `-r` cascades
 - `Q largest -N 6` → 21 lines down to 12; `Q graph imports` → cross-session import absent
 - `Q instances total` → exit 1, "is a DEF …, not a locale or class"
 - `Q callers total_append -r` warm (a plain `isabelle query` is the thin client) → 40 ms vs 1100 ms `--no-server`
