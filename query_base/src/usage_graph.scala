@@ -411,7 +411,7 @@ object Usage_Graph {
     toplevel: Map[String, (Theory_Section, Map[String, Int])] = Map.empty
   )
 
-  val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
+  val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "LEMMAS", "FUN", "DEF", "ABBREV")
 
   /* Doc antiquotations are stripped so a name cited only in rendered
      documentation is not counted as a proof-body call. */

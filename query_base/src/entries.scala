@@ -39,7 +39,7 @@ object Entries {
   /* --- the built-in declaration commands --- */
 
   val DECL_RE: Pattern = Py.compile(
-    "^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma" +
+    "^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemmas|theorems|lemma" +
       "|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\\s|$)")
 
   val tag_map: Map[String, String] = Map(
@@ -56,6 +56,11 @@ object Entries {
        [decl-commands] */
     "lemma" -> "LEMMA", "corollary" -> "LEMMA", "proposition" -> "LEMMA",
     "theorem" -> "THEOREM",
+    /* `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
+       no statement and no proof, but a citable fact all the same, and the
+       names on its right-hand side are what it cites.  `theorems` is the same
+       command under another display string (Pure.thy declares both). */
+    "lemmas" -> "LEMMAS", "theorems" -> "LEMMAS",
     "axiomatization" -> "AXIOM",
     "datatype" -> "DATATYPE", "type_synonym" -> "TYPE", "record" -> "RECORD",
     /* A locale/class DECLARES a name.  `context` and `interpretation` are
@@ -84,6 +89,7 @@ object Entries {
     else if (tag == "LOCALE" || tag == "CLASS") "target"
     else if (tag == "DATATYPE" || tag == "TYPE" || tag == "RECORD") "typedecl"
     else if (tag == "LEMMA" || tag == "THEOREM") "goal"
+    else if (tag == "LEMMAS") "facts"
     else "def"
 
 
@@ -176,7 +182,17 @@ object Entries {
   val BLANK_RE: Pattern = Py.compile("""^\s*$""")
   val TOPLEVEL_RE: Pattern = Py.compile("^[a-z]")
   val AXIOM_NAME_RE: Pattern = Py.compile("""([A-Za-z_][A-Za-z0-9_']*)\s*:""")
-  val AXIOM_AND_RE: Pattern = Py.compile("""(?<![\w'])and(?![\w'])""")
+  /* What follows an item of one `axiomatization` at outer-syntax position:
+     `and` before the next item, or the `if` / `for` tail that ends the names.
+     Only ever applied to the OUTER view, so the `and` inside a proposition —
+     or the `\<and>` connective — is already blanked. */
+  val AXIOM_SEP_RE: Pattern = Py.compile("""(?<![\w'])(and|for|if)(?![\w'])""")
+  /* Where an axiomatization stops declaring names [axiom-for].  Isabelle's
+     grammar is `vars? (where (thm_name: prop) and ... if_assumes? for_fixes?)?`
+     (Pure.thy, `val axiomatization`): `if` introduces premises and `for` the
+     variables fixed for the axioms, and nothing after either is a constant or
+     a label — `for F :: T` read as a label `F`. */
+  val axiom_closers: Set[String] = Set("for", "if")
   val WHERE_RE: Pattern = Py.compile("""\bwhere\b""")
   val TRAILING_WHERE_RE: Pattern = Py.compile("""\s+where$""")
 
@@ -622,6 +638,65 @@ object Entries {
     }
   }
 
+  /* `lemmas` / `theorems` [lemmas-entries].  Isabelle's grammar is
+
+         lemmas (in TARGET)? (thmdef? thms) and ... for_fixes?
+         thmdef = NAME [attrs]? =
+
+     so a group binds a name only when it opens `NAME =` or `NAME [attrs] =`;
+     a group without one (`lemmas [simp] = foo`, `lemmas foo [simp]`)
+     declares an attribute and binds nothing. */
+  val THMDEF_RE: Pattern = Py.compile(s"""\\s*($ISA_NAME)\\s*(?:\\[[^\\]]*\\]\\s*)?=(?!=)""")
+  val THMS_TOKEN_RE: Pattern = Py.compile("""[\[\]()]|(?<![\w'])and(?![\w'])""")
+  val IN_TARGET_PREFIX_RE: Pattern = Py.compile("""\s*\(\s*in\s+[^)]*\)""")
+
+  /* `(name, first line, last line)` for each named group of the `lemmas`
+     command on lines `start..end`, whose keyword ends at column `col` of line
+     `start`.  Read on the outer view, so an `and` or `=` inside a term
+     (`[of "a = b"]`) is blanked and cannot split a group.  A group's lines
+     run from its own `and` (the command line, for the first) to the line
+     before the next group's, or to `end`. */
+  def thmdefs(outer: Array[String], start: Int, end: Int, col: Int): List[(String, Int, Int)] = {
+    val text = joined(outer, start, end)
+    val pos = Py.matches_at(IN_TARGET_PREFIX_RE, text, col min text.length).map(_.end()).getOrElse(col)
+    val starts = new mutable.ArrayBuffer[Int]
+    starts += pos
+    var depth = 0
+    if (pos <= text.length) {
+      val t = THMS_TOKEN_RE.matcher(text)
+      var more = t.find(pos)
+      while (more) {
+        t.group() match {
+          case "[" | "(" => depth += 1
+          case "]" | ")" => depth -= 1
+          case _ => if (depth == 0) starts += t.end()
+        }
+        more = t.find()
+      }
+    }
+    def line_of(k: Int): Int = {
+      var n = 0
+      var j = 0
+      while (j < k && j < text.length) { if (text.charAt(j) == '\n') n += 1; j += 1 }
+      start + n
+    }
+    /* A later group starts on the line of its own first token, so in
+       `four = base and` / `five = other` the first line is `four`'s alone;
+       the first group starts on the command line. */
+    val firsts = start +: starts.drop(1).map(k =>
+      line_of(text.length - Py.lstrip(text.substring(k min text.length)).length)).toVector
+    val found = new mutable.ListBuffer[(String, Int, Int)]
+    for ((k, g) <- starts.zipWithIndex if k <= text.length) {
+      Py.matches_at(THMDEF_RE, text, k).foreach { m =>
+        val last =
+          if (g + 1 < starts.length) firsts(g) max (firsts(g + 1) - 1)
+          else end
+        found += ((m.group(1), firsts(g), last))
+      }
+    }
+    found.toList
+  }
+
   /* The constructors, discriminators and selectors a `datatype` declares.
      Read on the outer view, so argument TYPES — inner syntax, full of names
      that are not constructors — are blanked before the scan. */
@@ -710,30 +785,37 @@ object Entries {
     }
   }
 
-  /* One `axiomatization` line: the names it declares, and whether it opened
-     with a continuation keyword.  Names PLURAL, because `and` separates items
-     WITHIN a line as readily as it ends one. */
-  def axiom_line(text: String): (List[String], Boolean) = {
+  /* One `axiomatization` line: the names it declares, whether it opened with
+     a continuation keyword, and whether the command has reached its `if` /
+     `for` tail, after which it declares nothing (`closed`, passed in for the
+     lines that follow — [axiom-for]).  Names PLURAL, because `and` separates
+     items WITHIN a line as readily as it ends one. */
+  def axiom_line(text: String, closed0: Boolean = false): (List[String], Boolean, Boolean) = {
     var stripped = Py.strip(text)
     val cont = Py.matches_start(STATEMENT_CONT_RE, stripped)
     val names = new mutable.ListBuffer[String]
+    var closed = closed0
     var go = true
-    while (go && stripped.nonEmpty) {
+    while (go && stripped.nonEmpty && !closed) {
       Py.matches_at_start(STATEMENT_CONT_RE, stripped) match {
-        case Some(kw) => stripped = Py.lstrip(stripped.substring(kw.end()))
+        case Some(kw) =>
+          if (axiom_closers(Py.strip(kw.group(0)))) closed = true
+          else stripped = Py.lstrip(stripped.substring(kw.end()))
         case None =>
           Py.matches_at_start(AXIOM_NAME_RE, stripped) match {
             case None => go = false
             case Some(m) =>
               names += m.group(1)
-              Py.search_from(AXIOM_AND_RE, stripped, m.end()) match {
+              Py.search_from(AXIOM_SEP_RE, stripped, m.end()) match {
                 case None => go = false
-                case Some(nxt) => stripped = Py.lstrip(stripped.substring(nxt.end()))
+                case Some(nxt) =>
+                  if (axiom_closers(nxt.group(1))) closed = true
+                  else stripped = Py.lstrip(stripped.substring(nxt.end()))
               }
           }
       }
     }
-    (names.toList, cont)
+    (names.toList, cont, closed)
   }
 
 
@@ -1139,6 +1221,22 @@ object Entries {
     (located, located.map(_.thy_line))
   }
 
+  /* Flag each entry whose cut span meets a neighbour's [cut-span].
+     `Entry.cut_span` promises a span holding one entry and nothing of another.
+     `thy_end` caps it below the next entry's start, which is enough unless the
+     next entry starts on this one's last line — two declarations on one line
+     (`consts F G`, a one-line `axiomatization where F1: …`).  Then no line
+     span separates them, and BOTH are flagged: cutting either line takes the
+     other with it.  Runs once `body_end_line` is final.  `sortBy` is stable,
+     as Python's `sorted` is, so same-line entries keep source order. */
+  def mark_shared_lines(entries: List[Entry]): Unit = {
+    val placed = entries.filter(_.thy_line != 0).sortBy(_.thy_line)
+    for ((a, b) <- placed.zip(placed.drop(1)) if a.line_cut._2 >= b.src_start) {
+      a.shares_line = true
+      b.shares_line = true
+    }
+  }
+
   /* The boundary above an entry is the NEXT entry's src_start — its leading
      `text` preamble if it has one — so a following entry's docstring is
      charged to that entry, not folded into the preceding entry's span. */
@@ -1404,7 +1502,7 @@ object Entries {
              `axiomatization where process_finite:` — so read its remainder
              before stepping below it. */
           val head_from = (indent + keyword.length) min outer(i).length
-          val (head_names, _) = axiom_line(outer(i).substring(head_from))
+          val (head_names, _, head_closed) = axiom_line(outer(i).substring(head_from))
           for (head_name <- head_names) {
             entries += Entry("AXIOM", head_name,
               "  AXIOM " + Py.strip(line.substring(keyword.length min line.length)),
@@ -1412,8 +1510,10 @@ object Entries {
           }
           i += 1
           var go = true
+          var closed = head_closed
           while (go && i < lines.length) {
-            val (found, cont) = axiom_line(outer(i))
+            val (found, cont, c) = axiom_line(outer(i), closed)
+            closed = c
             if (found.nonEmpty) {
               for (name <- found) {
                 entries += Entry("AXIOM", name, "  AXIOM " + Py.strip(lines(i)),
@@ -1447,6 +1547,29 @@ object Entries {
             and_siblings(outer, decl_line, decl_end_line, name, tag).map(s => (s, "sibling")) :::
             rule_labels(outer, decl_line, decl_end_line, name).map(s => (s, "rule"))
           entries += e
+        }
+        else if (route == "facts") {
+          /* One entry per bound name: `lemmas a = x and b = y` declares two
+             facts, and a citation of `b` is a use of `y` alone.  An anonymous
+             command declares nothing and stays a `<toplevel>` citation.
+             [lemmas-entries] */
+          val (ni, decl_end_line, _) =
+            scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
+          i = ni
+          /* `(in foo)` is written once, on the command line, and
+             `attach_targets` reads an entry's own first line. */
+          val in_target = Py.search(IN_TARGET_RE, outer(decl_line - 1)).map(_.group(1))
+          for ((name, first, last) <- thmdefs(outer, decl_line, decl_end_line, indent + keyword.length)) {
+            var head = lines(first - 1)
+            if (first == decl_line)       // past the command word
+              head = head.substring((indent + keyword.length) min head.length)
+            val rest = lines.slice(first, last).iterator.filter(ln => Py.strip(ln).nonEmpty)
+              .map(ln => "  " + Py.strip(ln)).toList
+            val e = Entry(tag, name, (Py.rstrip(s"$tag ${Py.strip(head)}") :: rest).mkString("\n"),
+              thy_line = first, decl_end_line = last)
+            in_target.foreach(t => e.in_target = t)
+            entries += e
+          }
         }
         else if (route == "goal") {
           val rest = Py.strip(line.substring(keyword.length min line.length))

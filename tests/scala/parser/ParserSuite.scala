@@ -13,6 +13,7 @@ object ParserSuite { def run(): Unit = {
   Parser_test_keyword_kind_quoted.run()
   Parser_test_keywords.run()
   Parser_test_known_failures.run()
+  Parser_test_lemmas_entries.run()
   Parser_test_line_index_ties.run()
   Parser_test_live_source.run()
   Parser_test_marker_decl.run()

@@ -14,6 +14,20 @@ private[regression] object ParserApi {
   private def oneB(root: JPath): Theory_Section =
     Theory.parse_one("B",root.resolve("B.thy"),Theory.read(root.resolve("B.thy")),
       Theory.header_keywords(root.resolve("B.thy")))
+  /* `api.parse_theory(..., root=)` [cut-span] is no new API here: the
+     keyword table is a value, so the same answer is `Theory.plan(root)` (every
+     header under the root, no body) composed with `parse_one` on the one
+     file.  The port's equivalent of its ValueError on a root with nothing
+     under it is that empty plan, which this composition refuses. */
+  private def rootedB(root: JPath): Theory_Section = {
+    val p = Theory.plan(root)
+    if (p.found.isEmpty) throw new IllegalArgumentException("no theories under " + root)
+    val path = root.resolve("B.thy")
+    val session = p.found.map(_._1).find(f =>
+      Files.exists(f.path) && Files.isSameFile(f.path, path)).flatMap(_.session)
+    Theory.parse_one("B", path, Theory.read(path), p.table(Theory.header_keywords(path)), session)
+  }
+  private def cut: Theory_Section = Theory.parse_source("Cut",Paths.get("<test>"),Py.split_lines(CUT)._1)
   private def checkedRoot(root: JPath): List[Theory_Section] = {
     // Scala's public CLI.Session is the diagnosed root-loading boundary.
     // Unlike its lower-level Theory.parse_root, it refuses an unusable root.
@@ -41,8 +55,16 @@ private[regression] object ParserApi {
     }
     api("TheSpanFieldsAreTheContract.test_entry_carries_every_derived_span") {
       ENTRY_SPAN_PROPERTIES.foreach { name =>
-        equal(classOf[Entry].getMethod(name).getReturnType,java.lang.Integer.TYPE,name)
-        check(ParserValues.V(fixture.entries.head).field(name).int > 0,name)
+        val value=ParserValues.V(fixture.entries.head).field(name)
+        // `cut_span` is Python's `tuple | None`: an Option, Some on this fixture.
+        if (name=="cut_span") {
+          equal(classOf[Entry].getMethod(name).getReturnType,classOf[Option[?]],name)
+          check(!value.isNone,name)
+        }
+        else {
+          equal(classOf[Entry].getMethod(name).getReturnType,java.lang.Integer.TYPE,name)
+          check(value.int > 0,name)
+        }
       }
     }
     api("TheSpanFieldsAreTheContract.test_section_carries_every_span_field") {
@@ -75,6 +97,29 @@ private[regression] object ParserApi {
       val e=fixture.entries.head;equal((e.src_start,e.thy_end),(5,12));equal(e.line_count,8)
     }
     api("TheSpansAreRight.test_slice_round_trips_the_lines") { equal(fixture.slice(7,7).toList,List("lemma documented:")) }
+    api("TheSpansAreRight.test_the_cut_span_is_preamble_through_qed") { equal(fixture.entries.head.cut_span,Some((5,12))) }
+    def by_name(sec: Theory_Section): Map[String, Entry] = sec.entries.map(e => e.name -> e).toMap
+    api("TheCutSpanHoldsOneEntry.test_a_trailing_text_block_is_left_behind") {
+      val e=by_name(cut); val first=e("first")
+      equal(first.cut_span.get._2,5)
+      check(first.cut_span.get._2 < e("second").src_start)
+    }
+    api("TheCutSpanHoldsOneEntry.test_the_next_entry_takes_its_own_preamble") {
+      equal(by_name(cut)("second").cut_span,Some((8,12)))
+    }
+    api("TheCutSpanHoldsOneEntry.test_one_line_declarations_have_no_cut_span") {
+      val on_14=cut.entries.filter(_.thy_line==14)
+      equal(on_14.length,2,"fixture no longer yields both entries")
+      check(on_14.exists(_.name=="F1"))
+      on_14.foreach { e => subcase("name="+e.name) { check(e.shares_line); equal(e.cut_span,None) } }
+    }
+    api("TheCutSpanHoldsOneEntry.test_entries_on_their_own_lines_are_not_flagged") {
+      val e=by_name(cut)
+      List("first","second").foreach(n => subcase("name="+n) { check(!e(n).shares_line) })
+    }
+    api("TheCutSpanHoldsOneEntry.test_an_unplaced_entry_has_no_cut_span") {
+      equal(Entry("LEMMA","x","",thy_line=0).cut_span,None)
+    }
     api("ParseRootAgreesWithTheCli.test_parse_root_sees_the_sibling_declaration") { project { root =>
       val secs=Theory.parse_root(root).map(s => s.theory -> s).toMap
       check(secs.contains("B"));check(secs("B").entries.exists(_.name=="gadget"))
@@ -88,6 +133,25 @@ private[regression] object ParserApi {
       oneB(root)
       val again=Theory.parse_root(root).map(s => s.theory -> s).toMap
       equal(first("B").entries.map(_.name),again("B").entries.map(_.name))
+    }}
+    api("ParseRootAgreesWithTheCli.test_parse_theory_with_root_sees_the_sibling_declaration") { project { root =>
+      oneB(root)
+      val sec=rootedB(root)
+      check(sec.entries.exists(_.name=="gadget"))
+      equal(sec.session,Some("Demo"))
+      val full=Theory.parse_root(root).map(s => s.theory -> s).toMap.apply("B")
+      equal(sec.entries.map(e => (e.name,e.thy_line,e.cut_span)),full.entries.map(e => (e.name,e.thy_line,e.cut_span)))
+    }}
+    api("ParseRootAgreesWithTheCli.test_parse_theory_with_root_leaves_the_table_as_it_found_it") { project { root =>
+      rootedB(root)
+      check(!oneB(root).entries.exists(_.name=="gadget"))
+    }}
+    api("ParseRootAgreesWithTheCli.test_parse_theory_with_a_bad_root_raises") { project { root =>
+      raises(rootedB(root.resolve("nope")))
+      raises(checkedRoot(root.resolve("nope")))
+      val empty=Files.createDirectory(root.resolve("empty"))
+      raises(rootedB(empty))
+      raises(checkedRoot(empty))
     }}
     api("ParseRootAgreesWithTheCli.test_two_roots_do_not_contaminate_each_other") { project { root =>
       val other=Files.createDirectory(root.resolve("other"))

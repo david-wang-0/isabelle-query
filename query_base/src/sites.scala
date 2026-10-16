@@ -1350,7 +1350,9 @@ object Sites {
 
       /* 1. Declarations: the entry grammar already knows where a statement
             ends (`Entry.decl_end_line`), so there is no second scan for it. */
-      for (e <- sec.entries if e.thy_line > 0) {
+      /* A `lemmas` entry has no statement of its own: its `[code]` is read
+         by step 3, with every other `lemmas` [lemmas-entries]. */
+      for (e <- sec.entries if e.thy_line > 0 && e.tag != "LEMMAS") {
         var attributed = false
         val stop =
           (if (e.decl_end_line >= e.thy_line) e.decl_end_line else e.thy_line) min live.length
@@ -1412,8 +1414,8 @@ object Sites {
             entry_name, signature)
       }
 
-      /* 3. `declare` / `lemmas`, which declare no entry and so are invisible
-            to the loop above. */
+      /* 3. `declare` / `lemmas`, whose attribute is attached to facts that
+            already exist (a `lemmas` entry is skipped by the loop above). */
       var i = 1
       while (i <= outer.length) {
         val stripped = Py.lstrip(outer(i - 1))
