@@ -1,10 +1,10 @@
 # P15 — sync the port with upstream 0.9.8
 
-**Status: IN PROGRESS** (opened 2026-10-16; S0–S6 done the same day). This is the task list for
-bringing the Scala engine to parity with upstream isabelle-query **0.9.8**
-(from 0.9.2). It is the plan; the per-step evidence goes into commit
-messages under the tags below, and the closing measurements go into
-`dev/P15-STATUS.md`.
+**Status: DONE pending the compat stamp** (opened 2026-10-16; S0–S8 done the
+same day). This is the task list for bringing the Scala engine to parity
+with upstream isabelle-query **0.9.8** (from 0.9.2). It is the plan; the
+per-step evidence goes into commit messages under the tags below, and the
+closing measurements go into `dev/P15-STATUS.md`.
 
 Upstream's six releases are 31 commits (`git log v0.9.2..v0.9.8` on the
 `upstream` remote). The release notes are the six bump commits: `9a6e18e`
@@ -208,21 +208,32 @@ Landed: `2704e7d`..`f26666c` (the last re-expresses `p9probe.sh` §1c for
 
 ### S7 — the matrix, the pins, the divergence list, the compat baseline
 
-- [ ] `dev/difftest.sh`: `c` lines for `callers -f tsv` (`-r`, `-c`), a
+Landed: `4fecaa8`..`2c2b0b0`, merged `29a79f4`. Full matrix 2,464 (352 ids ×
+7 corpora): **2,260 clean, 204 pinned (D15 200, D8 4), 0 failing, 0 stale**.
+
+- [x] `dev/difftest.sh`: `c` lines for `callers -f tsv` (`-r`, `-c`), a
       batch with an unknown name, a batch with a bad regex, `show
       --premises`, a near-name `show`, `show --names` on a near name; each
       non-vacuous on at least one corpus. `tests/scala/coverage/matrix.json`.
-- [ ] `dev/DIVERGENCES.md`: new entries for anything S5 left red; the
-      `shows … for x` count if upstream does not take it.
-- [ ] `tests/scala/upstream-tests.json`: `upstream_version` 0.9.8, new
-      `python_tree_id`; each `coverage/<suite>.json` exhaustive.
+      15 ids, 337 → 352 per corpus (`15ac6aa`).
+- [x] `dev/DIVERGENCES.md`: new entries for anything S5 left red; the
+      `shows … for x` count if upstream does not take it. No new entry:
+      `CTT/closed-stdout` is D8 (the oracle's answer moved), D15 at 200; the
+      `for x` count is agreement and goes to `P15-STATUS.md` as a candidate
+      upstream report (`2c2b0b0`).
+- [x] `tests/scala/upstream-tests.json`: `upstream_version` 0.9.8, new
+      `python_tree_id`; each `coverage/<suite>.json` exhaustive. 1,482 IDs;
+      `make test-scala` 1,399 passed, 83 non-pass, 0 failures (`4fecaa8`).
 - [ ] `make compat` stamps `dev/upstream-compat-baseline.json` for 0.9.8.
       Only after S5 is green.
 
 ### S8 — docs, version, status
 
-- [ ] Fold `.dev/p15/upstream-docs.diff` into OUR README, SCANNING,
+- [x] Fold `.dev/p15/upstream-docs.diff` into OUR README, SCANNING,
       CONTRIBUTING; MIGRATING (what 0.9.3–0.9.8 brought, `-V`
       `0.9.8-scala.0.3`); CLAUDE.md release status, DAG line, verb notes;
-      `demo/DEMO.md` version line; `PLAN.md` phase list.
-- [ ] `dev/P15-STATUS.md`; `todo.md`; memory `p15-upstream-sync`.
+      `demo/DEMO.md` version line; `PLAN.md` phase list. The demo
+      transcripts re-run cold: 63 entries, 26 unused (`thrice_code`).
+- [x] `dev/P15-STATUS.md`; `todo.md` (`[client-status-stale]`,
+      `[client-restart-owned]`).
+- [ ] Memory `p15-upstream-sync`.
