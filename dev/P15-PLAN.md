@@ -1,6 +1,6 @@
 # P15 — sync the port with upstream 0.9.8
 
-**Status: IN PROGRESS** (opened 2026-10-16). This is the task list for
+**Status: IN PROGRESS** (opened 2026-10-16; S0–S6 done the same day). This is the task list for
 bringing the Scala engine to parity with upstream isabelle-query **0.9.8**
 (from 0.9.2). It is the plan; the per-step evidence goes into commit
 messages under the tags below, and the closing measurements go into
@@ -81,24 +81,28 @@ graph whose `lemmas` are entries). S5 merges, S6–S8 close.
 Worktree `p15/s1-parser`. Spec: `07294de`, `f692bbd`, `589d58b`, `0efd9c5`;
 gap report `.dev/p15/gap-parser.md`.
 
-- [ ] `[axiom-for]` — `entries.scala` `axiom_line` loop and its separator
+Landed: `02a2128`..`69c367d`. entrydiff clean on all seven corpora; 15
+FOL cases newly pinned to D15 (`Locale_Test/Locale_Test`'s two uncited
+`lemmas`).
+
+- [x] `[axiom-for]` — `entries.scala` `axiom_line` loop and its separator
       regex: `for` / `if` close name collection, threaded through both
       callers. Fixture `tests/test_axiom_names.py`.
-- [ ] `[lemmas-entries]` — `lemmas` / `theorems` join the declaration regex
+- [x] `[lemmas-entries]` — `lemmas` / `theorems` join the declaration regex
       and tag map as `LEMMAS`, a "facts" branch splits `a = x and b = y`
       into one entry per named group (port `_thmdefs`), each citing only
       its own right-hand side; an anonymous `lemmas [simp] = foo` stays a
       `<toplevel>` citation; a `text` preamble goes to the alias it
       introduces. `LEMMAS` joins `Usage_Graph.citable_tags`; `sites.scala`'s
       codeqs declaration pass skips it. Fixture `tests/test_lemmas_entries.py`.
-- [ ] `[cut-span]` — port `Entry.cut_span` / `shares_line` (`model.scala`,
+- [x] `[cut-span]` — port `Entry.cut_span` / `shares_line` (`model.scala`,
       a `mark_shared_lines` pass in `entries.scala`); `parse_theory(root=)`'s
       tests ported through `Theory.plan` + `parse_one`, the bad-root case
       through `CLI.Session.load_index` as P14 did.
-- [ ] Re-stamp the parser generator's `source-audit.json` for 0.9.8,
+- [x] Re-stamp the parser generator's `source-audit.json` for 0.9.8,
       regenerate (upstream changed `test_instantiation_spans`' fixture to
       `declare bar [simp]`), port the new IDs.
-- [ ] Gate: `dev/entrydiff.sh` on all seven corpora (the oracle gains
+- [x] Gate: `dev/entrydiff.sh` on all seven corpora (the oracle gains
       LEMMAS entries on AODV 90, FOL 28, ZF 346, Sequents 10, CTT 19);
       `difftest -k` on `show*`, `find*`, `summary*`, `unused*`, `callers*`.
 
@@ -107,24 +111,27 @@ gap report `.dev/p15/gap-parser.md`.
 Worktree `p15/s2-batch`. Spec: `3b3d993`, `1f222d7`, `a506f9a`, `fcdc879`,
 `78c4626`; gap report `.dev/p15/gap-callers.md`.
 
-- [ ] `[subject-batch]` — `CLI.each` buffers stdout per subject and keeps
+Landed: `564a380`..`c2598e7`. `callers -r -c` with 8 names on AODV now
+costs what 1 does (8:1 ≈ 1.0, was ≈ 1.5).
+
+- [x] `[subject-batch]` — `CLI.each` buffers stdout per subject and keeps
       going on an exit-1 subject; at the end, any unknown → stdout empty,
       every unknown on stderr, exit 1; any other non-zero exit propagates at
       once with stdout empty. Every list verb. Server/client unchanged
       (verify with `dev/p7probe.sh`).
-- [ ] `[graph-once]` — the call graph built once per request: a cache on
+- [x] `[graph-once]` — the call graph built once per request: a cache on
       `CLI.Session` (a value per request, NOT a global —
       `[p10-namespace-value]`) passed to the five `usage.scala` sites.
-- [ ] `[callers-tsv]` — `callers -f tsv` and `-c -f tsv` exactly as
+- [x] `[callers-tsv]` — `callers -f tsv` and `-c -f tsv` exactly as
       upstream, incl. `fcdc879`'s `<toplevel>` row (`THEORY:<toplevel>`,
       `TOPLEVEL`, theory, session, locus). The `-r` rows' declaration choice
       is first-wins here behind one helper; S4 replaces it with
       `[callee-attribution]`'s rule (name the helper in the commit).
-- [ ] `[stale-heap-dump]` — no code; its 3 test IDs get python-only
+- [x] `[stale-heap-dump]` — no code; its 3 test IDs get python-only
       dispositions citing D11.
-- [ ] Fixtures: `tests/test_subject_loop.py`, `test_namespace_cache.py`,
+- [x] Fixtures: `tests/test_subject_loop.py`, `test_namespace_cache.py`,
       the TSV halves of `test_toplevel_callers.py`.
-- [ ] Gate: `difftest -k` on `callers*`, `callees*`, `deps*`, `refs*`,
+- [x] Gate: `difftest -k` on `callers*`, `callees*`, `deps*`, `refs*`,
       `uses*`, `instances*`; `dev/p7probe.sh`; `callers -r` on 8 names
       timed before/after on AODV.
 
@@ -133,19 +140,22 @@ Worktree `p15/s2-batch`. Spec: `3b3d993`, `1f222d7`, `a506f9a`, `fcdc879`,
 Worktree `p15/s3-show`. Spec: `d5bbffe`, `32f9b79`, `e2b0324`; gap report
 `.dev/p15/gap-show.md` (byte formats, sites, an outline of `premises.py`).
 
-- [ ] `[show-near-names]` — the fallback note; it and the bound-name note go
+Landed: `2532853`..`809ac1a`. `show --premises -a` premise rows equal to
+the oracle in all 10,607 blocks over the seven corpora.
+
+- [x] `[show-near-names]` — the fallback note; it and the bound-name note go
       to stderr under `--names` / `-c` (`cmd_show` gains `err`).
-- [ ] `[show-match-count]` — `[k of n] ` in `render_entry`'s header for
+- [x] `[show-match-count]` — `[k of n] ` in `render_entry`'s header for
       `show` and `find` when n > 1.
-- [ ] `[show-premises]` — new module `premises.scala` after `entries` in
+- [x] `[show-premises]` — new module `premises.scala` after `entries` in
       `build.props` (and the CLAUDE.md DAG line); `--premises` in the
       `show` flag group. Every premise form upstream's tests and
       `scripts/probe_premise_forms.py` name. Match the oracle's
       `shows "Q x" for x` = 3 conclusions and report it for a divergence
       entry; do not "fix" it.
-- [ ] Fixtures: `tests/test_show_near_names.py`, `test_show_match_count.py`,
+- [x] Fixtures: `tests/test_show_near_names.py`, `test_show_match_count.py`,
       `test_show_premises.py` → cli suite.
-- [ ] Gate: `difftest -k` on `show*`, `find*`; `show --premises -a` per
+- [x] Gate: `difftest -k` on `show*`, `find*`; `show --premises -a` per
       theory byte-equal to the oracle on the seven corpora.
 
 ### S4 — labels and attribution `[toplevel-label]` `[label-depth]` `[callee-attribution]`
@@ -154,37 +164,47 @@ Worktree `p15/s4-attrib`, branched from `main` after S1 and S2 land. Spec:
 `a7cb09f`, `d2df572`, `67f3bb6`, `e1cea87`, `cc5b130`, `f76d8dc`; gap
 reports `.dev/p15/gap-callers.md` §toplevel/label, `.dev/p15/gap-attrib.md`.
 
-- [ ] `[toplevel-label]` — `<toplevel>` nodes named by `Render.locus_labels`
+Landed: `2704e7d`..`f26666c` (the last re-expresses `p9probe.sh` §1c for
+`[subject-batch]`). Its 33 cases 0 failing; p9probe 152/152, p7cprobe 45/45.
+
+- [x] `[toplevel-label]` — `<toplevel>` nodes named by `Render.locus_labels`
       (`render` already sits below `usage_graph`; fix the comment at
       `usage_graph.scala:643` that says otherwise); the two Scala test
       reference builders follow.
-- [ ] `[label-depth]` — port `label_chain` so the label printer and the name
+- [x] `[label-depth]` — port `label_chain` so the label printer and the name
       resolver share one definition; no output change expected (D15).
-- [ ] `[callee-attribution]` — import depths kept with the closure; an
+- [x] `[callee-attribution]` — import depths kept with the closure; an
       all-declarations index (by identity: `Entry` is a case class); the
       `callees` (plain, `-r`, `--names`, `--external`, `--reach name`) and
       `callers -r` (block, `--names`, `-f tsv` — replacing S2's helper)
       rules; the grouped `callers NAME` header. `dev/p9probe.sh`'s three
       expectations (§13a ×2, §17a) take the hand-checked grouped text.
-- [ ] Fixtures: `tests/test_callee_attribution.py` → graph suite;
+- [x] Fixtures: `tests/test_callee_attribution.py` → graph suite;
       `test_toplevel_callers.py`'s graph half; `test_disambig_names.py`.
-- [ ] Gate: `difftest -k` on `callers*`, `callees*`, `graph*`, `unused*`;
+- [x] Gate: `difftest -k` on `callers*`, `callees*`, `graph*`, `unused*`;
       `dev/p9probe.sh`, `dev/p7cprobe.sh`.
 
 ### S5 — land the branches on `main`
 
-- [ ] Merge S1, S3, S2 (wave 1), then S4. Resolve `cli.scala`,
+- [x] Merge S1, S3, S2 (wave 1), then S4. Resolve `cli.scala`,
       `commands.scala`, `usage.scala` and the coverage JSONs by hand;
       `make test-scala`.
-- [ ] Full `dev/difftest.sh` and `dev/entrydiff.sh`; every remaining red case
+- [x] Full `dev/difftest.sh` and `dev/entrydiff.sh`; every remaining red case
       named to S7 or pinned to a `dev/DIVERGENCES.md` entry with evidence.
+      372 → 34 (wave 1) → **1** failing of 2,359 (2,157 clean, 201 pinned):
+      `CTT/closed-stdout`, D8 — the answer's size moved and the oracle now
+      meets the broken pipe only in its shutdown flush (exit 120). S7 pins it.
 
 ### S6 — the plugin and the server
 
-- [ ] The jEdit plugin renders nothing that changed (`query_search.scala`
+- [x] The jEdit plugin renders nothing that changed (`query_search.scala`
       uses `format_name_line` only); confirm with `dev/p5probe.sh`,
       `p6probe.sh`, `p6bprobe.sh`. The batch contract and `-f tsv` over the
       socket: `dev/p7probe.sh`. `COLD_ONLY_COMMANDS` untouched.
+- [x] Landed `f10e4c5`..`4d4167f`: all probes green; p7probe 17 failing →
+      109/109 (`[p7probe-scoping]`: the probe predated 85b62a5's owned
+      fallback, and one real client bug — a warm answer into a closed pipe
+      exited 120 — fixed); §18 checks the P15 contracts over the socket.
 
 ### S7 — the matrix, the pins, the divergence list, the compat baseline
 
