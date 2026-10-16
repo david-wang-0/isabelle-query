@@ -5567,6 +5567,27 @@
       "inherited": false
     },
     {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_a_changed_heap_retries",
+      "suite": "cli",
+      "source": "tests/test_namespace_cache.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_a_timeout_is_not_recorded",
+      "suite": "cli",
+      "source": "tests/test_namespace_cache.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_the_second_call_does_not_spawn",
+      "suite": "cli",
+      "source": "tests/test_namespace_cache.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_namespace_cache.Augmented.test_no_build_when_session_heap_absent",
       "suite": "cli",
       "source": "tests/test_namespace_cache.py",
