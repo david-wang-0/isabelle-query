@@ -322,12 +322,21 @@ object Entries {
      unbalanced.  A depth counter is the least machinery a non-regular nesting
      construct needs, and precisely what a regular expression cannot supply.
      `start` lets a caller scan a delimiter that opens part-way into the text
-     (the shape scanner skips a cited cartouche in command position). */
-  def balanced_end(s: String, open_tok: String, close_tok: String, start: Int = 0): Int = {
+     (the shape scanner skips a cited cartouche in command position).  With
+     `quote_aware` a delimiter inside a `"..."` term is ignored, where a stray
+     paren is data, not structure (`premises`' attribute and `(is ...)` skip,
+     [show-premises]); a `"` toggles, with no backslash escape, as in
+     upstream's `_balanced_end`. */
+  def balanced_end(s: String, open_tok: String, close_tok: String, start: Int = 0,
+    quote_aware: Boolean = false
+  ): Int = {
     var depth = 0
     var i = start
+    var in_quote = false
     while (i < s.length) {
-      if (s.startsWith(open_tok, i)) { depth += 1; i += open_tok.length }
+      if (quote_aware && s.charAt(i) == '"') { in_quote = !in_quote; i += 1 }
+      else if (in_quote) i += 1
+      else if (s.startsWith(open_tok, i)) { depth += 1; i += open_tok.length }
       else if (s.startsWith(close_tok, i)) {
         depth -= 1
         i += close_tok.length
