@@ -398,10 +398,17 @@ object Usage_Graph {
   /* the call graph                                                     */
   /* ------------------------------------------------------------------ */
 
+  /* `toplevel`: each synthetic `THEORY:<toplevel>` node -> (its section, the
+     first line of each name it cites).  A synthetic caller has no declaration
+     line, so `callers -r -f tsv` locates its row at the edge that put it in
+     the closure instead [callers-tsv].  Top-level citations are rare, so the
+     table costs nothing measurable; the default keeps a hand-built graph (the
+     test reference builders) free of it. */
   final case class Call_Graph(
     callers: Map[String, Set[String]],
     callees: Map[String, Set[String]],
-    all_names: Set[String]
+    all_names: Set[String],
+    toplevel: Map[String, (Theory_Section, Map[String, Int])] = Map.empty
   )
 
   val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
@@ -515,6 +522,8 @@ object Usage_Graph {
     val callers = mutable.LinkedHashMap.empty[String, mutable.Set[String]]
     for (n <- name_set) callers(n) = mutable.LinkedHashSet.empty[String]
     val callees = mutable.LinkedHashMap.empty[String, mutable.Set[String]]
+    val toplevel =
+      mutable.HashMap.empty[String, (Theory_Section, mutable.HashMap[String, Int])]
 
     for (sec <- sections) {
       /* The redacted view, not the raw source: a comment, an `\<^cancel>`
@@ -592,6 +601,12 @@ object Usage_Graph {
                     callers(name) += caller_name
                     callees.getOrElseUpdate(caller_name,
                       mutable.LinkedHashSet.empty[String]) += name
+                    /* Lines run in order, so the first line recorded per cited
+                       name is its first citation. */
+                    if (caller_entry.isEmpty)
+                      toplevel.getOrElseUpdate(caller_name,
+                        (sec, mutable.HashMap.empty[String, Int]))._2
+                        .getOrElseUpdate(name, line_no)
                   }
                 }
               }
@@ -605,7 +620,50 @@ object Usage_Graph {
     Call_Graph(
       callers = callers.map(kv => kv._1 -> kv._2.toSet).toMap,
       callees = callees.map(kv => kv._1 -> kv._2.toSet).toMap,
-      all_names = names)
+      all_names = names,
+      toplevel = toplevel.map { case (n, (sec, first)) => n -> (sec, first.toMap) }.toMap)
+  }
+
+  /* One call graph per REQUEST, not per subject [graph-once].  `callers -r A B
+     C`, `callees A B C` and `refs T U V` used to rebuild the whole graph for
+     every subject, while the walk over it takes milliseconds: the build was
+     the per-name cost, never the closure.
+
+     Upstream holds the last graph in a module global; here that would be
+     process state a resident host has to reset between requests, which is
+     what [p10-namespace-value] removed.  So the memo is a VALUE: `CLI.Session`
+     owns one, a fresh session per request (the warm server builds one per
+     call) gives a fresh memo, and it travels to the five build sites by
+     parameter.  A caller that passes none gets a private one, i.e. the old
+     build-every-time behaviour.
+
+     One slot, keyed on the sections list by IDENTITY (the very list this run
+     loaded) and on every parameter that shapes the graph.  Sharing is safe
+     because no command mutates a `Call_Graph`: each reads it and walks into a
+     fresh map.  `builds` counts the real builds, for the test that pins the
+     one. */
+  final class Graph_Cache {
+    private var slot: Option[(List[Theory_Section], (Int, Boolean, String),
+      Namespace.Table, Call_Graph)] = None
+    private var built = 0
+
+    def builds: Int = built
+
+    def apply(sections: List[Theory_Section], drop_upto: Int = DROP_NAMES_UPTO,
+      derived: Boolean = false, reach: String = Reach.DEFAULT_MODE,
+      namespace: Namespace.Table = Namespace.census
+    ): Call_Graph = {
+      val key = (drop_upto, derived, reach)
+      slot match {
+        case Some((s, k, t, g)) if (s eq sections) && k == key && (t eq namespace) => g
+        case _ =>
+          val g = build_call_graph(sections, drop_upto, derived = derived, reach = reach,
+            namespace = namespace)
+          built += 1
+          slot = Some((sections, key, namespace, g))
+          g
+      }
+    }
   }
 
 

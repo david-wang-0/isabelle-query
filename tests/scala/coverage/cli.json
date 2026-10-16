@@ -1766,6 +1766,24 @@
       "reason": ""
     },
     {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_a_changed_heap_retries",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python's record of a FAILED built-heap method-table dump, keyed on the session fingerprint and a digest of every heap, so a heap Isabelle cannot load is not re-spawned per call [stale-heap-dump]. A performance fix to the dump path only; the Scala port has no heap-dump path at all (dev/DIVERGENCES.md D11): it never spawns ML_process and resolves a compiled immutable table, so there is nothing to record and nothing observable to assert."
+    },
+    {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_a_timeout_is_not_recorded",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python's record of a FAILED built-heap method-table dump, keyed on the session fingerprint and a digest of every heap, so a heap Isabelle cannot load is not re-spawned per call [stale-heap-dump]. A performance fix to the dump path only; the Scala port has no heap-dump path at all (dev/DIVERGENCES.md D11): it never spawns ML_process and resolves a compiled immutable table, so there is nothing to record and nothing observable to assert."
+    },
+    {
+      "id": "test_namespace_cache.AFailedDumpIsNotRepeated.test_the_second_call_does_not_spawn",
+      "status": "python-only",
+      "destination": "tests/scala/cli/Cli_namespace_cache.scala",
+      "reason": "Python's record of a FAILED built-heap method-table dump, keyed on the session fingerprint and a digest of every heap, so a heap Isabelle cannot load is not re-spawned per call [stale-heap-dump]. A performance fix to the dump path only; the Scala port has no heap-dump path at all (dev/DIVERGENCES.md D11): it never spawns ML_process and resolves a compiled immutable table, so there is nothing to record and nothing observable to assert."
+    },
+    {
       "id": "test_namespace_cache.Augmented.test_no_build_when_session_heap_absent",
       "status": "python-only",
       "destination": "tests/scala/cli/Cli_namespace_cache.scala",
@@ -3113,6 +3131,66 @@
       "id": "test_stdin_path.SorryStdin.test_sorry_over_stdin_reports_owning_entry",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_stdin_path.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_clean_batch_matches_the_single_calls",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_scan_with_no_hits_is_not_unknown",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_every_unknown_subject_is_reported",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_stdout_is_untouched_and_the_status_is_1",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_counts_are_labelled",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_located_hits",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_several_subjects_are_one_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_the_closure_with_depths",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callers_r_over_three_names_builds_one_graph",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
       "reason": ""
     },
     {

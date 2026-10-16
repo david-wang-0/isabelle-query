@@ -42,6 +42,7 @@ object CliSuite {
     Cli_sites_instances.run()
     Cli_statement_slice.run()
     Cli_stdin_path.run()
+    Cli_subject_loop.run()
     Cli_summary_aggregate.run()
     Cli_theory_name_roundtrip.run()
     Cli_unused_locals.run()

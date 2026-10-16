@@ -343,7 +343,14 @@ object CLI {
         external_flag.copy(help =
           "exclude callers inside the theory that defines NAME.  Only affects the " +
             "non-recursive form; transitive closure via -r ignores this flag."),
-        reach_flag),
+        reach_flag,
+        /* `callers` alone: `graph --format` is a different option with its own
+           choices [callers-tsv]. */
+        Opt(List("-f", "--format"), "out_format", unary = true,
+          choices = List("text", "tsv"),
+          help = "tsv: one row per caller, every row naming its subject, no header " +
+            "-- subject, caller, tag, theory, session, depth, locus.  With -c, " +
+            "`subject<TAB>count`. Several subjects make one table, not blocks")),
       List(Pos("name", "+", "entry name(s)")), Nil, context_default = 0),
     Cmd(List("callees"), "entries this entry references; reverse is `callers`",
       List(count_flag, names_flag, drop_names_flag,
@@ -803,6 +810,13 @@ object CLI {
        also the answer for every verb that never asks the router anything. */
     var namespace: Namespace.Table = Namespace.census
 
+    /* THE CALL GRAPH THIS RUN BUILT, memoised so a batch (`callers -r A B C`,
+       `callees A B C`, `refs T U V`) builds it once rather than once per
+       subject [graph-once].  Request-local for the same reason as `namespace`:
+       a session is a request, so a resident host starts every request with an
+       empty memo and nothing to reset. */
+    val graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
+
     /* The custom-command union in force for the NEXT parse.  It is state, and
        deliberately so: the reference implementation keeps one module-level
        table, cleared by a whole-root load and merged into by each directory
@@ -1182,17 +1196,43 @@ object CLI {
       /* The value the CLI hands the engine; a verb that has no `--reach` gets
          the same default an engine caller does, so there is nothing to keep in
          step with a verb list. */
-      reach = ns.str("reach").getOrElse(Reach.DEFAULT_MODE))
+      reach = ns.str("reach").getOrElse(Reach.DEFAULT_MODE),
+      fmt = ns.str("out_format").getOrElse("text"))
   }
 
-  private def each[A](out: Out, subjects: List[A])(body: A => Unit): Unit = {
-    var i = 0
-    for (subject <- subjects) {
-      if (i > 0) out.println()
-      i += 1
-      body(subject)
+  /* The shared spine of the list-taking verbs: one load, then `body` once per
+     subject, each writing to the `Out` it is HANDED -- never to `out` itself.
+
+     All or nothing [subject-batch].  An unknown subject exits 1 with stdout
+     untouched ([unresolved-subject]), and the batch has to keep that: answering
+     the others and leaving a gap misaligns every answer after it for a reader
+     attributing by position -- `callers -r -c A bogus C` printing two counts
+     for three names, the second of them C's.  So each subject runs into its
+     own buffer, EVERY unknown one is reported on stderr (the old loop named
+     only the first, then stopped), and stdout gets everything or nothing.  Any
+     other exit (2, a bad regex) propagates at once, and since nothing has
+     reached `out` yet, stdout stays empty there too.  stderr is not buffered:
+     a diagnostic is written when it happens, in subject order.
+
+     A single subject streams, as it always did.  `sep` is the blank line
+     between blocks; a table format (`callers -f tsv`) passes "" so several
+     subjects make one table [callers-tsv]. */
+  private def each[A](out: Out, subjects: List[A], sep: String = "\n")(
+    body: (Out, A) => Unit
+  ): Unit =
+    subjects match {
+      case List(one) => body(out, one)
+      case _ =>
+        val blocks = new mutable.ListBuffer[String]
+        var failed = 0
+        for (subject <- subjects) {
+          val buf = new java.io.StringWriter
+          try { body(new Out(buf), subject); blocks += buf.toString }
+          catch { case Exit_Code(Commands.EXIT_UNRESOLVED) => failed += 1 }
+        }
+        if (failed > 0) throw Exit_Code(Commands.EXIT_UNRESOLVED)
+        out.print(blocks.mkString(sep))
     }
-  }
 
   /* ------------------------------------------------------------------ */
   /* the method / attribute namespace                                    */
@@ -1298,11 +1338,11 @@ object CLI {
             scope_to_theories(s, ns, load_sections(s, ns)), patterns, flags)
         else {
           val sections = scope_to_theories(s, ns, load_sections(s, ns))
-          each(out, patterns)(p => Commands.cmd_find(out, err, sections, p, flags))
+          each(out, patterns)((o, p) => Commands.cmd_find(o, err, sections, p, flags))
         }
       case "show" =>
         val sections = load_sections(s, ns)
-        each(out, ns.pos("name"))(n => Commands.cmd_show(out, err, sections, n, flags))
+        each(out, ns.pos("name"))((o, n) => Commands.cmd_show(o, err, sections, n, flags))
       case "grep" =>
         Commands.cmd_grep(out, err,
           load_sections(s, ns, parse_policy = "infer", windows = true),
@@ -1321,24 +1361,24 @@ object CLI {
         Commands.cmd_lines(out, err, src.lines, ranges)
       case "deps" =>
         val sections = s.load_index()
-        each(out, ns.pos("theory"))(t =>
-          Usage.cmd_deps(out, err, sections, t, recursive = ns.bool("recursive")))
+        each(out, ns.pos("theory"))((o, t) =>
+          Usage.cmd_deps(o, err, sections, t, recursive = ns.bool("recursive")))
       case "uses" =>
         val sections = s.load_index()
-        each(out, ns.pos("theory"))(t =>
-          Usage.cmd_deps(out, err, sections, t, reverse = true, recursive = ns.bool("recursive")))
+        each(out, ns.pos("theory"))((o, t) =>
+          Usage.cmd_deps(o, err, sections, t, reverse = true, recursive = ns.bool("recursive")))
       case "refs" =>
         val sections = s.load_index()
-        each(out, ns.pos("theory"))(t =>
-          Usage.cmd_refs(out, err, sections, t, flags, s.namespace))
+        each(out, ns.pos("theory"))((o, t) =>
+          Usage.cmd_refs(o, err, sections, t, flags, s.namespace, s.graphs))
       case "callers" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n =>
-          Usage.cmd_callers(out, err, sections, n, flags, s.namespace))
+        each(out, ns.pos("name"), sep = if (flags.fmt == "tsv") "" else "\n")((o, n) =>
+          Usage.cmd_callers(o, err, sections, n, flags, s.namespace, s.graphs))
       case "callees" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n =>
-          Usage.cmd_callees(out, err, sections, n, flags, s.namespace))
+        each(out, ns.pos("name"))((o, n) =>
+          Usage.cmd_callees(o, err, sections, n, flags, s.namespace, s.graphs))
       case "unused" =>
         val files = ns.pos("files")
         if (!ns.bool("locals")) {
@@ -1347,7 +1387,7 @@ object CLI {
           if (files.nonEmpty)
             fail_usage(s, "unused: PATH arguments need --locals; entry-level " +
               "`unused` is corpus-wide, scope it with -R")
-          Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace)
+          Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace, s.graphs)
         }
         else {
           if (flags.recursive || flags.roots)
@@ -1363,14 +1403,14 @@ object CLI {
           s.namespace)
       case "instances" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Sites.cmd_instances(out, err, sections, n, flags))
+        each(out, ns.pos("name"))((o, n) => Sites.cmd_instances(o, err, sections, n, flags))
       case "codeqs" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))(n => Sites.cmd_codeqs(out, err, sections, n, flags))
+        each(out, ns.pos("name"))((o, n) => Sites.cmd_codeqs(o, err, sections, n, flags))
       case "graph" =>
         val sections = scope_to_theories(s, ns, s.load_index())
         Usage.cmd_graph(out, sections, ns.pos("kind").headOption.getOrElse("citation"),
-          ns.str("format").getOrElse("json"), flags, s.namespace)
+          ns.str("format").getOrElse("json"), flags, s.namespace, s.graphs)
       case _ => usage_error(s"unknown command: $name")
     }
   }
@@ -1469,8 +1509,8 @@ object CLI {
            reported after a whole-corpus parse. */
         val cfg = load_shape_config(s, ns)
         val sections = load_sections(s, ns)
-        each(out, ns.pos("name"))(n =>
-          Shape_Cmds.cmd_shape_lemma(out, sections, n, ns.bool("json"), cfg,
+        each(out, ns.pos("name"))((o, n) =>
+          Shape_Cmds.cmd_shape_lemma(o, sections, n, ns.bool("json"), cfg,
             namespace = s.namespace))
       case "widest" =>
         /* `widest` ranks STEPS by width — syntax-awareness is intrinsic — and it

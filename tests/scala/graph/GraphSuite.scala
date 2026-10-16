@@ -14,6 +14,7 @@ object GraphSuite {
     GraphShadowedNames.run()
     GraphSymbolBodyTokens.run()
     GraphTheoryRefs.run()
+    GraphToplevelCallers.run()
     GraphUnusedCascadeDepth.run()
   }
 }
