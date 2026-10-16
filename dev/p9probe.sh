@@ -244,36 +244,32 @@ expect "methods NAME" 1 "" \
 expect "but a method the project uses is counted" 0 "1" "" methods simp -c
 
 echo
-echo "1c. batch subjects -- the separator, then the abort"
+echo "1c. batch subjects -- all or nothing"
 
-# `CLI.each` prints a blank line BEFORE each subject after the first, and the
-# `Exit_Code` is thrown from inside the loop body, so the separator that
-# precedes the failing subject is already on stdout when the run gives up.
-# Earlier subjects keep their output; later ones never run.  Hand-computed:
-# `ll` cites `dd` (via `dd_def`), so `callees ll -c` is 1; then a blank line;
-# then nothing, because `zzz` ends the run before `dd` is reached.
+# A batch is all or nothing [subject-batch] (upstream 3b3d993, P15 S2): each
+# subject's output is buffered, an unknown subject does not stop the loop, and
+# at the end ANY unknown means stdout is empty, every unknown is named on
+# stderr, and the exit is 1.  Until 0.9.4 the run printed `ll`'s count and the
+# separator, then stopped at `zzz` -- a partial table a script could not tell
+# from a whole one.  Hand-computed: `ll` and `dd` are known (`callees ll -c`
+# would be 1), `zzz` and `qqq` are not.
 rc=$(run callees ll zzz dd -c)
-got=$(od -c <"$OUT/o.txt" | head -2 | tr -s ' ')
-if [ "$rc" = "1" ] && [ "$(cat "$OUT/o.txt")" = "$(printf '1\n')" ] &&
+if [ "$rc" = "1" ] && [ ! -s "$OUT/o.txt" ] &&
    [ "$(cat "$OUT/e.txt")" = "$PROG: 'zzz' is not in the entry index" ]; then
-  note "the first subject's count, the separator, then exit 1" "rc $rc"
+  note "one unknown: nothing on stdout, exit 1" "rc $rc"
 else
-  bad "the first subject's count, the separator, then exit 1" \
-    "rc $rc out $got err [$(cat "$OUT/e.txt")]"
+  bad "one unknown: nothing on stdout, exit 1" \
+    "rc $rc out $(od -An -c <"$OUT/o.txt" | tr -d ' \n') err [$(cat "$OUT/e.txt")]"
 fi
-# Byte-exact, because "1\n\n" versus "1\n" is exactly the difference between
-# the separator having been printed and not.
-if [ "$(od -An -c <"$OUT/o.txt" | tr -d ' \n')" = "1\\n\\n" ]; then
-  note "and the separator blank line IS among those bytes" '1\n\n'
+# Every unknown is reported, not just the first: the loop runs to the end.
+rc=$(run callees ll zzz dd qqq -c)
+if [ "$rc" = "1" ] && [ ! -s "$OUT/o.txt" ] &&
+   [ "$(cat "$OUT/e.txt")" = "$PROG: 'zzz' is not in the entry index
+$PROG: 'qqq' is not in the entry index" ]; then
+  note "two unknowns: both named, in order, one line each" "rc $rc"
 else
-  bad "and the separator blank line IS among those bytes" \
-    "$(od -An -c <"$OUT/o.txt" | tr -d ' \n')"
-fi
-# One diagnostic, not one per remaining subject.
-if [ "$(wc -l <"$OUT/e.txt")" = "1" ]; then
-  note "exactly one line on stderr" "1"
-else
-  bad "exactly one line on stderr" "$(wc -l <"$OUT/e.txt")"
+  bad "two unknowns: both named, in order, one line each" \
+    "rc $rc err [$(cat "$OUT/e.txt")]"
 fi
 
 echo
