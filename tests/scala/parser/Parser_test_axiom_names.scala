@@ -120,6 +120,51 @@ e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \
 e("got") = h__axioms(e, Vector(V("\naxiomatization where ax1: \"P\"\nlemma foo: \"True\" by simp\n")), Map())
 TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("ax1")), "tests/test_axiom_names.py:199")
 }
+private def case_ForAndIfDeclareNoNames_test_a_for_clause_on_its_own_line(): Unit = TestSupport.test("test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_on_its_own_line") {
+val e: Env = scala.collection.mutable.Map.empty
+e("HEAD") = V("theory T imports Main begin\n")
+e("FOOT") = V("\nend\n")
+e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
+
+e("got") = h__axioms(e, Vector(V("\naxiomatization\n  preregister :: \\<open>('a update \\<Rightarrow> 'b update) \\<Rightarrow> bool\\<close>\nwhere\n  comp_preregister: \"preregister F \\<Longrightarrow> preregister (G \\<circ> F)\" and\n  id_preregister: \\<open>preregister id\\<close>\nfor F :: \\<open>'a update \\<Rightarrow> 'b update\\<close> and G :: \\<open>'b update \\<Rightarrow> 'c update\\<close>\n")), Map())
+TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("comp_preregister"), V("id_preregister"), V("preregister")), "tests/test_axiom_names.py:225")
+}
+private def case_ForAndIfDeclareNoNames_test_a_for_clause_sharing_the_axiom_line(): Unit = TestSupport.test("test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_sharing_the_axiom_line") {
+val e: Env = scala.collection.mutable.Map.empty
+e("HEAD") = V("theory T imports Main begin\n")
+e("FOOT") = V("\nend\n")
+e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
+
+e("got") = h__axioms(e, Vector(V("\naxiomatization where ax: \"P x y\" for x :: \"nat\" and y :: \"nat\"\n")), Map())
+TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("ax")), "tests/test_axiom_names.py:233")
+}
+private def case_ForAndIfDeclareNoNames_test_a_for_clause_split_over_lines(): Unit = TestSupport.test("test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_split_over_lines") {
+val e: Env = scala.collection.mutable.Map.empty
+e("HEAD") = V("theory T imports Main begin\n")
+e("FOOT") = V("\nend\n")
+e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
+
+e("got") = h__axioms(e, Vector(V("\naxiomatization where ax: \"P x y\"\n  for x :: \"nat\"\n  and y :: \"nat\"\n")), Map())
+TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("ax")), "tests/test_axiom_names.py:241")
+}
+private def case_ForAndIfDeclareNoNames_test_an_if_clause_names_nothing(): Unit = TestSupport.test("test_axiom_names.ForAndIfDeclareNoNames.test_an_if_clause_names_nothing") {
+val e: Env = scala.collection.mutable.Map.empty
+e("HEAD") = V("theory T imports Main begin\n")
+e("FOOT") = V("\nend\n")
+e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
+
+e("got") = h__axioms(e, Vector(V("\naxiomatization where ax: \"Q x\"\n  if \"P x\" and \"R x\"\n  for x :: \"nat\"\n")), Map())
+TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("ax")), "tests/test_axiom_names.py:249")
+}
+private def case_ForAndIfDeclareNoNames_test_the_next_command_is_still_found(): Unit = TestSupport.test("test_axiom_names.ForAndIfDeclareNoNames.test_the_next_command_is_still_found") {
+val e: Env = scala.collection.mutable.Map.empty
+e("HEAD") = V("theory T imports Main begin\n")
+e("FOOT") = V("\nend\n")
+e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
+
+e("got") = h__axioms(e, Vector(V("\naxiomatization where ax: \"P x\" for x :: \"nat\"\n\naxiomatization where bx: \"P x\" for x :: \"nat\"\n")), Map())
+TestSupport.equal(ParserBridge.call("sorted", Vector(e("got")), Map()), vs(V("ax"), V("bx")), "tests/test_axiom_names.py:257")
+}
 private def case_TheUmbrellaIsAnonymousAndStays_test_no_entry_is_named_after_the_keyword(): Unit = TestSupport.test("test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_no_entry_is_named_after_the_keyword") {
 val e: Env = scala.collection.mutable.Map.empty
 e("HEAD") = V("theory T imports Main begin\n")
@@ -128,7 +173,7 @@ e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \
 e("SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
 e("sec") = ParserBridge.call("section_from", Vector(e("SRC")), Map())
 e("axioms") = V.seq(e("sec").field("entries").seq.flatMap { item => val c5 = e.clone(); c5("e") = item; if (V((c5("e").field("tag").cmp("Eq", V("AXIOM")))).truth) Vector(c5("e")) else Vector.empty })
-TestSupport.equal(V.seq(e("sec").field("entries").seq.flatMap { item => val c6 = e.clone(); c6("e") = item; if (V((c6("e").field("name").cmp("Eq", V("axiomatization")))).truth) Vector(c6("e").field("name")) else Vector.empty }), vs(), "tests/test_axiom_names.py:232")
+TestSupport.equal(V.seq(e("sec").field("entries").seq.flatMap { item => val c6 = e.clone(); c6("e") = item; if (V((c6("e").field("name").cmp("Eq", V("axiomatization")))).truth) Vector(c6("e").field("name")) else Vector.empty }), vs(), "tests/test_axiom_names.py:290")
 }
 private def case_TheUmbrellaIsAnonymousAndStays_test_the_umbrella_is_anonymous(): Unit = TestSupport.test("test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_umbrella_is_anonymous") {
 val e: Env = scala.collection.mutable.Map.empty
@@ -138,7 +183,7 @@ e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \
 e("SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
 e("sec") = ParserBridge.call("section_from", Vector(e("SRC")), Map())
 e("axioms") = V.seq(e("sec").field("entries").seq.flatMap { item => val c7 = e.clone(); c7("e") = item; if (V((c7("e").field("tag").cmp("Eq", V("AXIOM")))).truth) Vector(c7("e")) else Vector.empty })
-TestSupport.equal(ParserBridge.call("sum", Vector(V.seq(e("axioms").seq.flatMap { item => val c8 = e.clone(); c8("e") = item; if (V((c8("e").field("name").cmp("Eq", V("?")))).truth) Vector(V(1)) else Vector.empty })), Map()), V(1), "tests/test_axiom_names.py:237")
+TestSupport.equal(ParserBridge.call("sum", Vector(V.seq(e("axioms").seq.flatMap { item => val c8 = e.clone(); c8("e") = item; if (V((c8("e").field("name").cmp("Eq", V("?")))).truth) Vector(V(1)) else Vector.empty })), Map()), V(1), "tests/test_axiom_names.py:295")
 }
 private def case_TheUmbrellaIsAnonymousAndStays_test_the_declared_names_are_still_indexed(): Unit = TestSupport.test("test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_declared_names_are_still_indexed") {
 val e: Env = scala.collection.mutable.Map.empty
@@ -148,7 +193,7 @@ e("TheUmbrellaIsAnonymousAndStays.SRC") = e("HEAD").plus(V("\nlemma before_it: \
 e("SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatization\n  eq :: \"nat\" and\n  neq :: \"nat\"\nwhere refl: \"eq = eq\"\n")).plus(e("FOOT"))
 e("sec") = ParserBridge.call("section_from", Vector(e("SRC")), Map())
 e("axioms") = V.seq(e("sec").field("entries").seq.flatMap { item => val c9 = e.clone(); c9("e") = item; if (V((c9("e").field("tag").cmp("Eq", V("AXIOM")))).truth) Vector(c9("e")) else Vector.empty })
-TestSupport.equal(ParserBridge.call("sorted", Vector(V.seq(e("axioms").seq.flatMap { item => val c10 = e.clone(); c10("e") = item; if (V((c10("e").field("name").cmp("NotEq", V("?")))).truth) Vector(c10("e").field("name")) else Vector.empty })), Map()), vs(V("eq"), V("neq"), V("refl")), "tests/test_axiom_names.py:240")
+TestSupport.equal(ParserBridge.call("sorted", Vector(V.seq(e("axioms").seq.flatMap { item => val c10 = e.clone(); c10("e") = item; if (V((c10("e").field("name").cmp("NotEq", V("?")))).truth) Vector(c10("e").field("name")) else Vector.empty })), Map()), vs(V("eq"), V("neq"), V("refl")), "tests/test_axiom_names.py:298")
 }
 private def case_TheUmbrellaIsAnonymousAndStays_test_the_anchor_owns_the_command_line(): Unit = TestSupport.test("test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_the_anchor_owns_the_command_line") {
 val e: Env = scala.collection.mutable.Map.empty
@@ -160,7 +205,7 @@ e("sec") = ParserBridge.call("section_from", Vector(e("SRC")), Map())
 e("axioms") = V.seq(e("sec").field("entries").seq.flatMap { item => val c11 = e.clone(); c11("e") = item; if (V((c11("e").field("tag").cmp("Eq", V("AXIOM")))).truth) Vector(c11("e")) else Vector.empty })
 e("umbrella") = ParserBridge.call("next", Vector(V.seq(e("axioms").seq.flatMap { item => val c12 = e.clone(); c12("e") = item; if (V((c12("e").field("name").cmp("Eq", V("?")))).truth) Vector(c12("e")) else Vector.empty })), Map())
 e("cmd_line") = ParserBridge.call("next", Vector(V.seq(ParserBridge.call("enumerate", Vector(e("sec").invoke("source", Vector(), Map()), V(1)), Map()).seq.flatMap { item => val c13 = e.clone(); val unpack14 = item; TestSupport.equal(unpack14.seq.size, 2, "unpack arity"); c13("i") = unpack14.at(V(0)); c13("ln") = unpack14.at(V(1)); if (c13("ln").invoke("startswith", Vector(V("axiomatization")), Map()).truth) Vector(c13("i")) else Vector.empty })), Map())
-TestSupport.equal(e("umbrella").field("thy_line"), e("cmd_line"), "tests/test_axiom_names.py:249")
+TestSupport.equal(e("umbrella").field("thy_line"), e("cmd_line"), "tests/test_axiom_names.py:307")
 }
 private def case_TheUmbrellaIsAnonymousAndStays_test_an_anonymous_entry_mints_no_citation_edge(): Unit = TestSupport.test("test_axiom_names.TheUmbrellaIsAnonymousAndStays.test_an_anonymous_entry_mints_no_citation_edge") {
 val e: Env = scala.collection.mutable.Map.empty
@@ -171,8 +216,8 @@ e("SRC") = e("HEAD").plus(V("\nlemma before_it: \"True\" by simp\n\naxiomatizati
 e("sec") = ParserBridge.call("section_from", Vector(e("SRC")), Map())
 e("axioms") = V.seq(e("sec").field("entries").seq.flatMap { item => val c15 = e.clone(); c15("e") = item; if (V((c15("e").field("tag").cmp("Eq", V("AXIOM")))).truth) Vector(c15("e")) else Vector.empty })
 e("g") = ParserBridge.call("graph._build_call_graph", Vector(vs(e("sec"))), Map())
-TestSupport.check(!e("g").field("all_names").has(V("?")), "tests/test_axiom_names.py:256" + " actual=" + e("g").field("all_names"))
-TestSupport.check(!e("g").field("all_names").has(V("axiomatization")), "tests/test_axiom_names.py:257" + " actual=" + e("g").field("all_names"))
+TestSupport.check(!e("g").field("all_names").has(V("?")), "tests/test_axiom_names.py:314" + " actual=" + e("g").field("all_names"))
+TestSupport.check(!e("g").field("all_names").has(V("axiomatization")), "tests/test_axiom_names.py:315" + " actual=" + e("g").field("all_names"))
 }
-def run(): Unit = { case_WhereDoesNotEndTheCommand_test_where_in_column_zero(); case_WhereDoesNotEndTheCommand_test_where_indented(); case_WhereDoesNotEndTheCommand_test_bare_where_line_then_labels(); case_NameOnTheCommandLine_test_label_after_where_on_the_command_line(); case_NameOnTheCommandLine_test_constant_on_the_command_line_with_mixfix(); case_NameOnTheCommandLine_test_umbrella_and_head_name_share_a_line(); case_SeveralNamesOnOneLine_test_constants_sharing_a_line(); case_SeveralNamesOnOneLine_test_labels_sharing_a_line_after_where(); case_SeveralNamesOnOneLine_test_they_all_report_the_line_they_are_on(); case_SeveralNamesOnOneLine_test_and_inside_a_proposition_does_not_split_it(); case_NotEveryColonIsALabel_test_colon_inside_a_proposition_is_not_a_name(); case_NotEveryColonIsALabel_test_a_following_command_ends_the_scan(); case_TheUmbrellaIsAnonymousAndStays_test_no_entry_is_named_after_the_keyword(); case_TheUmbrellaIsAnonymousAndStays_test_the_umbrella_is_anonymous(); case_TheUmbrellaIsAnonymousAndStays_test_the_declared_names_are_still_indexed(); case_TheUmbrellaIsAnonymousAndStays_test_the_anchor_owns_the_command_line(); case_TheUmbrellaIsAnonymousAndStays_test_an_anonymous_entry_mints_no_citation_edge() }
+def run(): Unit = { case_WhereDoesNotEndTheCommand_test_where_in_column_zero(); case_WhereDoesNotEndTheCommand_test_where_indented(); case_WhereDoesNotEndTheCommand_test_bare_where_line_then_labels(); case_NameOnTheCommandLine_test_label_after_where_on_the_command_line(); case_NameOnTheCommandLine_test_constant_on_the_command_line_with_mixfix(); case_NameOnTheCommandLine_test_umbrella_and_head_name_share_a_line(); case_SeveralNamesOnOneLine_test_constants_sharing_a_line(); case_SeveralNamesOnOneLine_test_labels_sharing_a_line_after_where(); case_SeveralNamesOnOneLine_test_they_all_report_the_line_they_are_on(); case_SeveralNamesOnOneLine_test_and_inside_a_proposition_does_not_split_it(); case_NotEveryColonIsALabel_test_colon_inside_a_proposition_is_not_a_name(); case_NotEveryColonIsALabel_test_a_following_command_ends_the_scan(); case_ForAndIfDeclareNoNames_test_a_for_clause_on_its_own_line(); case_ForAndIfDeclareNoNames_test_a_for_clause_sharing_the_axiom_line(); case_ForAndIfDeclareNoNames_test_a_for_clause_split_over_lines(); case_ForAndIfDeclareNoNames_test_an_if_clause_names_nothing(); case_ForAndIfDeclareNoNames_test_the_next_command_is_still_found(); case_TheUmbrellaIsAnonymousAndStays_test_no_entry_is_named_after_the_keyword(); case_TheUmbrellaIsAnonymousAndStays_test_the_umbrella_is_anonymous(); case_TheUmbrellaIsAnonymousAndStays_test_the_declared_names_are_still_indexed(); case_TheUmbrellaIsAnonymousAndStays_test_the_anchor_owns_the_command_line(); case_TheUmbrellaIsAnonymousAndStays_test_an_anonymous_entry_mints_no_citation_edge() }
 }

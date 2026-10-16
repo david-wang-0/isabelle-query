@@ -291,6 +291,41 @@
       "inherited": false
     },
     {
+      "id": "test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_on_its_own_line",
+      "suite": "parser",
+      "source": "tests/test_axiom_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_sharing_the_axiom_line",
+      "suite": "parser",
+      "source": "tests/test_axiom_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_axiom_names.ForAndIfDeclareNoNames.test_a_for_clause_split_over_lines",
+      "suite": "parser",
+      "source": "tests/test_axiom_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_axiom_names.ForAndIfDeclareNoNames.test_an_if_clause_names_nothing",
+      "suite": "parser",
+      "source": "tests/test_axiom_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_axiom_names.ForAndIfDeclareNoNames.test_the_next_command_is_still_found",
+      "suite": "parser",
+      "source": "tests/test_axiom_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_axiom_names.NameOnTheCommandLine.test_constant_on_the_command_line_with_mixfix",
       "suite": "parser",
       "source": "tests/test_axiom_names.py",

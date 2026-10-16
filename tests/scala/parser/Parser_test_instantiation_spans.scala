@@ -30,7 +30,7 @@ private def case_InstantiationSpans_test_definition_does_not_swallow_the_instanc
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(e("INSTANTIATION"), V("T")), Map())
 e("eq") = h__entry(e, Vector(e("sec"), V("equal_foo")), Map())
@@ -40,7 +40,7 @@ private def case_InstantiationSpans_test_instance_proof_keeps_its_definition_ali
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(e("INSTANTIATION"), V("T")), Map())
 TestSupport.check(!h__unused(e, Vector(e("sec")), Map()).has(V("equal_foo")), "tests/test_instantiation_spans.py:76" + " actual=" + h__unused(e, Vector(e("sec")), Map()))
@@ -49,7 +49,7 @@ private def case_InstantiationSpans_test_a_genuinely_uncited_definition_is_still
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(e("INSTANTIATION"), V("T")), Map())
 TestSupport.check(h__unused(e, Vector(e("sec")), Map()).has(V("bar")), "tests/test_instantiation_spans.py:81" + " actual=" + h__unused(e, Vector(e("sec")), Map()))
@@ -58,7 +58,7 @@ private def case_TrailingCommandSpans_test_lemmas_alias_is_not_absorbed_by_the_l
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(V("theory T imports Main begin\n\ndefinition baz :: \"nat\" where \"baz = 0\"\n\nlemma quux: \"baz = 0\" by (simp add: baz_def)\n\nlemmas quux_code [code] = quux\n\nend\n"), V("T")), Map())
 e("q") = h__entry(e, Vector(e("sec"), V("quux")), Map())
@@ -68,7 +68,7 @@ private def case_TrailingCommandSpans_test_boundary_does_not_land_on_a_separatin
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(e("INSTANTIATION"), V("T")), Map())
 e("bar") = h__entry(e, Vector(e("sec"), V("bar")), Map())
@@ -78,7 +78,7 @@ private def case_TrailingCommandSpans_test_a_commented_out_command_is_not_a_boun
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 
 e("sec") = ParserBridge.call("section_from", Vector(V("theory T imports Main begin\n\ndefinition wib :: \"nat\" where\n  \"wib = 0\"\n(* end *)\n\nend\n"), V("T")), Map())
 TestSupport.check(h__entry(e, Vector(e("sec"), V("wib")), Map()).field("thy_end").cmp("GtE", V(4)), "tests/test_instantiation_spans.py:117" + " actual=" + h__entry(e, Vector(e("sec"), V("wib")), Map()).field("thy_end") + " expected=" + V(4))
@@ -87,7 +87,7 @@ private def case_DeadnessVersusFactIdentity_test_callers_stays_fact_level(): Uni
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 e("THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
 e("sec") = ParserBridge.call("section_from", Vector(e("THY"), V("T")), Map())
 e("graph") = ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map())
@@ -97,7 +97,7 @@ private def case_DeadnessVersusFactIdentity_test_unused_resolves_the_derived_spe
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 e("THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
 e("sec") = ParserBridge.call("section_from", Vector(e("THY"), V("T")), Map())
 TestSupport.check(!h__unused(e, Vector(e("sec")), Map()).has(V("foo")), "tests/test_instantiation_spans.py:137" + " actual=" + h__unused(e, Vector(e("sec")), Map()))
@@ -106,18 +106,18 @@ private def case_OracleParity_test_toplevel_citation_matches_oracle(): Unit = Te
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
-e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
+e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 e("sec") = ParserBridge.call("section_from", Vector(e("TOPLEVEL"), V("T")), Map())
-TestSupport.check(ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map()).field("callers").at(V("bar")).has(V("T:<toplevel>")), "tests/test_instantiation_spans.py:164" + " actual=" + ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map()).field("callers").at(V("bar")))
+TestSupport.check(ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map()).field("callers").at(V("bar")).has(V("T:<toplevel>")), "tests/test_instantiation_spans.py:165" + " actual=" + ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map()).field("callers").at(V("bar")))
 h_OracleParity_assertParity(e, Vector(vs(e("sec"))), Map("derived" -> V(false)))
 }
 private def case_OracleParity_test_instantiation_matches_oracle_in_both_modes(): Unit = TestSupport.test("test_instantiation_spans.OracleParity.test_instantiation_matches_oracle_in_both_modes") {
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
-e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
+e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 e("sec") = ParserBridge.call("section_from", Vector(e("INSTANTIATION"), V("T")), Map())
 h_OracleParity_assertParity(e, Vector(vs(e("sec"))), Map("derived" -> V(false)))
 h_OracleParity_assertParity(e, Vector(vs(e("sec"))), Map("derived" -> V(true)))
@@ -126,15 +126,15 @@ private def case_OracleParity_test_derived_mode_only_adds_edges(): Unit = TestSu
 val e: Env = scala.collection.mutable.Map.empty
 e("INSTANTIATION") = V("theory T imports Main begin\n\ntypedecl foo\n\ninstantiation foo :: equal begin\ndefinition \"equal_foo (x::foo) y = (x = y)\"\ninstance by standard (simp add: equal_foo_def)\nend\n\ndefinition bar :: \"nat\" where \"bar = 0\"\n\nend\n")
 e("DeadnessVersusFactIdentity.THY") = V("theory T imports Main begin\ndefinition foo :: \"nat\" where \"foo = 0\"\nlemma bar: \"(0::nat) = 0\" using foo_def by simp\nend\n")
-e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
-e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\nlemmas bar_alias [simp] = bar\n\nend\n")
+e("OracleParity.TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
+e("TOPLEVEL") = V("theory T imports Main begin\n\nlemma bar: \"(0::nat) = 0\" by simp\n\ndeclare bar [simp]\n\nend\n")
 e("sec") = ParserBridge.call("section_from", Vector(e("DeadnessVersusFactIdentity.THY"), V("T")), Map())
 e("plain") = ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map()).field("callers")
 e("withd") = ParserBridge.call("cli._build_call_graph", Vector(vs(e("sec"))), Map("derived" -> V(true))).field("callers")
 e("plain").invoke("items", Vector(), Map()).seq.foreach { item => val unpack2 = item; TestSupport.equal(unpack2.seq.size, 2, "unpack arity"); e("name") = unpack2.at(V(0)); e("callers") = unpack2.at(V(1));
-TestSupport.check(V((e("callers").cmp("LtE", e("withd").at(e("name"))))).truth, "tests/test_instantiation_spans.py:177")
+TestSupport.check(V((e("callers").cmp("LtE", e("withd").at(e("name"))))).truth, "tests/test_instantiation_spans.py:178")
 }
-TestSupport.check(!e("plain").cmp("Eq", e("withd")), "tests/test_instantiation_spans.py:178")
+TestSupport.check(!e("plain").cmp("Eq", e("withd")), "tests/test_instantiation_spans.py:179")
 }
 def run(): Unit = { case_InstantiationSpans_test_definition_does_not_swallow_the_instance_proof(); case_InstantiationSpans_test_instance_proof_keeps_its_definition_alive(); case_InstantiationSpans_test_a_genuinely_uncited_definition_is_still_unused(); case_TrailingCommandSpans_test_lemmas_alias_is_not_absorbed_by_the_lemma_above(); case_TrailingCommandSpans_test_boundary_does_not_land_on_a_separating_blank(); case_TrailingCommandSpans_test_a_commented_out_command_is_not_a_boundary(); case_DeadnessVersusFactIdentity_test_callers_stays_fact_level(); case_DeadnessVersusFactIdentity_test_unused_resolves_the_derived_spelling(); case_OracleParity_test_toplevel_citation_matches_oracle(); case_OracleParity_test_instantiation_matches_oracle_in_both_modes(); case_OracleParity_test_derived_mode_only_adds_edges() }
 }
