@@ -147,6 +147,8 @@ private[regression] object ParserValues {
         case "src_start" => e.src_start
         case "line_count" => e.line_count
         case "preamble" => e.preamble
+        case "shares_line" => e.shares_line
+        case "cut_span" => e.cut_span
         case "annotations" => e.annotations
         // Python's derived property is exactly the production annotation subset.
         case "roadmap" => e.annotations.collect { case (ln,text,"proof") => (ln,text) }

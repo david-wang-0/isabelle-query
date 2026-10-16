@@ -1212,6 +1212,22 @@ object Entries {
     (located, located.map(_.thy_line))
   }
 
+  /* Flag each entry whose cut span meets a neighbour's [cut-span].
+     `Entry.cut_span` promises a span holding one entry and nothing of another.
+     `thy_end` caps it below the next entry's start, which is enough unless the
+     next entry starts on this one's last line — two declarations on one line
+     (`consts F G`, a one-line `axiomatization where F1: …`).  Then no line
+     span separates them, and BOTH are flagged: cutting either line takes the
+     other with it.  Runs once `body_end_line` is final.  `sortBy` is stable,
+     as Python's `sorted` is, so same-line entries keep source order. */
+  def mark_shared_lines(entries: List[Entry]): Unit = {
+    val placed = entries.filter(_.thy_line != 0).sortBy(_.thy_line)
+    for ((a, b) <- placed.zip(placed.drop(1)) if a.line_cut._2 >= b.src_start) {
+      a.shares_line = true
+      b.shares_line = true
+    }
+  }
+
   /* The boundary above an entry is the NEXT entry's src_start — its leading
      `text` preamble if it has one — so a following entry's docstring is
      charged to that entry, not folded into the preceding entry's span. */

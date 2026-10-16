@@ -155,6 +155,7 @@ object Theory {
         else if (e.decl_end_line > 0) e.decl_end_line
         else e.thy_line
     }
+    Entries.mark_shared_lines(entries)
 
     new Theory_Section(theory, path, entries, lines, regions,
       outline = outline, text_blocks = text_blocks, heading_spans = heading_spans,

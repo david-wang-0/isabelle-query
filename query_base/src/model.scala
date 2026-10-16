@@ -292,6 +292,31 @@ case class Entry(
   }
 
   def line_count: Int = if (thy_line > 0) thy_end - src_start + 1 else 0
+
+  /* Another entry's line span meets this one's: two declarations written on
+     one line (`consts F G`, a one-line `axiomatization`), or a body ending on
+     the line the next declaration starts.  Lines cannot separate them, so
+     `cut_span` is None.  Set by `Entries.mark_shared_lines` [cut-span]. */
+  var shares_line: Boolean = false
+
+  /* `cut_span` before the shared-line check: the extent alone. */
+  def line_cut: (Int, Int) =
+    if (thy_line == 0) (0, 0)
+    else {
+      val end = (if (body_end_line != 0) body_end_line else thy_end) min thy_end
+      (src_start, end max thy_line)
+    }
+
+  /* The lines to cut to remove or relocate this entry: `src_start` (its doc
+     preamble, if any) through `body_end_line` (the `qed` / `by` / `.` that
+     closes its proof), inclusive, capped at `thy_end` — which stops before
+     the next entry's `src_start`, so a delete cannot take the following
+     lemma's documentation with it.  This is the span a tool WRITES THROUGH,
+     so it is None when no line span holds this entry and nothing of another
+     (`shares_line`), and for an unplaced entry: a writer must refuse rather
+     than widen.  [cut-span] */
+  def cut_span: Option[(Int, Int)] =
+    if (thy_line == 0 || shares_line) None else Some(line_cut)
 }
 
 

@@ -200,10 +200,66 @@
       "inherited": false
     },
     {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_theory_with_a_bad_root_raises",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_theory_with_root_leaves_the_table_as_it_found_it",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.ParseRootAgreesWithTheCli.test_parse_theory_with_root_sees_the_sibling_declaration",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 4,
+      "inherited": false
+    },
+    {
       "id": "test_api_surface.ParseRootAgreesWithTheCli.test_two_roots_do_not_contaminate_each_other",
       "suite": "parser",
       "source": "tests/test_api_surface.py",
       "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheCutSpanHoldsOneEntry.test_a_trailing_text_block_is_left_behind",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheCutSpanHoldsOneEntry.test_an_unplaced_entry_has_no_cut_span",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheCutSpanHoldsOneEntry.test_entries_on_their_own_lines_are_not_flagged",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 2,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheCutSpanHoldsOneEntry.test_one_line_declarations_have_no_cut_span",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 4,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheCutSpanHoldsOneEntry.test_the_next_entry_takes_its_own_preamble",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 0,
       "inherited": false
     },
     {
@@ -257,6 +313,13 @@
     },
     {
       "id": "test_api_surface.TheSpansAreRight.test_slice_round_trips_the_lines",
+      "suite": "parser",
+      "source": "tests/test_api_surface.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_api_surface.TheSpansAreRight.test_the_cut_span_is_preamble_through_qed",
       "suite": "parser",
       "source": "tests/test_api_surface.py",
       "subcase_sites": 0,
