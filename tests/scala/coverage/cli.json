@@ -2174,6 +2174,36 @@
       "reason": ""
     },
     {
+      "id": "test_show_near_names.TheBoundNameNoteFollowsTheSameRule.test_count_mode",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_an_exact_match_has_no_note",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_count_mode_prints_only_the_number",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_first_line_of_the_default_view",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_names_mode_keeps_stdout_names_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
       "id": "test_sites_codeqs.MixfixAttribution.test_an_abstract_equation_reads_one_level_in",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_sites_codeqs.scala",

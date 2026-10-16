@@ -13,7 +13,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 for(s<-List("--statement","--stmt")) check(args("find","X",s).bool("statement"))
     }
@@ -24,7 +24,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val n=args("find","X","--statement","-V");check(n.bool("statement"));check(n.bool("verbatim"))
     }
@@ -35,7 +35,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 withProject(Nil){root=>equal(query(root,"show","X","-V","--statement").exit,2)}
     }
@@ -46,7 +46,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 check(!args("show","X").bool("statement"))
     }
@@ -57,7 +57,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 equal(_find("widget",true,mode = "count").trim,"2")
 equal(_find("widget",false,mode = "count").trim,"1")
@@ -69,7 +69,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val out = _find("widget",statement = false)
 check(names(out).contains("widget"))
@@ -82,7 +82,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val out = _find("widget",statement = true,mode = "all")
 check(out.contains(PROOF_LINE))
@@ -94,7 +94,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 equal(names(_find("assms",statement = true)),List())
     }
@@ -105,7 +105,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val out = _find("widget",statement = true)
 check(names(out).contains("size_bound"))
@@ -119,7 +119,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val out = Render.render_entry(sec,entry0,statement = true,verbatim = true)
 check(!out.contains(PROOF_LINE))
@@ -131,7 +131,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val text = Render.statement_text(sec,entry0)
 check(text.contains("lemma size_bound:"))
@@ -144,7 +144,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 check(_show("size_bound").contains(PROOF_LINE))
     }
@@ -155,7 +155,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 equal(names(_show("nonesuch",statement = true)),List())
     }
@@ -166,7 +166,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 val out = _show("size_bound",statement = true)
 check(out.contains("lemma size_bound:"))
@@ -180,7 +180,7 @@ val secs=List(sec)
 val entry0=entry(sec,"size_bound")
 val PROOF_LINE="using assms by auto"
 def _find(pat:String,statement:Boolean,mode:String="names"):String=capture((o,e)=>Commands.cmd_find(o,e,secs,pat,Flags(mode=mode,statement=statement))).out
-def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,secs,name,Flags(statement=statement,verbatim=verbatim))).out
+def _show(name:String,statement:Boolean=false,verbatim:Boolean=false):String=capture((o,e)=>Commands.cmd_show(o,e,secs,name,Flags(statement=statement,verbatim=verbatim))).out
     locally {
 check(_show("size_bound",verbatim = true).contains(PROOF_LINE))
     }

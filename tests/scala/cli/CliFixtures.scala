@@ -9,6 +9,11 @@ private[regression] object CliFixtures {
   val test_cli_names_flag_NAMES_FLAG = List("theory", "defs", "find", "show", "callers", "callees", "grep", "methods")
   val test_cli_names_flag_NOOP_N = List("grep", "sorry")
   val test_cli_with_comments_PROSE_VERBS = List("find", "grep")
+  val test_show_near_names_THY = """theory T imports Main begin
+lemma descriptor_tape_length: "True" by simp
+lemma both: shows "True" and conj: "True" by simp_all
+end
+"""
   val test_count_modes_THY = "theory T\nimports Main\nbegin\ndefinition d :: \"nat\" where \"d = 0\"\nlemma l: \"d = d\" by (simp add: d_def)\nend\n"
   val test_default_namespace_THY = "theory T imports Main begin\n\nlemma triv: \"(1::nat) + 1 = 2\"\n  by auto\n\nlemma structured: \"(2::nat) + 2 = 4\"\nproof -\n  have \"(2::nat) + 2 = 4\" by blast\n  thus ?thesis by metis\nqed\n\nend\n"
   val test_deps_qualified_TREE = Map("base/Substrate.thy" -> "theory Substrate imports Main begin\nlemma s_l: \"True\" by simp\nend\n", "ae/EncodingWrap.thy" -> "theory EncodingWrap\n  imports \"Proj_Base.Substrate\" \"HOL-Library.FuncSet\"\nbegin\nlemma e_l: \"True\" by simp\nend\n")

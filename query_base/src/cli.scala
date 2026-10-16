@@ -1295,7 +1295,7 @@ object CLI {
         }
       case "show" =>
         val sections = load_sections(s, ns)
-        each(out, ns.pos("name"))(n => Commands.cmd_show(out, sections, n, flags))
+        each(out, ns.pos("name"))(n => Commands.cmd_show(out, err, sections, n, flags))
       case "grep" =>
         Commands.cmd_grep(out, err,
           load_sections(s, ns, parse_policy = "infer", windows = true),
