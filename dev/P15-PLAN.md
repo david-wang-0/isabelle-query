@@ -66,7 +66,15 @@ graph whose `lemmas` are entries). S5 merges, S6–S8 close.
 - [x] `ORACLE_VERSION=0.9.8`, `CLI.version = "0.9.8-scala.0.3"`,
       plugin.props, `dev/p13-loading.scala`; oracle venv re-installed;
       `make test-scala` 1,396/1,396. `afd7715`.
-- [ ] Baseline matrix recorded here (`.dev/p15/difftest-baseline.log`).
+- [x] Baseline matrix (`.dev/p15/difftest-baseline.log`), the 2,359 cases
+      against oracle 0.9.8 with the port at `afd7715`: **1,801 clean, 186
+      pinned, 372 failing**, 0 stale pins. By verb: `unused` 53, `graph` 37,
+      `summary` 34, `find` 31, `theory` 25, `show` 24, `callees` 24, `refs`
+      22, the rest ≤ 15 each; by corpus AODV 103, FOL 68, ZF 65, Sequents 51,
+      CTT 45, Category3 32, Abstract_Completeness 8. The gap reports
+      attribute the bulk to `[lemmas-entries]` (S1: entry counts, extents,
+      aliases missing from the graph) and `[show-match-count]` (S3), the
+      grouped `callers` header and declaration choice to S4.
 
 ### S1 — the parser `[axiom-for]` `[lemmas-entries]` `[cut-span]`
 
