@@ -2954,6 +2954,30 @@
       "reason": ""
     },
     {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_clean_batch_matches_the_single_calls",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_scan_with_no_hits_is_not_unknown",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_every_unknown_subject_is_reported",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_stdout_is_untouched_and_the_status_is_1",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
       "id": "test_summary_aggregate.AggregateRender.test_by_session_table_and_total",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_summary_aggregate.scala",

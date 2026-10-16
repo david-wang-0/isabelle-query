@@ -9053,6 +9053,34 @@
       "inherited": false
     },
     {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_clean_batch_matches_the_single_calls",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_a_scan_with_no_hits_is_not_unknown",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_every_unknown_subject_is_reported",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.AnUnknownSubjectFailsTheBatch.test_stdout_is_untouched_and_the_status_is_1",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_summary_aggregate.AggregateRender.test_by_session_table_and_total",
       "suite": "cli",
       "source": "tests/test_summary_aggregate.py",

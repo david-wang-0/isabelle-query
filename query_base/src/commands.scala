@@ -68,10 +68,11 @@ object Commands {
 
      `out.flush()` first, for the reason `fail_root` does it: on a terminal the
      two streams interleave by flush order, and a diagnostic that overtakes the
-     stdout written before it reads as belonging to the wrong subject.  The
-     `Exit_Code` is caught in `CLI.run_result`, so in a batch the earlier
-     subjects' output survives and the loop stops here — which is exactly the
-     reference implementation's `sys.exit` inside `_run_each`. */
+     stdout written before it reads as belonging to the wrong subject.  In a
+     batch, `out` is that subject's own buffer: `CLI.each` catches this exit,
+     discards the buffer, runs the remaining subjects so every unknown one is
+     reported, and then leaves stdout empty with status 1 [subject-batch] —
+     the reference implementation's `_run_each`. */
   def fail_subject(out: Out, err: Out, what: String): Nothing = {
     out.flush()
     err.println(s"isabelle query: $what")
