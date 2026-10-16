@@ -67,7 +67,7 @@ DEAD_SERVER="p8probe-dead-$$"
 # client cannot start one.  It is in the cleanup list anyway: the name was
 # absent from it until P8, and the one run where §13's stub failed to take
 # effect left a resident JVM holding an index behind, which is exactly what
-# §17 says a clean run does not do.  A probe must clean up after the failure
+# §18 says a clean run does not do.  A probe must clean up after the failure
 # it is testing for, not only after the success.
 ABSENT_SERVER="p7probe-absent-$$"
 export ISABELLE_QUERY_CLIENT_SERVER="$SERVER"
@@ -84,19 +84,82 @@ export ISABELLE_QUERY_CLIENT_CACHE="$OUT/client-cache.json"
 # turn it back off, deliberately and per invocation (`env -u`).
 export ISABELLE_QUERY_NO_SERVER=1
 
+# The export is for the cold REFERENCES only.  Every direct call of the thin
+# client in §0-§14 and §18 means the warm path, and since 85b62a5 the client
+# reads the variable too: it is `--no-server` spelled for a shell (README,
+# "nothing warm at all" in `lib/Tools/query`), so under it a run declines with
+# exit 97 and an action (`--client-status`, `--client-stop`) is refused with
+# "client action requires the warm path".  That is the client keeping the
+# documented contract, not a defect in it -- it was this script that never
+# scoped the export, and 17 checks failed for it [p7probe-scoping].  So the
+# client is called through `client`, which drops the variable for that one
+# process, the same `env -u` §15 and §16 spell out by hand.
+client() { env -u ISABELLE_QUERY_NO_SERVER python3 "$CLIENT" "$@"; }
+
 fail=0
 checks=0
 note() { checks=$((checks + 1)); echo "  ok    $1${2:+  [$2]}"; }
 bad()  { checks=$((checks + 1)); fail=$((fail + 1)); echo "  FAIL  $1  [$2]"; }
 
+# THE PROBE'S OWN SERVERS ARE MANUALLY MANAGED, because since 85b62a5 nothing
+# else outlives a request.  A server the client starts is an owned fallback:
+# it holds the client's private stdin pipe and exits when that invocation ends
+# (README, "The warm server").  Until this was noticed the script still let
+# `--client-status` start the server §1-§14 compare against, so §0 looked for a
+# registry row that had already gone, §12 touched the jar under a server that
+# no longer existed, and §9b's "pinned server" was a fresh unpinned one by the
+# time the clean client asked -- passing, and proving nothing
+# [p7probe-scoping].  So `serve` does what the README tells a user to do for
+# cross-command caching, `isabelle query_server -n NAME` with stdin held open,
+# and `unserve` closes that stdin, which is the server's documented way out.
+declare -A HOLD=()
+serve() {
+  local name="$1" fifo="$OUT/hold-$1" fd i
+  rm -f "$fifo" "$OUT/serve-$name.out"
+  mkfifo "$fifo" || return 1
+  # The server must not inherit the write end of ANOTHER server's pipe, or
+  # closing that one would never reach its server while this one lives.
+  ( for f in "${HOLD[@]}"; do exec {f}>&-; done
+    exec isabelle query_server -n "$name" ) <"$fifo" >"$OUT/serve-$name.out" 2>&1 &
+  exec {fd}>"$fifo"
+  HOLD[$name]=$fd
+  # The greeting is printed once the registry row is written; bounded, so a
+  # server that never comes up is a FAIL rather than a hang.
+  for i in $(seq 1 600); do
+    grep -q 'password' "$OUT/serve-$name.out" 2>/dev/null && return 0
+    sleep 0.1
+  done
+  return 1
+}
+# Bounded wait until no server JVM of this name is left.  A server halts within
+# its own 3-second bound once told to stop, so a fixed `sleep 0.3` was a race
+# that §18 lost.
+gone() {
+  local i
+  for i in $(seq 1 50); do
+    [ "$(pgrep -cf "Query_Server_Main -n $1\$" 2>/dev/null)" = "0" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+unserve() {
+  local fd="${HOLD[$1]:-}"
+  [ -n "$fd" ] && exec {fd}>&-
+  unset "HOLD[$1]"
+  gone "$1"
+}
+# A name for §0's owned fallback, which must NOT outlive its invocation.
+OWNED_SERVER="p7probe-owned-$$"
+
 cleanup() {
+  for s in "${!HOLD[@]}"; do unserve "$s"; done
   for s in "$SERVER" "$ENV_SERVER" "$SHIM_SERVER" "$DEAD_SERVER" \
-           "$ABSENT_SERVER"; do
+           "$ABSENT_SERVER" "$OWNED_SERVER"; do
     isabelle server -x -n "$s" >/dev/null 2>&1
     # Belt to that brace: a server killed with -9 leaves no socket for `-x` to
     # talk to, so match on the command line as well.
     pkill -f "isabelle_server.*$s" >/dev/null 2>&1
-    pkill -f "server -n $s" >/dev/null 2>&1
+    pkill -f "Query_Server_Main -n $s\$" >/dev/null 2>&1
   done
 }
 trap cleanup EXIT INT TERM
@@ -112,11 +175,31 @@ isabelle scala_build || exit $?
 # --------------------------------------------------------------------------
 echo "0. the server starts, and it is the one we asked for"
 
-python3 "$CLIENT" --client-status >"$OUT/status.txt" 2>&1
-if grep -q "^server        $SERVER" "$OUT/status.txt"; then
-  note "the client started a server under its own name"
+# First the contract that made the rest of this section manual: a server the
+# CLIENT starts is answered from and then gone, row and process both.
+ISABELLE_QUERY_CLIENT_SERVER="$OWNED_SERVER" client --client-status \
+  >"$OUT/owned-status.txt" 2>&1
+if grep -q "^server        $OWNED_SERVER" "$OUT/owned-status.txt" &&
+   ! isabelle server -l 2>/dev/null | grep -q "\"$OWNED_SERVER\"" &&
+   [ "$(pgrep -cf "Query_Server_Main -n $OWNED_SERVER\$" 2>/dev/null)" = "0" ]; then
+  note "a client-started server answers, then ends with its invocation"
 else
-  bad "the client started a server under its own name" "$(head -2 "$OUT/status.txt" | tr '\n' ' ')"
+  bad "a client-started server answers, then ends with its invocation" \
+    "$(head -1 "$OUT/owned-status.txt"); $(pgrep -cf "Query_Server_Main -n $OWNED_SERVER\$") left"
+fi
+
+if serve "$SERVER"; then
+  note "the probe's dedicated server is up (isabelle query_server)"
+else
+  bad "the probe's dedicated server is up (isabelle query_server)" \
+    "$(head -2 "$OUT/serve-$SERVER.out" | tr '\n' ' ')"
+fi
+
+client --client-status >"$OUT/status.txt" 2>&1
+if grep -q "^server        $SERVER" "$OUT/status.txt"; then
+  note "the client reaches it under its own name"
+else
+  bad "the client reaches it under its own name" "$(head -2 "$OUT/status.txt" | tr '\n' ' ')"
 fi
 
 if isabelle server -l 2>/dev/null | grep -q "\"$SERVER\""; then
@@ -151,7 +234,7 @@ echo "9. the client, end to end"
 
 isabelle query -R "$AFP" summary >"$OUT/cold-summary.txt" 2>"$OUT/cold-summary.err"
 cold_rc=$?
-python3 "$CLIENT" -R "$AFP" summary >"$OUT/warm-summary.txt" 2>"$OUT/warm-summary.err"
+client -R "$AFP" summary >"$OUT/warm-summary.txt" 2>"$OUT/warm-summary.err"
 warm_rc=$?
 if cmp -s "$OUT/cold-summary.txt" "$OUT/warm-summary.txt" && [ "$cold_rc" = "$warm_rc" ]; then
   note "warm client stdout and exit equal the cold tool's" "exit $warm_rc"
@@ -161,7 +244,7 @@ fi
 
 # The tool's own -R must survive the client's path rewriting, from a working
 # directory that is NOT the project.
-( cd "$OUT" && python3 "$CLIENT" -R "$AFP" theory --names ) >"$OUT/warm-rel.txt" 2>&1
+( cd "$OUT" && client -R "$AFP" theory --names ) >"$OUT/warm-rel.txt" 2>&1
 isabelle query -R "$AFP" theory --names >"$OUT/cold-rel.txt" 2>&1
 if cmp -s "$OUT/cold-rel.txt" "$OUT/warm-rel.txt"; then
   note "and an absolute -R from an unrelated cwd resolves the same"
@@ -172,7 +255,7 @@ fi
 # No -R at all: the root comes from the CLIENT's working directory, resolved
 # by the CLI's own rule inside the server.  This is the check that would catch
 # a served run silently using the server's cwd instead.
-( cd "$AFP" && python3 "$CLIENT" summary ) >"$OUT/warm-cwd.txt" 2>&1
+( cd "$AFP" && client summary ) >"$OUT/warm-cwd.txt" 2>&1
 if cmp -s "$OUT/cold-summary.txt" "$OUT/warm-cwd.txt"; then
   note "a bare invocation resolves the CLIENT's cwd, not the server's"
 else
@@ -181,7 +264,7 @@ else
 fi
 
 # A relative path argument is the other half of the same question.
-( cd "$(dirname "$AFP")" && python3 "$CLIENT" -R "$(basename "$AFP")" summary ) \
+( cd "$(dirname "$AFP")" && client -R "$(basename "$AFP")" summary ) \
   >"$OUT/warm-relroot.txt" 2>&1
 if cmp -s "$OUT/cold-summary.txt" "$OUT/warm-relroot.txt"; then
   note "and a RELATIVE -R resolves against the client's cwd"
@@ -220,9 +303,15 @@ else
     "$(head -1 "$OUT/zf-plain.txt") vs $(head -1 "$OUT/zf-pinned.txt")"
 fi
 
-# Start the second server FROM a pinned client, so it inherits the pin.
+# Start the second server UNDER the pin, so it inherits it.  Through P7 a
+# pinned client started it; since 85b62a5 that server would end with the
+# client, and the clean client below would get a fresh, clean one of its own
+# and pass for the wrong reason -- so it is a manually managed server, which is
+# also exactly the "started from some terminal, outlives it" case the defect
+# was about.
+ISABELLE_QUERY_NAMESPACE=committed serve "$ENV_SERVER"
 ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_NAMESPACE=committed \
-  python3 "$CLIENT" --client-status >"$OUT/env-status.txt" 2>&1
+  client --client-status >"$OUT/env-status.txt" 2>&1
 if grep -q "^server        $ENV_SERVER" "$OUT/env-status.txt"; then
   note "a server started under the pinned environment is up" "$ENV_SERVER"
 else
@@ -235,7 +324,7 @@ fi
 # floor prints a NOTE on stderr, and folding it in would make the warm file
 # differ from the cold one for the very reason the check is looking for.
 ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" \
-  python3 "$CLIENT" -R "$ZF" callers induct \
+  client -R "$ZF" callers induct \
   >"$OUT/env-plain.txt" 2>"$OUT/env-plain.err"
 if cmp -s "$OUT/zf-plain.txt" "$OUT/env-plain.txt" &&
    grep -q "minimal Pure table" "$OUT/env-plain.err"; then
@@ -249,7 +338,7 @@ fi
 # And the other half: the variable is FORWARDED, not merely ignored, so a
 # client that does set it still gets what it asked for.
 ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_NAMESPACE=committed \
-  python3 "$CLIENT" -R "$ZF" callers induct \
+  client -R "$ZF" callers induct \
   >"$OUT/env-pinned.txt" 2>"$OUT/env-pinned.err"
 if cmp -s "$OUT/zf-pinned.txt" "$OUT/env-pinned.txt"; then
   note "and a pinned client still gets the pinned one (forwarded, not ignored)" \
@@ -263,7 +352,7 @@ fi
 # carries them rather than the server reading its own: no -R, and a cwd that is
 # NOT the project.
 ( cd "$OUT" && ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" ISABELLE_QUERY_ROOT="$ZF" \
-    python3 "$CLIENT" callers induct ) >"$OUT/env-root.txt" 2>"$OUT/env-root.err"
+    client callers induct ) >"$OUT/env-root.txt" 2>"$OUT/env-root.err"
 if cmp -s "$OUT/zf-plain.txt" "$OUT/env-root.txt"; then
   note "\$ISABELLE_QUERY_ROOT is the request's, from an unrelated cwd"
 else
@@ -271,20 +360,30 @@ else
     "$(head -1 "$OUT/env-root.txt")"
 fi
 
-ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" python3 "$CLIENT" --client-stop \
+# Non-vacuity: the three answers above came from the pinned server only if it
+# was there for all of them.  Had it gone, the client would have started a
+# clean fallback under the same name, and every check above would pass.
+if [ "$(pgrep -cf "Query_Server_Main -n $ENV_SERVER\$" 2>/dev/null)" != "0" ]; then
+  note "and the pinned server answered all three (it is still the one up)"
+else
+  bad "and the pinned server answered all three (it is still the one up)" \
+    "gone before the stop"
+fi
+
+ISABELLE_QUERY_CLIENT_SERVER="$ENV_SERVER" client --client-stop \
   >"$OUT/env-stop.txt" 2>&1
-sleep 0.3
-if [ "$(pgrep -cf "server -n $ENV_SERVER" 2>/dev/null)" = "0" ]; then
+if gone "$ENV_SERVER"; then
   note "and the pinned server is stopped again"
 else
   bad "and the pinned server is stopped again" "still running"
 fi
+unserve "$ENV_SERVER"
 
 # --------------------------------------------------------------------------
 echo
 echo "10. the refusal reaches the user, and is not an empty answer"
 
-python3 "$CLIENT" --client-limit 1 -R "$AFP" summary \
+client --client-limit 1 -R "$AFP" summary \
   >"$OUT/capped.txt" 2>"$OUT/capped.err"
 cap_rc=$?
 if [ "$cap_rc" = "2" ] && [ ! -s "$OUT/capped.txt" ] &&
@@ -364,27 +463,42 @@ echo "12. staleness -- a rebuilt component is not answered from the old one"
 # concerned (mtime, and size if the code moved), and it is deterministic where
 # a real rebuild is 30 seconds and a mtime race.  dev/P7-STATUS.md records the
 # real-rebuild transcript.
+#
+# Since 85b62a5 a stale MANUALLY MANAGED server is not restarted behind its
+# owner's back: the client skips it and declines ("The client skips dead,
+# stale, or incompatible ... hosts", README), the front door answers cold, and
+# a new jar reaches the server at its owner's next restart ("Updated
+# components must be loaded at the host's next coordinated restart").  Through
+# P7 this section expected the client to restart the server itself, which is
+# the behaviour that commit retired.
 before=$(grep '^component_id' "$OUT/status.txt" | awk '{print $2}')
 touch "$JAR"
-python3 "$CLIENT" --client-verbose -R "$AFP" summary \
+client --client-verbose -R "$AFP" summary \
   >"$OUT/stale.txt" 2>"$OUT/stale.err"
-if grep -q "component rebuilt under the server" "$OUT/stale.err"; then
-  note "a changed jar is detected and the server restarted"
+stale_rc=$?
+if [ "$stale_rc" = "97" ] && [ ! -s "$OUT/stale.txt" ] &&
+   grep -q "falling back" "$OUT/stale.err"; then
+  note "a server older than the jar is not answered from: the client declines" \
+    "rc $stale_rc, $(grep -o 'falling back.*' "$OUT/stale.err" | cut -c1-50)"
 else
-  bad "a changed jar is detected and the server restarted" \
-    "$(tr '\n' ' ' <"$OUT/stale.err")"
+  bad "a server older than the jar is not answered from: the client declines" \
+    "rc $stale_rc, $(tr '\n' ' ' <"$OUT/stale.err" | cut -c1-90)"
 fi
-if cmp -s "$OUT/cold-summary.txt" "$OUT/stale.txt"; then
-  note "and the answer after the restart is still right"
+front -R "$AFP" summary >"$OUT/stale-front.txt" 2>/dev/null
+if cmp -s "$OUT/cold-summary.txt" "$OUT/stale-front.txt"; then
+  note "and the front door still gives the right answer, cold"
 else
-  bad "and the answer after the restart is still right" "differs"
+  bad "and the front door still gives the right answer, cold" "differs"
 fi
-python3 "$CLIENT" --client-status >"$OUT/status2.txt" 2>&1
+# The owner's restart.
+unserve "$SERVER"
+serve "$SERVER"
+client --client-status >"$OUT/status2.txt" 2>&1
 after=$(grep '^component_id' "$OUT/status2.txt" | awk '{print $2}')
-if [ "$before" != "$after" ] && ! grep -q STALE "$OUT/status2.txt"; then
-  note "the new server carries the new stamp" "$before -> $after"
+if [ -n "$after" ] && [ "$before" != "$after" ] && ! grep -q STALE "$OUT/status2.txt"; then
+  note "the restarted server carries the new stamp" "$before -> $after"
 else
-  bad "the new server carries the new stamp" "$before -> $after"
+  bad "the restarted server carries the new stamp" "$before -> $after"
 fi
 
 # --------------------------------------------------------------------------
@@ -393,27 +507,40 @@ echo "13. failure falls back, and the answer is still right"
 
 # A server killed outright leaves a registry row pointing at nothing.  The
 # client must notice, start a replacement and answer -- never hang on the dead
-# port, never report an empty result.
-pkill -9 -f "server -n $SERVER" >/dev/null 2>&1
+# port, never report an empty result.  The kill has to have hit something:
+# the pattern is the server JVM's own command line (`Query_Server_Main -n
+# NAME`), and the `server -n NAME` this used through P7 matched nothing once
+# servers were launched as `isabelle query_server` -- so the check passed with
+# no server killed at all.
+killed=0
+pkill -9 -f "Query_Server_Main -n $SERVER\$" >/dev/null 2>&1 && killed=1
 sleep 0.3
 start=$(date +%s%N)
-python3 "$CLIENT" --client-verbose -R "$AFP" summary \
+client --client-verbose -R "$AFP" summary \
   >"$OUT/killed.txt" 2>"$OUT/killed.err"
 elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
-if cmp -s "$OUT/cold-summary.txt" "$OUT/killed.txt"; then
+if [ "$killed" = "1" ] && grep -q "starting dedicated server $SERVER" "$OUT/killed.err" &&
+   cmp -s "$OUT/cold-summary.txt" "$OUT/killed.txt"; then
   note "after the server is killed mid-session the answer is still right" \
     "${elapsed} ms, $(tr '\n' ' ' <"$OUT/killed.err" | cut -c1-48)"
 else
-  bad "after the server is killed mid-session the answer is still right" "differs"
+  bad "after the server is killed mid-session the answer is still right" \
+    "killed $killed, $(tr '\n' ' ' <"$OUT/killed.err" | cut -c1-60)"
 fi
+# The replacement was the client's own and ended with it; §14 and §18 want
+# the probe's server back, as its owner would restart it.
+unserve "$SERVER"
+serve "$SERVER"
 
 # And the true fallback: a client that cannot START a server must run the tool
-# cold rather than fail.  The shim refuses exactly the `server` subcommand and
-# forwards everything else, so the cold path is exercised for real.
+# cold rather than fail.  The stub refuses exactly the two launchers -- the
+# client has started its fallback with `query_server` since 85b62a5, and a stub
+# that refused only `server` let it start one regardless -- and forwards
+# everything else, so the cold path is exercised for real.
 SHIM="$OUT/isabelle-noserver"
 {
   echo '#!/usr/bin/env bash'
-  echo 'if [ "${1:-}" = "server" ]; then echo "p7probe: no server for you" >&2; exit 1; fi'
+  echo 'case "${1:-}" in server | query_server) echo "p7probe: no server for you" >&2; exit 1 ;; esac'
   echo "exec isabelle \"\$@\""
 } >"$SHIM"
 chmod +x "$SHIM"
@@ -481,6 +608,15 @@ shim() {     # the front door with the warm path ON, on this section's server
   env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
     isabelle query "$@"
 }
+# This section's server is manually managed for the reason §0 gives: a
+# client-started one would be gone after every invocation, and §15e's kill
+# would have nothing to kill.
+if serve "$SHIM_SERVER"; then
+  note "this section's dedicated server is up" "$SHIM_SERVER"
+else
+  bad "this section's dedicated server is up" \
+    "$(head -2 "$OUT/serve-$SHIM_SERVER.out" | tr '\n' ' ')"
+fi
 
 # --- 15a. a decline is a status, and stdout stays empty ---------------------
 
@@ -700,19 +836,22 @@ fi
 
 # A server killed outright leaves a registry row pointing at nothing.  The next
 # invocation must notice, replace it, and answer -- never hang on the dead
-# port, never report an empty result.
-pkill -9 -f "server -n $SHIM_SERVER" >/dev/null 2>&1
+# port, never report an empty result.  As in §13, the kill must hit something.
+p8_killed=0
+pkill -9 -f "Query_Server_Main -n $SHIM_SERVER\$" >/dev/null 2>&1 && p8_killed=1
 sleep 0.3
 p8_start=$(date +%s%N)
 env -u ISABELLE_QUERY_NO_SERVER ISABELLE_QUERY_CLIENT_SERVER="$SHIM_SERVER" \
   isabelle query --client-verbose -R "$AFP" summary \
   >"$OUT/p8-killed.txt" 2>"$OUT/p8-killed.err"
 p8_elapsed=$(( ($(date +%s%N) - p8_start) / 1000000 ))
-if cmp -s "$OUT/cold-summary.txt" "$OUT/p8-killed.txt"; then
+if [ "$p8_killed" = "1" ] && grep -q "starting" "$OUT/p8-killed.err" &&
+   cmp -s "$OUT/cold-summary.txt" "$OUT/p8-killed.txt"; then
   note "after the server is killed the answer is still right" \
     "${p8_elapsed} ms, $(grep -c 'starting' "$OUT/p8-killed.err") restart(s)"
 else
-  bad "after the server is killed the answer is still right" "differs"
+  bad "after the server is killed the answer is still right" \
+    "killed $p8_killed, $(tr '\n' ' ' <"$OUT/p8-killed.err" | cut -c1-60)"
 fi
 
 # And the true decline: a registry row that names something which ACCEPTS a
@@ -1065,14 +1204,20 @@ fi
 echo
 echo "18. nothing is left running"
 
-python3 "$CLIENT" --client-stop >"$OUT/stop.txt" 2>&1
-sleep 0.3
-left=$(pgrep -f "server -n $SERVER" 2>/dev/null | wc -l)
-if [ "$left" = "0" ]; then
-  note "the probe's server is stopped"
+# Non-vacuity: there is a server to stop (§13 put it back), and it is
+# `--client-stop` that stops it, not the stdin `cleanup` closes later.
+up=$(pgrep -f "Query_Server_Main -n $SERVER\$" 2>/dev/null | wc -l)
+client --client-stop >"$OUT/stop.txt" 2>&1
+stop_rc=$?
+gone "$SERVER"
+left=$(pgrep -f "Query_Server_Main -n $SERVER\$" 2>/dev/null | wc -l)
+if [ "$up" != "0" ] && [ "$stop_rc" = "0" ] && [ "$left" = "0" ]; then
+  note "the probe's server is stopped" "--client-stop, rc $stop_rc"
 else
-  bad "the probe's server is stopped" "$left process(es) left"
+  bad "the probe's server is stopped" \
+    "$up up before, rc $stop_rc, $left process(es) left"
 fi
+unserve "$SERVER"
 if isabelle server -l 2>/dev/null | grep -q "\"$SERVER\""; then
   bad "and it is out of the registry" "still listed"
 else
@@ -1084,7 +1229,7 @@ fi
 left_shim=0
 for s in "$SHIM_SERVER" "$DEAD_SERVER" "$ABSENT_SERVER"; do
   isabelle server -x -n "$s" >/dev/null 2>&1
-  left_shim=$((left_shim + $(pgrep -f "server -n $s" 2>/dev/null | wc -l)))
+  left_shim=$((left_shim + $(pgrep -f "Query_Server_Main -n $s\$" 2>/dev/null | wc -l)))
 done
 sleep 0.3
 if [ "$left_shim" = "0" ] &&
