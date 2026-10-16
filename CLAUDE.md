@@ -56,7 +56,7 @@ One component tree, chained through `etc/components`:
     src/*.scala
     lib/scripts/query_client.py   ← the non-JVM thin client
   jedit_query/                 ← the jEdit plugin (depends on query_base's jar)
-  src/isabelle_query/          ← the PYTHON reference implementation, 0.9.2 (FROZEN — read only)
+  src/isabelle_query/          ← the PYTHON reference implementation, 0.9.8 (FROZEN — read only)
   tests/                       ← the Python test suite (reference for semantics; not run here)
   dev/                         ← differential harness, probes, benchmarks, phase notes
 ```
@@ -90,7 +90,9 @@ in the order `sources` lists them in `query_base/etc/build.props`:
 - `cli` — the argument grammar and `cmd_*` dispatch. `CLI.run_result` is the
   whole CLI minus the two things only a process may do (write to file
   descriptors, exit); `CLI.run` is that plus those two. The server uses the
-  former, which is why there is exactly one dispatch path.
+  former, which is why there is exactly one dispatch path. `CLI.each` is the
+  one spine of every list-taking verb, and a batch is all or nothing: an
+  unknown subject anywhere leaves stdout empty (`[subject-batch]`).
 - `server` — the warm index and the four `Server.Commands` entries.
 
 **Routing lives in exactly one place, and it is not Scala.**
@@ -127,6 +129,8 @@ projects may be queried at once in one JVM. Until P10 this was four
 `@volatile var`s (`[p10-namespace-value]`, and `[p9-reach]` before it for
 `Reach.enabled`); the server's remaining lock now guards the warm index, not a
 table. **A new global here would undo that** — resolve a value and pass it.
+The call graph follows the same rule: built once per request and memoised on
+the `CLI.Session`, never in a process-wide cache (`[graph-once]`).
 
 ## The dev loop
 
@@ -182,10 +186,10 @@ all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 |---|---|
 | `dev/difftest.sh` | 2,464 (case × corpus) runs against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. `dev/difftest-pins` carries 207 pins to a `dev/DIVERGENCES.md` entry — 200 of them to D15, the deliberate one, and 7 to D8. The oracle's version is pinned to the frozen tree's (0.9.8) and a mismatch is a refusal |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
-| `dev/p9probe.sh` | 153 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on fixtures of ROOTs that collide by theory name, bare and path-spelled |
+| `dev/p9probe.sh` | 152 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on fixtures of ROOTs that collide by theory name, bare and path-spelled |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter and `--reach name` |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display |
-| `dev/p7probe.sh` | the warm server and the thin client |
+| `dev/p7probe.sh` | 109 checks on the warm server and the thin client, including the P15 contracts over the socket against a cold run |
 
 Every probe **refuses (exit 2) without its corpora** rather than skipping into
 a green. Every difference from the oracle is recorded in `dev/DIVERGENCES.md`
@@ -206,8 +210,8 @@ hand-compute a fixture value first, then make the code match.
 | `CONTRIBUTING.md` | **normative**: the CLI contract, the verification habits, where design decisions are recorded |
 | `query_base/src/shape.scala` + the Python `shape.py` | **authoritative** metric definitions |
 | `dev/DIVERGENCES.md` | every deliberate difference from the oracle, with its evidence |
-| `dev/P1..P11-STATUS.md`, `dev/P14-STATUS.md` | what each phase established, and what it left for the next |
-| `dev/P9..P14-PLAN.md` | a phase's task list; `P14-PLAN.md` is the sync with upstream 0.9.2 |
+| `dev/P1..P11-STATUS.md`, `dev/P14-STATUS.md`, `dev/P15-STATUS.md` | what each phase established, and what it left for the next |
+| `dev/P9..P15-PLAN.md` | a phase's task list; `P14-PLAN.md` and `P15-PLAN.md` are the syncs with upstream 0.9.2 and 0.9.8 |
 | `dev/BENCH.md` | the three-column benchmark and how it was taken |
 | `todo.md` | **open work only** — not a changelog |
 | `.claude/memory/` | granular working rules (written for the Python project) |
@@ -241,12 +245,12 @@ does not.
 
 ## Release status
 
-`pyproject.toml` tracks the **Python** package — now **0.9.2**, still frozen:
-the reference tree is upstream's 0.9.2 release, and it is the oracle every
+`pyproject.toml` tracks the **Python** package — now **0.9.8**, still frozen:
+the reference tree is upstream's 0.9.8 release, and it is the oracle every
 harness here compares against. The Scala tool's version is `CLI.version` — now
-**0.9.2-scala.0.3**, two axes in one string. The NUMBER in front of `-scala`
+**0.9.8-scala.0.3**, two axes in one string. The NUMBER in front of `-scala`
 names the upstream release whose contract this port matches (P9 is where that
-became 0.8.1, P14 where it became 0.9.2); it moves only when the oracle moves,
+became 0.8.1, P14 0.9.2, P15 0.9.8); it moves only when the oracle moves,
 and `dev/difftest.sh` refuses to run if it differs from the oracle version the
 matrix pins, so the policy is a checked invariant rather than a convention.
 The `-scala` marker is what lets a script tell the two tools apart, since they
@@ -256,10 +260,13 @@ the server, a verb upstream does not have yet, a fix the oracle does not
 share). A breaking one takes the minor slot, an additive one the patch slot,
 and the counter is monotone — it does not reset when the number in front of it
 moves. Dots rather than a second hyphen so a semver comparison reads the
-identifiers numerically. P10 is where the counter started, at `0.1`. P14 did
-not move it: that phase was an oracle-side sync — the port took upstream's
-0.9.2 contract, which is exactly what the number in front records — so
-`0.8.1-scala.0.3` became `0.9.2-scala.0.3`.
+identifiers numerically. P10 is where the counter started, at `0.1`. P14 and
+P15 did not move it: both were oracle-side syncs — the port took upstream's
+0.9.2, then 0.9.8 contract, which is exactly what the number in front
+records — so `0.8.1-scala.0.3` became `0.9.2-scala.0.3`, then
+`0.9.8-scala.0.3`. P15 also carried one port-side fix the oracle does not
+share (the thin client's exit status on a closed pipe, `[p7probe-scoping]`);
+whether that takes the patch slot is a release decision, not a sync's.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.
