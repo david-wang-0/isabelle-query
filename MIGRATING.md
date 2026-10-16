@@ -36,11 +36,11 @@ immutable blocks internally; this does not change excerpts or command output.
 
 **Everything in the differential matrix**, which is the whole verb surface:
 `summary`, `theory`, `defs`, `outline`, `enclosing`/`at`, `largest`, `lines`,
-`grep` (with `-i`), `sorry`, `find`, `show`, `callers`, `callees`, `deps`,
-`uses`, `refs`, `graph`, `unused` (with `--locals`), `methods`/`method`,
-`instances`, `codeqs`, and every `shape` view. Same subcommands, same flags,
-same abbreviations, same positional grammar, same `-R/--root` on either side
-of the command name.
+`grep` (with `-i`), `sorry`, `find`, `show` (with `--premises`), `callers`
+(with `-f tsv`), `callees`, `deps`, `uses`, `refs`, `graph`, `unused` (with
+`--locals`), `methods`/`method`, `instances`, `codeqs`, and every `shape`
+view. Same subcommands, same flags, same abbreviations, same positional
+grammar, same `-R/--root` on either side of the command name.
 
 The compatibility harness compares **output byte for byte** and exit statuses
 across seven corpora, plus whole entry and theory sets over AFP and the
@@ -61,15 +61,45 @@ method-vs-fact router, the `M1`–`M6` metric definitions.
 
 ## Coming from Python 0.9.x
 
-The port matches upstream **0.9.2**, the frozen tree's release. That includes
-the three changes that move numbers 0.8.x printed: `using` / `unfolding` cite
-backward in `shape`'s fan-in `[cite-direction]`, `proposition` is a
-declaration `[decl-commands]`, and a `text` block inside a proof no longer ends
-it `[body-end-text]`. So, as upstream says of 0.8.x → 0.9.0, **a census taken
-with the 0.8.1-era port (`0.8.1-scala.*`) will not reproduce** and should be
-re-run. `instances` and `codeqs` are upstream verbs since 0.9.1 — this fork's
-PR #11 — so they, `unused --locals` and `grep -i` now answer byte for byte
-like the Python tool.
+The port matches upstream **0.9.8**, the frozen tree's release. Up to 0.9.2
+that includes the three changes that move numbers 0.8.x printed: `using` /
+`unfolding` cite backward in `shape`'s fan-in `[cite-direction]`,
+`proposition` is a declaration `[decl-commands]`, and a `text` block inside a
+proof no longer ends it `[body-end-text]`. So, as upstream says of 0.8.x →
+0.9.0, **a census taken with the 0.8.1-era port (`0.8.1-scala.*`) will not
+reproduce** and should be re-run. `instances` and `codeqs` are upstream verbs
+since 0.9.1 — this fork's PR #11 — so they, `unused --locals` and `grep -i`
+answer byte for byte like the Python tool.
+
+What 0.9.3–0.9.8 brought, all of it in the port as well:
+
+- **`lemmas` / `theorems` groups are entries**, tagged `LEMMAS`, one per named
+  group, each citing only its own right-hand side, so `callers -r` passes
+  through an alias `[lemmas-entries]`. Upstream counts 10,608 new AFP entries
+  and 189 that end earlier. **Entry counts, `summary`, `unused` and anything
+  measured with a `0.9.2-scala.*` build move**; re-run them.
+- **An `axiomatization`'s `for` / `if` tail declares nothing** — 1,081 →
+  1,071 named AFP axioms `[axiom-for]`.
+- **A batch with an unknown subject prints nothing.** The status is `1`, as
+  before, but every unknown name is now reported on stderr, where the run used
+  to stop at the first, and the answers for the names before it, which used to
+  reach stdout, are withheld `[subject-batch]`. A script that kept a partial
+  answer must read the status instead.
+- **`callees` and `callers -r` name a declaration the citing theory can see**,
+  nearest first, where they used to name whichever loaded first; **`callers
+  NAME` groups a name declared more than once** by the declarations each site
+  can see, under a header that says how many there are
+  `[callee-attribution]`. A name with one declaration prints as before.
+- **A `<toplevel>` caller is named by its theory's label** `[toplevel-label]`,
+  so two same-named theories no longer share one.
+- **`show` and `find` number their headers** `[k of n]` when more than one
+  entry matches `[show-match-count]`, and `show` opens a near-name fallback
+  with `# no entry named 'X'; N whose name contains it:` — on stderr under
+  `--names` / `-c` `[show-near-names]`.
+- New: **`show --premises`**, one line per premise keyed by how a proof cites
+  it (`assms(k)`, `that(k)`, `term k`), then the number of conclusions
+  `[show-premises]`; **`callers -f tsv`**, one row per caller naming its
+  subject, `-c -f tsv` as `subject<TAB>count` `[callers-tsv]`.
 
 ## What is new
 
@@ -108,14 +138,14 @@ The first two are new only against Python 0.8.x: upstream took them in 0.9.1.
   entire result set cancels its pending refresh, while a deleted child group or
   hit may reappear when that refresh finishes. Clear removes all results and
   cancels all pending results.
-- **`-V/--version`** reports `0.9.2-scala.0.3`, not `0.9.2`. Deliberately:
+- **`-V/--version`** reports `0.9.8-scala.0.3`, not `0.9.8`. Deliberately:
   the number in front of `-scala` names the upstream release whose contract
   this port matches, the `-scala` marker is what lets a script that pins a
   version tell the two tools apart, and the `MINOR.PATCH` after it is the
   port's own release counter for changes that leave that contract alone. A
-  script that wants "the same contract as `0.9.2`" should compare the prefix
-  up to `-scala`. The counter did not move for the 0.9.2 sync: that moved the
-  number in front of it.
+  script that wants "the same contract as `0.9.8`" should compare the prefix
+  up to `-scala`. The counter did not move for the 0.9.2 or the 0.9.8 sync:
+  those moved the number in front of it.
 
 ## What is deliberately different
 
