@@ -89,11 +89,15 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 # `theories "ex/Typechecking"` declares a theory Isabelle calls
 # `Typechecking` (`Thy_Header.import_name`, cited in dev/DIVERGENCES.md D15);
 # the reference prints the ROOT's own spelling.  This is the one deliberate
-# difference in oracle-shared STDOUT, and these are all 183 cases it moves --
+# difference in oracle-shared STDOUT, and these are all 198 cases it moves --
 # every one of them on a corpus whose ROOT declares a theory by path, and
 # nothing else on any corpus moved at all:
 #
-#   FOL       33   "Locale_Test/Locale_Test"
+#   FOL       48   "Locale_Test/Locale_Test" (33 until P15 S1: eleven
+#                  `unused-*` and four `graph` JSON cases came with
+#                  [lemmas-entries], which made the two `lemmas
+#                  less_mixin_thy_merge*` of that theory entries -- uncited
+#                  ones, so `unused` rows and graph nodes printing its name)
 #   Sequents  52   "LK/Propositional", "LK/Quantifiers",
 #                  "LK/Hard_Quantifiers", "LK/Nat"
 #   CTT       98   "ex/Typechecking", "ex/Elimination", "ex/Equality",
@@ -101,10 +105,10 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 #
 # Four shapes of difference, and the reason column names which:
 #
-#   the theory name          139 cases.  Substituting leaf for declared string
+#   the theory name          151 cases.  Substituting leaf for declared string
 #                            in the ORACLE's stdout gives this engine's, byte
 #                            for byte.
-#   the locus column width    41 cases.  `grep`, `methods`, `shape steps` size
+#   the locus column width    44 cases.  `grep`, `methods`, `shape steps` size
 #                            the locus column to the widest locus, and the
 #                            widest one got shorter.  Identical after collapsing
 #                            runs of spaces.
@@ -124,6 +128,10 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 # added to a family later must not be pinned by inheritance.
 # ---------------------------------------------------------------------------
 
+graph-citation                  FOL       D15  the theory name
+graph-default                   FOL       D15  the theory name
+graph-drop0                     FOL       D15  the theory name
+graph-reach-name                FOL       D15  the theory name
 graph-imports                   FOL       D15  the theory name
 graph-imports-dot               FOL       D15  the theory name
 grep-alternation                FOL       D15  the locus column width
@@ -154,6 +162,17 @@ shape-summary-scope-equals      FOL       D15  the theory name
 shape-summary-scope-proof       FOL       D15  the theory name
 summary-by-session-v            FOL       D15  the theory name
 summary-default                 FOL       D15  the theory name
+unused-by-theory                FOL       D15  the locus column width
+unused-by-theory-abbrev         FOL       D15  the locus column width
+unused-default                  FOL       D15  the theory name
+unused-drop2                    FOL       D15  the theory name
+unused-keep                     FOL       D15  the theory name
+unused-keep-list                FOL       D15  the theory name
+unused-keep-repeat              FOL       D15  the theory name
+unused-keep-unknown             FOL       D15  the theory name
+unused-recursive                FOL       D15  the theory name
+unused-recursive-by-theory      FOL       D15  the locus column width
+unused-roots                    FOL       D15  the theory name
 uses-batch                      FOL       D15  the theory name
 uses-last                       FOL       D15  the theory name
 uses-recursive                  FOL       D15  the theory name
