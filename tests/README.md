@@ -18,8 +18,8 @@ selected suite; a cache hit runs one JVM. No production jar, global component
 registration, prover session, or live host is changed. Python 3.11+ orchestrates
 builds and reads gate metadata only; Isabelle must be on `PATH`.
 
-`scala/upstream-tests.json` preserves all 1,396 original unittest IDs of
-upstream 0.9.2 (the frozen `src/isabelle_query/` tree, identified by its
+`scala/upstream-tests.json` preserves all 1,482 original unittest IDs of
+upstream 0.9.8 (the frozen `src/isabelle_query/` tree, identified by its
 `python_tree_id`) and their disjoint groups. Each `scala/coverage/GROUP.json`
 is exhaustive for that group. `ported` rows must execute real
 `TestSupport.test(id)` assertions. Explicit `python-only`, `optional`,
@@ -61,7 +61,7 @@ The gate checks working Python bytes and executable modes, not merely HEAD or
 the version string. Same-version source/metadata drift fails the cheap check;
 reviewed maintenance can use `--force`. Version changes trigger complete
 compatibility by default. All seven standard corpora are mandatory. The copied
-harness executes 28 entry projections and 2,359 warm differential comparisons
+harness executes 28 entry projections and 2,464 warm differential comparisons
 (the count is `comparisons_per_mode` in `scala/coverage/matrix.json`),
 including stale-pin rejection. Entry projections require successful producers
 as well as equal bytes. Failed/partial runs never update the baseline. On Linux,
@@ -72,7 +72,7 @@ identities; local corpus and installation paths are not recorded in the baseline
 
 The initial baseline explicitly cites prior `dev/P11-STATUS.md` evidence:
 2,149 comparisons, including 181 pins. Its unknown historical layout/corpus
-identities remain null; bootstrapping did not run a fresh matrix. All 337
+identities remain null; bootstrapping did not run a fresh matrix. All 352
 invocation IDs in `scala/coverage/matrix.json` retain their exact corpus/process
 compatibility tier. That mapping does not claim that a small semantic unit
 fixture repeats a seven-corpus byte comparison.

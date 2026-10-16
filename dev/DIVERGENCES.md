@@ -5,9 +5,10 @@ implementation, with the evidence that made it deliberate.  `PLAN.md` requires
 this list to stay near-empty and every entry to have a reason better than "hard
 to match".
 
-**The oracle is upstream 0.9.2 as of P14** (`git merge v0.9.2`,
-`[p14-merge]`; `src/isabelle_query/` and `tests/` are that release, frozen).  P9
-had moved it from 0.7.0 to 0.8.1 (`[p9-merge]`).  That matters for reading this
+**The oracle is upstream 0.9.8 as of P15** (`git merge v0.9.8`,
+`[p15-merge]`; `src/isabelle_query/` and `tests/` are that release, frozen).
+P14 had moved it from 0.8.1 to 0.9.2 (`[p14-merge]`), P9 from 0.7.0 to 0.8.1
+(`[p9-merge]`).  That matters for reading this
 file, because most of what is written down here was *found* here and has since
 been fixed or adopted **upstream**: D1, D3, D7 and D10 were fixed in 0.8.0 from
 this port's own findings (upstream ships them as
@@ -349,9 +350,9 @@ contract rather than as a defect (`[closed-stdout]`, 5b5d66b — a docs-only
 commit).  The measurements below stand; the reading of them is corrected at the
 end of the entry.
 
-**Cost: 3 difftest cases on the standard corpora (`closed-stdout` on
-`Abstract_Completeness`, `shape-census-pipe` on `Abstract_Completeness` and
-`CTT`), plus three on the demo — where `Demo_Extras`'s `find … -a -V` is
+**Cost: 4 difftest cases on the standard corpora (`closed-stdout` on
+`Abstract_Completeness` and, since oracle 0.9.8, `CTT`; `shape-census-pipe` on
+`Abstract_Completeness` and `CTT`), plus three on the demo — where `Demo_Extras`'s `find … -a -V` is
 12,739 bytes, over this engine's 8 KB and under the reference's 64 KB, which is
 the threshold difference in one case.**
 
@@ -457,7 +458,7 @@ buffer instead of at the pipe's.
 What is left of D8 is one defect and one difference:
 
 - the oracle's 120-with-stderr-noise, which is a real defect and keeps its
-  `closed-stdout Abstract_Completeness` pin;
+  `closed-stdout` pins (`Abstract_Completeness`, and `CTT` since P15 — below);
 - **a documented difference in THRESHOLD** — 8 KB here against 64 KB there —
   which is what the two `shape-census-pipe` pins measure.  Neither number is
   promised to a caller, and neither could be: they belong to a JVM writer's
@@ -465,6 +466,41 @@ What is left of D8 is one defect and one difference:
   `141` means *a write failed because a downstream reader closed the pipe*, and
   say that `141` is not promised for every `| head` — true of both tools, and
   committing neither to a size.
+
+### P15: CTT joins, because the oracle's answer moved
+
+Against oracle 0.9.8 `closed-stdout` (`find . . . . -a -V | head -3`) differs
+on `CTT` as well: the oracle exits **120** with `Exception ignored while
+flushing sys.stdout` on stderr, this engine 141.  Nothing on this side moved
+it.  Upstream's 0.9.3–0.9.8 changed the oracle's own answer there —
+`[lemmas-entries]` made CTT's nineteen `lemmas` groups entries, and
+`[show-match-count]` puts `[k of n]` in every header of a multi-match `find` —
+and 0.9.4's `[subject-batch]` buffers each subject of a batch and writes the
+whole answer at the end, so where the first failing write lands has moved too.
+The same invocation, five runs each, identical every time (`| head -3`,
+`${PIPESTATUS[0]}`):
+
+| corpus | oracle 0.9.2: bytes, exit | oracle 0.9.8: bytes, exit | this engine (P15): bytes, exit |
+|---|---|---|---|
+| `Abstract_Completeness` | 116,943, **120** | 120,471, **120** | 120,471, 141 |
+| `CTT` | 153,659, 141 | 168,559, **120** | 168,427, 141 |
+| `Sequents` | 386,071, 141 | 412,359, 141 | 410,967, 141 |
+| `FOL` | | 708,799, 141 | 708,607, 141 |
+| `Category3` | | 5,486,971, 141 | 5,486,971, 141 |
+| `AODV` | | 7,526,923, 141 | 7,526,923, 141 |
+| `ZF` | | 10,802,979, 141 | 10,802,979, 141 |
+
+(The 0.9.2 column is `git archive v0.9.2 src/isabelle_query` run by the
+oracle venv's interpreter.  CTT's and Sequents' byte counts differ between the
+tools by D15 alone: `ex/…` and `LK/…` in the oracle's headers.)  The size is
+not the whole story either: 0.9.8's single-subject `find . -a -V` on
+`Sequents` is 103,089 bytes and exits 120 three runs out of three, under the
+batch's 412,359 that exits 141.  Which is the point the entry already makes —
+the oracle's status depends on where its first failing write falls relative to
+its `except BrokenPipeError`, which no caller can reason about — and why the
+pin is the evidence rather than a threshold: `closed-stdout CTT` is pinned
+next to `Abstract_Completeness`.  The two `shape-census-pipe` pins are
+unchanged and not stale.
 
 ## D9 — regex dialect: two Python-only spellings are rejected, not misread
 
@@ -876,8 +912,8 @@ Everything else about the declared set now agrees: an entry of ANY tag counts
 
 ## D15 — a theory a ROOT addresses by PATH is named by its LEAF
 
-**Cost: 183 of `dev/difftest.sh`'s 2,359 cases, on the three gate corpora whose
-ROOT addresses a theory by path (FOL 33, Sequents 52, CTT 98) and on no other;
+**Cost: 200 of `dev/difftest.sh`'s 2,464 cases, on the three gate corpora whose
+ROOT addresses a theory by path (FOL 48, Sequents 52, CTT 100) and on no other;
 0 records on `dev/entrydiff.sh`, whose dumps key by path.  Every case is pinned
 below, by id.**  It is the only deliberate difference in oracle-shared STDOUT
 that this port carries by choice rather than by defect, and it is here because
@@ -1002,24 +1038,34 @@ maps that spelling by its leaf as it always did.
 
 ### The pinned cases
 
-**183 of the 2,359 matrix cases, and not one on a corpus without a
+**200 of the 2,464 matrix cases, and not one on a corpus without a
 path-declared theory.**  P14 added five: the site verbs gained an oracle in
 0.9.1, and on Sequents `instances term` prints the locus of
 `instance nat :: "term"` as `Nat:13` where the oracle prints the ROOT's
 `LK/Nat:13` (`instances-default`, `instances-names`, `instances-r`,
-`instances-r-sorts`, `instances-sorts`).  The other four gate corpora (`Abstract_Completeness`,
+`instances-r-sorts`, `instances-sorts`).  P15 added seventeen.  Fifteen are
+FOL's, from upstream's `[lemmas-entries]` (0.9.7): the two `lemmas
+less_mixin_thy_merge*` of `Locale_Test/Locale_Test` became entries, uncited
+ones, so `unused` rows and the default `graph`'s nodes now print that theory's
+name (`graph-citation`, `graph-default`, `graph-drop0`, `graph-reach-name`;
+eight `unused-*` by name, three `unused-*by-theory` by column width).  Two are
+CTT's, from the matrix's own new cases: `show-premises-batch` heads
+`Axiom_of_Choice` with `Elimination.thy` where the oracle writes
+`ex/Elimination.thy`, and `callers-lemmas-alias` names the `<toplevel>` citer
+of `form_rls` `Typechecking:<toplevel>` where the oracle writes
+`ex/Typechecking:<toplevel>`.  The other four gate corpora (`Abstract_Completeness`,
 `AODV`, `Category3`, `ZF`) and both demo corpora are byte-identical, as they
 were.  Each case is pinned by its own id in `dev/difftest-pins` — no family
 glob, because not one command family moves whole: `grep-anchored` moves on FOL
 and `grep-count` does not, since only the first prints a locus.
 
-**FOL** — 33 cases; the ROOT declares `"Locale_Test/Locale_Test"`.
+**FOL** — 48 cases; the ROOT declares `"Locale_Test/Locale_Test"`.
 
-- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (25):
-  `graph-imports`, `graph-imports-dot`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `uses-batch`, `uses-last`, `uses-recursive`
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (37):
+  `graph-citation`, `graph-default`, `graph-drop0`, `graph-imports`, `graph-imports-dot`, `graph-reach-name`, `shape-census`, `shape-census-resume`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-json-all`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `summary-by-session-v`, `summary-default`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-last`, `uses-recursive`
 
-- **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (8):
-  `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps-all`, `shape-steps-all-long`
+- **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (11):
+  `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps-all`, `shape-steps-all-long`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`
 
 **Sequents** — 52 cases; the ROOT declares `"LK/Propositional"`, `"LK/Quantifiers"`, `"LK/Hard_Quantifiers"`, `"LK/Nat"`.
 
@@ -1032,10 +1078,10 @@ and `grep-count` does not, since only the first prints a locus.
 - **the name-sorted order** — `graph imports` sorts nodes and edges by name; identical as sets of lines (2):
   `graph-imports`, `graph-imports-dot`
 
-**CTT** — 98 cases; the ROOT declares `"ex/Typechecking"`, `"ex/Elimination"`, `"ex/Equality"`, `"ex/Synthesis"`.
+**CTT** — 100 cases; the ROOT declares `"ex/Typechecking"`, `"ex/Elimination"`, `"ex/Equality"`, `"ex/Synthesis"`.
 
-- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (72):
-  `deps-batch`, `deps-last`, `enclosing-alias-at`, `enclosing-batch`, `enclosing-blocks`, `enclosing-entry`, `enclosing-mid`, `enclosing-open-lo`, `enclosing-open-range`, `enclosing-range`, `enclosing-rg-marker`, `find-batch`, `graph-citation`, `graph-default`, `graph-drop0`, `graph-imports`, `graph-imports-dot`, `graph-reach-name`, `largest-default`, `largest-top-glued`, `largest-top-long`, `largest-top3`, `methods-least-used`, `outline-last`, `refs-batch`, `refs-last`, `shape-census`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-lemma`, `shape-lemma-batch`, `shape-lemma-config`, `shape-lemma-json`, `shape-lemma-substring`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-config`, `shape-steps-config-corpus`, `shape-steps-config-equals`, `shape-steps-config-multi-pick`, `shape-steps-config-multi-pick2`, `shape-steps-json`, `shape-steps-json-all`, `shape-steps-locus-json`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `shape-widest-json`, `show-batch`, `summary-by-session-v`, `summary-default`, `theory-last`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-last`, `uses-recursive`
+- **the theory name** — substituting leaf for declared string in the ORACLE's stdout gives this engine's, byte for byte (74):
+  `callers-lemmas-alias`, `deps-batch`, `deps-last`, `enclosing-alias-at`, `enclosing-batch`, `enclosing-blocks`, `enclosing-entry`, `enclosing-mid`, `enclosing-open-lo`, `enclosing-open-range`, `enclosing-range`, `enclosing-rg-marker`, `find-batch`, `graph-citation`, `graph-default`, `graph-drop0`, `graph-imports`, `graph-imports-dot`, `graph-reach-name`, `largest-default`, `largest-top-glued`, `largest-top-long`, `largest-top3`, `methods-least-used`, `outline-last`, `refs-batch`, `refs-last`, `shape-census`, `shape-census-resume-garbage`, `shape-census-resume-missing`, `shape-lemma`, `shape-lemma-batch`, `shape-lemma-config`, `shape-lemma-json`, `shape-lemma-substring`, `shape-root-after-view`, `shape-root-before-view`, `shape-root-equals-view`, `shape-root-glued-group`, `shape-steps-config`, `shape-steps-config-corpus`, `shape-steps-config-equals`, `shape-steps-config-multi-pick`, `shape-steps-config-multi-pick2`, `shape-steps-json`, `shape-steps-json-all`, `shape-steps-locus-json`, `shape-summary`, `shape-summary-content-code`, `shape-summary-content-prose`, `shape-summary-json`, `shape-summary-json-scope`, `shape-summary-scope-content`, `shape-summary-scope-entry`, `shape-summary-scope-equals`, `shape-summary-scope-proof`, `shape-widest-json`, `show-batch`, `show-premises-batch`, `summary-by-session-v`, `summary-default`, `theory-last`, `unused-default`, `unused-drop2`, `unused-keep`, `unused-keep-list`, `unused-keep-repeat`, `unused-keep-unknown`, `unused-recursive`, `unused-roots`, `uses-batch`, `uses-default`, `uses-last`, `uses-recursive`
 
 - **the locus column width** — `grep` / `methods` / `shape steps` size the locus column to the widest locus, and the widest got shorter; identical after collapsing runs of spaces (25):
   `grep-alternation`, `grep-anchored`, `grep-cartouche`, `methods-alias`, `methods-named`, `methods-named-names`, `shape-steps`, `shape-steps-all`, `shape-steps-all-long`, `shape-steps-config-plain`, `shape-steps-locus`, `shape-steps-open-hi`, `shape-widest`, `shape-widest-fanin`, `shape-widest-huge`, `shape-widest-live`, `shape-widest-metric-equals`, `shape-widest-n-glued`, `shape-widest-n3`, `shape-widest-top-long`, `shape-widest-w1`, `shape-widest-w2`, `unused-by-theory`, `unused-by-theory-abbrev`, `unused-recursive-by-theory`

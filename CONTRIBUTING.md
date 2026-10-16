@@ -257,7 +257,7 @@ and nothing else. Use `dev/scala-tests.sh --suite parser` (also `graph`,
 `shape`, `cli`) to compile support and that group only. Routine validation is
 `make test`: those suites, a cheap upstream identity gate, and the shipping
 Python client's small transport suite. No Python oracle or JVM per case runs in
-the Scala suite. The suites carry every unittest ID of upstream 0.9.2 — 1,396 —
+the Scala suite. The suites carry every unittest ID of upstream 0.9.8 — 1,482 —
 each ported or given an explicit disposition. See `tests/README.md` for
 coverage accounting and the shared helper contract.
 Upstream expected-failure decorators are preserved as a separate nonpass tier:
@@ -296,7 +296,7 @@ group and the relevant host/plugin probe instead. The corpus harnesses read
 | harness | what it establishes | when |
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | upstream-version compatibility or explicit maintenance |
-| `dev/difftest.sh` | 2,359 (case × corpus) runs — P14 added 30 case IDs, for what 0.9.x brought: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.9.2) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
+| `dev/difftest.sh` | 2,464 (case × corpus) runs — P14 added 30 case IDs and P15 15, for what 0.9.x brought: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.9.8) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
 | `dev/p9probe.sh` | 153 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter itself: the closure, the leaf rule, position-blindness, and `--reach name` as the compatibility mode | any change to `Reach` or to the citation router's candidate filter |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |

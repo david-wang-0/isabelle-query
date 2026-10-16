@@ -118,7 +118,7 @@ run_oracle() { ISABELLE_QUERY_NAMESPACE=committed "$oracle_bin" "$@"; }
 #
 # QUERY_DIFFTEST_DELEGATE=1 flips it, and that run answers a different and
 # equally necessary question: does the WARM path give the end user the same
-# answers the oracle gives?  It is the same 2,359-case matrix, taken through
+# answers the oracle gives?  It is the same 2,464-case matrix, taken through
 # the socket. The harness retains a private query_server stdin pipe until
 # completion; historical auto-daemon expectations in p7probe are superseded.
 #
@@ -214,7 +214,8 @@ fi
 # The oracle is pinned to a VERSION, and a mismatch is a refusal.
 #
 # The frozen reference tree moves when upstream moves (0.7.0 -> 0.8.1 at
-# [p9-merge], 0.8.1 -> 0.9.2 at [p14-merge]), and every expectation in this matrix is that release's output.
+# [p9-merge], 0.8.1 -> 0.9.2 at [p14-merge], 0.9.2 -> 0.9.8 at [p15-merge]), and
+# every expectation in this matrix is that release's output.
 # An older `query` still runs, still answers, and still diffs -- it just diffs
 # against the wrong contract, so the failures it reports name the oracle's age
 # rather than the port's defects.  Refuse instead, before any corpus is read.
@@ -240,7 +241,7 @@ fi
 # `UPSTREAM-scala.MINOR.PATCH`, and the number in front of `-scala` is a claim
 # that this tree matches that upstream release's contract.  This matrix is the
 # evidence for the claim, so the two numbers must agree -- a port that says
-# 0.9.2 while the oracle pinned here is something else is either a stale
+# 0.9.8 while the oracle pinned here is something else is either a stale
 # constant or a stale pin, and either way the run would be certifying the
 # wrong thing.  Refuse, the same way and for the same reason as above.
 port_version=$(run_scala --version 2>/dev/null | awk '{print $NF}')
@@ -495,6 +496,14 @@ derive_site_subjects() {
     fi
   done < <(awk '$2 == "(DATATYPE)"' <<<"$listing" | head -5)
   [ -z "$CTOR1" ] && CTOR1=$CONST1
+
+  # A `lemmas` / `theorems` alias, which is an entry of its own since 0.9.7
+  # [lemmas-entries]: the first LEMMAS row of the same listing, so `show` and
+  # `callers -r` reach a fact group rather than a lemma.  The corpora without
+  # one (Abstract_Completeness, Category3) fall back to the largest lemma, and
+  # the case is then an ordinary `show` there.
+  LEMMAS1=$(awk '$2 == "(LEMMAS)" && $1 != "?" { print $1; exit }' <<<"$listing")
+  [ -z "$LEMMAS1" ] && LEMMAS1=$LEMMA_NAME
 }
 
 # --------------------------------------------------------------------------
@@ -619,6 +628,9 @@ emit_cases() {
   # nothing -- not the sentence the human modes print.
   c find-count-zero        find zzz_no_such_name_zzz -c
   c find-names-zero        find zzz_no_such_name_zzz --names
+  # A batch is all or nothing [subject-batch]: a bad regex in second place
+  # exits 2 with the first subject's answer withheld, not printed.
+  c find-batch-bad-regex   find "$NAME1" '['
 
   # -- show ---------------------------------------------------------------
   c show-name              show "$NAME1"
@@ -632,6 +644,17 @@ emit_cases() {
   c show-context           show "$NAME1" -U 8
   c show-batch             show "$NAME1" "$NAME2"
   c show-substring         show "${NAME1:0:3}"
+  # The substring fallback announces itself [show-near-names]: a `# no entry
+  # named ...` line on stdout in the human mode, on stderr under `--names` and
+  # `-c`, so a script reading names or a count reads only names or a count.
+  c show-substring-names   show "${NAME1:0:3}" --names
+  c show-substring-count   show "${NAME1:0:3}" -c
+  # One line per premise and the number of conclusions [show-premises]; `-a`
+  # over every declaration of a colliding name, and a batch.
+  c show-premises          show "$NAME1" --premises
+  c show-premises-all      show "$NAME1" --premises -a
+  c show-premises-batch    show "$NAME1" "$NAME2" --premises
+  c show-lemmas-alias      show "$LEMMAS1"
   c show-unknown           show zzz_no_such_name_zzz
   c show-count-zero        show zzz_no_such_name_zzz -c
 
@@ -662,6 +685,7 @@ emit_cases() {
   c dashdash               grep -- "$NAME1"
   c bundled-shorts         show "$NAME1" -ac
   c excl-slice             show "$NAME1" -V --statement
+  c excl-premises          show "$NAME1" --premises -V
   c excl-drilldown         enclosing "$LEMMA_THY:$MID" -e -b
   c excl-comments          theory "$THY1" --no-comments --comments-only
   c bad-int-context        find "$NAME1" -U abc
@@ -741,6 +765,17 @@ emit_cases() {
   # [citation-reach]: the compatibility mode, spelled the same on both sides.
   c callers-reach-name     callers "$NAME1" --reach name
   c callers-bad-reach      callers "$NAME1" --reach bogus
+  # [subject-batch]: plain `callers` answers an undeclared name (with "No
+  # callers found"), so the unknown subject is `-r`'s, which resolves its
+  # subjects; the count of the name after it must not be printed either.
+  c callers-batch-unknown  callers -r -c "$NAME1" zzz_no_such_name_zzz "$NAME2"
+  # [callers-tsv]: one row per caller, every row naming its subject.
+  c callers-tsv            callers "$NAME1" -f tsv
+  c callers-recursive-tsv  callers -r "$NAME1" -f tsv
+  c callers-recursive-count-tsv callers -r -c "$NAME1" "$NAME2" -f tsv
+  c callers-bad-format     callers "$NAME1" -f csv
+  # [lemmas-entries]: the transitive walk goes THROUGH a `lemmas` alias.
+  c callers-lemmas-alias   callers -r "$LEMMAS1"
 
   # -- callees -------------------------------------------------------------
   c callees-default        callees "$NAME1"
@@ -751,6 +786,7 @@ emit_cases() {
   c callees-recursive-names callees -r "$NAME1" --names
   c callees-batch          callees "$NAME1" "$NAME2"
   c callees-unknown        callees zzz_no_such_name_zzz
+  c callees-batch-unknown  callees "$NAME1" zzz_no_such_name_zzz "$NAME2"
   c callees-reach-name     callees "$NAME1" --reach name
 
   # -- unused --------------------------------------------------------------

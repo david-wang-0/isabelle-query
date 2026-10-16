@@ -32,11 +32,15 @@
 
 # ---------------------------------------------------------------------------
 # D8 — the oracle exits 120, not 141, when the broken pipe is only noticed by
-# the interpreter's shutdown flush.  Corpus-dependent: 120 on the smallest
-# corpus, 141 on the other four, for the same invocation.
+# the interpreter's shutdown flush.  Corpus-dependent, for the same invocation:
+# 120 on Abstract_Completeness and (since oracle 0.9.8) CTT, 141 on the other
+# five.  CTT joined at P15: upstream's 0.9.3-0.9.8 answer for `find . . . . -a
+# -V` there is 168,559 bytes where 0.9.2's was 153,659, and 0.9.2 exited 141 on
+# it -- the oracle's answer moved, not the port (D8's table, five runs each).
 # ---------------------------------------------------------------------------
 
 closed-stdout   Abstract_Completeness   D8   oracle exits 120 (shutdown-flush BrokenPipeError)
+closed-stdout   CTT                     D8   oracle exits 120 (shutdown-flush BrokenPipeError)
 
 # The same defect from the other side: when the WHOLE answer fits in the 64K
 # pipe buffer the oracle's writes never fail at all, so it exits 0 for a
@@ -89,7 +93,7 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 # `theories "ex/Typechecking"` declares a theory Isabelle calls
 # `Typechecking` (`Thy_Header.import_name`, cited in dev/DIVERGENCES.md D15);
 # the reference prints the ROOT's own spelling.  This is the one deliberate
-# difference in oracle-shared STDOUT, and these are all 198 cases it moves --
+# difference in oracle-shared STDOUT, and these are all 200 cases it moves --
 # every one of them on a corpus whose ROOT declares a theory by path, and
 # nothing else on any corpus moved at all:
 #
@@ -100,12 +104,14 @@ closed-stdout          Demo_Extras   D8   12,739 bytes: over our writer's 8K, un
 #                  ones, so `unused` rows and graph nodes printing its name)
 #   Sequents  52   "LK/Propositional", "LK/Quantifiers",
 #                  "LK/Hard_Quantifiers", "LK/Nat"
-#   CTT       98   "ex/Typechecking", "ex/Elimination", "ex/Equality",
-#                  "ex/Synthesis"
+#   CTT      100   "ex/Typechecking", "ex/Elimination", "ex/Equality",
+#                  "ex/Synthesis" (98 until P15 S7, whose matrix cases
+#                  `show-premises-batch` and `callers-lemmas-alias` print
+#                  `ex/Elimination` and `ex/Typechecking`)
 #
 # Four shapes of difference, and the reason column names which:
 #
-#   the theory name          151 cases.  Substituting leaf for declared string
+#   the theory name          153 cases.  Substituting leaf for declared string
 #                            in the ORACLE's stdout gives this engine's, byte
 #                            for byte.
 #   the locus column width    44 cases.  `grep`, `methods`, `shape steps` size
@@ -230,6 +236,7 @@ uses-batch                      Sequents  D15  the theory name
 uses-default                    Sequents  D15  the theory name
 uses-recursive                  Sequents  D15  the theory name
 
+callers-lemmas-alias            CTT       D15  the theory name
 deps-batch                      CTT       D15  the theory name
 deps-last                       CTT       D15  the theory name
 enclosing-alias-at              CTT       D15  the theory name
@@ -310,6 +317,7 @@ shape-widest-top-long           CTT       D15  the locus column width
 shape-widest-w1                 CTT       D15  the locus column width
 shape-widest-w2                 CTT       D15  the locus column width
 show-batch                      CTT       D15  the theory name
+show-premises-batch             CTT       D15  the theory name
 summary-by-session-v            CTT       D15  the theory name
 summary-default                 CTT       D15  the theory name
 theory-last                     CTT       D15  the theory name
