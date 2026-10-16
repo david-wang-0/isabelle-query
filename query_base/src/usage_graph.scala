@@ -404,7 +404,7 @@ object Usage_Graph {
     all_names: Set[String]
   )
 
-  val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
+  val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "LEMMAS", "FUN", "DEF", "ABBREV")
 
   /* Doc antiquotations are stripped so a name cited only in rendered
      documentation is not counted as a proof-body call. */

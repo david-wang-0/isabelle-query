@@ -39,7 +39,7 @@ object Entries {
   /* --- the built-in declaration commands --- */
 
   val DECL_RE: Pattern = Py.compile(
-    "^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemma" +
+    "^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemmas|theorems|lemma" +
       "|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\\s|$)")
 
   val tag_map: Map[String, String] = Map(
@@ -56,6 +56,11 @@ object Entries {
        [decl-commands] */
     "lemma" -> "LEMMA", "corollary" -> "LEMMA", "proposition" -> "LEMMA",
     "theorem" -> "THEOREM",
+    /* `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
+       no statement and no proof, but a citable fact all the same, and the
+       names on its right-hand side are what it cites.  `theorems` is the same
+       command under another display string (Pure.thy declares both). */
+    "lemmas" -> "LEMMAS", "theorems" -> "LEMMAS",
     "axiomatization" -> "AXIOM",
     "datatype" -> "DATATYPE", "type_synonym" -> "TYPE", "record" -> "RECORD",
     /* A locale/class DECLARES a name.  `context` and `interpretation` are
@@ -84,6 +89,7 @@ object Entries {
     else if (tag == "LOCALE" || tag == "CLASS") "target"
     else if (tag == "DATATYPE" || tag == "TYPE" || tag == "RECORD") "typedecl"
     else if (tag == "LEMMA" || tag == "THEOREM") "goal"
+    else if (tag == "LEMMAS") "facts"
     else "def"
 
 
@@ -621,6 +627,65 @@ object Entries {
       }
       found.toList
     }
+  }
+
+  /* `lemmas` / `theorems` [lemmas-entries].  Isabelle's grammar is
+
+         lemmas (in TARGET)? (thmdef? thms) and ... for_fixes?
+         thmdef = NAME [attrs]? =
+
+     so a group binds a name only when it opens `NAME =` or `NAME [attrs] =`;
+     a group without one (`lemmas [simp] = foo`, `lemmas foo [simp]`)
+     declares an attribute and binds nothing. */
+  val THMDEF_RE: Pattern = Py.compile(s"""\\s*($ISA_NAME)\\s*(?:\\[[^\\]]*\\]\\s*)?=(?!=)""")
+  val THMS_TOKEN_RE: Pattern = Py.compile("""[\[\]()]|(?<![\w'])and(?![\w'])""")
+  val IN_TARGET_PREFIX_RE: Pattern = Py.compile("""\s*\(\s*in\s+[^)]*\)""")
+
+  /* `(name, first line, last line)` for each named group of the `lemmas`
+     command on lines `start..end`, whose keyword ends at column `col` of line
+     `start`.  Read on the outer view, so an `and` or `=` inside a term
+     (`[of "a = b"]`) is blanked and cannot split a group.  A group's lines
+     run from its own `and` (the command line, for the first) to the line
+     before the next group's, or to `end`. */
+  def thmdefs(outer: Array[String], start: Int, end: Int, col: Int): List[(String, Int, Int)] = {
+    val text = joined(outer, start, end)
+    val pos = Py.matches_at(IN_TARGET_PREFIX_RE, text, col min text.length).map(_.end()).getOrElse(col)
+    val starts = new mutable.ArrayBuffer[Int]
+    starts += pos
+    var depth = 0
+    if (pos <= text.length) {
+      val t = THMS_TOKEN_RE.matcher(text)
+      var more = t.find(pos)
+      while (more) {
+        t.group() match {
+          case "[" | "(" => depth += 1
+          case "]" | ")" => depth -= 1
+          case _ => if (depth == 0) starts += t.end()
+        }
+        more = t.find()
+      }
+    }
+    def line_of(k: Int): Int = {
+      var n = 0
+      var j = 0
+      while (j < k && j < text.length) { if (text.charAt(j) == '\n') n += 1; j += 1 }
+      start + n
+    }
+    /* A later group starts on the line of its own first token, so in
+       `four = base and` / `five = other` the first line is `four`'s alone;
+       the first group starts on the command line. */
+    val firsts = start +: starts.drop(1).map(k =>
+      line_of(text.length - Py.lstrip(text.substring(k min text.length)).length)).toVector
+    val found = new mutable.ListBuffer[(String, Int, Int)]
+    for ((k, g) <- starts.zipWithIndex if k <= text.length) {
+      Py.matches_at(THMDEF_RE, text, k).foreach { m =>
+        val last =
+          if (g + 1 < starts.length) firsts(g) max (firsts(g + 1) - 1)
+          else end
+        found += ((m.group(1), firsts(g), last))
+      }
+    }
+    found.toList
   }
 
   /* The constructors, discriminators and selectors a `datatype` declares.
@@ -1457,6 +1522,29 @@ object Entries {
             and_siblings(outer, decl_line, decl_end_line, name, tag).map(s => (s, "sibling")) :::
             rule_labels(outer, decl_line, decl_end_line, name).map(s => (s, "rule"))
           entries += e
+        }
+        else if (route == "facts") {
+          /* One entry per bound name: `lemmas a = x and b = y` declares two
+             facts, and a citation of `b` is a use of `y` alone.  An anonymous
+             command declares nothing and stays a `<toplevel>` citation.
+             [lemmas-entries] */
+          val (ni, decl_end_line, _) =
+            scan_decl_body(lines, outer, live, open_at, table, i + 1, decl_line, keyword)
+          i = ni
+          /* `(in foo)` is written once, on the command line, and
+             `attach_targets` reads an entry's own first line. */
+          val in_target = Py.search(IN_TARGET_RE, outer(decl_line - 1)).map(_.group(1))
+          for ((name, first, last) <- thmdefs(outer, decl_line, decl_end_line, indent + keyword.length)) {
+            var head = lines(first - 1)
+            if (first == decl_line)       // past the command word
+              head = head.substring((indent + keyword.length) min head.length)
+            val rest = lines.slice(first, last).iterator.filter(ln => Py.strip(ln).nonEmpty)
+              .map(ln => "  " + Py.strip(ln)).toList
+            val e = Entry(tag, name, (Py.rstrip(s"$tag ${Py.strip(head)}") :: rest).mkString("\n"),
+              thy_line = first, decl_end_line = last)
+            in_target.foreach(t => e.in_target = t)
+            entries += e
+          }
         }
         else if (route == "goal") {
           val rest = Py.strip(line.substring(keyword.length min line.length))

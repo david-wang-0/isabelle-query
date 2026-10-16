@@ -115,6 +115,9 @@ private[regression] object ParserBridge {
         case _: Map[?,?] => a(0)
         case _ => V.dict(a(0).seq.map(v => v.at(V(0)) -> v.at(V(1))))
       }
+      // `dict.fromkeys(keys, value)` (test_lemmas_entries): the classmethod
+      // the translator routes here rather than through a bound `dict` name.
+      case "dict.fromkeys" => V.dict(a(0).seq.map(k => k -> arg(1,"value",V.none)))
       case "sorted" => V.seq(a(0).seq.sortWith((x,y) => x.cmp("Lt",y)))
       case "next" => a(0).seq.headOption.getOrElse(throw new NoSuchElementException("empty generator"))
       case "enumerate" =>

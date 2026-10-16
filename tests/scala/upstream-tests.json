@@ -4657,6 +4657,69 @@
       "inherited": false
     },
     {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_an_anonymous_command_binds_nothing",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_group_lines",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_names_in_source_order",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_tagged_lemmas",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_the_target_covers_every_group",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.EachNamedGroupIsAnEntry.test_the_text_has_no_command_word",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.TheGraphPassesThroughAnAlias.test_a_citation_of_the_alias_reaches_its_target",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.TheGraphPassesThroughAnAlias.test_each_group_cites_its_own_right_hand_side",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_lemmas_entries.TheGraphPassesThroughAnAlias.test_the_oracle_agrees",
+      "suite": "parser",
+      "source": "tests/test_lemmas_entries.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_line_index_ties.LineIndexTies.test_enclosing_still_answers_below_the_tie",
       "suite": "parser",
       "source": "tests/test_line_index_ties.py",

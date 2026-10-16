@@ -142,7 +142,7 @@ class Gen:
                 return 'h_' + self.cls + '_' + fn[5:] + '(' + self.ctx + ', Vector(' + ', '.join(args) + '), ' + kwargs + ')'
             if isinstance(n.func, ast.Name):
                 fn = self.alias.get(fn, fn)
-            if isinstance(n.func, ast.Attribute) and (not (isinstance(n.func.value, ast.Name) and n.func.value.id in ('cli', 'parsing', 'model', 'graph', 'commands', 'shape', 're', 'api'))):
+            if isinstance(n.func, ast.Attribute) and (not (isinstance(n.func.value, ast.Name) and n.func.value.id in ('cli', 'parsing', 'model', 'graph', 'commands', 'shape', 're', 'api', 'dict'))):
                 return E(n.func.value) + '.invoke(' + q(n.func.attr) + ', Vector(' + ', '.join(args) + '), ' + kwargs + ')'
             return 'ParserBridge.call(' + q(fn) + ', ' + ('Vector(' + ', '.join(args) + ')' + ''.join((' ++ ' + x + '.seq' for x in star))) + ', ' + kwargs + ')'
         raise Exception('expr ' + ast.dump(n))
