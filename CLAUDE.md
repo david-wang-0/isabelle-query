@@ -180,7 +180,7 @@ all reading corpora from `$QUERY_TEST_AFP` / `$QUERY_TEST_DISTRO` (see
 
 | harness | what it establishes |
 |---|---|
-| `dev/difftest.sh` | 2,359 (case × corpus) runs against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. `dev/difftest-pins` carries 189 pins to a `dev/DIVERGENCES.md` entry — 183 of them to D15, the deliberate one, and 6 to D8. The oracle's version is pinned to the frozen tree's (0.9.2) and a mismatch is a refusal |
+| `dev/difftest.sh` | 2,464 (case × corpus) runs against the Python oracle: stdout byte-for-byte, exit statuses, stderr presence. `dev/difftest-pins` carries 207 pins to a `dev/DIVERGENCES.md` entry — 200 of them to D15, the deliberate one, and 7 to D8. The oracle's version is pinned to the frozen tree's (0.9.8) and a mismatch is a refusal |
 | `dev/entrydiff.sh` | the entry set and theory set over the whole AFP and the whole distribution `src` |
 | `dev/p9probe.sh` | 153 hand-computed checks on what the matrix cannot reach: the exit/empties contract, the parser's comment and marker rules, the citation graph's reachability, and the locus labels — on fixtures of ROOTs that collide by theory name, bare and path-spelled |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter and `--reach name` |
