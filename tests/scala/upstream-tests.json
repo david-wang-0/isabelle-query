@@ -10012,7 +10012,49 @@
       "inherited": false
     },
     {
+      "id": "test_toplevel_callers.OneNodePerTheory.test_each_theory_gets_its_own_node",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.OneNodePerTheory.test_the_closure_counts_both",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.OneNodePerTheory.test_the_oracle_agrees",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.TsvRowsAreFilled.test_a_deeper_member_is_located_by_its_own_edge",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.TsvRowsAreFilled.test_closure_rows",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_toplevel_callers.TsvRowsAreFilled.test_located_rows_name_the_caller_alike",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.TsvRowsAreFilled.test_the_locus_is_the_edge_into_the_closure",
       "suite": "graph",
       "source": "tests/test_toplevel_callers.py",
       "subcase_sites": 0,

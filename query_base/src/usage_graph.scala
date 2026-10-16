@@ -398,7 +398,7 @@ object Usage_Graph {
   /* the call graph                                                     */
   /* ------------------------------------------------------------------ */
 
-  /* `toplevel`: each synthetic `THEORY:<toplevel>` node -> (its section, the
+  /* `toplevel`: each synthetic `LABEL:<toplevel>` node -> (its section, the
      first line of each name it cites).  A synthetic caller has no declaration
      line, so `callers -r -f tsv` locates its row at the edge that put it in
      the closure instead [callers-tsv].  Top-level citations are rare, so the
@@ -525,7 +525,15 @@ object Usage_Graph {
     val toplevel =
       mutable.HashMap.empty[String, (Theory_Section, mutable.HashMap[String, Int])]
 
+    /* A `<toplevel>` caller is named by its theory's LOCUS LABEL, not its bare
+       name: over a corpus, same-named theories would otherwise share one node
+       -- on the AFP 370 theories' top-level citations folded into another
+       theory's, so the closure counted them once and no row could say which
+       theory or session it came from [toplevel-label].  A run whose theory
+       names are unique prints exactly what it did. */
+    val labels = Render.locus_labels(sections)
     for (sec <- sections) {
+      val top_name = labels.getOrElse(sec.path, sec.theory) + ":<toplevel>"
       /* The redacted view, not the raw source: a comment, an `\<^cancel>`
          region or an inline ML body sharing its line with live proof text is
          blanked in place, so `by simp (* see foo *)` stops citing `foo`.  The
@@ -593,8 +601,7 @@ object Usage_Graph {
                    fact read as unused — an `equal` instance proof is the whole
                    reason its own `equal_*` definition exists.  Attribute them to
                    a synthetic per-theory top-level caller. */
-                val caller_name =
-                  caller_entry.map(_.name).getOrElse(sec.theory + ":<toplevel>")
+                val caller_name = caller_entry.map(_.name).getOrElse(top_name)
                 for (name <- cand) {
                   val d_ranges = d_map.getOrElse(name, Nil)
                   if (!d_ranges.exists(r => r._1 <= line_no && line_no <= r._2)) {
@@ -700,8 +707,9 @@ object Usage_Graph {
 
   /* The section's PATH rather than its theory name: 461 AFP theory names are
      shared, and the printed locus has to name one theory.  `Render.locus_labels`
-     turns it into the label, which is a layer this module sits below
-     [disambig-loci]. */
+     turns it into the label at print time [disambig-loci]; the path is what a
+     row carries until then, so the label is computed once per run rather than
+     once per use. */
   final case class Method_Use(path: JPath, line_no: Int, owner: Option[Entry],
     text: String)
 
