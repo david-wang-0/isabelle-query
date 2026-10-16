@@ -8,7 +8,7 @@ session) and `METRICS.md` (the `shape` reference).
 
 **Two trees, one contract.** `query_base/` and `jedit_query/` are the live
 Isabelle/Scala component. `src/isabelle_query/` and `tests/` are the **frozen**
-Python reference implementation, upstream **0.9.2**, and its suite — read
+Python reference implementation, upstream **0.9.8**, and its suite — read
 them, never edit them; they are the oracle the Scala side is checked against,
 and an oracle that moves is not one. Rules below marked *(Python)* describe
 that frozen tree and are kept because they explain why the contract is what
@@ -118,6 +118,17 @@ two rows are pinned in `dev/p9probe.sh` §1–§2 and in `dev/p6bprobe.sh` §5 f
 sides — `find zzz -c` is `0`, `find zzz --names` is nothing — with three
 deliberate exceptions the oracle shares: `unused --roots -c`, `defs -c`, and
 `callees`, which were already count-first.)*
+
+**A batch is all or nothing.** With several subjects (`callers -r -c A bogus
+C`), one unresolvable subject fails the run: every unknown one is reported on
+stderr, stdout stays empty, exit `1`. Answering the rest would leave a gap a
+positional reader cannot see — two counts for three names, the second of them
+C's. Partial answers are safe only in a format whose every row names its
+subject [subject-batch]. *(Scala: `CLI.each`, the spine of every list-taking
+verb, runs each subject into its own buffer and prints all of them or none; any
+other failure — a bad regex, exit `2` — propagates at once with stdout equally
+empty. A single subject streams as before. `callers -f tsv` names its subject
+in every row and is all-or-nothing all the same, on both sides.)*
 
 **A closed stdout is `141`, and `141` means a write FAILED — not that a reader
 went away.** The exit contract is `0` ran, `1` an unresolved subject, `2` a
@@ -267,7 +278,7 @@ unexpected pass or unrelated runtime/bridge error fails the suite.
 The full Python/Scala comparison is an upstream compatibility gate. The default
 checks the Python version, working source tree and project metadata against
 `dev/upstream-compat-baseline.json`. An unchanged version uses the evidence
-recorded for it — for 0.9.2, P14's forced run; this is not a new matrix result.
+recorded for it — for 0.9.8, P15's forced run; this is not a new matrix result.
 Same-version source drift fails the cheap check. A changed upstream version
 makes `make test` run the full comparison — all seven required corpora, hours
 rather than seconds — and records the new identity only after successful entry
@@ -297,7 +308,7 @@ group and the relevant host/plugin probe instead. The corpus harnesses read
 |---|---|---|
 | `dev/entrydiff.sh` | the entry set and the theory set, over the whole AFP and the whole distribution `src` | upstream-version compatibility or explicit maintenance |
 | `dev/difftest.sh` | 2,464 (case × corpus) runs — P14 added 30 case IDs and P15 15, for what 0.9.x brought: stdout byte-for-byte, exit statuses, stderr presence. The oracle is `$QUERY_ORACLE` and its **version is pinned** (`ORACLE_VERSION`, currently 0.9.8) — a mismatch is a refusal (exit `2`), not a plausible red; build one from the tree with `python3 -m venv .dev/oracle && .dev/oracle/bin/pip install -e .` | upstream-version compatibility or explicit maintenance |
-| `dev/p9probe.sh` | 153 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
+| `dev/p9probe.sh` | 152 hand-computed checks on the rules the difftest matrix cannot reach: the unresolved-subject contract, the count/names empties, the name round-trip, the parser's formal-comment and marker rules, the citation graph's reachability and path-keying, and — on a fixture of three ROOTs that between them declare three `Base`es and two `Examples`es — the locus labels, which no single-session corpus can exercise at all | any change to those rules, and any change that moves a printed locus |
 | `dev/p7cprobe.sh` | 45 checks on the import-visibility filter itself: the closure, the leaf rule, position-blindness, and `--reach name` as the compatibility mode | any change to `Reach` or to the citation router's candidate filter |
 | `dev/p5probe.sh`, `p6probe.sh`, `p6bprobe.sh` | the jEdit plugin, without a display | any change under `jedit_query/` |
 | `tests/test_p12_transport.py`, `tests/test_owned_launcher.py`, `dev/p12integration.sh` | protocol, owned EOF shutdown, reconnection, and jEdit/PIDE isolation; setup in `tests/README.md` | host, client, or lifecycle changes |
