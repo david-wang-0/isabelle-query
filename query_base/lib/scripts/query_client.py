@@ -1128,7 +1128,18 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGHUP, interrupted)
     try:
-        sys.exit(main(sys.argv[1:]))
+        status = main(sys.argv[1:])
+        sys.stdout.flush()
     except BrokenPipeError:
+        status = 141
+    if status == 141:
         # Match the tool: a closed stdout is the shell's 141, not an error.
-        os._exit(141)
+        # `warm` RETURNS 141 when its write meets the closed pipe, but what it
+        # could not deliver is still in `sys.stdout`'s buffer, and the
+        # interpreter's own flush at exit then fails a second time -- which
+        # Python reports as "Exception ignored" on stderr and exit 120, a
+        # status nothing in this contract names.  `head -n 0` on a warm answer
+        # did exactly that (dev/p7probe.sh §15c).  Those bytes have nowhere to
+        # go, so point the descriptor at /dev/null and let the exit be quiet.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    sys.exit(status)
