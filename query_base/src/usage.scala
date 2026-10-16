@@ -227,14 +227,14 @@ object Usage {
      One approximation remains, inherited from the name-level graph: counts are
      CITING ENTRIES, not citation sites. */
   def cmd_refs(out: Out, err: Out, sections: List[Theory_Section], theory: String,
-    flags: Flags, namespace: Namespace.Table = Namespace.census
+    flags: Flags, namespace: Namespace.Table = Namespace.census,
+    graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
     Commands.resolve_theory(sections, theory) match {
       case None => Commands.fail_subject(out, err, s"no theory '$theory'")
       case Some(target) =>
-        val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
-        namespace = namespace)
+        val g = graphs(sections, flags.drop_names_upto, reach = flags.reach,
+          namespace = namespace)
         val by_theory = Usage_Graph.sections_by_theory(sections)
         val own = target.theory
         val closure = import_depths(own, by_theory)
@@ -420,12 +420,13 @@ object Usage {
   }
 
   def cmd_callers(out: Out, err: Out, sections: List[Theory_Section], name0: String,
-    flags: Flags, namespace: Namespace.Table = Namespace.census
+    flags: Flags, namespace: Namespace.Table = Namespace.census,
+    graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
     var name = name0
     if (flags.recursive) {
       val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+      graphs(sections, flags.drop_names_upto, reach = flags.reach,
         namespace = namespace)
       if (!g.all_names(name)) {
         Commands.resolve_binding(sections, name) match {
@@ -486,11 +487,12 @@ object Usage {
   }
 
   def cmd_callees(out: Out, err: Out, sections: List[Theory_Section], name0: String,
-    flags: Flags, namespace: Namespace.Table = Namespace.census
+    flags: Flags, namespace: Namespace.Table = Namespace.census,
+    graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
     var name = name0
     val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+      graphs(sections, flags.drop_names_upto, reach = flags.reach,
         namespace = namespace)
     if (!g.all_names(name)) {
       Commands.resolve_binding(sections, name) match {
@@ -771,7 +773,8 @@ object Usage {
   }
 
   def cmd_unused(out: Out, err: Out, sections: List[Theory_Section], flags: Flags,
-    namespace: Namespace.Table = Namespace.census
+    namespace: Namespace.Table = Namespace.census,
+    graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
     /* `derived = true` here and NOWHERE else.  The citation graph is over FACTS,
        and `foo_def` is a different fact from `foo` — `callers foo` keeps meaning
@@ -779,7 +782,7 @@ object Usage {
        `definition foo` breaks every proof citing `foo_def`, so such a proof keeps
        `foo` alive.  Asking the fact-level question here would report live
        definitions as dead. */
-    val g = Usage_Graph.build_call_graph(sections, flags.drop_names_upto, derived = true,
+    val g = graphs(sections, flags.drop_names_upto, derived = true,
       reach = flags.reach, namespace = namespace)
 
     val keep = flags.keep
@@ -871,10 +874,10 @@ object Usage {
 
   /* Nodes = indexed entries; edges = caller -> callee. */
   private def citation_graph_data(sections: List[Theory_Section], flags: Flags,
-    namespace: Namespace.Table
+    namespace: Namespace.Table, graphs: Usage_Graph.Graph_Cache
   ): Graph_Data = {
     val g =
-      Usage_Graph.build_call_graph(sections, flags.drop_names_upto, reach = flags.reach,
+      graphs(sections, flags.drop_names_upto, reach = flags.reach,
         namespace = namespace)
     val by_name = Usage_Graph.entry_by_name(sections)
     val known = g.all_names.toList.sorted.filter(by_name.contains)
@@ -916,10 +919,11 @@ object Usage {
   }
 
   def cmd_graph(out: Out, sections: List[Theory_Section], kind: String, fmt: String,
-    flags: Flags, namespace: Namespace.Table = Namespace.census
+    flags: Flags, namespace: Namespace.Table = Namespace.census,
+    graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
     val data =
-      if (kind == "citation") citation_graph_data(sections, flags, namespace)
+      if (kind == "citation") citation_graph_data(sections, flags, namespace, graphs)
       else import_graph_data(sections)
     if (fmt == "json")
       /* Sorted and indented: the output of two runs over the same tree must

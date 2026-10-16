@@ -797,6 +797,13 @@ object CLI {
        also the answer for every verb that never asks the router anything. */
     var namespace: Namespace.Table = Namespace.census
 
+    /* THE CALL GRAPH THIS RUN BUILT, memoised so a batch (`callers -r A B C`,
+       `callees A B C`, `refs T U V`) builds it once rather than once per
+       subject [graph-once].  Request-local for the same reason as `namespace`:
+       a session is a request, so a resident host starts every request with an
+       empty memo and nothing to reset. */
+    val graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
+
     /* The custom-command union in force for the NEXT parse.  It is state, and
        deliberately so: the reference implementation keeps one module-level
        table, cleared by a whole-root load and merged into by each directory
@@ -1348,15 +1355,15 @@ object CLI {
       case "refs" =>
         val sections = s.load_index()
         each(out, ns.pos("theory"))((o, t) =>
-          Usage.cmd_refs(o, err, sections, t, flags, s.namespace))
+          Usage.cmd_refs(o, err, sections, t, flags, s.namespace, s.graphs))
       case "callers" =>
         val sections = s.load_index()
         each(out, ns.pos("name"))((o, n) =>
-          Usage.cmd_callers(o, err, sections, n, flags, s.namespace))
+          Usage.cmd_callers(o, err, sections, n, flags, s.namespace, s.graphs))
       case "callees" =>
         val sections = s.load_index()
         each(out, ns.pos("name"))((o, n) =>
-          Usage.cmd_callees(o, err, sections, n, flags, s.namespace))
+          Usage.cmd_callees(o, err, sections, n, flags, s.namespace, s.graphs))
       case "unused" =>
         val files = ns.pos("files")
         if (!ns.bool("locals")) {
@@ -1365,7 +1372,7 @@ object CLI {
           if (files.nonEmpty)
             fail_usage(s, "unused: PATH arguments need --locals; entry-level " +
               "`unused` is corpus-wide, scope it with -R")
-          Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace)
+          Usage.cmd_unused(out, err, s.load_index(), flags, s.namespace, s.graphs)
         }
         else {
           if (flags.recursive || flags.roots)
@@ -1388,7 +1395,7 @@ object CLI {
       case "graph" =>
         val sections = scope_to_theories(s, ns, s.load_index())
         Usage.cmd_graph(out, sections, ns.pos("kind").headOption.getOrElse("citation"),
-          ns.str("format").getOrElse("json"), flags, s.namespace)
+          ns.str("format").getOrElse("json"), flags, s.namespace, s.graphs)
       case _ => usage_error(s"unknown command: $name")
     }
   }

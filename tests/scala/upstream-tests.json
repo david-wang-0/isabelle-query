@@ -9081,6 +9081,20 @@
       "inherited": false
     },
     {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callers_r_over_three_names_builds_one_graph",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_summary_aggregate.AggregateRender.test_by_session_table_and_total",
       "suite": "cli",
       "source": "tests/test_summary_aggregate.py",

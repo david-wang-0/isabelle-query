@@ -2978,6 +2978,18 @@
       "reason": ""
     },
     {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callers_r_over_three_names_builds_one_graph",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
       "id": "test_summary_aggregate.AggregateRender.test_by_session_table_and_total",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_summary_aggregate.scala",

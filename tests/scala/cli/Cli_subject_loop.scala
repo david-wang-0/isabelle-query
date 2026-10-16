@@ -1,6 +1,7 @@
 package isabelle.query.regression
 
 import isabelle.query.*
+import java.io.StringWriter
 import java.nio.file.{Path as JPath}
 import TestSupport.*
 import CliSupport.*
@@ -21,7 +22,42 @@ end
   private def project[A](body: JPath => A): A =
     withProject(Seq("A.thy" -> THY, "ROOT" -> "session S = HOL +\n  theories\n    A\n"))(body)
 
+  /* `TestSupport.cli`, keeping hold of the request's `Session`: the graph memo
+     lives on it, and its build counter is what upstream's mock counts. */
+  private def run_with_session(root: JPath, args: String*): (CliResult, CLI.Session) = {
+    val stdout = new StringWriter
+    val stderr = new StringWriter
+    var session: CLI.Session = null
+    val env = Map("ISABELLE_QUERY_NAMESPACE" -> "committed")
+    val exit = CLI.run_result(args.toList, new Out(stdout), new Out(stderr), s => {
+      session = s
+      s.env = env.get
+      s.ambient_root = () => CLI.default_root_from(root, s.env_root)
+    })
+    (CliResult(exit, stdout.toString, stderr.toString), session)
+  }
+
+  private def rows(out: String): List[List[String]] =
+    lines(out).map(_.split("\t", -1).toList)
+
   def run(): Unit = {
+    test("test_subject_loop.TheGraphIsBuiltOnce.test_callers_r_over_three_names_builds_one_graph") {
+      project { root =>
+        val (r, s) = run_with_session(root, "callers", "-r", "-c", "base", "mid", "top")
+        equal(r.exit, 0)
+        // base <- mid, other; mid <- top: so base has 3 transitive callers.
+        equal(r.out.split("\\s+").toList.filter(_.nonEmpty), List("3", "1", "0"))
+        equal(r.out, "3\n\n1\n\n0\n")
+        equal(s.graphs.builds, 1)
+      }
+    }
+    test("test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph") {
+      project { root =>
+        val (_, s) = run_with_session(root, "callees", "-c", "top", "mid", "base")
+        equal(s.graphs.builds, 1)
+      }
+    }
+
     test("test_subject_loop.AnUnknownSubjectFailsTheBatch.test_stdout_is_untouched_and_the_status_is_1") {
       project { root =>
         val r = query(root, "callers", "-r", "-c", "base", "bogus", "top")
