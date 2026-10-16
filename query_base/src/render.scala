@@ -88,35 +88,80 @@ object Render {
      as a bare stem no verb accepts; and collisions are decided on the name a
      reader could actually type. */
   def theory_labels(sections: List[Theory_Section]): Map[JPath, String] = {
-    val by_path = mutable.LinkedHashMap.empty[JPath, List[String]]
+    /* A label is unique among ALL suffixes, not among the suffixes of one
+       length [label-depth].  A path-spelled theory NAME is one string but
+       several segments, so comparing like depths only let a copy NAMED
+       `SL/Automation` settle on that string at depth 1 while the genuine
+       `SL/Automation.thy` settled on the same string at depth 2; the two
+       printed alike and the label resolved to the copy.  Built over
+       `label_chain`, the tuple `Commands.resolve_theory` matches too.
+
+       Under D15 a theory here is always named by its leaf, so neither failure
+       can occur in this port and the rule settles exactly where the old
+       per-depth grouping did; it is the upstream rule all the same, so that
+       the emitter and the resolver keep one definition between them. */
+    val chains = mutable.LinkedHashMap.empty[JPath, List[String]]
+    val least = mutable.LinkedHashMap.empty[JPath, Int]
+    val named = mutable.HashMap.empty[String, Set[JPath]]
     for (sec <- sections) {
       val p = sec.real_path
-      if (!by_path.contains(p)) by_path(p) = path_parts(p.getParent) :+ sec.theory
+      if (!chains.contains(p)) {
+        chains(p) = label_chain(sec)
+        least(p) = sec.theory.count(_ == '/') + 1          // never cut the name itself
+        named(sec.theory) = named.getOrElse(sec.theory, Set.empty) + p
+      }
     }
     val labels = mutable.HashMap.empty[JPath, String]
-    var pending = by_path
+    var pending: List[(JPath, Int)] = least.toList
     var depth = 1
     while (pending.nonEmpty) {
-      val groups = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[JPath]]
-      for ((p, parts) <- pending)
-        groups.getOrElseUpdate(parts.takeRight(depth).mkString("/"),
-          new mutable.ListBuffer[JPath]) += p
-      val nxt = mutable.LinkedHashMap.empty[JPath, List[String]]
-      for ((label, paths) <- groups) {
-        if (paths.length == 1) labels(paths.head) = label
-        else
-          for (p <- paths) {
-            /* Exhausted: the paths are equal, so no suffix separates them.
-               Settle rather than loop — a repeated label is a poor answer, an
-               infinite loop is not an answer. */
-            if (depth >= pending(p).length) labels(p) = label
-            else nxt(p) = pending(p)
-          }
+      /* A label is safe when the resolver takes it back to THIS theory.  It
+         tries an exact theory name first, so a label that is some theory's
+         name is safe only if it is this one's; otherwise it matches a suffix
+         of the chain, so no other chain may end in it.  Counted over every
+         theory, settled or not. */
+      val held = mutable.HashMap.empty[String, Int]
+      for (c <- chains.valuesIterator) {
+        val k = c.takeRight(depth).mkString("/")
+        held(k) = held.getOrElse(k, 0) + 1
       }
-      pending = nxt
+      val nxt = new mutable.ListBuffer[(JPath, Int)]
+      for ((p, low) <- pending) {
+        val chain = chains(p)
+        val label = chain.takeRight(depth).mkString("/")
+        val safe = named.get(label) match {
+          case Some(owner) => owner == Set(p)
+          case None => held(label) == 1
+        }
+        /* Exhausted: the chains are equal, so no suffix separates them.
+           Settle rather than loop — a repeated label is a poor answer, an
+           infinite loop is not an answer. */
+        if (depth >= low && (safe || depth >= chain.length)) labels(p) = label
+        else nxt += ((p, low))
+      }
+      pending = nxt.toList
       depth += 1
     }
     labels.toMap
+  }
+
+  /* The segments a theory's label is a suffix of: its resolved directory
+     chain, then its declared name split at `/` [label-depth].
+
+     A name spelled with a directory (`theories "While/Hoare"`) repeats the
+     tail of the chain its file sits in; the repeat is dropped, so every
+     suffix is a real path suffix and not a doubled `.../While/While/Hoare`
+     that names no file.  Shared by `theory_labels` and the resolver's label
+     match (`Commands.resolve_theory`), so the two cannot drift.  Under D15 the
+     name is a leaf and this is `path_parts(parent) :+ theory`. */
+  def label_chain(sec: Theory_Section): List[String] = {
+    val parents = path_parts(sec.real_path.getParent)
+    val segs = sec.theory.split("/", -1).toList
+    val k = segs.length - 1
+    val kept =
+      if (k > 0 && parents.length >= k && parents.takeRight(k) == segs.init) parents.dropRight(k)
+      else parents
+    kept ::: segs
   }
 
   /* `theory_labels` re-keyed by each section's path AS STORED — the emitter's

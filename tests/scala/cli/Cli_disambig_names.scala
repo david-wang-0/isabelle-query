@@ -7,6 +7,54 @@ import CliSupport.*
 
 private[regression] object Cli_disambig_names {
   def run(): Unit = {
+    /* [label-depth]: a ROOT may spell a theory with a directory.  Upstream's
+       layout: `SL/Automation.thy` and `Other/Automation.thy` are `Automation`;
+       `VEB` and `VEB2` each spell a copy `"SL/Automation"`.  Under D15 the
+       copies are named by their leaf, so all four theories are `Automation`
+       here and the labels come out the same as upstream's. */
+    val SEGMENTS = List(   // directory -> (theory as the ROOT spells it, file under it)
+      "SL" -> ("Automation", "Automation"), "Other" -> ("Automation", "Automation"),
+      "VEB" -> ("\"SL/Automation\"", "SL/Automation"),
+      "VEB2" -> ("\"SL/Automation\"", "SL/Automation"))
+    def segments(body: (JPath, List[Theory_Section], Map[JPath, String], String => JPath) => Unit): Unit =
+      withProject(SEGMENTS.zipWithIndex.flatMap { case ((dir, (spelled, rel)), i) =>
+        List(s"$dir/$rel.thy" ->
+          s"theory Automation\nimports Main\nbegin\nlemma l$i: \"True\" by simp\nend\n",
+          s"$dir/ROOT" -> s"session $dir = HOL +\n  theories\n    $spelled\n")
+      }) { root =>
+        val ss = load(root)
+        body(root, ss, Render.theory_labels(ss),
+          dir => Discovery.real(root.resolve(s"$dir/${SEGMENTS.toMap.apply(dir)._2}.thy")))
+      }
+    test("test_disambig_names.APathSpelledNameIsSegments.test_the_fixture_has_path_spelled_names") {
+      // D15: the ROOT's `"SL/Automation"` declares a theory named by its leaf.
+      segments { (_, ss, _, _) =>
+        equal(ss.map(_.theory).sorted, List("Automation", "Automation", "Automation", "Automation"))
+      }
+    }
+    disposition("test_disambig_names.APathSpelledNameIsSegments.test_the_fixture_has_path_spelled_names",
+      "known-difference", "D15 in dev/DIVERGENCES.md: a ROOT path spelling names its theory by the Isabelle leaf, so the four theories are Automation x4 rather than Python's Automation x2 + SL/Automation x2; the labels, uniqueness and round-trip IDs beside it still hold.")
+    test("test_disambig_names.APathSpelledNameIsSegments.test_no_two_theories_share_a_label") {
+      segments { (_, _, labels, _) => equal(labels.values.toSet.size, 4) }
+    }
+    test("test_disambig_names.APathSpelledNameIsSegments.test_the_labels") {
+      segments { (root, _, labels, path) =>
+        equal(labels(path("SL")), s"${Discovery.real(root).getFileName}/SL/Automation")
+        equal(labels(path("Other")), "Other/Automation")
+        // A real path suffix, not `VEB/SL/SL/Automation`.
+        equal(labels(path("VEB")), "VEB/SL/Automation")
+        equal(labels(path("VEB2")), "VEB2/SL/Automation")
+      }
+    }
+    test("test_disambig_names.APathSpelledNameIsSegments.test_every_label_round_trips") {
+      segments { (_, ss, labels, path) =>
+        for ((dir, _) <- SEGMENTS) subcase(dir) {
+          val sec = Commands.resolve_theory(ss, labels(path(dir)))
+          check(sec.nonEmpty)
+          equal(sec.get.real_path, path(dir))
+        }
+      }
+    }
     test("test_disambig_names.Degenerate.test_no_sections") {
 
     locally {

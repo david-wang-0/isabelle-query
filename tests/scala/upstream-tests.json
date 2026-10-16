@@ -2677,6 +2677,34 @@
       "inherited": false
     },
     {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_every_label_round_trips",
+      "suite": "cli",
+      "source": "tests/test_disambig_names.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_no_two_theories_share_a_label",
+      "suite": "cli",
+      "source": "tests/test_disambig_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_the_fixture_has_path_spelled_names",
+      "suite": "cli",
+      "source": "tests/test_disambig_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_the_labels",
+      "suite": "cli",
+      "source": "tests/test_disambig_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_disambig_names.Degenerate.test_no_sections",
       "suite": "cli",
       "source": "tests/test_disambig_names.py",
