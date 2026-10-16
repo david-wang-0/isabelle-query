@@ -9,6 +9,15 @@ private[regression] object CliFixtures {
   val test_cli_names_flag_NAMES_FLAG = List("theory", "defs", "find", "show", "callers", "callees", "grep", "methods")
   val test_cli_names_flag_NOOP_N = List("grep", "sorry")
   val test_cli_with_comments_PROSE_VERBS = List("find", "grep")
+  val test_show_match_count_A = """theory A imports Main begin
+lemma twice: "True" by simp
+lemma once: "True" by simp
+end
+"""
+  val test_show_match_count_B = """theory B imports Main begin
+lemma twice: "True" by simp
+end
+"""
   val test_show_near_names_THY = """theory T imports Main begin
 lemma descriptor_tape_length: "True" by simp
 lemma both: shows "True" and conj: "True" by simp_all

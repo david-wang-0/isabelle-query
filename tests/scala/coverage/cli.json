@@ -2174,6 +2174,30 @@
       "reason": ""
     },
     {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_a_single_match_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_all_numbers_each",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_find_shares_the_header",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_first_of_two",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
       "id": "test_show_near_names.TheBoundNameNoteFollowsTheSameRule.test_count_mode",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_show_near_names.scala",

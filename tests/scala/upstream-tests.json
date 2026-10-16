@@ -8080,6 +8080,34 @@
       "inherited": false
     },
     {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_a_single_match_is_unchanged",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_all_numbers_each",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_find_shares_the_header",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_first_of_two",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_show_near_names.TheBoundNameNoteFollowsTheSameRule.test_count_mode",
       "suite": "cli",
       "source": "tests/test_show_near_names.py",
