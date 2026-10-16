@@ -64,8 +64,8 @@ One component tree, chained through `etc/components`:
 `query_base/src` is a strict module DAG — each imports only from earlier links,
 in the order `sources` lists them in `query_base/etc/build.props`:
 
-    py_text → namespace → model → regions → entries → discovery → theory
-      → output → render → usage_graph → proof_locals → reach → commands
+    py_text → namespace → model → regions → entries → premises → discovery
+      → theory → output → render → usage_graph → proof_locals → reach → commands
       → usage → sites → shape_data → shape → shape_cmds → cli → server
       → query_host → query_server → query_tool
 
@@ -80,6 +80,8 @@ in the order `sources` lists them in `query_base/etc/build.props`:
 - `regions` / `entries` — one tokenizer pass over `Token.explode` feeds all of
   it. Nothing in the grammar uses indentation as evidence; block structure comes
   from the `begin`/`end` pair every target block shares.
+- `premises` — a goal statement read premise by premise, for `show
+  --premises` (`[show-premises]`, a port of upstream's `premises.py`).
 - `discovery` / `theory` — ROOT/ROOTS, sessions, the in-entry import closure,
   and the root-wide custom-keyword union built before any body is parsed.
 - `usage_graph` / `reach` / `usage` / `sites` / `shape` — the analyses;

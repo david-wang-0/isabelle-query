@@ -2174,6 +2174,168 @@
       "reason": ""
     },
     {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_a_single_match_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_all_numbers_each",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_find_shares_the_header",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_first_of_two",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_match_count.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheBoundNameNoteFollowsTheSameRule.test_count_mode",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_an_exact_match_has_no_note",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_count_mode_prints_only_the_number",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_first_line_of_the_default_view",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_names_mode_keeps_stdout_names_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_near_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.LongForm.test_bare_propositions",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.LongForm.test_keyword_against_a_cartouche",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.LongForm.test_numbering_runs_across_elements_and_groups",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.LongForm.test_obtains_counts_cases",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_a_later_quantifier_scopes_the_rest",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_an_outer_meta_quantifier_is_stripped",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_bracket_list",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_keyed_after_the_named_premises",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_outermost_implications_only",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_rel_fun_is_not_an_implication",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_if_premises_are_that",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_no_premises",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_several_conclusions_are_not_split",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.TheFlag.test_excludes_the_other_slices",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.TheView.test_aligned_and_counted",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.TheView.test_not_a_goal",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.TheView.test_term_premises",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_show_premises.TheView.test_the_header_is_the_usual_one",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_show_premises.scala",
+      "reason": ""
+    },
+    {
       "id": "test_sites_codeqs.MixfixAttribution.test_an_abstract_equation_reads_one_level_in",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_sites_codeqs.scala",

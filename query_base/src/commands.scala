@@ -609,10 +609,14 @@ object Commands {
           case (n, kind) if n == name => (e.name, binding_kinds(kind))
         })).nextOption()
 
-  def cmd_show(out: Out, sections: List[Theory_Section], name: String,
+  def cmd_show(out: Out, err: Out, sections: List[Theory_Section], name: String,
     flags: Flags
   ): Unit = {
     val by_theory = Usage_Graph.sections_by_theory(sections)
+    /* A note, not an answer [show-near-names]: under `--names` / `--count` it
+       would be read as a name or break the number, so there it goes to
+       stderr — the rule `callers -r` already follows for its bound-name note. */
+    val note = if (flags.mode == "names" || flags.mode == "count") err else out
     val matches = new mutable.ListBuffer[Entry]
     for (s <- sections; e <- s.entries if e.name == name) matches += e
     if (matches.isEmpty)
@@ -629,12 +633,19 @@ object Commands {
       }
       if (matches.nonEmpty) {
         val parents = matches.map(_.name).distinct.sorted.mkString(", ")
-        out.println(s"# '$name' is $how $parents:")
+        note.println(s"# '$name' is $how $parents:")
       }
     }
-    if (matches.isEmpty)
+    if (matches.isEmpty) {
+      /* Substring fallback, said so up front [show-near-names]: a near name
+         rendered under a header of its own reads as the answer, and `show
+         table_tape_len` printed `dth_descriptor_table_tape_length` as if it
+         were (upstream issue #16). */
       for (s <- sections; e <- s.entries if e.name.toLowerCase.contains(name.toLowerCase))
         matches += e
+      if (matches.nonEmpty)
+        note.println(s"# no entry named '$name'; ${matches.length} whose name contains it:")
+    }
     Render.emit_matches(out, by_theory, matches.toList, name, flags,
       statement = flags.statement)
   }

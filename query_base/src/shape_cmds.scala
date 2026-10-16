@@ -300,24 +300,11 @@ object Shape_Cmds {
 
   private def padl(n: Int, w: Int): String = padl(n.toString, w)
 
-  /* Python's `" ".join(text.split())` — split on RUNS of whitespace, dropping
-     the empties, which is not what `String.split("\\s+")` does at either end. */
-  private def collapse_ws(text: String): String = {
-    val parts = new mutable.ListBuffer[String]
-    var i = 0
-    while (i < text.length) {
-      while (i < text.length && Py.is_space(text.charAt(i))) i += 1
-      val start = i
-      while (i < text.length && !Py.is_space(text.charAt(i))) i += 1
-      if (i > start) parts += text.substring(start, i)
-    }
-    parts.mkString(" ")
-  }
 
   /* A one-line, length-capped statement preview.  The cap counts CODE POINTS,
      as Python's `len` and slicing do. */
   private def preview(text0: String, cap: Int = 56): String = {
-    val text = collapse_ws(text0)
+    val text = Py.collapse_ws(text0)
     val n = text.codePointCount(0, text.length)
     if (n <= cap) text
     else text.substring(0, text.offsetByCodePoints(0, cap - 1)) + "…"

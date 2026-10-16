@@ -306,11 +306,64 @@ object Render {
     if (e.thy_line == 0) e.text
     else sec.slice(e.thy_line, e.decl_end_line).mkString("\n")
 
+  /* `rank` is `(k, n)` when this is match k of n, shown as `[k of n] `
+     between the file and the extent [show-match-count].  With an empty extent
+     that leaves two spaces before `---`, as the unranked header already had. */
+  def entry_header(sec: Theory_Section, e: Entry, rank: Option[(Int, Int)] = None): String = {
+    val pos = rank match { case Some((k, n)) => s"[$k of $n] " case None => "" }
+    s"--- ${e.name} (${e.tag}) $EM_DASH ${sec.theory}.thy $pos${format_extent(e)} ---"
+  }
+
+  /* The `--premises` view [show-premises]: the header, one line per premise
+     keyed by the name a proof cites it by, then the conclusion count.
+
+         --- foo (LEMMA) — T.thy [src 2..7, 6 lines] ---
+           assms(1) wf:  well_formed M
+           assms(2):     0 < q
+           defines:      d \<equiv> x
+           shows: 2 conclusions
+
+     A premise written inside the term has no such name and is keyed
+     `term k`.  When the statement cannot be read the view says so, rather
+     than print a count it does not know.  Keys are padded by CODE POINTS, as
+     Python's `len` and `:<` format count them. */
+  def render_premises(sec: Theory_Section, e: Entry, rank: Option[(Int, Int)] = None): String = {
+    val out = new mutable.ListBuffer[String]
+    out += entry_header(sec, e, rank)
+    Premises.statement_of(sec, e) match {
+      case None =>
+        if (e.tag == "LEMMA" || e.tag == "THEOREM")
+          out += "  (statement not recognised; see --statement)"
+        else out += s"  (no goal statement: a ${e.tag})"
+      case Some(st) =>
+        var terms = 0
+        val rows = st.premises.map { p =>
+          val key =
+            if (p.kind == "term") { terms += 1; s"term $terms" }
+            else if (p.kind == "defines") List("defines", p.label).filter(_.nonEmpty).mkString(" ")
+            else List(p.cite, p.label).filter(_.nonEmpty).mkString(" ")
+          (key + ":", p.text)
+        }
+        def width(k: String): Int = k.codePointCount(0, k.length)
+        val w = rows.map(r => width(r._1)).maxOption.getOrElse(0)
+        for ((k, t) <- rows) out += "  " + k + " " * (w - width(k)) + "  " + t
+        if (rows.isEmpty) out += "  (no premises)"
+        if (st.cases > 0)
+          out += s"  obtains: ${st.cases} case" + (if (st.cases != 1) "s" else "")
+        else
+          out += s"  shows: ${st.conclusions} conclusion" + (if (st.conclusions != 1) "s" else "")
+    }
+    out.mkString("\n")
+  }
+
+  /* `premises` selects the `--premises` view, ahead of every slice and before
+     the no-source fallback: it prints no preamble, and `-U` is inert there. */
   def render_entry(sec: Theory_Section, e: Entry, verbatim: Boolean = false,
-    statement: Boolean = false, comments: String = "on", context: Int = 2
+    statement: Boolean = false, comments: String = "on", context: Int = 2,
+    rank: Option[(Int, Int)] = None, premises: Boolean = false
   ): String = {
-    val ext = format_extent(e)
-    val header = s"--- ${e.name} (${e.tag}) $EM_DASH ${sec.theory}.thy $ext ---"
+    if (premises) return render_premises(sec, e, rank)
+    val header = entry_header(sec, e, rank)
 
     if (e.thy_line == 0) header + "\n" + e.text
     else if (statement) header + "\n" + sec.slice(e.thy_line, e.decl_end_line).mkString("\n")
@@ -397,20 +450,30 @@ object Render {
     else if (flags.mode == "names")
       for (e <- matches) out.println(format_name_line(by_theory(e.theory), e))
     else if (matches.isEmpty) out.println(s"No entries matching '$pattern'.")
-    else if (flags.mode == "all")
-      for (e <- matches) {
-        out.println(render_entry(by_theory(e.theory), e, verbatim = flags.verbatim,
-          statement = statement, comments = flags.comments, context = flags.context))
-        out.println("")
-      }
     else {
-      val e0 = matches.head
-      out.println(render_entry(by_theory(e0.theory), e0, verbatim = flags.verbatim,
-        statement = statement, comments = flags.comments, context = flags.context))
-      if (matches.length > 1) {
-        out.println("")
-        out.println(s"[+${matches.length - 1} more match(es).  Use --all to show, " +
-          "--names for a list, --count for just the count.]")
+      /* Each header carries `[k of n]` when there is more than one match
+         [show-match-count].  The footer says so too, but it is the first line
+         `head` or a line filter drops, and a caller who lost it concluded that
+         `show` collapsed a twice-defined name (upstream issue #17). */
+      val n = matches.length
+      def rank(k: Int): Option[(Int, Int)] = if (n > 1) Some((k, n)) else None
+      if (flags.mode == "all")
+        for ((e, i) <- matches.zipWithIndex) {
+          out.println(render_entry(by_theory(e.theory), e, verbatim = flags.verbatim,
+            statement = statement, comments = flags.comments, context = flags.context,
+            rank = rank(i + 1), premises = flags.premises))
+          out.println("")
+        }
+      else {
+        val e0 = matches.head
+        out.println(render_entry(by_theory(e0.theory), e0, verbatim = flags.verbatim,
+          statement = statement, comments = flags.comments, context = flags.context,
+          rank = rank(1), premises = flags.premises))
+        if (n > 1) {
+          out.println("")
+          out.println(s"[+${n - 1} more match(es).  Use --all to show, " +
+            "--names for a list, --count for just the count.]")
+        }
       }
     }
   }

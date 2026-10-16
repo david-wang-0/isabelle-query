@@ -67,6 +67,7 @@ final case class Flags(
   mode: String = "first",          // first / all / count / names
   verbatim: Boolean = false,
   statement: Boolean = false,      // find: match the statement; show: render it
+  premises: Boolean = false,       // --premises (show): one line per premise
   comments: String = "on",         // on / off / only
   context: Int = 2,
   with_comments: Boolean = false,

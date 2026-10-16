@@ -404,4 +404,11 @@ class Theory_Section(
   def slice(start: Int, end: Int): Array[String] =
     materialize(((start.toLong - 1) max 0L min thy_lines.toLong).toInt,
       (end max 0) min thy_lines)
+
+  /* `slice` on the live view (`live_source(start - 1 until end)`): a reader of
+     ONE entry's statement need not build the whole file's live view to read
+     its few lines ([show-premises], once per rendered entry). */
+  def live_slice(start: Int, end: Int): Array[String] =
+    materialize(((start.toLong - 1) max 0L min thy_lines.toLong).toInt,
+      (end max 0) min thy_lines, regions.nonisar)
 }

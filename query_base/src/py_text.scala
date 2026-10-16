@@ -73,6 +73,20 @@ object Py {
     if (b == s.length) s else s.substring(0, b)
   }
 
+  /* Python's `" ".join(text.split())` — split on RUNS of whitespace, dropping
+     the empties, which is not what `String.split("\\s+")` does at either end. */
+  def collapse_ws(text: String): String = {
+    val parts = new mutable.ListBuffer[String]
+    var i = 0
+    while (i < text.length) {
+      while (i < text.length && is_space(text.charAt(i))) i += 1
+      val start = i
+      while (i < text.length && !is_space(text.charAt(i))) i += 1
+      if (i > start) parts += text.substring(start, i)
+    }
+    parts.mkString(" ")
+  }
+
   def is_blank(s: String): Boolean = {
     var i = 0
     while (i < s.length) {

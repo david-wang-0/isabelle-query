@@ -8080,6 +8080,195 @@
       "inherited": false
     },
     {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_a_single_match_is_unchanged",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_all_numbers_each",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_find_shares_the_header",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_match_count.TheHeaderCarriesTheCount.test_first_of_two",
+      "suite": "cli",
+      "source": "tests/test_show_match_count.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_near_names.TheBoundNameNoteFollowsTheSameRule.test_count_mode",
+      "suite": "cli",
+      "source": "tests/test_show_near_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_an_exact_match_has_no_note",
+      "suite": "cli",
+      "source": "tests/test_show_near_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_count_mode_prints_only_the_number",
+      "suite": "cli",
+      "source": "tests/test_show_near_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_first_line_of_the_default_view",
+      "suite": "cli",
+      "source": "tests/test_show_near_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_near_names.TheFallbackSaysSo.test_names_mode_keeps_stdout_names_only",
+      "suite": "cli",
+      "source": "tests/test_show_near_names.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.LongForm.test_bare_propositions",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.LongForm.test_keyword_against_a_cartouche",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.LongForm.test_numbering_runs_across_elements_and_groups",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.LongForm.test_obtains_counts_cases",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_a_later_quantifier_scopes_the_rest",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_an_outer_meta_quantifier_is_stripped",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_bracket_list",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_keyed_after_the_named_premises",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_outermost_implications_only",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.PremisesInsideTheTerm.test_rel_fun_is_not_an_implication",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_if_premises_are_that",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_no_premises",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.ShortForm.test_several_conclusions_are_not_split",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.TheFlag.test_excludes_the_other_slices",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 1,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.TheView.test_aligned_and_counted",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.TheView.test_not_a_goal",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.TheView.test_term_premises",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_show_premises.TheView.test_the_header_is_the_usual_one",
+      "suite": "cli",
+      "source": "tests/test_show_premises.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_sites_codeqs.MixfixAttribution.test_an_abstract_equation_reads_one_level_in",
       "suite": "cli",
       "source": "tests/test_sites_codeqs.py",
