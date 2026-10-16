@@ -283,9 +283,12 @@ expect "5 name-level hits, 4 of them possible" 4 5 callers widget -c
 
 # LOCI only, not whole rows: the locus column is padded to the widest entry, so
 # adding one longer locus re-pads every other line and a whole-row diff would
-# report all five as changed.
-on  callers widget -U 0 | tail -n +3 | awk '{print $1}' >"$OUT/on.txt"
-off callers widget -U 0 | tail -n +3 | awk '{print $1}' >"$OUT/off.txt"
+# report all five as changed.  And the ROWS only (two leading blanks): `widget`
+# is declared twice, so the answer is grouped under one header per set of
+# declarations a site can see [callee-attribution], and the two modes group
+# differently -- under `--reach name` every site sees both.
+on  callers widget -U 0 | grep '^  ' | awk '{print $1}' >"$OUT/on.txt"
+off callers widget -U 0 | grep '^  ' | awk '{print $1}' >"$OUT/off.txt"
 pruned=$(grep -v -x -F -f "$OUT/on.txt" "$OUT/off.txt")
 if [ "$pruned" = "Lonely:9" ]; then
   note "and the one that goes is exactly Lonely's bound variable" "$pruned"

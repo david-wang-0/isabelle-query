@@ -391,28 +391,35 @@ object Usage {
     results.toList
   }
 
-  /* Shared rendering for `callers -r` and `callees -r`. */
+  /* Shared rendering for `callers -r` and `callees -r`.  `resolve` names the
+     declarations a row stands for, and one row is printed per declaration
+     [callee-attribution]: the graph is keyed by name, so which declaration a
+     node is depends on who is asking (`Reach.seen_from`, `Reach.seeing`).  A
+     row's theory is the locus label, so it names one file [disambig-loci]. */
   private def render_graph_results(out: Out, sections: List[Theory_Section],
-    reachable: Map[String, Int], label: String, seed: String, flags: Flags
+    reachable: Map[String, Int], label: String, seed: String, flags: Flags,
+    resolve: String => Reach.Declarations
   ): Unit = {
     if (flags.mode == "count") out.println(reachable.size.toString)
     else if (reachable.isEmpty) out.println(s"No ${label}s found for '$seed'.")
     else {
-      val by_name = Usage_Graph.entry_by_name(sections)
+      val labels = Render.locus_labels(sections)
+      def thy(sec: Theory_Section): String = labels.getOrElse(sec.path, sec.theory)
       if (flags.mode == "names")
         for (name <- reachable.keys.toList.sorted)
-          by_name.get(name) match {
-            case Some((thy, e)) => out.println(s"  $name (${e.tag}) $EM_DASH $thy")
-            case None => out.println(s"  $name")
+          resolve(name) match {
+            case Nil => out.println(s"  $name")
+            case ds => for ((sec, e) <- ds) out.println(s"  $name (${e.tag}) $EM_DASH ${thy(sec)}")
           }
       else {
         out.println(s"${reachable.size} transitive $label(s) of $seed:\n")
         for ((name, depth) <- reachable.toList.sortBy(kv => (kv._2, kv._1))) {
           val indent = "  " * (depth + 1)
-          by_name.get(name) match {
-            case Some((thy, e)) =>
-              out.println(s"$indent$name (${e.tag}) $EM_DASH $thy [L${e.thy_line}]")
-            case None => out.println(s"$indent$name")
+          resolve(name) match {
+            case Nil => out.println(s"$indent$name")
+            case ds =>
+              for ((sec, e) <- ds)
+                out.println(s"$indent$name (${e.tag}) $EM_DASH ${thy(sec)} [L${e.thy_line}]")
           }
         }
       }
@@ -429,7 +436,10 @@ object Usage {
      A row is (caller, depth, site): `site` is (section, line, enclosing
      entry) for a located hit -- plain `callers`, depth 1, or a `<toplevel>`
      closure member located by `toplevel_site` -- and None for an entry in the
-     closure, which is placed at its declaration(s) as `resolve` names them.
+     closure, which is placed at its declaration(s) as `resolve` names them --
+     `Reach.seeing`, one row per declaration whose theory can reach the
+     subject, so a name declared twice is not placed in a theory that cannot
+     [callee-attribution].
      The theory is the locus label, qualified only as far as it must be, so
      the locus pastes back into `enclosing`.
 
@@ -476,22 +486,6 @@ object Usage {
         .minOption.map(line => (sec, line, None))
     }
 
-  /* THE declaration choice for `callers -r -f tsv` rows: which declaration(s)
-     of closure member `n` a row places, one row each.  First-wins here -- each
-     name's first declaration in load order, the same choice the text output's
-     `entry_by_name` makes -- so for a name declared once it is already the
-     reference's answer.  Upstream 0.9.8 resolves by `_seeing(sections, seed,
-     reach)` [callee-attribution]: every declaration whose theory can see one
-     of `seed`'s, which for a name declared twice can be two rows.  That rule
-     replaces this body in P15 S4; the signature is already the one it needs. */
-  def callers_tsv_declarations(sections: List[Theory_Section], seed: String,
-    reach: String
-  ): String => List[(Theory_Section, Entry)] = {
-    val first = mutable.HashMap.empty[String, (Theory_Section, Entry)]
-    for (sec <- sections; e <- sec.entries if !first.contains(e.name)) first(e.name) = (sec, e)
-    n => first.get(n).toList
-  }
-
   def cmd_callers(out: Out, err: Out, sections: List[Theory_Section], name0: String,
     flags: Flags, namespace: Namespace.Table = Namespace.census,
     graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
@@ -521,16 +515,16 @@ object Usage {
         }
       }
       val depths = Usage_Graph.bfs_depths(n => g.callers.getOrElse(n, Set.empty), List(name))
+      val resolve = Reach.seeing(sections, name, flags.reach)
       if (tsv) {
         /* The seed stays in `depths` until here: `toplevel_site` reads the
            depth-0 row to locate a depth-1 `<toplevel>` caller. */
         val rows =
           for ((n, d) <- depths.toList.sortBy(kv => (kv._2, kv._1)) if n != name)
             yield (Some(n), d, toplevel_site(g, depths, n, d))
-        callers_tsv(out, sections, subject, flags, rows,
-          callers_tsv_declarations(sections, name, flags.reach))
+        callers_tsv(out, sections, subject, flags, rows, resolve)
       }
-      else render_graph_results(out, sections, depths - name, "caller", name, flags)
+      else render_graph_results(out, sections, depths - name, "caller", name, flags, resolve)
     }
     else {
       val hits = find_callers(sections, name, external = flags.external,
@@ -545,7 +539,6 @@ object Usage {
       else if (flags.mode == "count") out.println(hits.length.toString)
       else if (hits.isEmpty) out.println(s"No callers found for '$name'.")
       else {
-        val n_after = 0 max flags.context
         /* Align the loci into a column; each is a clean `theory:line` that
            pastes into `enclosing` / `lines` / an editor — and is qualified far
            enough to name ONE theory, so what pastes back is the theory the row
@@ -553,26 +546,78 @@ object Usage {
            from the hit's OWN section, never from a name-keyed lookup
            [name-is-not-identity]. */
         val labels = Render.locus_labels(sections)
-        val loci =
-          hits.map(h => s"${labels.getOrElse(h._1.path, h._1.theory)}:${h._2}")
+        def thy(sec: Theory_Section): String = labels.getOrElse(sec.path, sec.theory)
+        val loci = hits.map(h => s"${thy(h._1)}:${h._2}")
         val loc_w = loci.map(_.length).max
-        out.println(s"${hits.length} caller(s) of $name:\n")
-        for (((sec, line_no, text), loc) <- hits.zip(loci)) {
-          val encl = Commands.enclosing_entry(sec, line_no)
-          out.println(s"  ${pad_right(loc, loc_w)}  " +
-            s"${Commands.owner_field(encl)}  ${Py.strip(text)}")
-          if (n_after > 0) {
-            val src = sec.source
-            val label = loc.substring(0, loc.lastIndexOf(':'))
-            /* The context lines keep ripgrep's `-` marker: it flags the line as
-               context rather than a match, and `parse_locus` strips it so the
-               locus still round-trips. */
-            var off = 1
-            while (off <= n_after && line_no - 1 + off < src.length) {
-              out.println(s"  $label:${line_no + off}-  ${Py.rstrip(src(line_no - 1 + off))}")
-              off += 1
-            }
+        /* Every declaration of the name, bound names included: `callers` scans
+           for a token, and `datatype col = mono2 | ...` declares `mono2` as
+           surely as a `definition` does.  Each entry once, in load order. */
+        val decls =
+          for (sec <- sections; e <- sec.entries if e.name == name || e.bound_names.contains(name))
+            yield (sec, e)
+        if (decls.length < 2) {
+          out.println(s"${hits.length} caller(s) of $name:\n")
+          print_caller_rows(out, hits, loci, loc_w, flags)
+        }
+        else {
+          /* Declared more than once: group the sites by the declarations each
+             can see, so two unrelated `sim_tape`s are not one list
+             [callee-attribution].  A group is a SET of positions in `decls`,
+             and a position, not an `Entry`, is the identity: `Entry` is a case
+             class, and two field-equal declarations in two same-named theories
+             (p9probe's three `shared`s) are still two declarations. */
+          val vis = new Reach.Visibility(sections, flags.reach)
+          val groups = mutable.LinkedHashMap.empty[List[Int], mutable.ListBuffer[Int]]
+          for ((h, k) <- hits.zipWithIndex)
+            groups.getOrElseUpdate(vis.visible_indices(decls, h._1.theory),
+              new mutable.ListBuffer[Int]) += k
+          val hit_at = hits.toVector
+          val locus_at = loci.toVector
+          val decl_at = decls.toVector
+          def decl(i: Int): String = {
+            val (sec, e) = decl_at(i)
+            s"(${e.tag}) $EM_DASH ${thy(sec)} [L${e.thy_line}]"
           }
+          out.println(s"${hits.length} caller(s) of $name, which has ${decls.length} declarations:")
+          import scala.math.Ordering.Implicits.seqOrdering
+          for (key <- groups.keys.toList.sortBy(k => (k.length, k))) {
+            val ks = groups(key).toList
+            /* A corpus name can be in reach many times over (`mono`, 40+), so
+               the list is capped; the rows below still say where each site is. */
+            val shown = key.take(3).map(decl).mkString("; ")
+            val more = if (key.length > 3) s"; +${key.length - 3} more" else ""
+            val which =
+              if (key.length == 1) s"$name ${decl(key.head)}"
+              else s"$name, any of ${key.length}: $shown$more"
+            out.println(s"\n$which: ${ks.length} caller(s)\n")
+            print_caller_rows(out, ks.map(hit_at), ks.map(locus_at), loc_w, flags)
+          }
+        }
+      }
+    }
+  }
+
+  /* The located rows of `callers`, each with its owner and `-U` context.  The
+     locus column width is the caller's: a grouped answer aligns every group
+     to one column. */
+  private def print_caller_rows(out: Out, hits: List[(Theory_Section, Int, String)],
+    loci: List[String], loc_w: Int, flags: Flags
+  ): Unit = {
+    val n_after = 0 max flags.context
+    for (((sec, line_no, text), loc) <- hits.zip(loci)) {
+      val encl = Commands.enclosing_entry(sec, line_no)
+      out.println(s"  ${pad_right(loc, loc_w)}  " +
+        s"${Commands.owner_field(encl)}  ${Py.strip(text)}")
+      if (n_after > 0) {
+        val src = sec.source
+        val label = loc.substring(0, loc.lastIndexOf(':'))
+        /* The context lines keep ripgrep's `-` marker: it flags the line as
+           context rather than a match, and `parse_locus` strips it so the
+           locus still round-trips. */
+        var off = 1
+        while (off <= n_after && line_no - 1 + off < src.length) {
+          out.println(s"  $label:${line_no + off}-  ${Py.rstrip(src(line_no - 1 + off))}")
+          off += 1
         }
       }
     }
@@ -596,20 +641,25 @@ object Usage {
           Commands.fail_subject(out, err, s"'$name' is not in the entry index")
       }
     }
+    /* Which declaration of each callee a row names: the ones the seed's own
+       theories can see, nearest first [callee-attribution]. */
+    val resolve = Reach.seen_from(sections, name, flags.reach)
     if (flags.recursive) {
       val reachable =
         Usage_Graph.bfs_depths(n => g.callees.getOrElse(n, Set.empty), List(name)) - name
-      render_graph_results(out, sections, reachable, "dependency", name, flags)
+      render_graph_results(out, sections, reachable, "dependency", name, flags, resolve)
     }
     else {
-      val by_name = Usage_Graph.entry_by_name(sections)
       val used0 = g.callees.getOrElse(name, Set.empty)
       val used =
         if (flags.external) {
           /* Mirror of `callers --external`: drop callees defined in NAME's own
-             theory, leaving only its cross-theory dependencies. */
-          val own_theory = by_name.get(name).map(_._1)
-          used0.filter(u => by_name.get(u).map(_._1) != own_theory)
+             theory, leaving only its cross-theory dependencies.  A callee is
+             local when a declaration it RESOLVES to is: a name declared both
+             here and in an import is this theory's own when the seed sees its
+             own [callee-attribution]. */
+          val own_theory = Usage_Graph.entry_by_name(sections).get(name).map(_._1)
+          used0.filter(u => resolve(u).forall(d => !own_theory.contains(d._1.theory)))
         }
         else used0
       if (flags.mode == "count") out.println(used.size.toString)
@@ -619,11 +669,16 @@ object Usage {
       }
       else {
         out.println(s"${used.size} callee(s) of $name:\n")
+        val labels = Render.locus_labels(sections)
+        /* One row per declaration the seed can see: a name declared twice is
+           attributed to the one in reach, never by load order. */
         for (uname <- used.toList.sorted)
-          by_name.get(uname) match {
-            case Some((thy, e)) =>
-              out.println(s"  $uname (${e.tag}) $EM_DASH $thy [L${e.thy_line}]")
-            case None => out.println(s"  $uname")
+          resolve(uname) match {
+            case Nil => out.println(s"  $uname")
+            case ds =>
+              for ((sec, e) <- ds)
+                out.println(s"  $uname (${e.tag}) $EM_DASH " +
+                  s"${labels.getOrElse(sec.path, sec.theory)} [L${e.thy_line}]")
           }
       }
     }

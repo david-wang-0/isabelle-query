@@ -173,7 +173,8 @@ object Reach {
   final class Closure private[Reach] (
     private val ids: Map[String, Int],
     private val rows: Array[java.util.BitSet],
-    private val unreadable: java.util.BitSet
+    private val unreadable: java.util.BitSet,
+    private val child: Array[Array[Int]]
   ) {
     def theories: Int = rows.length
 
@@ -207,6 +208,36 @@ object Reach {
     }
 
     def visible(from: String, to: String): Boolean = visible_from(from)(id(to))
+
+    /* Is `theory`'s closure unknown -- a theory this closure has never seen,
+       or one whose walk meets an unreadable header?  The rules that only DROP
+       ask this first and decline to drop when it holds. */
+    def unknown_theory(theory: String): Boolean = {
+      val i = id(theory)
+      i < 0 || unknown(i)
+    }
+
+    /* `theory` at 0 and each transitive in-project import at its SHORTEST
+       import depth, indexed by theory id (-1 = not in the closure); None when
+       the closure is unknown.  The rows above are sets, and "nearest first"
+       [callee-attribution] needs the distance, so this walks the same
+       adjacency breadth-first.  Computed on demand and never stored here: the
+       closure is shared by every request of a resident host, so a memo
+       belongs to the request that asked (`Visibility`). */
+    def depths(theory: String): Option[Array[Int]] =
+      if (unknown_theory(theory)) None
+      else {
+        val d = Array.fill(rows.length)(-1)
+        val queue = new mutable.ArrayDeque[Int]
+        val start = id(theory)
+        d(start) = 0
+        queue += start
+        while (queue.nonEmpty) {
+          val v = queue.removeHead()
+          for (c <- child(v) if d(c) < 0) { d(c) = d(v) + 1; queue += c }
+        }
+        Some(d)
+      }
 
     /* Total closure size, for the memory / cost note in dev/P7C-STATUS.md. */
     def total_edges: Long = rows.foldLeft(0L)(_ + _.cardinality())
@@ -315,7 +346,7 @@ object Reach {
       }
     }
 
-    new Closure(id_map, rows, unreadable)
+    new Closure(id_map, rows, unreadable, child)
   }
 
   /* Cached per corpus, keyed by the IDENTITY of the section list: one load of a
@@ -428,4 +459,126 @@ object Reach {
           }
       }
     }
+
+
+  /* ------------------------------------------------------------------ */
+  /* which declaration a row names                                      */
+  /* ------------------------------------------------------------------ */
+
+  type Declarations = List[(Theory_Section, Entry)]
+
+  /* The call graph is keyed by NAME, so a kept edge says only that SOME
+     declaration of the callee is visible from the citing theory; a row that
+     then names one has to ask again which [callee-attribution].  Until 0.9.8
+     every row named the first declaration in load order, which for a name
+     declared twice could be one the citer cannot see.
+
+     A VALUE per request, not process state [p10-namespace-value]: the depth
+     memo lives exactly as long as the resolver that asked for it, and the
+     closure underneath is the shared, immutable one.  Under `--reach name`
+     the closure is never built. */
+  final class Visibility(sections: List[Theory_Section], mode: String) {
+    private lazy val c: Closure = closure(sections)
+    private val memo = mutable.HashMap.empty[String, Option[Array[Int]]]
+
+    private def depths(theory: String): Option[Array[Int]] =
+      memo.getOrElseUpdate(theory, c.depths(theory))
+
+    /* The declarations in `decls` a site in one of `theories` can name,
+       nearest by import depth first, ties in load order.  Every visible one,
+       not a pick: two visible theories declaring one name is a collision the
+       index cannot resolve, and naming one would be a guess.  All of `decls`
+       under `--reach name`, when any of the closures is unknown, or when none
+       is visible (the edge was kept on an unknown closure) -- the rule may
+       only drop where it is confident.  A declaration's theory is looked up
+       by NAME, as the closure is built: two same-named theories are both
+       visible or both not. */
+    def visible(decls: Declarations, theories: Iterable[String]): Declarations =
+      if (mode != "closure") decls
+      else {
+        val arr = decls.toArray
+        val best = new Array[Int](arr.length)
+        java.util.Arrays.fill(best, -1)
+        val it = theories.iterator
+        var unknown = false
+        while (!unknown && it.hasNext) {
+          depths(it.next()) match {
+            case None => unknown = true
+            case Some(d) =>
+              for (i <- arr.indices) {
+                val j = c.id(arr(i)._1.theory)
+                if (j >= 0 && d(j) >= 0 && (best(i) < 0 || d(j) < best(i))) best(i) = d(j)
+              }
+          }
+        }
+        val seen = arr.indices.filter(best(_) >= 0)
+        if (unknown || seen.isEmpty) decls
+        else seen.sortBy(i => (best(i), i)).map(arr(_)).toList
+      }
+
+    /* The positions in `decls` a site in `theory` can name: `visible`'s
+       answer as a SET (in load order), for the grouping of `callers NAME`,
+       where only membership matters.  Asked once per hit, so it reads the
+       closure's bit row instead of walking depths. */
+    def visible_indices(decls: Declarations, theory: String): List[Int] = {
+      lazy val all = decls.indices.toList
+      if (mode != "closure" || c.unknown_theory(theory)) all
+      else {
+        val sees = c.visible_from(theory)
+        val kept = decls.iterator.zipWithIndex
+          .collect { case ((sec, _), i) if sees(c.id(sec.theory)) => i }.toList
+        if (kept.isEmpty) all else kept
+      }
+    }
+
+    /* Can some theory of `targets` be reached from `theory`?  None when
+       `theory`'s closure is unknown. */
+    def reaches_any(theory: String, targets: Iterable[String]): Option[Boolean] =
+      if (c.unknown_theory(theory)) None
+      else {
+        val sees = c.visible_from(theory)
+        Some(targets.exists(t => sees(c.id(t))))
+      }
+  }
+
+  /* `callees` (plain and `-r`): each name's declarations that `seed`'s own
+     theories can see, nearest first [callee-attribution].  The seed's homes
+     are the theories of ALL its declarations, so a seed declared in two
+     theories resolves from both, at its nearest.  It holds at every depth of
+     `callees -r`: an import closure is transitive, so whatever a callee's
+     theory can see, the seed's theory can see as well. */
+  def seen_from(sections: List[Theory_Section], seed: String, mode: String
+  ): String => Declarations = {
+    val decls = Usage_Graph.declarations_by_name(sections)
+    val vis = new Visibility(sections, mode)
+    val home = decls.getOrElse(seed, Nil).map(_._1.theory).distinct
+    n => vis.visible(decls.getOrElse(n, Nil), home)
+  }
+
+  /* `callers -r`: each name's declarations whose theory can see SOME
+     declaration of `seed` -- the reverse direction of `seen_from`
+     [callee-attribution].  Necessary, not sufficient: a caller at any depth
+     cites its way down to the seed, so its theory's closure holds one of the
+     seed's, and a declaration that fails that cannot be the caller.  Only a
+     name declared more than once is asked at all; every declaration under
+     `--reach name`, when a closure is unknown, or when none passes.  Kept
+     rows stay in load order. */
+  def seeing(sections: List[Theory_Section], seed: String, mode: String
+  ): String => Declarations = {
+    val decls = Usage_Graph.declarations_by_name(sections)
+    val vis = new Visibility(sections, mode)
+    val targets = decls.getOrElse(seed, Nil).map(_._1.theory).distinct
+    n => {
+      val ds = decls.getOrElse(n, Nil)
+      if (mode != "closure" || ds.length < 2) ds
+      else {
+        val answers = ds.map { case d @ (sec, _) => (d, vis.reaches_any(sec.theory, targets)) }
+        if (answers.exists(_._2.isEmpty)) ds
+        else {
+          val kept = answers.collect { case (d, Some(true)) => d }
+          if (kept.isEmpty) ds else kept
+        }
+      }
+    }
+  }
 }

@@ -776,6 +776,30 @@
       "reason": ""
     },
     {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_every_label_round_trips",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_no_two_theories_share_a_label",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_the_fixture_has_path_spelled_names",
+      "status": "known-difference",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": "D15 in dev/DIVERGENCES.md: a ROOT path spelling names its theory by the Isabelle leaf, so the four theories are Automation x4 rather than Python's Automation x2 + SL/Automation x2; the labels, uniqueness and round-trip IDs beside it still hold."
+    },
+    {
+      "id": "test_disambig_names.APathSpelledNameIsSegments.test_the_labels",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_disambig_names.scala",
+      "reason": ""
+    },
+    {
       "id": "test_disambig_names.Degenerate.test_no_sections",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_disambig_names.scala",

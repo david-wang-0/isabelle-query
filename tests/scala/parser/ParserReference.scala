@@ -25,6 +25,8 @@ private[regression] object ParserReference {
     val callers = mutable.Map.from(names.map(_ -> mutable.Set.empty[String]))
     val callees = mutable.Map.empty[String, mutable.Set[String]]
     val antiq = Py.compile("""@\{(?:text|thm|term|const)\s+["']?\w+["']?\}""")
+    // Named by the locus label, as the fast builder names it [toplevel-label].
+    val labels = Render.locus_labels(sections)
     for (sec <- sections; (line, i) <- sec.live_source.zipWithIndex) {
       val number = i + 1
       if (!noise(sec.path).exists { case (lo, hi) => lo <= number && number <= hi }) {
@@ -36,7 +38,7 @@ private[regression] object ParserReference {
           val positional = !Namespace.census.non_citation(name) || use(line, name, derived)
           val owner = Usage_Graph.entry_at_line(index(sec.path), number)
           if (!atDefinition && positional && !owner.exists(_.name == "?")) {
-            val caller = owner.map(_.name).getOrElse(sec.theory + ":<toplevel>")
+            val caller = owner.map(_.name).getOrElse(labels.getOrElse(sec.path, sec.theory) + ":<toplevel>")
             callers(name) += caller
             callees.getOrElseUpdate(caller, mutable.Set.empty) += name
           }

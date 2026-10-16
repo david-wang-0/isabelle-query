@@ -229,8 +229,9 @@ object Commands {
         .orElse(sections.find(_.theory == name))
         /* A LABEL, as `Render.theory_labels` emits it: the shortest directory
            qualification that names one theory, matched here as a suffix of the
-           same tuple the label was built from — the exact inverse, so the
-           emitter and the resolver cannot drift [disambig-names].  Without it
+           same tuple the label was built from, `Render.label_chain` — the
+           exact inverse, so the emitter and the resolver cannot drift
+           [disambig-names] [label-depth].  Without it
            the emitter's half is worse than useless: nineteen AFP theories are
            called `Examples`, and `beta/Examples` would fall to the stem
            fallback and resolve to `alpha/Examples`, silently and confidently.
@@ -242,7 +243,7 @@ object Commands {
           if (want.isEmpty) None
           else {
             val hits = sections.filter { s =>
-              val tuple = Render.path_parts(s.real_path.getParent) :+ s.theory
+              val tuple = Render.label_chain(s)
               tuple.length >= want.length && tuple.takeRight(want.length) == want
             }
             if (hits.length == 1) Some(hits.head) else None
