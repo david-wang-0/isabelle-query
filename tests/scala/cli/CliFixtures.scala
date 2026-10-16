@@ -18,6 +18,16 @@ end
 lemma twice: "True" by simp
 end
 """
+  val test_show_premises_THY = """theory T imports Main begin
+lemma lin:
+  assumes wf: "well_formed M"
+    and "0 < q"
+  shows "A" and "B" and "C"
+  by simp
+lemma arrow: "P \<Longrightarrow> Q" by simp
+definition d :: nat where "d = 0"
+end
+"""
   val test_show_near_names_THY = """theory T imports Main begin
 lemma descriptor_tape_length: "True" by simp
 lemma both: shows "True" and conj: "True" by simp_all

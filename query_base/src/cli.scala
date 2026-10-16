@@ -114,6 +114,12 @@ object CLI {
     flag("-V", "--verbatim")("verbatim", "full source slice (statement + proof)")
   private val statement_flag =
     flag("--statement", "--stmt")("statement", "the statement slice (declaration, no proof)")
+  /* `show` only: a different view rather than a slice, so it is exclusive
+     with both slices [show-premises]. */
+  private val premises_flag =
+    flag("--premises")("premises", "one line per premise, keyed by how a proof cites it " +
+      "(assms(k) / that(k), plus its label), then the number of conclusions: short " +
+      "however long the statement is")
   private val no_comments_flag =
     flag("--no-comments")("no_comments", "suppress preamble and roadmap")
   private val comments_only_flag =
@@ -292,10 +298,10 @@ object CLI {
       List(Pos("pattern", "+", "regex pattern(s)")),
       List(List("no_comments", "comments_only"))),
     Cmd(List("show"), "show one or more specific entries",
-      List(all_flag, count_flag, names_flag, verbatim_flag, statement_flag,
+      List(all_flag, count_flag, names_flag, verbatim_flag, statement_flag, premises_flag,
         no_comments_flag, comments_only_flag, context_flag),
       List(Pos("name", "+", "entry name(s)")),
-      List(List("no_comments", "comments_only"), List("verbatim", "statement"))),
+      List(List("no_comments", "comments_only"), List("verbatim", "statement", "premises"))),
     Cmd(List("grep"), "regex search across live theory source",
       List(with_comments_flag, count_flag,
         names_flag.copy(help = "locations + owning entry only"), ignore_case_flag,
@@ -1165,6 +1171,7 @@ object CLI {
        shell loop's output pastes in either way. */
     val keep = ns.list("keep").flatMap(_.split(",", -1)).filter(Py.strip(_).nonEmpty).toSet
     Flags(mode = mode, verbatim = ns.bool("verbatim"), statement = ns.bool("statement"),
+      premises = ns.bool("premises"),
       comments = comments, context = context, with_comments = ns.bool("with_comments"),
       ignore_case = ns.bool("ignore_case"),
       recursive = ns.bool("recursive"), external = ns.bool("external"),

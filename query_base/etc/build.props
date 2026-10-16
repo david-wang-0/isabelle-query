@@ -8,6 +8,7 @@ sources = \
   src/model.scala \
   src/regions.scala \
   src/entries.scala \
+  src/premises.scala \
   src/discovery.scala \
   src/theory.scala \
   src/output.scala \
