@@ -1,21 +1,21 @@
 {
   "schema_version": 2,
   "upstream": {
-    "version": "0.9.2",
-    "python_tree_id": "b56776692c7e1ab969a10ad6063feb11c74688b2",
-    "pyproject_sha256": "ef19aadb70bcf7863f38d6a533b9b8b9468b21a18b7f9c5cd3dba25daea7157f"
+    "version": "0.9.8",
+    "python_tree_id": "4400b6b50a4dbfffaa74e1efeaecc6ad3ad37c09",
+    "pyproject_sha256": "50b79e08d09702fa6a5e62eeda4d89df32f4246c6b0b668841ae30d3026dd78a"
   },
   "evidence": {
     "kind": "complete-run",
-    "checked_at_utc": "2026-09-29T16:54:43.714187+00:00",
+    "checked_at_utc": "2026-10-16T19:26:05.432237+00:00",
     "mode": "warm",
-    "comparisons": 2359,
-    "pins": 186,
+    "comparisons": 2464,
+    "pins": 204,
     "entry_projections": 28
   },
   "layout": {
     "layout_version": "0.2.2",
-    "python_tree_id": "b56776692c7e1ab969a10ad6063feb11c74688b2",
+    "python_tree_id": "4400b6b50a4dbfffaa74e1efeaecc6ad3ad37c09",
     "layout_sha256": "c653b33fba69d4dfa1c6a770e8bab3cbf7db215df5a212541f8cd8bdcbdb590d"
   },
   "corpora": {
@@ -27,14 +27,14 @@
     "Sequents": "3f0a528e41d98c8daf2517ba6e48b9262da614c60b98fab0ae425b931db5fb7e",
     "CTT": "3cbb3aefd6dae6ea4dbd6c234d8846607663b579a4b093c0c76533e281805a23"
   },
-  "matrix_sha256": "f8cc4a1d52e2c69fa093a0561f670365a032cafdaace9598ad88603df8d462f1",
+  "matrix_sha256": "59249b10aa47a16f5feebdb8cb90d26ae19dcc838449aa7511945e0bd1bb34b7",
   "owned_server_sha256": "a9a52207490c10e662a531fc44aee07558dbc16bcba73836733d508e6e52d837",
-  "pins_sha256": "80bbf1d4a969daa15238f9919093b5c1328e29d95d67151911544cb9d835ed55",
-  "executed_matrix_sha256": "f8cc4a1d52e2c69fa093a0561f670365a032cafdaace9598ad88603df8d462f1",
+  "pins_sha256": "1b16fa042a499cca412438bcbd1b9883e934548cf7dff3872f4b7922b1273ade",
+  "executed_matrix_sha256": "59249b10aa47a16f5feebdb8cb90d26ae19dcc838449aa7511945e0bd1bb34b7",
   "entrydiff_sha256": "b8c48cbc0f590015419026b36ae709bc1f6c1bc616a01aef0ac31bb89f05a765",
   "required_configs": {
     "configs/m3.toml": "c379f68ed632af3d0e5e1340bc6ab51ec4d834c84cf6e6c2fd4170cd037b2bff"
   },
   "fixtures_sha256": "bc9c741b0bc5dc18970201aa1f8b5b12d7e5ee489077c81a9009f93797b7c495",
-  "scala_source_sha256": "db61b8e515a9273201a45c2ff288d6d8b7160afa298f480f3c55e57f0f3bf0a9"
+  "scala_source_sha256": "bd03e650c651379c0cf32c433aea5abac4516ed6a8b546257417e3ab1beeef9d"
 }

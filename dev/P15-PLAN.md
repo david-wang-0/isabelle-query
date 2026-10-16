@@ -1,6 +1,6 @@
 # P15 — sync the port with upstream 0.9.8
 
-**Status: DONE pending the compat stamp** (opened 2026-10-16; S0–S8 done the
+**Status: DONE** (opened 2026-10-16; S0–S8 done the
 same day). This is the task list for bringing the Scala engine to parity
 with upstream isabelle-query **0.9.8** (from 0.9.2). It is the plan; the
 per-step evidence goes into commit messages under the tags below, and the
@@ -186,7 +186,7 @@ Landed: `2704e7d`..`f26666c` (the last re-expresses `p9probe.sh` §1c for
 
 ### S5 — land the branches on `main`
 
-- [x] Merge S1, S3, S2 (wave 1), then S4. Resolve `cli.scala`,
+- [x] Merge S3, S2, S1 (wave 1, in the order they finished), then S4. Resolve `cli.scala`,
       `commands.scala`, `usage.scala` and the coverage JSONs by hand;
       `make test-scala`.
 - [x] Full `dev/difftest.sh` and `dev/entrydiff.sh`; every remaining red case
@@ -224,8 +224,9 @@ Landed: `4fecaa8`..`2c2b0b0`, merged `29a79f4`. Full matrix 2,464 (352 ids ×
 - [x] `tests/scala/upstream-tests.json`: `upstream_version` 0.9.8, new
       `python_tree_id`; each `coverage/<suite>.json` exhaustive. 1,482 IDs;
       `make test-scala` 1,399 passed, 83 non-pass, 0 failures (`4fecaa8`).
-- [ ] `make compat` stamps `dev/upstream-compat-baseline.json` for 0.9.8.
-      Only after S5 is green.
+- [x] `make compat` stamps `dev/upstream-compat-baseline.json` for 0.9.8.
+      Only after S5 is green. Passed: 2,464 comparisons (warm), 204 pins,
+      28 entry projections.
 
 ### S8 — docs, version, status
 
@@ -236,4 +237,4 @@ Landed: `4fecaa8`..`2c2b0b0`, merged `29a79f4`. Full matrix 2,464 (352 ids ×
       transcripts re-run cold: 63 entries, 26 unused (`thrice_code`).
 - [x] `dev/P15-STATUS.md`; `todo.md` (`[client-status-stale]`,
       `[client-restart-owned]`).
-- [ ] Memory `p15-upstream-sync`.
+- [x] Memory `p15-upstream-sync`.

@@ -84,7 +84,10 @@ failures, 1,482 of 1,482 upstream IDs (every unittest 0.9.8 discovers outside
 the fork's own test files). The probes: `p5probe` 69, `p6probe` 104,
 `p6bprobe` 247 + 63, `p7probe` 109, `p7cprobe` 45, `p9probe` 152 — all green.
 
-COMPAT: pending
+`make compat` (the forced full comparison, warm, from the merged tree at
+`29a79f4`): "Upstream 0.9.8: full compatibility passed; baseline recorded" —
+2,464 comparisons, 204 pins, 28 entry projections; the cheap gate
+(`dev/check-upstream-compat.py`) now reads 0.9.8 as unchanged.
 
 ## What moved
 
