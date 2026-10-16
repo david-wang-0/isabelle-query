@@ -176,7 +176,17 @@ object Entries {
   val BLANK_RE: Pattern = Py.compile("""^\s*$""")
   val TOPLEVEL_RE: Pattern = Py.compile("^[a-z]")
   val AXIOM_NAME_RE: Pattern = Py.compile("""([A-Za-z_][A-Za-z0-9_']*)\s*:""")
-  val AXIOM_AND_RE: Pattern = Py.compile("""(?<![\w'])and(?![\w'])""")
+  /* What follows an item of one `axiomatization` at outer-syntax position:
+     `and` before the next item, or the `if` / `for` tail that ends the names.
+     Only ever applied to the OUTER view, so the `and` inside a proposition —
+     or the `\<and>` connective — is already blanked. */
+  val AXIOM_SEP_RE: Pattern = Py.compile("""(?<![\w'])(and|for|if)(?![\w'])""")
+  /* Where an axiomatization stops declaring names [axiom-for].  Isabelle's
+     grammar is `vars? (where (thm_name: prop) and ... if_assumes? for_fixes?)?`
+     (Pure.thy, `val axiomatization`): `if` introduces premises and `for` the
+     variables fixed for the axioms, and nothing after either is a constant or
+     a label — `for F :: T` read as a label `F`. */
+  val axiom_closers: Set[String] = Set("for", "if")
   val WHERE_RE: Pattern = Py.compile("""\bwhere\b""")
   val TRAILING_WHERE_RE: Pattern = Py.compile("""\s+where$""")
 
@@ -701,30 +711,37 @@ object Entries {
     }
   }
 
-  /* One `axiomatization` line: the names it declares, and whether it opened
-     with a continuation keyword.  Names PLURAL, because `and` separates items
-     WITHIN a line as readily as it ends one. */
-  def axiom_line(text: String): (List[String], Boolean) = {
+  /* One `axiomatization` line: the names it declares, whether it opened with
+     a continuation keyword, and whether the command has reached its `if` /
+     `for` tail, after which it declares nothing (`closed`, passed in for the
+     lines that follow — [axiom-for]).  Names PLURAL, because `and` separates
+     items WITHIN a line as readily as it ends one. */
+  def axiom_line(text: String, closed0: Boolean = false): (List[String], Boolean, Boolean) = {
     var stripped = Py.strip(text)
     val cont = Py.matches_start(STATEMENT_CONT_RE, stripped)
     val names = new mutable.ListBuffer[String]
+    var closed = closed0
     var go = true
-    while (go && stripped.nonEmpty) {
+    while (go && stripped.nonEmpty && !closed) {
       Py.matches_at_start(STATEMENT_CONT_RE, stripped) match {
-        case Some(kw) => stripped = Py.lstrip(stripped.substring(kw.end()))
+        case Some(kw) =>
+          if (axiom_closers(Py.strip(kw.group(0)))) closed = true
+          else stripped = Py.lstrip(stripped.substring(kw.end()))
         case None =>
           Py.matches_at_start(AXIOM_NAME_RE, stripped) match {
             case None => go = false
             case Some(m) =>
               names += m.group(1)
-              Py.search_from(AXIOM_AND_RE, stripped, m.end()) match {
+              Py.search_from(AXIOM_SEP_RE, stripped, m.end()) match {
                 case None => go = false
-                case Some(nxt) => stripped = Py.lstrip(stripped.substring(nxt.end()))
+                case Some(nxt) =>
+                  if (axiom_closers(nxt.group(1))) closed = true
+                  else stripped = Py.lstrip(stripped.substring(nxt.end()))
               }
           }
       }
     }
-    (names.toList, cont)
+    (names.toList, cont, closed)
   }
 
 
@@ -1395,7 +1412,7 @@ object Entries {
              `axiomatization where process_finite:` — so read its remainder
              before stepping below it. */
           val head_from = (indent + keyword.length) min outer(i).length
-          val (head_names, _) = axiom_line(outer(i).substring(head_from))
+          val (head_names, _, head_closed) = axiom_line(outer(i).substring(head_from))
           for (head_name <- head_names) {
             entries += Entry("AXIOM", head_name,
               "  AXIOM " + Py.strip(line.substring(keyword.length min line.length)),
@@ -1403,8 +1420,10 @@ object Entries {
           }
           i += 1
           var go = true
+          var closed = head_closed
           while (go && i < lines.length) {
-            val (found, cont) = axiom_line(outer(i))
+            val (found, cont, c) = axiom_line(outer(i), closed)
+            closed = c
             if (found.nonEmpty) {
               for (name <- found) {
                 entries += Entry("AXIOM", name, "  AXIOM " + Py.strip(lines(i)),
