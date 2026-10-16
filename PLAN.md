@@ -50,7 +50,8 @@ conflicts with this file (e.g. "pure-Python", pytest habits), this file wins.
 ```
 
 The Python tree is **frozen**: never edit it, only read it. It is upstream's
-0.9.2 release since `[p14-merge]` (0.8.1 from `[p9-merge]` to then). The
+0.9.8 release since `[p15-merge]` (0.9.2 from `[p14-merge]`, 0.8.1 from
+`[p9-merge]`). The
 runtime oracle is a `query` built from *that* tree and named by
 `$QUERY_ORACLE`; `dev/difftest.sh` pins its version and refuses to run against
 any other, so a stale `query` on `PATH` is a refusal rather than a plausible
@@ -94,11 +95,12 @@ The Scala tool must be a drop-in replacement for the Python CLI:
 - stderr: must be non-empty exactly where Python's is; wording may differ.
 - `-V/--version`: report the fork's own version, `UPSTREAM-scala.MINOR.PATCH`.
   The NUMBER names the upstream release whose contract the port matches
-  (`0.8.1` since P9, `0.9.2` since P14, and `dev/difftest.sh` refuses to run
-  if it differs from the oracle version it pins); the `-scala` marker is what
-  lets a script tell the two tools apart; the `MINOR.PATCH` after it counts the
-  port's own releases (`0.8.1-scala.0.1` since P10; P14 moved only the number
-  in front, `0.8.1-scala.0.3` → `0.9.2-scala.0.3`).
+  (`0.8.1` since P9, `0.9.2` since P14, `0.9.8` since P15, and
+  `dev/difftest.sh` refuses to run if it differs from the oracle version it
+  pins); the `-scala` marker is what lets a script tell the two tools apart;
+  the `MINOR.PATCH` after it counts the port's own releases (`0.8.1-scala.0.1`
+  since P10; P14 and P15 moved only the number in front, `0.8.1-scala.0.3` →
+  `0.9.2-scala.0.3` → `0.9.8-scala.0.3`).
 
 Regex dialect: user patterns are Python `re` in the oracle, `java.util.regex`
 in Scala. For the pattern subset that appears in docs/tests (literals,
@@ -262,6 +264,13 @@ necessary but not sufficient.
   from this fork (PR #11), so the P6b verbs are no longer rewrite-only: they
   join the differential matrix. **Gate:** the matrix and entry sets green
   against oracle 0.9.2, the Scala suites exhaustive over its unittest IDs.
+- **P15 — sync with upstream 0.9.8** (`dev/P15-PLAN.md`). Merge upstream's
+  six releases and port what they brought: `lemmas` / `theorems` as entries,
+  an axiomatization's `for` tail, `Entry.cut_span`; the all-or-nothing batch,
+  one call graph per request, `callers -f tsv`; `show --premises`, `[k of n]`
+  and the near-name note; the `<toplevel>` label and visible-declaration
+  attribution with the grouped `callers NAME`. No verb is added and none
+  becomes rewrite-only. **Gate:** as P14's, against oracle 0.9.8.
 
 ## Conventions
 
