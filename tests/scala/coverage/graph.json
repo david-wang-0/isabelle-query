@@ -230,6 +230,78 @@
       "reason": ""
     },
     {
+      "id": "test_callee_attribution.CallersOfACollidingName.test_grouped",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.CallersOfACollidingName.test_one_declaration_is_unchanged",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_block",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_name_mode_lists_both",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_names",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_tsv",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_direct",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_external_asks_the_visible_declaration",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_first_wins_would_name_the_invisible_one",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_name_mode_lists_every_declaration",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_recursive",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_several_visible_nearest_first",
+      "status": "ported",
+      "destination": "tests/scala/graph/GraphCalleeAttribution.scala",
+      "reason": ""
+    },
+    {
       "id": "test_citation_reach.AnUnknownClosureFiltersNothing.test_buffer_parsed_sections_keep_their_edges",
       "status": "ported",
       "destination": "tests/scala/graph/GraphCitationReach.scala",

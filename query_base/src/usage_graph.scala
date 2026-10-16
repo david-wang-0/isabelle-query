@@ -67,6 +67,20 @@ object Usage_Graph {
     m.toMap
   }
 
+  /* Every declaration of each name, in load order -- the all-wins partner of
+     `entry_by_name`, for a row that must name the declaration a citation can
+     actually reach (`Reach.Visibility`) [callee-attribution].  Entries only,
+     not the names they bind: the call graph's node set is entries.  Keyed to
+     the SECTION, not its theory name: 461 AFP theory names are shared, and the
+     row has to say which file [name-is-not-identity]. */
+  def declarations_by_name(sections: List[Theory_Section]
+  ): Map[String, List[(Theory_Section, Entry)]] = {
+    val m = mutable.HashMap.empty[String, mutable.ListBuffer[(Theory_Section, Entry)]]
+    for (s <- sections; e <- s.entries)
+      m.getOrElseUpdate(e.name, new mutable.ListBuffer[(Theory_Section, Entry)]) += ((s, e))
+    m.iterator.map { case (n, ds) => n -> ds.toList }.toMap
+  }
+
   /* Prose, not proof: the document blocks, the section HEADINGS, the per-entry
      preambles and the lexical non-Isar regions.  `comment_ranges` is
      deliberately NOT unioned in — a marginal note normally trails live proof

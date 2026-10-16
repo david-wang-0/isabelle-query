@@ -5,6 +5,7 @@ object GraphSuite {
     GraphBfsDepths.run()
     GraphBoundNameReach.run()
     GraphCallGraph.run()
+    GraphCalleeAttribution.run()
     GraphCitationReach.run()
     GraphFactCitations.run()
     GraphGraphExport.run()

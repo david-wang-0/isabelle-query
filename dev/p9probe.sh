@@ -1649,13 +1649,23 @@ echo "13a. one citation, from the file that makes it"
 # line 6 says the word inside a `text` block, which is documentation.  The
 # owner is `b_cites`, beta's own entry -- not `a_tail`, which owns line 6 of
 # the OTHER file.
+#
+# `target` is declared twice, so the answer is GROUPED by the declarations each
+# site can see [callee-attribution].  Visibility looks a theory up by NAME:
+# both `Preliminaries` import a theory called `Base`, so beta's line 6 sees
+# both declarations and lands in one "any of 2" group, listed in load order
+# with their labels.  `--external` drops hits, never declarations: still 2.
 expect "callers target" 0 \
-  '1 caller(s) of target:
+  '1 caller(s) of target, which has 2 declarations:
+
+target, any of 2: (LEMMA) — alpha/Base [L4]; (LEMMA) — beta/Base [L4]: 1 caller(s)
 
   beta/Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
   "" callers target
 expect "and --external skips the FILES that declare it, not the name" 0 \
-  '1 caller(s) of target:
+  '1 caller(s) of target, which has 2 declarations:
+
+target, any of 2: (LEMMA) — alpha/Base [L4]; (LEMMA) — beta/Base [L4]: 1 caller(s)
 
   beta/Preliminaries:6  b_cites (LEMMA) 6..7  lemma b_cites: "True" using target by simp' \
   "" callers target --external
@@ -2189,8 +2199,18 @@ echo "17a. callers -- the locus, the owner, and the context line"
 # read from the hit's OWN section: alpha's `Examples` is five lines, so line 5
 # is its `end`, while beta's line 7 is blank.  Reading either out of the other
 # file would show here.
+#
+# Three declarations, so the header says so and the rows are grouped
+# [callee-attribution].  ONE group of all three: visibility is by theory NAME,
+# all three are `Base`, and every citing theory imports a `Base` -- even
+# `Unique`, which imports only solo's.  The three `shared` entries are
+# field-for-field equal, which is why the grouping keys on a declaration's
+# POSITION, not on the `Entry` value.  The locus column stays one width
+# across groups.
 expect "callers shared -- three loci, three owners, one column" 0 \
-'3 caller(s) of shared:
+'3 caller(s) of shared, which has 3 declarations:
+
+shared, any of 3: (LEMMA) — alpha/Base [L4]; (LEMMA) — beta/Base [L4]; (LEMMA) — solo/Base [L4]: 3 caller(s)
 
   alpha/Examples:4  a_owner (LEMMA) 4..4  lemma a_owner: "True" using shared by simp
   beta/Examples:6   b_owner (LEMMA) 6..7  lemma b_owner: "True" using shared by simp

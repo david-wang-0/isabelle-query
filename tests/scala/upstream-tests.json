@@ -1012,6 +1012,90 @@
       "inherited": false
     },
     {
+      "id": "test_callee_attribution.CallersOfACollidingName.test_grouped",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.CallersOfACollidingName.test_one_declaration_is_unchanged",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_block",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_name_mode_lists_both",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_names",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheCallerThatCanReachTheSeed.test_tsv",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_direct",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_external_asks_the_visible_declaration",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_first_wins_would_name_the_invisible_one",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_name_mode_lists_every_declaration",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_recursive",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_callee_attribution.TheVisibleDeclaration.test_several_visible_nearest_first",
+      "suite": "graph",
+      "source": "tests/test_callee_attribution.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_cartouche_escape.BackslashCartouche.test_declarations_below_the_operator_are_indexed",
       "suite": "parser",
       "source": "tests/test_cartouche_escape.py",
