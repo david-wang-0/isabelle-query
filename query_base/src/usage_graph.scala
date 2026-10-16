@@ -398,10 +398,17 @@ object Usage_Graph {
   /* the call graph                                                     */
   /* ------------------------------------------------------------------ */
 
+  /* `toplevel`: each synthetic `THEORY:<toplevel>` node -> (its section, the
+     first line of each name it cites).  A synthetic caller has no declaration
+     line, so `callers -r -f tsv` locates its row at the edge that put it in
+     the closure instead [callers-tsv].  Top-level citations are rare, so the
+     table costs nothing measurable; the default keeps a hand-built graph (the
+     test reference builders) free of it. */
   final case class Call_Graph(
     callers: Map[String, Set[String]],
     callees: Map[String, Set[String]],
-    all_names: Set[String]
+    all_names: Set[String],
+    toplevel: Map[String, (Theory_Section, Map[String, Int])] = Map.empty
   )
 
   val citable_tags: Set[String] = Set("LEMMA", "THEOREM", "FUN", "DEF", "ABBREV")
@@ -515,6 +522,8 @@ object Usage_Graph {
     val callers = mutable.LinkedHashMap.empty[String, mutable.Set[String]]
     for (n <- name_set) callers(n) = mutable.LinkedHashSet.empty[String]
     val callees = mutable.LinkedHashMap.empty[String, mutable.Set[String]]
+    val toplevel =
+      mutable.HashMap.empty[String, (Theory_Section, mutable.HashMap[String, Int])]
 
     for (sec <- sections) {
       /* The redacted view, not the raw source: a comment, an `\<^cancel>`
@@ -592,6 +601,12 @@ object Usage_Graph {
                     callers(name) += caller_name
                     callees.getOrElseUpdate(caller_name,
                       mutable.LinkedHashSet.empty[String]) += name
+                    /* Lines run in order, so the first line recorded per cited
+                       name is its first citation. */
+                    if (caller_entry.isEmpty)
+                      toplevel.getOrElseUpdate(caller_name,
+                        (sec, mutable.HashMap.empty[String, Int]))._2
+                        .getOrElseUpdate(name, line_no)
                   }
                 }
               }
@@ -605,7 +620,8 @@ object Usage_Graph {
     Call_Graph(
       callers = callers.map(kv => kv._1 -> kv._2.toSet).toMap,
       callees = callees.map(kv => kv._1 -> kv._2.toSet).toMap,
-      all_names = names)
+      all_names = names,
+      toplevel = toplevel.map { case (n, (sec, first)) => n -> (sec, first.toMap) }.toMap)
   }
 
   /* One call graph per REQUEST, not per subject [graph-once].  `callers -r A B

@@ -419,19 +419,96 @@ object Usage {
     }
   }
 
+  /* `callers -f tsv`: one row per caller, each naming its subject
+     [callers-tsv].  Columns: subject, caller, tag, theory, session, depth,
+     locus; no header, so several subjects concatenate into one table.  The
+     block output names its subject only when there are no callers, so a
+     script had to attribute blocks by position -- and recovered each caller's
+     SESSION by globbing theory files, a fact the section already holds.
+
+     A row is (caller, depth, site): `site` is (section, line, enclosing
+     entry) for a located hit -- plain `callers`, depth 1, or a `<toplevel>`
+     closure member located by `toplevel_site` -- and None for an entry in the
+     closure, which is placed at its declaration(s) as `resolve` names them.
+     The theory is the locus label, qualified only as far as it must be, so
+     the locus pastes back into `enclosing`.
+
+     A citation no entry owns is tagged TOPLEVEL and named `LABEL:<toplevel>`
+     in both modes, with its theory and session filled (upstream fcdc879).
+     Plain mode passes its caller as None and the name is minted here from the
+     label; `-r` passes the graph's node name. */
+  private def callers_tsv(out: Out, sections: List[Theory_Section], subject: String,
+    flags: Flags,
+    rows: List[(Option[String], Int, Option[(Theory_Section, Int, Option[Entry])])],
+    resolve: String => List[(Theory_Section, Entry)]
+  ): Unit = {
+    if (flags.mode == "count") { out.println(s"$subject\t${rows.length}"); return }
+    val labels = Render.locus_labels(sections)
+    for ((caller, depth, site) <- rows) {
+      val located: List[(Theory_Section, Int, String)] =
+        site match {
+          case Some((sec, line, encl)) => List((sec, line, encl.map(_.tag).getOrElse("TOPLEVEL")))
+          case None =>
+            caller.toList.flatMap(resolve).map { case (sec, e) => (sec, e.thy_line, e.tag) }
+        }
+      if (located.isEmpty)
+        out.println(s"$subject\t${caller.getOrElse("")}\t\t\t\t$depth\t")
+      for ((sec, line, tag) <- located) {
+        val thy = labels.getOrElse(sec.path, sec.theory)
+        val who = caller.getOrElse(s"$thy:<toplevel>")
+        out.println(s"$subject\t$who\t$tag\t$thy\t${sec.session.getOrElse("")}\t" +
+          s"$depth\t$thy:$line")
+      }
+    }
+  }
+
+  /* Where a `<toplevel>` closure member cites its way in, or None for an
+     entry (located at its declaration instead).  A synthetic caller has no
+     declaration line, and its first citation of anything may have nothing to
+     do with the subject; its locus is its first citation of a name ONE STEP
+     NEARER the subject -- the edge that put it in the closure at this depth
+     (upstream fcdc879). */
+  private def toplevel_site(g: Usage_Graph.Call_Graph, depths: Map[String, Int],
+    node: String, depth: Int
+  ): Option[(Theory_Section, Int, Option[Entry])] =
+    g.toplevel.get(node).flatMap { case (sec, first) =>
+      first.collect { case (m, line) if depths.get(m).contains(depth - 1) => line }
+        .minOption.map(line => (sec, line, None))
+    }
+
+  /* THE declaration choice for `callers -r -f tsv` rows: which declaration(s)
+     of closure member `n` a row places, one row each.  First-wins here -- each
+     name's first declaration in load order, the same choice the text output's
+     `entry_by_name` makes -- so for a name declared once it is already the
+     reference's answer.  Upstream 0.9.8 resolves by `_seeing(sections, seed,
+     reach)` [callee-attribution]: every declaration whose theory can see one
+     of `seed`'s, which for a name declared twice can be two rows.  That rule
+     replaces this body in P15 S4; the signature is already the one it needs. */
+  def callers_tsv_declarations(sections: List[Theory_Section], seed: String,
+    reach: String
+  ): String => List[(Theory_Section, Entry)] = {
+    val first = mutable.HashMap.empty[String, (Theory_Section, Entry)]
+    for (sec <- sections; e <- sec.entries if !first.contains(e.name)) first(e.name) = (sec, e)
+    n => first.get(n).toList
+  }
+
   def cmd_callers(out: Out, err: Out, sections: List[Theory_Section], name0: String,
     flags: Flags, namespace: Namespace.Table = Namespace.census,
     graphs: Usage_Graph.Graph_Cache = new Usage_Graph.Graph_Cache
   ): Unit = {
+    val tsv = flags.fmt == "tsv"
+    val subject = name0          // as typed: what a TSV row is attributed to
     var name = name0
     if (flags.recursive) {
-      val g =
-      graphs(sections, flags.drop_names_upto, reach = flags.reach,
+      val g = graphs(sections, flags.drop_names_upto, reach = flags.reach,
         namespace = namespace)
       if (!g.all_names(name)) {
         Commands.resolve_binding(sections, name) match {
           case Some((parent, how)) =>
-            out.println(s"# '$name' is $how $parent; recursive caller closure " +
+            /* A note, not an answer: in a table it would be a malformed row, so
+               there it goes to stderr [callers-tsv]. */
+            (if (tsv) err else out).println(
+              s"# '$name' is $how $parent; recursive caller closure " +
               s"operates at the $parent (entry) level.")
             name = parent
           case None =>
@@ -443,14 +520,29 @@ object Usage {
             Commands.fail_subject(out, err, s"'$name' is not in the entry index")
         }
       }
-      val reachable =
-        Usage_Graph.bfs_depths(n => g.callers.getOrElse(n, Set.empty), List(name)) - name
-      render_graph_results(out, sections, reachable, "caller", name, flags)
+      val depths = Usage_Graph.bfs_depths(n => g.callers.getOrElse(n, Set.empty), List(name))
+      if (tsv) {
+        /* The seed stays in `depths` until here: `toplevel_site` reads the
+           depth-0 row to locate a depth-1 `<toplevel>` caller. */
+        val rows =
+          for ((n, d) <- depths.toList.sortBy(kv => (kv._2, kv._1)) if n != name)
+            yield (Some(n), d, toplevel_site(g, depths, n, d))
+        callers_tsv(out, sections, subject, flags, rows,
+          callers_tsv_declarations(sections, name, flags.reach))
+      }
+      else render_graph_results(out, sections, depths - name, "caller", name, flags)
     }
     else {
       val hits = find_callers(sections, name, external = flags.external,
         reach = flags.reach, namespace = namespace)
-      if (flags.mode == "count") out.println(hits.length.toString)
+      if (tsv) {
+        val rows = hits.map { case (sec, line_no, _) =>
+          val encl = Commands.enclosing_entry(sec, line_no)
+          (encl.map(_.name), 1, Some((sec, line_no, encl)))
+        }
+        callers_tsv(out, sections, subject, flags, rows, _ => Nil)
+      }
+      else if (flags.mode == "count") out.println(hits.length.toString)
       else if (hits.isEmpty) out.println(s"No callers found for '$name'.")
       else {
         val n_after = 0 max flags.context

@@ -82,5 +82,6 @@ final case class Flags(
      can SEE, `name` matches by name alone.  A VALUE rather than a global, so
      the library caller, the plugin and the warm server all get the same
      default without anything to rebind. */
-  reach: String = Reach.DEFAULT_MODE
+  reach: String = Reach.DEFAULT_MODE,
+  fmt: String = "text"             // -f / --format: text / tsv (callers) [callers-tsv]
 )

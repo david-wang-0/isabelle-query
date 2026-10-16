@@ -2978,6 +2978,30 @@
       "reason": ""
     },
     {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_counts_are_labelled",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_located_hits",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_several_subjects_are_one_table",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_the_closure_with_depths",
+      "status": "ported",
+      "destination": "tests/scala/cli/Cli_subject_loop.scala",
+      "reason": ""
+    },
+    {
       "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph",
       "status": "ported",
       "destination": "tests/scala/cli/Cli_subject_loop.scala",

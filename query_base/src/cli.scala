@@ -337,7 +337,14 @@ object CLI {
         external_flag.copy(help =
           "exclude callers inside the theory that defines NAME.  Only affects the " +
             "non-recursive form; transitive closure via -r ignores this flag."),
-        reach_flag),
+        reach_flag,
+        /* `callers` alone: `graph --format` is a different option with its own
+           choices [callers-tsv]. */
+        Opt(List("-f", "--format"), "out_format", unary = true,
+          choices = List("text", "tsv"),
+          help = "tsv: one row per caller, every row naming its subject, no header " +
+            "-- subject, caller, tag, theory, session, depth, locus.  With -c, " +
+            "`subject<TAB>count`. Several subjects make one table, not blocks")),
       List(Pos("name", "+", "entry name(s)")), Nil, context_default = 0),
     Cmd(List("callees"), "entries this entry references; reverse is `callers`",
       List(count_flag, names_flag, drop_names_flag,
@@ -1182,7 +1189,8 @@ object CLI {
       /* The value the CLI hands the engine; a verb that has no `--reach` gets
          the same default an engine caller does, so there is nothing to keep in
          step with a verb list. */
-      reach = ns.str("reach").getOrElse(Reach.DEFAULT_MODE))
+      reach = ns.str("reach").getOrElse(Reach.DEFAULT_MODE),
+      fmt = ns.str("out_format").getOrElse("text"))
   }
 
   /* The shared spine of the list-taking verbs: one load, then `body` once per
@@ -1358,7 +1366,7 @@ object CLI {
           Usage.cmd_refs(o, err, sections, t, flags, s.namespace, s.graphs))
       case "callers" =>
         val sections = s.load_index()
-        each(out, ns.pos("name"))((o, n) =>
+        each(out, ns.pos("name"), sep = if (flags.fmt == "tsv") "" else "\n")((o, n) =>
           Usage.cmd_callers(o, err, sections, n, flags, s.namespace, s.graphs))
       case "callees" =>
         val sections = s.load_index()

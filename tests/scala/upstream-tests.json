@@ -9081,6 +9081,34 @@
       "inherited": false
     },
     {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_counts_are_labelled",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_located_hits",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_several_subjects_are_one_table",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_subject_loop.CallersTsvNamesEveryRow.test_the_closure_with_depths",
+      "suite": "cli",
+      "source": "tests/test_subject_loop.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
       "id": "test_subject_loop.TheGraphIsBuiltOnce.test_callees_over_three_names_builds_one_graph",
       "suite": "cli",
       "source": "tests/test_subject_loop.py",
@@ -9609,6 +9637,13 @@
       "id": "test_theory_refs.TheoryScopeOnFind.test_the_flag_parses_and_is_repeatable",
       "suite": "graph",
       "source": "tests/test_theory_refs.py",
+      "subcase_sites": 0,
+      "inherited": false
+    },
+    {
+      "id": "test_toplevel_callers.TsvRowsAreFilled.test_located_rows_name_the_caller_alike",
+      "suite": "graph",
+      "source": "tests/test_toplevel_callers.py",
       "subcase_sites": 0,
       "inherited": false
     },

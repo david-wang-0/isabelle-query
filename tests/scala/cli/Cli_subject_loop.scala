@@ -91,5 +91,37 @@ end
         equal(r.out.split("\\s+").toList.filter(_.nonEmpty), List("2", "0"))
       }
     }
+
+    test("test_subject_loop.CallersTsvNamesEveryRow.test_the_closure_with_depths") {
+      project { root =>
+        val r = query(root, "callers", "-r", "-f", "tsv", "base")
+        equal(r.exit, 0)
+        equal(rows(r.out), List(
+          List("base", "mid", "LEMMA", "A", "S", "1", "A:3"),
+          List("base", "other", "LEMMA", "A", "S", "1", "A:5"),
+          List("base", "top", "LEMMA", "A", "S", "2", "A:4")))
+      }
+    }
+    test("test_subject_loop.CallersTsvNamesEveryRow.test_located_hits") {
+      project { root =>
+        val r = query(root, "callers", "-f", "tsv", "base")
+        equal(rows(r.out), List(
+          List("base", "mid", "LEMMA", "A", "S", "1", "A:3"),
+          List("base", "other", "LEMMA", "A", "S", "1", "A:5")))
+      }
+    }
+    test("test_subject_loop.CallersTsvNamesEveryRow.test_several_subjects_are_one_table") {
+      project { root =>
+        val r = query(root, "callers", "-r", "-f", "tsv", "mid", "top", "base")
+        notContains(r.out, "\n\n")
+        equal(rows(r.out).map(_.head), List("mid", "base", "base", "base"))   // top: none
+      }
+    }
+    test("test_subject_loop.CallersTsvNamesEveryRow.test_counts_are_labelled") {
+      project { root =>
+        val r = query(root, "callers", "-r", "-c", "-f", "tsv", "base", "top")
+        equal(rows(r.out), List(List("base", "3"), List("top", "0")))
+      }
+    }
   }
 }
