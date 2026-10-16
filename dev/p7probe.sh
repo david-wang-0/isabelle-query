@@ -67,7 +67,7 @@ DEAD_SERVER="p8probe-dead-$$"
 # client cannot start one.  It is in the cleanup list anyway: the name was
 # absent from it until P8, and the one run where §13's stub failed to take
 # effect left a resident JVM holding an index behind, which is exactly what
-# §18 says a clean run does not do.  A probe must clean up after the failure
+# §19 says a clean run does not do.  A probe must clean up after the failure
 # it is testing for, not only after the success.
 ABSENT_SERVER="p7probe-absent-$$"
 export ISABELLE_QUERY_CLIENT_SERVER="$SERVER"
@@ -85,8 +85,8 @@ export ISABELLE_QUERY_CLIENT_CACHE="$OUT/client-cache.json"
 export ISABELLE_QUERY_NO_SERVER=1
 
 # The export is for the cold REFERENCES only.  Every direct call of the thin
-# client in §0-§14 and §18 means the warm path, and since 85b62a5 the client
-# reads the variable too: it is `--no-server` spelled for a shell (README,
+# client in §0-§14, §18 and §19 means the warm path, and since 85b62a5 the
+# client reads the variable too: it is `--no-server` spelled for a shell (README,
 # "nothing warm at all" in `lib/Tools/query`), so under it a run declines with
 # exit 97 and an action (`--client-status`, `--client-stop`) is refused with
 # "client action requires the warm path".  That is the client keeping the
@@ -133,7 +133,7 @@ serve() {
 }
 # Bounded wait until no server JVM of this name is left.  A server halts within
 # its own 3-second bound once told to stop, so a fixed `sleep 0.3` was a race
-# that §18 lost.
+# that §19 lost.
 gone() {
   local i
   for i in $(seq 1 50); do
@@ -527,7 +527,7 @@ else
   bad "after the server is killed mid-session the answer is still right" \
     "killed $killed, $(tr '\n' ' ' <"$OUT/killed.err" | cut -c1-60)"
 fi
-# The replacement was the client's own and ended with it; §14 and §18 want
+# The replacement was the client's own and ended with it; §14, §18 and §19 want
 # the probe's server back, as its owner would restart it.
 unserve "$SERVER"
 serve "$SERVER"
@@ -1184,7 +1184,7 @@ if [ -s "$CDS" ]; then
   : >"$OUT/cds-probe.jsa"
   # Read through `isabelle getenv`, not from this shell: the probe runs outside
   # the settings environment, and under `set -u` an unset
-  # $ISABELLE_TOOL_JAVA_OPTIONS aborts the script -- which it did, taking §18
+  # $ISABELLE_TOOL_JAVA_OPTIONS aborts the script -- which it did, taking §19
   # with it.
   eval "declare -a PROBE_JAVA_ARGS=($(isabelle getenv -b ISABELLE_TOOL_JAVA_OPTIONS 2>/dev/null))"
   isabelle java "${PROBE_JAVA_ARGS[@]}" \
@@ -1202,7 +1202,133 @@ fi
 
 # --------------------------------------------------------------------------
 echo
-echo "18. nothing is left running"
+echo "18. the P15 contracts, served (0.9.4-0.9.7) [p15-s6]"
+
+# What P15 changed in the ENGINE reaches a warm client only if the server's
+# `CLI.run_result` keeps every part of it: the bytes on stdout, the status, and
+# which of the two streams a diagnostic lands on.  The engine's own tests and
+# the difftest see the cold process only, so each contract is asked twice here,
+# cold (the export above) and served (`client`), and the two must agree byte
+# for byte on stdout and on stderr (bar the settings shell's `### ` noise,
+# which only a cold run prints) as well as on the exit status.  A client that
+# DECLINED would exit 97 having written nothing, so an equal status is also
+# the evidence that the answer was served and not merely reproduced cold.
+#
+# The expectations are hand-computed from Abstract_Completeness.thy, not read
+# back from either run: the comparison alone would pass on two identical wrong
+# answers.
+p15() {
+  local id="$1"; shift
+  isabelle query -R "$AFP" "$@" >"$OUT/p15-$id.cold" 2>"$OUT/p15-$id.cold.raw"
+  p15_cold_rc=$?
+  client -R "$AFP" "$@" >"$OUT/p15-$id.warm" 2>"$OUT/p15-$id.warm.raw"
+  p15_warm_rc=$?
+  grep -v '^### ' "$OUT/p15-$id.cold.raw" >"$OUT/p15-$id.cold.err"
+  grep -v '^### ' "$OUT/p15-$id.warm.raw" >"$OUT/p15-$id.warm.err"
+  if [ "$p15_cold_rc" = "$p15_warm_rc" ] &&
+     cmp -s "$OUT/p15-$id.cold" "$OUT/p15-$id.warm" &&
+     cmp -s "$OUT/p15-$id.cold.err" "$OUT/p15-$id.warm.err"; then
+    note "$id: served = cold (stdout, stderr, exit)" "exit $p15_warm_rc"
+  else
+    bad "$id: served = cold (stdout, stderr, exit)" \
+      "cold $p15_cold_rc, warm $p15_warm_rc; $(diff "$OUT/p15-$id.cold" "$OUT/p15-$id.warm" | head -2 | tr '\n' ' ')"
+  fi
+}
+
+# --- a batch with an unknown subject is all or nothing [subject-batch] ------
+# `countable_R` and `NE_R` are lemmas (lines 53-54) that cite no other entry,
+# so alone they print `0`, a blank line, `0` -- non-empty, which is what makes
+# the empty stdout below the contract and not an empty answer.  `zzz_nope` and
+# `qqq_nope` name nothing; both are reported, in argument order.
+p15 batch-known callees countable_R NE_R -c
+if [ "$(cat "$OUT/p15-batch-known.warm")" = "0
+
+0" ]; then
+  note "the known half alone answers 0, blank, 0 (non-vacuity)"
+else
+  bad "the known half alone answers 0, blank, 0 (non-vacuity)" \
+    "$(od -An -c <"$OUT/p15-batch-known.warm" | tr -d ' \n')"
+fi
+p15 batch-unknown callees countable_R zzz_nope NE_R qqq_nope -c
+if [ "$p15_warm_rc" = "1" ] && [ ! -s "$OUT/p15-batch-unknown.warm" ] &&
+   [ "$(cat "$OUT/p15-batch-unknown.warm.err")" = "isabelle query: 'zzz_nope' is not in the entry index
+isabelle query: 'qqq_nope' is not in the entry index" ]; then
+  note "served: stdout empty, both unknowns on stderr in order, exit 1"
+else
+  bad "served: stdout empty, both unknowns on stderr in order, exit 1" \
+    "rc $p15_warm_rc, $(wc -c <"$OUT/p15-batch-unknown.warm") bytes out, [$(tr '\n' ' ' <"$OUT/p15-batch-unknown.warm.err")]"
+fi
+
+# --- a bad regex in a batch is a usage error, and stdout stays empty --------
+# `R` alone matches 35 entries (`find R` prints the first and `[+34 more`);
+# `(` is an unclosed group.  The bad pattern comes SECOND, so a batch that
+# streamed would already have written R's block.
+p15 badre find R '('
+if [ "$p15_warm_rc" = "2" ] && [ ! -s "$OUT/p15-badre.warm" ] &&
+   grep -q "invalid regex '('" "$OUT/p15-badre.warm.err"; then
+  note "served: a bad regex after a good one -- exit 2, stdout empty"
+else
+  bad "served: a bad regex after a good one -- exit 2, stdout empty" \
+    "rc $p15_warm_rc, $(wc -c <"$OUT/p15-badre.warm") bytes out"
+fi
+
+# --- callers -f tsv [callers-tsv] -------------------------------------------
+# One row per caller, seven tab-separated fields, every row naming its
+# subject.  `callers R -c` is 23 (the plugin's own count, dev/p5probe.sh).
+p15 tsv callers -f tsv R
+tsv_rows=$(wc -l <"$OUT/p15-tsv.warm")
+tsv_bad=$(awk -F'\t' 'NF != 7 || $1 != "R"' "$OUT/p15-tsv.warm" | wc -l)
+if [ "$tsv_rows" = "23" ] && [ "$tsv_bad" = "0" ] &&
+   grep -q "^R	countable_R	LEMMA	Abstract_Completeness	Abstract_Completeness	1	Abstract_Completeness:53\$" \
+     "$OUT/p15-tsv.warm"; then
+  note "served: 23 rows of seven fields, each led by its subject" "$tsv_rows rows"
+else
+  bad "served: 23 rows of seven fields, each led by its subject" \
+    "$tsv_rows rows, $tsv_bad malformed"
+fi
+p15 tsv-count callers -c -f tsv R countable_R
+if [ "$(cat "$OUT/p15-tsv-count.warm")" = "R	23
+countable_R	0" ]; then
+  note "served: -c -f tsv is one subject<TAB>count row per subject, no blocks"
+else
+  bad "served: -c -f tsv is one subject<TAB>count row per subject, no blocks" \
+    "$(od -An -c <"$OUT/p15-tsv-count.warm" | tr -d ' \n' | cut -c1-60)"
+fi
+
+# --- show --premises [show-premises] -----------------------------------------
+# lemma ipath_mkTree_saturated (line 332): four named assumptions over two
+# `assumes` lines, one `shows`.
+p15 premises show --premises ipath_mkTree_saturated
+if [ "$(tail -n +2 "$OUT/p15-premises.warm")" = '  assms(1) s:   s \<in> S
+  assms(2) rs:  fair rs
+  assms(3) i:   ipath (mkTree rs s) steps
+  assms(4) r:   r \<in> R
+  shows: 1 conclusion' ]; then
+  note "served: assms(1)..(4) keyed by label, then 1 conclusion"
+else
+  bad "served: assms(1)..(4) keyed by label, then 1 conclusion" \
+    "$(tail -n +2 "$OUT/p15-premises.warm" | head -2 | tr '\n' ' ')"
+fi
+
+# --- a near name under --names: the note is a diagnostic [show-near-names] --
+# No entry is named `Satur`; five contain it, case-insensitively: saturated,
+# Saturated (lines 68-69), ipath_mkTree_saturated (332),
+# ipath_mkTree_Saturated (352), epath_completeness_Saturated (357).  Under
+# --names stdout is the five name lines and nothing else, so a pipe stays a
+# list; the note goes to stderr.
+p15 near-names show --names Satur
+if [ "$(wc -l <"$OUT/p15-near-names.warm")" = "5" ] &&
+   ! grep -q '^#' "$OUT/p15-near-names.warm" &&
+   [ "$(cat "$OUT/p15-near-names.warm.err")" = "# no entry named 'Satur'; 5 whose name contains it:" ]; then
+  note "served: five name lines on stdout, the note on stderr only"
+else
+  bad "served: five name lines on stdout, the note on stderr only" \
+    "$(wc -l <"$OUT/p15-near-names.warm") lines, err [$(tr '\n' ' ' <"$OUT/p15-near-names.warm.err")]"
+fi
+
+# --------------------------------------------------------------------------
+echo
+echo "19. nothing is left running"
 
 # Non-vacuity: there is a server to stop (§13 put it back), and it is
 # `--client-stop` that stops it, not the stdin `cleanup` closes later.
