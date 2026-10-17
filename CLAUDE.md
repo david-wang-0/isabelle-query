@@ -248,7 +248,7 @@ does not.
 `pyproject.toml` tracks the **Python** package — now **0.9.8**, still frozen:
 the reference tree is upstream's 0.9.8 release, and it is the oracle every
 harness here compares against. The Scala tool's version is `CLI.version` — now
-**0.9.8-scala.0.3**, two axes in one string. The NUMBER in front of `-scala`
+**0.9.8-scala.0.4**, two axes in one string. The NUMBER in front of `-scala`
 names the upstream release whose contract this port matches (P9 is where that
 became 0.8.1, P14 0.9.2, P15 0.9.8); it moves only when the oracle moves,
 and `dev/difftest.sh` refuses to run if it differs from the oracle version the
@@ -265,8 +265,8 @@ P15 did not move it: both were oracle-side syncs — the port took upstream's
 0.9.2, then 0.9.8 contract, which is exactly what the number in front
 records — so `0.8.1-scala.0.3` became `0.9.2-scala.0.3`, then
 `0.9.8-scala.0.3`. P15 also carried one port-side fix the oracle does not
-share (the thin client's exit status on a closed pipe, `[p7probe-scoping]`);
-whether that takes the patch slot is a release decision, not a sync's.
+share — the thin client's exit status on a closed pipe, `[p7probe-scoping]` —
+which takes the patch slot: `0.9.8-scala.0.4`.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages.

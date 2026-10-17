@@ -138,7 +138,7 @@ The first two are new only against Python 0.8.x: upstream took them in 0.9.1.
   entire result set cancels its pending refresh, while a deleted child group or
   hit may reappear when that refresh finishes. Clear removes all results and
   cancels all pending results.
-- **`-V/--version`** reports `0.9.8-scala.0.3`, not `0.9.8`. Deliberately:
+- **`-V/--version`** reports `0.9.8-scala.0.4`, not `0.9.8`. Deliberately:
   the number in front of `-scala` names the upstream release whose contract
   this port matches, the `-scala` marker is what lets a script that pins a
   version tell the two tools apart, and the `MINOR.PATCH` after it is the

@@ -743,7 +743,7 @@ isabelle query --client-stop
 ```
 server        isabelle_query
 protocol      1 (client 1)
-version       0.9.8-scala.0.3
+version       0.9.8-scala.0.4
 index         <checkout>/demo  6 theories, 63 entries, 147 ms build / 4 ms recheck, 1 uses
 ```
 

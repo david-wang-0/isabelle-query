@@ -99,8 +99,9 @@ The Scala tool must be a drop-in replacement for the Python CLI:
   `dev/difftest.sh` refuses to run if it differs from the oracle version it
   pins); the `-scala` marker is what lets a script tell the two tools apart;
   the `MINOR.PATCH` after it counts the port's own releases (`0.8.1-scala.0.1`
-  since P10; P14 and P15 moved only the number in front, `0.8.1-scala.0.3` →
-  `0.9.2-scala.0.3` → `0.9.8-scala.0.3`).
+  since P10; P14 and P15 moved the number in front, `0.8.1-scala.0.3` →
+  `0.9.2-scala.0.3` → `0.9.8-scala.0.3`, and P15's client fix the patch
+  slot, `0.9.8-scala.0.4`).
 
 Regex dialect: user patterns are Python `re` in the oracle, `java.util.regex`
 in Scala. For the pattern subset that appears in docs/tests (literals,
