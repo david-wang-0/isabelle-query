@@ -1273,7 +1273,25 @@ def _match_decl_at(outer_line: str, table: dict[str, str]
     stripped = outer_line.lstrip()
     if not stripped:
         return None, 0
+    mm = _MODIFIER_RE.match(stripped)
+    if mm:
+        stripped = stripped[mm.end():]
     return _match_decl(stripped, table), len(outer_line) - len(stripped)
+
+
+# `private` / `qualified` before a declaring command [decl-modifier].  Pure.thy
+# declares both as `before_command` keywords: they qualify the command that
+# follows, so `private lemma helper` IS a `lemma`.  Read as part of the line
+# they were not, and since a declaration ends at the next one recognised, the
+# private lemma's lines were charged to the entry above — a `sorry` in one was
+# reported against its fully proved neighbour.
+_MODIFIER_RE = re.compile(r"(private|qualified)\s+")
+
+
+def _modifier_at(outer_line: str) -> str:
+    """The `private` / `qualified` written before this line's command, or ''."""
+    mm = _MODIFIER_RE.match(outer_line.lstrip())
+    return mm.group(1) if mm else ""
 
 
 # A decl keyword may stand alone on its line with the name on a *following*
@@ -2103,6 +2121,17 @@ def extract_entries(lines: list[str],
     skip = _line_mask(len(lines),
                       list(extract_text_blocks(lines)) + list(nonisar_ranges))
 
+    # The modifier belongs to every entry ONE command mints — `private lemmas
+    # a = x and b = y` makes both private, and the second starts on a later
+    # line than the modifier — so it is applied when the next command is
+    # matched (and once more at the end), to everything appended since.
+    modifier, mod_from = "", 0
+
+    def stamp() -> None:
+        if modifier:
+            for e in entries[mod_from:]:
+                e.visibility = modifier
+
     while i < len(lines):
         line = lines[i]
         # No line-level mask here: the outer view already blanks comments, ML
@@ -2116,6 +2145,8 @@ def extract_entries(lines: list[str],
             i += 1
             continue
 
+        stamp()
+        modifier, mod_from = _modifier_at(outer[i]), len(entries)
         keyword, tag, route = md
         # The keyword occupies the same columns in `outer` as in `line` — the
         # views are length-preserving — so the raw text after it starts here.
@@ -2381,6 +2412,7 @@ def extract_entries(lines: list[str],
 
         i += 1
 
+    stamp()
     # A post-pass rather than threading through five Entry constructions: the
     # block chain is a property of the line an entry starts on, so it can be
     # read off once the entries exist and their start lines are known.

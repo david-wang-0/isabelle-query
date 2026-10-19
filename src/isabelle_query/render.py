@@ -249,7 +249,8 @@ def _statement_text(sec: TheorySection, entry: Entry) -> str:
 def _entry_header(sec: TheorySection, entry: Entry,
                   rank: tuple[int, int] | None = None) -> str:
     pos = f"[{rank[0]} of {rank[1]}] " if rank else ""
-    return (f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy "
+    tag = f"{entry.tag}, {entry.visibility}" if entry.visibility else entry.tag
+    return (f"--- {entry.name} ({tag}) — {sec.theory}.thy "
             f"{pos}{_format_extent(entry)} ---")
 
 

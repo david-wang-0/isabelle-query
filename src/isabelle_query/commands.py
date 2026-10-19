@@ -896,7 +896,8 @@ def cmd_outline(sections: list[TheorySection], theory: str,
         else:
             e: Entry = payload  # type: ignore[assignment]
             size = e.line_count
-            print(f"        {e.tag:<8} {e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
+            mod = f"{e.visibility} " if e.visibility else ""
+            print(f"        {e.tag:<8} {mod}{e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
 
 
 def _find_callers(sections: list[TheorySection], name: str,
@@ -2437,6 +2438,8 @@ def _citation_graph_data(sections: list[TheorySection],
     by_name = _entry_by_name(sections)
     nodes = [{"name": n, "theory": by_name[n][0], "tag": by_name[n][1].tag,
               "line": by_name[n][1].thy_line}
+             | ({"visibility": by_name[n][1].visibility}
+                if by_name[n][1].visibility else {})
              for n in sorted(g.all_names) if n in by_name]
     known = {n["name"] for n in nodes}
     edges = sorted((caller, callee)

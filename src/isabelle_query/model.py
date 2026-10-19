@@ -153,6 +153,11 @@ class Entry:
         # text sits, `(in foo)` says where the declaration goes regardless of
         # where it sits, and Isabelle lets the two disagree.  Both are kept;
         # `target` below decides.
+    visibility: str = ""
+        # `private` / `qualified` written before the command, '' for neither
+        # [decl-modifier].  A private name is visible only inside the local
+        # theory block that declares it; a qualified one, outside that block,
+        # only under its theory-qualified spelling.
 
     @property
     def target(self) -> str:
