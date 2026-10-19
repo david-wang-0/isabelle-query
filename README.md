@@ -113,12 +113,23 @@ from one theory: a site is attributed to a declaration in that theory or its
 transitive imports within the scanned project, and declarations that live only
 in a heap are not discovered.
 
+### Entries a tool uses without a citation
+
+An entry nobody cites but whose own header hands it to a tool (`lemma foo
+[simp]:`, `[intro]`, `[code]`, a `named_theorems` name) is used all the same.
+`unused` tags it `[implicit: simp]` and never cascades through it;
+`--implicit hide` drops it. `unused --roots` shows each root's kind, so a
+`THEOREM` endpoint stands apart from a `LEMMA` deletion candidate.
+
 ### Unread proof-local names
 
 `unused --locals` asks `unused`'s question one level down, inside a proof: which
 `have NAME:`, `obtain … where NAME:`, `note NAME =`, `define NAME` or `let ?NAME`
 binds a name that nothing in its scope reads — the litter a copied-then-trimmed
-proof leaves behind. It follows Isar's scoping (a name bound inside `proof … qed`
+proof leaves behind. The statement's own named premises (`assumes NAME:`,
+`if NAME:`) count too; citing `assms` or `that` reads them all. With `-r`, a
+caller's premise read only to discharge an unread one by `[OF …]` position is
+reported as well, naming the premise it fed. It follows Isar's scoping (a name bound inside `proof … qed`
 or after `next` is invisible outside it) and binding time (`have a: … using a`
 cites the *previous* `a`). A label whose fact is consumed by `then` / `moreover`
 / `ultimately`, or declared by `[simp]`, is used and never reported.

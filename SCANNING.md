@@ -191,6 +191,16 @@ declaring one name is a collision the index cannot resolve. The index also keeps
 types and constants in one namespace, so a `datatype t` and a `definition t`
 collide here even though they never do in Isabelle.
 
+A `private` or `qualified` declaration is an entry like any other, with the
+modifier shown by `show` and `outline`. A **private** name is hidden outside
+the block that declares it, under any spelling, so it is attributed only to
+citations in its own theory: two theories that each have a private `helper`
+never cite each other's, and an importer cannot cite either. Within the
+declaring theory the `context … begin`/`end` block is not checked, since citing
+a private name after its block is an Isabelle error. A **qualified** name needs
+no rule of its own: outside its theory it can only be written `Thy.name`, which
+the import closure already scopes.
+
 `--reach name` restores name-only matching, on `callers`, `callees`, `unused`,
 `graph` and `refs` — every verb the scoping moves. `instances` and `codeqs`
 have no such switch: an `interpretation L` in a theory that cannot see `L`'s

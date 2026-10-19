@@ -16,7 +16,7 @@ in `CONTRIBUTING.md`.
 
           lemmas           SHIPPED     proposition      SHIPPED (v0.9.0)
           named_theorems      696      schematic_goal     810
-          private lemma     1,193      qualified lemma    345   (+~1,000 modified)
+          private lemma     SHIPPED    qualified lemma    SHIPPED (issue #19)
 
       Those replace an earlier 60-entry reading (3,491 / 601 / 207 / 160 / 275 /
       209) which was **3–5x low**: `probe_missing_decl_commands.py --limit` takes
@@ -38,9 +38,9 @@ in `CONTRIBUTING.md`.
       **`lemmas` / `theorems` shipped as `LEMMAS` entries** (issue #16) —
       `git log --grep='\[lemmas-entries\]'`; 10,608 AFP entries.  `lemmas` had
       already bounded the entry above it, as one of `_SPAN_BOUNDARY_COMMANDS`.
-      `private` / `qualified` are a different shape: namespace MODIFIERS that
-      may precede any declaration, so the fix is a prefix skip, not four more
-      table rows.  `named_theorems` declares a citable fact with no proof and
+      **`private` / `qualified` shipped** as a modifier prefix on every
+      declaring command (issue #19) — `git log --grep='\[decl-modifier\]'`;
+      2,531 AFP entries.  `named_theorems` declares a citable fact with no proof and
       no right-hand side (it touches `find` / `show` / `callers`, not
       `shape`); `schematic_goal` has a proof.  Worth splitting if they do not
       share a change.
