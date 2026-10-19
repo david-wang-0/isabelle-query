@@ -35,7 +35,7 @@ from isabelle_query.model import (
     _DEFINITION_TAGS,
     label_chain,
 )
-from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern
+from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern, implicitly_used
 from isabelle_query.graph import (
     _bfs_depths,
     _build_call_graph,
@@ -1979,11 +1979,19 @@ def _compute_forest(graph: CallGraph,
     return result
 
 
+def _implicit_mark(marks: dict[str, list[str]] | None, name: str) -> str:
+    attrs = (marks or {}).get(name)
+    return f"  [implicit: {', '.join(attrs)}]" if attrs else ""
+
+
 def _render_unused(entries: list[tuple[str, Entry, int]],
-                   flags: 'CmdFlags', recursive: bool) -> None:
+                   flags: 'CmdFlags', recursive: bool,
+                   marks: dict[str, list[str]] | None = None) -> None:
     """Shared rendering for unused and unused -r."""
     label = "transitively unused" if recursive else "unused"
     total = len(entries)
+    n_marked = sum(1 for _, e, _ in entries if (marks or {}).get(e.name))
+    marked = f", {n_marked} of them implicitly used" if n_marked else ""
 
     # Before the empty guard [count-mode-zero]: a project with nothing unused
     # has ZERO unused entries, and that is the answer a script wants — the one
@@ -2024,9 +2032,9 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
             if e.thy_line > 0)
         print(f"{total} {label} entries "
               f"({direct} direct + {cascade} cascading, "
-              f"{total_lines} source lines):\n")
+              f"{total_lines} source lines{marked}):\n")
     else:
-        print(f"{total} unused entries (zero callers):\n")
+        print(f"{total} unused entries (zero callers{marked}):\n")
 
     print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
@@ -2034,13 +2042,18 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         size = e.line_count
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
-              f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}")
+              f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}"
+              f"{_implicit_mark(marks, e.name)}")
 
 
 def _render_forest(sections: list[TheorySection],
                    forest: list[tuple[str, int, int, int, int]],
-                   flags: 'CmdFlags') -> None:
-    """Render the forest root summary."""
+                   flags: 'CmdFlags',
+                   marks: dict[str, list[str]] | None = None) -> None:
+    """Render the forest root summary.
+
+    The `Tag` column is what separates an intended endpoint (`THEOREM`) from
+    a deletion candidate (`LEMMA`) without a `show` per root (issue #21)."""
     if not forest:
         print("No unused roots found.")
         return
@@ -2052,14 +2065,18 @@ def _render_forest(sections: list[TheorySection],
         print(len(forest))
         return
 
-    print(f"{len(forest)} unused roots:\n")
-    print(f"  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
+    n_marked = sum(1 for r, *_ in forest if (marks or {}).get(r))
+    marked = f", {n_marked} of them implicitly used" if n_marked else ""
+    print(f"{len(forest)} unused roots{marked}:\n")
+    print(f"  {'Tag':<8s}  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
           f"{'Total':>5s}  {'Lines':>6s}  Theory")
-    print(f"  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
+    print(f"  {'-' * 8:<8s}  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
           f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
     for root, ee, el, te, tl in forest:
-        thy = by_name[root][0] if root in by_name else "?"
-        print(f"  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  {tl:>6d}  {thy}")
+        thy, e = by_name[root] if root in by_name else ("?", None)
+        tag = e.tag if e is not None else "?"
+        print(f"  {tag:<8s}  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  "
+              f"{tl:>6d}  {thy}{_implicit_mark(marks, root)}")
 
 
 def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
@@ -2079,15 +2096,30 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
             print(f"warning: --keep names not found in call graph: "
                   f"{', '.join(sorted(unknown))}", file=sys.stderr)
 
+    # Used by the tool its own header handed it to, not by a citation
+    # [implicit-use].  Live for the cascade either way, as `--keep` is; under
+    # `mark` the uncited ones are listed again, tagged, since "zero
+    # citations, declared [simp]" is a different follow-up from a plain dead
+    # lemma, not a non-answer.
+    implicit = {n: a for n, a in _implicit_names(sections).items()
+                if n in graph.all_names and n not in keep}
+    marks = implicit if flags.implicit == "mark" else {}
+
     if flags.roots:
-        forest = _compute_forest(graph, sections, keep)
-        _render_forest(sections, forest, flags)
+        # `mark` keeps the forest it always computed, tagging implicit roots;
+        # `hide` makes them live roots, so their cones stop being exclusive.
+        live = keep if marks else keep | set(implicit)
+        forest = _compute_forest(graph, sections, live)
+        _render_forest(sections, forest, flags, marks)
         return
 
+    live = keep | set(implicit)
     if flags.recursive:
-        unused_map = _compute_unused_recursive(graph, keep)
+        unused_map = _compute_unused_recursive(graph, live)
     else:
-        unused_map = {n: 0 for n in _compute_unused(graph, keep)}
+        unused_map = {n: 0 for n in _compute_unused(graph, live)}
+    unused_map.update(_dead_implicit(graph, unused_map, marks,
+                                     flags.recursive))
 
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
@@ -2096,7 +2128,46 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
                 if e.name in unused_map:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
-    _render_unused(unused_entries, flags, flags.recursive)
+    _render_unused(unused_entries, flags, flags.recursive, marks)
+
+
+def _implicit_names(sections: list[TheorySection]) -> dict[str, list[str]]:
+    """``{name: its declaring attributes}`` for every entry whose own header
+    hands it to a tool [implicit-use].  Graph nodes are names, so a name
+    declared twice is implicit when any declaration is."""
+    out: dict[str, list[str]] = {}
+    for sec in sections:
+        for e in sec.entries:
+            attrs = implicitly_used(e)
+            if attrs and e.name != "?":
+                out.setdefault(e.name, attrs)
+    return out
+
+
+def _dead_implicit(graph: CallGraph, dead: dict[str, int],
+                   marks: dict[str, list[str]], recursive: bool
+                   ) -> dict[str, int]:
+    """The implicit entries no live entry cites, at their cascade depth.
+
+    Without `-r` that is the uncited ones.  With it, also those whose every
+    citer is dead — but nothing cascades THROUGH them: an implicit entry is
+    still live for the entries it cites, which is the `--keep` behaviour."""
+    out: dict[str, int] = {}
+    changed = True
+    while changed:
+        changed = False
+        for n in marks:
+            if n in out:
+                continue
+            cs = graph.callers.get(n, set())
+            if not cs:
+                out[n] = 0
+            elif recursive and all(c in dead or c in out for c in cs):
+                out[n] = 1 + max(dead.get(c, out.get(c, 0)) for c in cs)
+            else:
+                continue
+            changed = True
+    return out
 
 
 def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',

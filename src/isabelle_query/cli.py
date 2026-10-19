@@ -337,6 +337,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     keep_args = getattr(ns, "keep", None) or []
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
+    f.implicit = getattr(ns, "implicit", "mark")
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
@@ -1546,6 +1547,15 @@ def _build_parser() -> argparse.ArgumentParser:
                         "unused, and stop the cascade at them).  Repeatable, "
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
+    p.add_argument("--implicit", choices=("mark", "hide"), default="mark",
+                   help="an entry whose own header gives it a declaring "
+                        "attribute (`lemma foo [simp]:`, `[intro]`, `[code]`, "
+                        "a named_theorems name) is used by the tool it joined "
+                        "without being cited.  Such entries stop the -r "
+                        "cascade, like --keep; `mark` (default) still lists "
+                        "the uncited ones, tagged `[implicit: simp]`, `hide` "
+                        "drops them.  (`declare foo [simp]` and `lemmas` "
+                        "already count as citations.)")
     p.add_argument("--locals", action="store_true",
                    help="one level down: proof-local names (`have NAME:`, "
                         "`obtain ... where NAME:`, `note NAME =`, `define`, "

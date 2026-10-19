@@ -479,6 +479,7 @@ class CmdFlags:
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
+    implicit: str = "mark"       # --implicit mark|hide (unused) [implicit-use]
     external: bool = False       # --external (callers: skip defining theory)
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
     # --reach: "closure" attributes a citation only to declarations the citing
