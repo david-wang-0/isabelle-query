@@ -153,6 +153,9 @@ class Entry:
         # text sits, `(in foo)` says where the declaration goes regardless of
         # where it sits, and Isabelle lets the two disagree.  Both are kept;
         # `target` below decides.
+    attrs: tuple[str, ...] = ()
+        # The attribute names on this declaration's own name, `("simp",)` for
+        # `lemma foo [simp]:` [implicit-use].  Facts and fact bindings only.
     visibility: str = ""
         # `private` / `qualified` written before the command, '' for neither
         # [decl-modifier].  A private name is visible only inside the local

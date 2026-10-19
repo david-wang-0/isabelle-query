@@ -1072,6 +1072,66 @@ def _parse_name(text_after_tag: str) -> str:
                       require_label=True)
 
 
+# Attributes that change a fact rather than declare it into a rule set
+# [implicit-use].  A fact carrying only these is as uncited as a bare one;
+# any OTHER attribute — `simp`, `intro`, `code`, `induct`, a `named_theorems`
+# name — hands the fact to a tool that uses it without citing it.  Shared by
+# `unused` (a declaration's own header) and `unused --locals` (a `have`'s).
+TRANSFORMING_ATTRS = frozenset({
+    "rule_format", "symmetric", "THEN", "OF", "of", "where", "unfolded",
+    "folded", "simplified", "abs_def", "elim_format", "rotated", "consumes",
+    "case_names", "format", "standard", "untagged", "no_vars", "to_pred",
+    "to_set", "atomize", "rulify", "transferred", "param"})
+
+_ATTR_HEAD_RE = re.compile(r"[A-Za-z_][\w.']*")
+_HEADER_NAME_RE = re.compile(r'(?:"[^"]*"|[^\s\[:"]+)\s*')
+
+
+def attr_heads(block: str) -> tuple[str, ...]:
+    """The attribute names in ``[a, b x, c!]`` (brackets excluded): the head
+    word of each comma-separated item, ignoring commas nested in brackets,
+    parentheses or quotes.  ``intro!`` is `intro`."""
+    items, depth, quote, cur = [], 0, "", []
+    for ch in block:
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch == '"':
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            items.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    items.append("".join(cur))
+    heads = (_ATTR_HEAD_RE.match(it.strip()) for it in items)
+    return tuple(m.group(0) for m in heads if m)
+
+
+def _header_attrs(text_after_tag: str) -> tuple[str, ...]:
+    """The attributes on a declaration's own name — `simp`, `intro` in
+    ``lemma foo [simp, intro!]: ...`` — or () when there are none."""
+    s = _strip_decl_prefix(text_after_tag.strip(), typevars=False)
+    m = _HEADER_NAME_RE.match(s)
+    if not m or m.end() >= len(s) or s[m.end()] != "[":
+        return ()
+    depth = 0
+    for j in range(m.end(), len(s)):
+        depth += {"[": 1, "]": -1}.get(s[j], 0)
+        if depth == 0:
+            return attr_heads(s[m.end() + 1:j])
+    return ()
+
+
+def implicitly_used(e: Entry) -> list[str]:
+    """The attributes by which *e* is used without being cited: its own
+    header's, less the transforming ones [implicit-use]."""
+    return [a for a in e.attrs if a not in TRANSFORMING_ATTRS]
+
+
 def _parse_typedecl_name(text_after_tag: str) -> str:
     r"""Parse a type_synonym / datatype / record's name, skipping any
     leading modifier (\<open>(discs_sels)\<close>) and type-argument list
@@ -2301,7 +2361,9 @@ def extract_entries(lines: list[str],
                     + [f"  {ln.strip()}" for ln in lines[first:last]
                        if ln.strip()])
                 entries.append(Entry(tag, name, text, thy_line=first,
-                                     decl_end_line=last))
+                                     decl_end_line=last,
+                                     attrs=_header_attrs(
+                                         re.sub(r"^\s*and\s+", "", head))))
                 # `(in foo)` is written once, on the command line, and
                 # `_attach_targets` reads an entry's own first line.
                 mt = _IN_TARGET_RE.search(outer[decl_line - 1])
@@ -2407,7 +2469,8 @@ def extract_entries(lines: list[str],
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
                                  proof_line=proof_line,
-                                 bindings=[(c, "conjunct") for c in conjuncts]))
+                                 bindings=[(c, "conjunct") for c in conjuncts],
+                                 attrs=_header_attrs(rest)))
             continue
 
         i += 1

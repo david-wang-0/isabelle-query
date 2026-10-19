@@ -54,7 +54,7 @@ from isabelle_query.graph import (
     CLOSING_KEYWORDS, CONTEXT_KEYWORDS, GOAL_KEYWORDS, PLUMBING_KEYWORDS,
     _noise_spans)
 from isabelle_query.model import Entry, TheorySection
-from isabelle_query.parsing import LETTER_SYMS
+from isabelle_query.parsing import LETTER_SYMS, TRANSFORMING_ATTRS
 
 # An identifier by Isabelle's own lexical rule (`Doc/Isar_Ref`, "letter"): an
 # ASCII letter, a Greek or `\<A>` / `\<AA>` letter symbol, and inside the name
@@ -92,13 +92,6 @@ _THIS_RESETS = frozenset({"from", "with", "assume", "presume", "case", "next"})
 _GOAL_CMDS = frozenset({"have", "hence", "show", "thus", "obtain", "consider"})
 _LABELLED_GOALS = frozenset({"have", "hence", "obtain"})
 _TERMINATORS = frozenset({"by", "done", "sorry", "oops", ".", ".."})
-# Attributes that change the fact rather than declare it into a rule set, so a
-# label carrying only these is as unread as a bare one.
-_TRANSFORMING_ATTRS = frozenset({
-    "rule_format", "symmetric", "THEN", "OF", "of", "where", "unfolded",
-    "folded", "simplified", "abs_def", "elim_format", "rotated", "consumes",
-    "case_names", "format", "standard", "untagged", "no_vars", "to_pred",
-    "to_set", "atomize", "rulify", "transferred", "param"})
 
 
 @dataclass
@@ -403,7 +396,7 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
                 if premises:
                     continue
                 b = LocalBinding(name, cmd, t.line, entry.name,
-                                 kept=bool(attrs - _TRANSFORMING_ATTRS))
+                                 kept=bool(attrs - TRANSFORMING_ATTRS))
                 if cmd == "define":
                     # A `where` label is another handle on the definitions.
                     w.pending.append((("f", name), define_group))
