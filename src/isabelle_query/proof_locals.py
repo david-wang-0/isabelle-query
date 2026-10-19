@@ -3,7 +3,9 @@ r"""Proof-local names bound and never read (issue #12).
 ``unused`` asks which DECLARATIONS nothing cites, over the citation graph
 between entries.  This asks the same question one level down, inside a single
 proof body: which ``have NAME:``, ``obtain … where NAME:``, ``note NAME =``,
-``define NAME`` or ``let ?NAME`` binds a name that nothing in its scope reads.
+``define NAME`` or ``let ?NAME`` binds a name that nothing in its scope reads
+— and, since the statement's own premises are proof-local in the same sense,
+which ``assumes NAME:`` or ``if NAME:`` (issue #20, `_seed_premises`).
 Isabelle never warns about these, and the edit that produces them is routine:
 a long proof copied and then trimmed leaves a prefix of facts whose only
 reader was in the part that went.
@@ -55,6 +57,7 @@ from isabelle_query.graph import (
     _noise_spans)
 from isabelle_query.model import Entry, TheorySection
 from isabelle_query.parsing import LETTER_SYMS, TRANSFORMING_ATTRS
+from isabelle_query.premises import statement_of
 
 # An identifier by Isabelle's own lexical rule (`Doc/Isar_Ref`, "letter"): an
 # ASCII letter, a Greek or `\<A>` / `\<AA>` letter symbol, and inside the name
@@ -173,6 +176,7 @@ class _Walk:
     pending: list[tuple[tuple[str, str], list[LocalBinding]]] = field(
         default_factory=list)        # bound at the end of this command
     this: list[LocalBinding] = field(default_factory=list)
+    unfinished: bool = False         # a `sorry` / `oops` somewhere in it
 
     def read(self, key: tuple[str, str]) -> None:
         for scope in reversed(self.scopes):
@@ -268,8 +272,74 @@ def _label_at(toks: list[_Tok], i: int, sep: str
 
 
 def scan_proof(sec: TheorySection, entry: Entry) -> list[LocalBinding]:
-    """Every name *entry*'s proof binds, each marked read or not."""
-    return _walk(sec, entry).bindings if entry.proof_line else []
+    """Every name *entry*'s proof binds, each marked read or not.
+
+    A statement premise is left out when the proof is unfinished: a `sorry`
+    reads nothing, so every label of it would be reported, and none of them
+    is litter."""
+    if not entry.proof_line:
+        return []
+    w = _walk(sec, entry)
+    if w.unfinished:
+        return [b for b in w.bindings if b.kind not in _PREMISE_KINDS]
+    return w.bindings
+
+
+# A statement premise as a binding [unread-assumes]: its kind, and the name
+# that reads every premise of that kind at once.
+_PREMISE_KINDS = {"assumes": ("assms", "prems"), "if": ("that",)}
+
+
+def _seed_premises(sec: TheorySection, entry: Entry, w: "_Walk") -> None:
+    r"""Bind *entry*'s labelled statement premises in the walk's outermost
+    scope, before its proof is read (issue #20).
+
+    A named `assumes` is proof-local exactly as a `have NAME:` is, and the
+    commonest dead name after a refactor: the theorem it fed goes, and every
+    caller still has to discharge it.  It is read when the proof cites it —
+    `a`, `a(2)`, `a[THEN …]` — or cites the whole block: `assms` (and the
+    legacy `prems`) for `assumes`, `that` for an `if` premise.  A label
+    given a declaring attribute (`a [simp]:`) is used by that tool and never
+    reported.  Unlabelled premises have no name of their own to report.
+    """
+    st = statement_of(sec, entry)
+    if st is None:
+        return
+    live = sec.live_source()
+    stmt_end = min(max(entry.proof_line, entry.thy_line), len(live))
+    groups: dict[str, list[LocalBinding]] = {}
+    seen: dict[str, LocalBinding] = {}
+    for p in st.premises:
+        if p.kind not in _PREMISE_KINDS:
+            continue
+        b = None
+        if p.label:
+            base = p.label.split("(", 1)[0]
+            b = seen.get(base)
+            if b is None:
+                b = LocalBinding(base, p.kind, _label_line(
+                    live, entry.thy_line, stmt_end, base), entry.name,
+                    kept=bool(set(p.attrs) - TRANSFORMING_ATTRS))
+                seen[base] = b
+                w.bindings.append(b)
+                w.bind(("f", base), [b])
+        if b is not None:
+            for whole in _PREMISE_KINDS[p.kind]:
+                group = groups.setdefault(whole, [])
+                if b not in group:
+                    group.append(b)
+    for whole, group in groups.items():
+        w.bind(("f", whole), group)
+
+
+def _label_line(live: list[str], lo: int, hi: int, label: str) -> int:
+    """The line in ``lo..hi`` where ``label`` is written as `label [..]? :`."""
+    pat = re.compile(rf"(?<![\w']){re.escape(label)}\s*(?:\[[^\]]*\]\s*)?:"
+                     r"(?!:)")
+    for ln in range(lo, hi + 1):
+        if pat.search(live[ln - 1]):
+            return ln
+    return lo
 
 
 def proof_end(sec: TheorySection, entry: Entry) -> int:
@@ -289,6 +359,7 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
     the two agree on all 297,954 proofs, and a test holds them together."""
     toks = _body_tokens(sec, entry)
     w = _Walk(entry.name)
+    _seed_premises(sec, entry, w)
     cmd = ""
     nest = 0              # parentheses + brackets: no command starts inside
     label_next = False    # the next token may be a label
@@ -297,6 +368,10 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
     variables = False     # names here are being bound, not read
     after_type = False    # after `::` in a variable list: a type, not a name
     define_group: list[LocalBinding] = []
+    # Past the entry's own closing `by` / `qed`: its method is still read —
+    # `by (auto simp: a)` is where a statement premise is most often cited —
+    # up to the next command, which is the end of the proof.
+    closing = False
     # `from x` / `assume` rebind `this` when they FINISH: the `this` in
     # `from this` is still the previous fact.
     this_stale = False
@@ -304,6 +379,8 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
     while i < len(toks):
         t = toks[i]
         s = t.text
+        if s in ("sorry", "oops") and not t.inner:
+            w.unfinished = True
         if t.inner:
             if not variables:
                 w.read(("t", s))
@@ -319,6 +396,8 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
             i += 1
             continue
         if nest == 0 and (s in _COMMANDS or s in ("{", "}", ".", "..")):
+            if closing:
+                break
             w.finish_command()
             if this_stale:
                 w.this, this_stale = [], False
@@ -333,8 +412,9 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
                     # Back at the entry's own goal: its outermost block closed.
                     # Asked before `close_subgoal`, which would also reach it.
                     if len(w.scopes) == 1:
-                        w.end = t.line
-                        break
+                        w.end, closing = t.line, True
+                        i += 1
+                        continue
                     w.prove()
                     w.close_subgoal()
             elif s == "next":
@@ -342,8 +422,9 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
                 w.open("proof")
             elif s in _TERMINATORS:
                 if len(w.scopes) == 1:
-                    w.end = t.line
-                    break
+                    w.end, closing = t.line, True
+                    i += 1
+                    continue
                 w.prove()
                 w.close_subgoal()
             if s in _GOAL_CMDS:
@@ -465,3 +546,4 @@ def unread_locals(sections: list[TheorySection],
                 if not (b.read or b.kept or b.name in keep):
                     out.append((sec, b))
     return out
+

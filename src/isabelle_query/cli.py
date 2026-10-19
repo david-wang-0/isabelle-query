@@ -1559,7 +1559,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--locals", action="store_true",
                    help="one level down: proof-local names (`have NAME:`, "
                         "`obtain ... where NAME:`, `note NAME =`, `define`, "
-                        "`let ?NAME`) that nothing in their scope reads.  "
+                        "`let ?NAME`, and the statement's own `assumes "
+                        "NAME:` / `if NAME:`) that nothing in their scope "
+                        "reads; a premise cited through `assms` / `that` is "
+                        "read.  "
                         "PATHs narrow it, as a file, `THY:A..B` / `THY:LINE` "
                         "(the proofs that span touches) or `THY:ENTRY`.  "
                         "CANDIDATES, not a delete list: a fact used through a "
