@@ -931,13 +931,15 @@ def _run_unused(ns: argparse.Namespace) -> None:
                          "`unused` is corpus-wide, scope it with -R")
         cmd_unused(_load_sections(ns), flags)
         return
-    if flags.recursive or flags.roots:
-        _usage_error("unused: --locals takes neither -r nor --roots")
+    if flags.roots:
+        _usage_error("unused: --locals does not take --roots")
     if not files:
         cmd_unused_locals(load_index(), flags)
         return
     sections, windows = _locals_selection(files)
-    cmd_unused_locals(sections, flags, windows)
+    # `-r` follows a dead premise to its callers, which may be anywhere.
+    cmd_unused_locals(sections, flags, windows,
+                      load_index() if flags.recursive else None)
 
 
 def _locals_selection(files: list[str]
@@ -1537,7 +1539,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("unused", help="list entries with zero callers")
     _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
-                   help="cascade: include entries whose callers are all unused")
+                   help="cascade: include entries whose callers are all "
+                        "unused.  With --locals: include a caller's `assumes` "
+                        "label read only to discharge an unread premise by "
+                        "`[OF ...]` position, tagged with the premise it fed")
     p.add_argument("--by-theory", action="store_true",
                    help="group by theory with line counts")
     p.add_argument("--roots", action="store_true",

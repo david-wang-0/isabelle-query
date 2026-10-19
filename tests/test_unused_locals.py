@@ -192,8 +192,9 @@ class Selection(_Root):
         # Entry-level `unused` is corpus-wide by contract: no PATH scoping.
         self.assertEqual(self.run_cli(self.path())[1], 2)
 
-    def test_locals_rejects_cascade_flags(self):
-        self.assertEqual(self.run_cli("--locals", "-r")[1], 2)
+    def test_locals_rejects_roots(self):
+        # `-r` is the premise cascade (issue #20); a forest of proof-local
+        # names means nothing.
         self.assertEqual(self.run_cli("--locals", "--roots")[1], 2)
 
 

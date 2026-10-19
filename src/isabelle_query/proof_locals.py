@@ -48,6 +48,7 @@ goes unreported.  Over the AFP, 3.1% of 241,176 bindings are reported.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import ascii_letters
@@ -271,7 +272,9 @@ def _label_at(toks: list[_Tok], i: int, sep: str
     return None
 
 
-def scan_proof(sec: TheorySection, entry: Entry) -> list[LocalBinding]:
+def scan_proof(sec: TheorySection, entry: Entry,
+               ignore: frozenset[tuple[int, int]] = frozenset()
+               ) -> list[LocalBinding]:
     """Every name *entry*'s proof binds, each marked read or not.
 
     A statement premise is left out when the proof is unfinished: a `sorry`
@@ -279,7 +282,7 @@ def scan_proof(sec: TheorySection, entry: Entry) -> list[LocalBinding]:
     is litter."""
     if not entry.proof_line:
         return []
-    w = _walk(sec, entry)
+    w = _walk(sec, entry, ignore)
     if w.unfinished:
         return [b for b in w.bindings if b.kind not in _PREMISE_KINDS]
     return w.bindings
@@ -348,7 +351,8 @@ def proof_end(sec: TheorySection, entry: Entry) -> int:
     return _walk(sec, entry).end if entry.proof_line else 0
 
 
-def _walk(sec: TheorySection, entry: Entry) -> _Walk:
+def _walk(sec: TheorySection, entry: Entry,
+          ignore: frozenset[tuple[int, int]] = frozenset()) -> _Walk:
     """Walk *entry*'s proof from `proof_line` until its own goal is closed.
 
     The walk reads as far as `thy_end` but STOPS where the proof does.
@@ -358,6 +362,10 @@ def _walk(sec: TheorySection, entry: Entry) -> _Walk:
     walks the same structure for `body_end_line` [body-end-text]; over the AFP
     the two agree on all 297,954 proofs, and a test holds them together."""
     toks = _body_tokens(sec, entry)
+    if ignore:
+        # `(line, col)` of name tokens that do not count as reads: the
+        # `-r` premise cascade asks whether a label is read ELSEWHERE.
+        toks = [t for t in toks if (t.line, t.col) not in ignore]
     w = _Walk(entry.name)
     _seed_premises(sec, entry, w)
     cmd = ""
@@ -547,3 +555,217 @@ def unread_locals(sections: list[TheorySection],
                     out.append((sec, b))
     return out
 
+
+# --- `unused --locals -r`: the premise cascade [unread-assumes] -----------
+#
+# An unread premise is not harmless: every caller still discharges it, and the
+# fact a caller discharges it WITH may exist for nothing else.  In
+#
+#     lemma clamp: assumes sig: "…" …          (`sig` unread)
+#     theorem diag: assumes sig: "…" …
+#       by (rule clamp [OF lang sig tge])
+#
+# `diag`'s own `sig` is read only to feed `clamp`'s dead one, so once that goes
+# it is dead too.  The cascade follows positional `[OF …]` discharge only: a
+# fact fed through `using` / `from` reaches a premise by unification, which
+# no scan of the text can map to a position.
+
+# A cited name followed by an attribute block: `clamp [OF …]`, `clamp[OF …]`.
+_CITE_ATTR_RE = re.compile(r"(?<![\w'.])((?:[\w']+\.)*[\w']+)\s*\[")
+
+
+def _premise_positions(sec: TheorySection, entry: Entry
+                       ) -> dict[str, list[int]] | None:
+    """``{label: [positions]}`` of *entry*'s labelled premises in the order
+    `[OF …]` instantiates them (1-based), or None when that order is not
+    the statement's: `defines` and `obtains` reshape the exported rule."""
+    st = statement_of(sec, entry)
+    if st is None or st.cases or any(p.kind == "defines"
+                                     for p in st.premises):
+        return None
+    out: dict[str, list[int]] = {}
+    for k, p in enumerate(st.premises, start=1):
+        if p.kind in _PREMISE_KINDS and p.label:
+            out.setdefault(p.label.split("(", 1)[0], []).append(k)
+    return out
+
+
+def _of_args(text: str, start: int) -> list[tuple[int, str, int]] | None:
+    """The `[OF …]` arguments in the attribute block opening at
+    ``text[start] == '['``: ``(position, head name, offset)`` for each, the
+    head name '' for `_` or a parenthesised fact.  None without an `OF`."""
+    depth, quote, j = 0, "", start
+    items: list[tuple[int, int]] = []          # (start, end) at depth 1
+    item_start = start + 1
+    while j < len(text):
+        ch = text[j]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch == '"':
+            quote = ch
+        elif ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+            if depth == 0:
+                items.append((item_start, j))
+                break
+        elif ch == "," and depth == 1:
+            items.append((item_start, j))
+            item_start = j + 1
+        j += 1
+    for lo, hi in items:
+        m = re.match(r"\s*OF\b", text[lo:hi])
+        if not m:
+            continue
+        args: list[tuple[int, str, int]] = []
+        k, depth = lo + m.end(), 0
+        while k < hi:
+            ch = text[k]
+            if ch.isspace():
+                k += 1
+                continue
+            if ch in "[(":
+                # An attribute block glues to the argument before it; a
+                # parenthesised fact is an argument of its own.
+                if ch == "(":
+                    args.append((len(args) + 1, "", k))
+                e = _balanced(text, k, hi)
+                k = e
+                continue
+            mw = re.match(r"_(?![\w'])|(?:[\w']+\.)*[\w']+", text[k:hi])
+            if not mw:
+                k += 1
+                continue
+            word = mw.group(0)
+            args.append((len(args) + 1, "" if word == "_" else word, k))
+            k += mw.end()
+        return args
+    return None
+
+
+def _balanced(text: str, k: int, hi: int) -> int:
+    """The offset just past the bracket or parenthesis opening at *k*."""
+    depth, quote = 0, ""
+    while k < hi:
+        ch = text[k]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch == '"':
+            quote = ch
+        elif ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+            if depth == 0:
+                return k + 1
+        k += 1
+    return hi
+
+
+def premise_cascade(sections: list[TheorySection],
+                    dead: list[tuple[TheorySection, LocalBinding]],
+                    keep: frozenset[str] = frozenset()
+                    ) -> list[tuple[TheorySection, LocalBinding, str]]:
+    """The premises that become unread once the *dead* ones go, each with the
+    ``LEMMA.label`` it only fed, to a fixed point.
+
+    A caller's label is reported when it discharges an unread premise by
+    position (`clamp [OF … sig …]`) and nothing else in its proof reads it —
+    asked by walking the proof again with those discharging tokens removed.
+    """
+    # lemma name -> {position: "lemma.label"} for its unread premises.
+    targets: dict[str, dict[int, str]] = {}
+    # lemma name -> its locale / class target.  Cited from outside that
+    # target, the lemma's exported rule has the target's assumptions in
+    # front, and every `[OF …]` position shifts; such a discharge is not
+    # followed rather than mapped to the wrong premise.
+    homes: dict[str, str] = {}
+
+    def add_target(sec: TheorySection, b: LocalBinding) -> None:
+        # The dead row's own section, not a lookup in *sections*: under
+        # `unused --locals PATH -r` the rows come from a selection parsed on
+        # its own, while the callers are searched for over the whole project.
+        e = next((e for e in sec.entries if e.name == b.entry
+                  and e.thy_line <= b.line <= e.thy_end), None)
+        if e is None:
+            return
+        pos = _premise_positions(sec, e)
+        if pos and b.name in pos:
+            homes[b.entry] = e.target
+            for k in pos[b.name]:
+                targets.setdefault(b.entry, {})[k] = f"{b.entry}.{b.name}"
+
+    for sec, b in dead:
+        if b.kind in _PREMISE_KINDS:
+            add_target(sec, b)
+    reported = {(sec.path.resolve(), b.entry, b.name) for sec, b in dead}
+    out: list[tuple[TheorySection, LocalBinding, str]] = []
+    while targets:
+        fresh: dict[str, dict[int, str]] = {}
+        for sec in sections:
+            live = sec.live_source()
+            for e in sec.entries:
+                if not e.proof_line:
+                    continue
+                hits = [h for h in _discharges(live, e, targets)
+                        if homes.get(h[3].rsplit(".", 1)[0], "") == e.target]
+                if not hits:
+                    continue
+                labels = {b.name: b for b in scan_proof(sec, e)
+                          if b.kind in _PREMISE_KINDS}
+                # label -> every dead premise it discharges here, in order.
+                vias: dict[str, list[str]] = {}
+                fed: set[tuple[int, int]] = set()
+                for name, ln, col, via in hits:
+                    if name in labels and labels[name].read:
+                        fed.add((ln, col))
+                        if via not in vias.setdefault(name, []):
+                            vias[name].append(via)
+                if not fed:
+                    continue
+                again = {b.name: b for b in scan_proof(sec, e,
+                                                        frozenset(fed))}
+                for name, via in vias.items():
+                    b = again.get(name)
+                    key = (sec.path.resolve(), e.name, name)
+                    if (b is None or b.read or b.kept or name in keep
+                            or key in reported):
+                        continue
+                    reported.add(key)
+                    out.append((sec, b, ", ".join(via)))
+                    pos = _premise_positions(sec, e)
+                    if pos and name in pos:
+                        homes[e.name] = e.target
+                        for k in pos[name]:
+                            fresh.setdefault(e.name, {})[k] = \
+                                f"{e.name}.{name}"
+        targets = fresh
+    return out
+
+
+def _discharges(live: list[str], e: Entry, targets: dict[str, dict[int, str]]
+                ) -> list[tuple[str, int, int, str]]:
+    """``(arg name, line, col, "lemma.label")`` for each `[OF …]` argument in
+    *e*'s proof that discharges a *targets* premise."""
+    out: list[tuple[str, int, int, str]] = []
+    end = min(e.thy_end or len(live), len(live))
+    lines = live[e.proof_line - 1:end]
+    text = "\n".join(lines)
+    if "[" not in text:
+        return out
+    starts = [0]
+    for ln in lines:
+        starts.append(starts[-1] + len(ln) + 1)
+    for m in _CITE_ATTR_RE.finditer(text):
+        cited = m.group(1).rsplit(".", 1)[-1]
+        want = targets.get(cited) or targets.get(m.group(1))
+        if not want:
+            continue
+        args = _of_args(text, m.end() - 1)
+        for k, name, off in args or ():
+            if name and k in want:
+                row = bisect_right(starts, off) - 1
+                out.append((name, e.proof_line + row, off - starts[row],
+                            want[k]))
+    return out

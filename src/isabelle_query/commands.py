@@ -55,7 +55,8 @@ from isabelle_query.graph import (
 )
 from isabelle_query import graph as _graph
 from isabelle_query import sites as _sites
-from isabelle_query.proof_locals import unread_locals
+from isabelle_query.proof_locals import (
+    LocalBinding, premise_cascade, unread_locals)
 from isabelle_query.render import (
     _emit_matches,
     _format_extent,
@@ -2171,11 +2172,24 @@ def _dead_implicit(graph: CallGraph, dead: dict[str, int],
 
 
 def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',
-                      windows: "dict[Path, list] | None" = None) -> None:
+                      windows: "dict[Path, list] | None" = None,
+                      everywhere: "list[TheorySection] | None" = None
+                      ) -> None:
     """``unused --locals``: proof-local names bound and never read (issue
     #12).  One row per binding — ``LOCUS NAME KIND ENTRY`` — in source order;
-    the scan and its caveats are :mod:`isabelle_query.proof_locals`'."""
-    rows = unread_locals(sections, windows, flags.keep)
+    the scan and its caveats are :mod:`isabelle_query.proof_locals`'.
+
+    With ``-r``, the premise cascade follows (issue #20): a caller's
+    `assumes` label read only to discharge an unread premise by `[OF …]`
+    position, with a fifth column naming the premise it fed.  The callers
+    are searched for over *everywhere* (the project), not just the
+    selection."""
+    found = unread_locals(sections, windows, flags.keep)
+    rows: list[tuple[TheorySection, "LocalBinding", str]] = [
+        (sec, b, "") for sec, b in found]
+    if flags.recursive:
+        rows += [(sec, b, f"fed only {via}") for sec, b, via in
+                 premise_cascade(everywhere or sections, found, flags.keep)]
     if flags.mode == "count":
         print(len(rows))
         return
@@ -2184,19 +2198,22 @@ def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',
         return
     labels = locus_labels(sections)
     if flags.by_theory:
-        counts = Counter(labels.get(sec.path, sec.theory) for sec, _ in rows)
+        counts = Counter(labels.get(sec.path, sec.theory)
+                         for sec, _b, _v in rows)
         print(f"{len(rows)} unread local names across {len(counts)} "
               f"theories:\n")
         for thy, n in counts.most_common():
             print(f"  {n:4d}  {thy}")
         return
     cells = [(f"{labels.get(sec.path, sec.theory)}:{b.line}", b.name, b.kind,
-              b.entry) for sec, b in rows]
+              b.entry, via) for sec, b, via in rows]
     w0 = max(len(c[0]) for c in cells)
     w1 = max(len(c[1]) for c in cells)
     w2 = max(len(c[2]) for c in cells)
-    for locus, name, kind, entry in cells:
-        print(f"{locus:<{w0}}  {name:<{w1}}  {kind:<{w2}}  {entry}")
+    w3 = max(len(c[3]) for c in cells) if any(c[4] for c in cells) else 0
+    for locus, name, kind, entry, via in cells:
+        tail = f"{entry:<{w3}}  {via}" if via else entry
+        print(f"{locus:<{w0}}  {name:<{w1}}  {kind:<{w2}}  {tail}")
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern
