@@ -6,9 +6,12 @@ up — so `unused` listed it as dead although deleting it can break proofs.
 citations; the entry's OWN header attribute did not.
 
 An implicitly used entry is live for the cascade, as a `--keep` name is:
-`base` is cited only by `own_simp`, and must not cascade.  `--implicit mark`
+`base` is cited only by `own_simp`, and must not cascade.  `--evidence mark`
 (the default) still lists the uncited ones, tagged; `hide` drops them.  A
 transforming attribute (`[rule_format]`) hands the fact to no tool.
+
+Implicit use is one kind of `unused` evidence [leaf-evidence]; `endpoint`
+carries the other here, its `theorem` keyword.
 """
 
 import contextlib
@@ -87,19 +90,21 @@ class UnusedMarksTheImplicitOnes(Fixture):
     def test_mark(self):
         head, rows = self.rows()
         self.assertEqual(
-            head, "4 unused entries (zero callers, 2 of them implicitly used):")
+            head, "4 unused entries (zero callers, 3 of them with evidence):")
         self.assertEqual([r.split()[1] for r in rows],
                          ["own_simp", "f_simps", "fmt", "endpoint"])
-        self.assertTrue(rows[0].endswith("[implicit: simp]"))
-        self.assertNotIn("implicit", rows[2])      # `fmt`: rule_format only
+        self.assertTrue(rows[0].endswith("[evidence: simp]"))
+        self.assertTrue(rows[1].endswith("[evidence: simp]"))
+        self.assertNotIn("evidence", rows[2])      # `fmt`: rule_format only
+        self.assertTrue(rows[3].endswith("[evidence: theorem]"))
 
     def test_hide(self):
-        _head, rows = self.rows(implicit="hide")
-        self.assertEqual([r.split()[1] for r in rows], ["fmt", "endpoint"])
+        _head, rows = self.rows(evidence="hide")
+        self.assertEqual([r.split()[1] for r in rows], ["fmt"])
 
     def test_cascade_stops_at_an_implicit_entry(self):
         for mode in ("mark", "hide"):
-            _head, rows = self.rows(recursive=True, implicit=mode)
+            _head, rows = self.rows(recursive=True, evidence=mode)
             names = [r.split()[1] for r in rows]
             self.assertNotIn("base", names)
             self.assertNotIn("in_set", names)
@@ -109,19 +114,19 @@ class UnusedMarksTheImplicitOnes(Fixture):
         with contextlib.redirect_stdout(buf):
             commands.cmd_unused(self.sections, CmdFlags(roots=True))
         out = [" ".join(ln.split()) for ln in buf.getvalue().splitlines()]
-        self.assertEqual(out[0], "4 unused roots, 2 of them implicitly used:")
+        self.assertEqual(out[0], "4 unused roots, 3 of them with evidence:")
         self.assertEqual(out[2].split()[:2], ["Tag", "Root"])
         rows = {r.split()[1]: r for r in out[4:] if r}
         self.assertTrue(rows["own_simp"].startswith("LEMMA own_simp 2 "))
-        self.assertTrue(rows["own_simp"].endswith("Impl [implicit: simp]"))
+        self.assertTrue(rows["own_simp"].endswith("Impl [evidence: simp]"))
         self.assertTrue(rows["endpoint"].startswith("THEOREM endpoint"))
 
     def test_roots_hide(self):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             commands.cmd_unused(self.sections,
-                                CmdFlags(roots=True, implicit="hide"))
-        self.assertTrue(buf.getvalue().startswith("2 unused roots:"))
+                                CmdFlags(roots=True, evidence="hide"))
+        self.assertTrue(buf.getvalue().startswith("1 unused roots:"))
 
 
 if __name__ == "__main__":

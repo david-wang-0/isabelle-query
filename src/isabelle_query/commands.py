@@ -2001,9 +2001,9 @@ def _compute_forest(graph: CallGraph,
     return result
 
 
-def _implicit_mark(marks: dict[str, list[str]] | None, name: str) -> str:
-    attrs = (marks or {}).get(name)
-    return f"  [implicit: {', '.join(attrs)}]" if attrs else ""
+def _evidence_mark(marks: dict[str, list[str]] | None, name: str) -> str:
+    ev = (marks or {}).get(name)
+    return f"  [evidence: {', '.join(ev)}]" if ev else ""
 
 
 def _render_unused(entries: list[tuple[str, Entry, int]],
@@ -2013,7 +2013,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
     label = "transitively unused" if recursive else "unused"
     total = len(entries)
     n_marked = sum(1 for _, e, _ in entries if (marks or {}).get(e.name))
-    marked = f", {n_marked} of them implicitly used" if n_marked else ""
+    marked = f", {n_marked} of them with evidence" if n_marked else ""
 
     # Before the empty guard [count-mode-zero]: a project with nothing unused
     # has ZERO unused entries, and that is the answer a script wants — the one
@@ -2065,7 +2065,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<11}  {e.name:<42}  {theory}  "
               f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}"
-              f"{_implicit_mark(marks, e.name)}")
+              f"{_evidence_mark(marks, e.name)}")
 
 
 def _render_forest(sections: list[TheorySection],
@@ -2074,8 +2074,9 @@ def _render_forest(sections: list[TheorySection],
                    marks: dict[str, list[str]] | None = None) -> None:
     """Render the forest root summary.
 
-    The `Tag` column is what separates an intended endpoint (`THEOREM`) from
-    a deletion candidate (`LEMMA`) without a `show` per root (issue #21)."""
+    The `Tag` column is what separates an intended endpoint (`THEOREM`,
+    `COROLLARY`) from a deletion candidate (`LEMMA`) without a `show` per
+    root (issues #21, #22)."""
     if not forest:
         print("No unused roots found.")
         return
@@ -2088,7 +2089,7 @@ def _render_forest(sections: list[TheorySection],
         return
 
     n_marked = sum(1 for r, *_ in forest if (marks or {}).get(r))
-    marked = f", {n_marked} of them implicitly used" if n_marked else ""
+    marked = f", {n_marked} of them with evidence" if n_marked else ""
     print(f"{len(forest)} unused roots{marked}:\n")
     print(f"  {'Tag':<11s}  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
           f"{'Total':>5s}  {'Lines':>6s}  Theory")
@@ -2098,7 +2099,7 @@ def _render_forest(sections: list[TheorySection],
         thy, e = by_name[root] if root in by_name else ("?", None)
         tag = e.tag if e is not None else "?"
         print(f"  {tag:<11s}  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  "
-              f"{tl:>6d}  {thy}{_implicit_mark(marks, root)}")
+              f"{tl:>6d}  {thy}{_evidence_mark(marks, root)}")
 
 
 def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
@@ -2118,30 +2119,32 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
             print(f"warning: --keep names not found in call graph: "
                   f"{', '.join(sorted(unknown))}", file=sys.stderr)
 
-    # Used by the tool its own header handed it to, not by a citation
-    # [implicit-use].  Live for the cascade either way, as `--keep` is; under
-    # `mark` the uncited ones are listed again, tagged, since "zero
-    # citations, declared [simp]" is a different follow-up from a plain dead
-    # lemma, not a non-answer.
-    implicit = {n: a for n, a in _implicit_names(sections).items()
+    # Evidence that an uncited entry is meant to stay [leaf-evidence]: the
+    # word it was stated with, or a tool its own header handed it to
+    # [implicit-use].  Evidence, not a verdict — a `theorem` can be
+    # scaffolding and a `lemma` proved for independent interest is not dead
+    # (#22) — so the entries are live for the cascade, as `--keep` is, and
+    # under `mark` listed again with what was found, since "zero citations,
+    # stated as a corollary" is a different follow-up from a bare lemma.
+    evidence = {n: ev for n, ev in _evidence(sections).items()
                 if n in graph.all_names and n not in keep}
-    marks = implicit if flags.implicit == "mark" else {}
+    marks = evidence if flags.evidence == "mark" else {}
 
     if flags.roots:
-        # `mark` keeps the forest it always computed, tagging implicit roots;
+        # `mark` keeps the forest it always computed, tagging marked roots;
         # `hide` makes them live roots, so their cones stop being exclusive.
-        live = keep if marks else keep | set(implicit)
+        live = keep if marks else keep | set(evidence)
         forest = _compute_forest(graph, sections, live)
         _render_forest(sections, forest, flags, marks)
         return
 
-    live = keep | set(implicit)
+    live = keep | set(evidence)
     if flags.recursive:
         unused_map = _compute_unused_recursive(graph, live)
     else:
         unused_map = {n: 0 for n in _compute_unused(graph, live)}
-    unused_map.update(_dead_implicit(graph, unused_map, marks,
-                                     flags.recursive))
+    unused_map.update(_dead_marked(graph, unused_map, marks,
+                                   flags.recursive))
 
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
@@ -2153,27 +2156,39 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     _render_unused(unused_entries, flags, flags.recursive, marks)
 
 
-def _implicit_names(sections: list[TheorySection]) -> dict[str, list[str]]:
-    """``{name: its declaring attributes}`` for every entry whose own header
-    hands it to a tool [implicit-use].  Graph nodes are names, so a name
-    declared twice is implicit when any declaration is."""
+def _evidence(sections: list[TheorySection]) -> dict[str, list[str]]:
+    """``{name: its evidence}`` for every entry carrying some, in the order
+    `unused` prints it [leaf-evidence]:
+
+        keyword   `theorem` / `corollary` / `proposition` (`_RESULT_TAGS`)
+        implicit  the declaring attributes of its own header (`simp`)
+                  [implicit-use]
+
+    Graph nodes are names, so a name declared twice carries the evidence
+    of every declaration."""
     out: dict[str, list[str]] = {}
     for sec in sections:
         for e in sec.entries:
-            attrs = implicitly_used(e)
-            if attrs and e.name != "?":
-                out.setdefault(e.name, attrs)
+            if e.name == "?":
+                continue
+            ev = [e.tag.lower()] if e.tag in _RESULT_TAGS else []
+            ev += implicitly_used(e)
+            if ev:
+                have = out.setdefault(e.name, [])
+                have += [x for x in ev if x not in have]
     return out
 
 
-def _dead_implicit(graph: CallGraph, dead: dict[str, int],
-                   marks: dict[str, list[str]], recursive: bool
-                   ) -> dict[str, int]:
-    """The implicit entries no live entry cites, at their cascade depth.
+def _dead_marked(graph: CallGraph, dead: dict[str, int],
+                 marks: dict[str, list[str]], recursive: bool
+                 ) -> dict[str, int]:
+    """The entries with evidence that no live entry cites, at their cascade
+    depth.
 
     Without `-r` that is the uncited ones.  With it, also those whose every
-    citer is dead — but nothing cascades THROUGH them: an implicit entry is
-    still live for the entries it cites, which is the `--keep` behaviour."""
+    citer is dead — but nothing cascades THROUGH them: an entry with evidence
+    is still live for the entries it cites, which is the `--keep`
+    behaviour."""
     out: dict[str, int] = {}
     changed = True
     while changed:
