@@ -49,6 +49,14 @@ heading keyword *inside* a document block is English, not a command. A `text`
 block citing a textbook — "…follows Kleinberg and Tardos, chapter \"Dynamic
 Programming\"" — declares no chapter, and `outline` does not list one.
 
+A **fact antiquotation** in prose, `@{thm foo}` or `\<^thm>‹foo›`, is not a
+citation either: showing a result in the rendered document is not a proof that
+uses it, so `callers foo` does not list it. It is not nothing, though. The
+author put the result in the document, and `unused` reports such an entry with
+`doc` evidence rather than as plainly dead. The mention is scoped like a
+citation (see *A citation must be reachable*), so `@{thm foo}` in a theory that
+cannot see this project's `foo` is evidence for nothing here.
+
 ## Layout carries no meaning
 
 Isar is whitespace-insensitive, so a declaration is recognised wherever a
@@ -62,6 +70,23 @@ legibility is still one declaration — a line beginning `|` cannot start a new
 command, so it continues the one above, across blank lines and `(* ... *)` notes
 alike. What stops the scan is outer syntax: a `text` block between two rules
 does end the declaration, because it is a command.
+
+## A goal's tag is the word its author wrote
+
+To Isabelle, `lemma`, `theorem`, `corollary` and `proposition` are one command
+under four names: Pure declares them on one line and registers them through
+one combinator. Their tags (`LEMMA`, `THEOREM`, `COROLLARY`, `PROPOSITION`) are
+kept apart all the same. The logic does not care which word was used, but the
+author chose it, and that choice is the only record of which results a
+development is *for*. `summary` counts `lemma` under L and the other three under
+T.
+
+A goal command a theory header declares (`keywords "AOT_theorem" :: thy_goal`)
+is tagged `GOAL`. Its kind says that it proves something, not which of the two
+it is. Reading `tts_lemma` as a lemma and `AOT_theorem` as a theorem would be
+guessing from the command's name, which is exactly what reading the keyword
+table avoids. `summary` counts these in neither L nor T and adds a footnote with
+the number.
 
 ## The names one declaration binds
 

@@ -113,13 +113,37 @@ from one theory: a site is attributed to a declaration in that theory or its
 transitive imports within the scanned project, and declarations that live only
 in a heap are not discovered.
 
-### Entries a tool uses without a citation
+### Uncited is not dead
 
-An entry nobody cites but whose own header hands it to a tool (`lemma foo
-[simp]:`, `[intro]`, `[code]`, a `named_theorems` name) is used all the same.
-`unused` tags it `[implicit: simp]` and never cascades through it;
-`--implicit hide` drops it. `unused --roots` shows each root's kind, so a
-`THEOREM` endpoint stands apart from a `LEMMA` deletion candidate.
+An entry nobody cites may still be meant to stay, so `unused` reports the
+evidence it found for each entry and leaves the verdict to you:
+
+- **keyword** — stated as a `theorem`, `corollary` or `proposition`. A goal is
+  tagged with the word its author wrote (`LEMMA`, `THEOREM`, `COROLLARY`,
+  `PROPOSITION`); a goal command a theory header declares (`AOT_theorem`,
+  `tts_lemma`) is `GOAL`, since its name is no evidence of either.
+- **implicit** — its own header hands it to a tool (`lemma foo [simp]:`,
+  `[intro]`, `[code]`, a `named_theorems` name), which uses it uncited.
+- **doc** — a fact antiquotation (`@{thm foo}`, `\<^thm>‹foo›`) names it, in a
+  theory that can see it.
+
+Such an entry is tagged, e.g. `[evidence: corollary, simp]`, and the `-r`
+cascade never runs through it. `--evidence hide` drops them, leaving the
+entries with no evidence at all: the deletion candidates. `unused --roots`
+shows each root's tag.
+
+A lemma kept "for independent interest" carries none of this. Record it once
+in **`.query-keep`** at the root (or pass `--keep-file PATH`), one entry per
+line, whitespace-separated:
+
+```
+# THEORY        NAME                     NOTE
+Hierarchy       time_hierarchy_strong    weaker hypotheses, generally useful
+DTH/Pad.thy     pad_mono
+```
+
+Each name acts as `--keep NAME`. A line whose theory does not declare the
+name is reported on stderr as stale.
 
 ### Unread proof-local names
 
