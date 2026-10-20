@@ -9,7 +9,7 @@
 - [Scratch files in repo, not /tmp](scratch-files-in-repo-not-tmp.md) — /tmp is permission-gated; write temp/commit-message files in the repo working tree and rm after
 - [Verify AFP size assumptions](verify-afp-size-assumptions.md) — don't assume theory size/shape; check afp-metrics.py (massive, entry-dense theories exist)
 - [AFP probe sampling is alphabetical](afp-probe-sampling-is-alphabetical.md) — `sorted(AFP)[:N]` is a prefix, not a sample; re-run corpus-wide before a decision rests on a rate
-- [Release versioning policy](release-versioning-policy.md) — alpha now: breaking CLI changes ship as patch bumps; switch to major-for-breaking once the CLI settles
+- [Release versioning policy](release-versioning-policy.md) — #22 ships as 1.0.0; from then on SemVer proper (breaking = major); before that breaking took the minor slot
 - [Upstream dependency testing](upstream-dependency-testing.md) — layout only (not watchdog), uncapped; test each upstream release explicitly, update our side rather than pin
 - [Query driven by real usage](query-driven-by-real-usage.md) — an upstream formalization workflow now exercises query in composed ways; real usage drives feature priorities
 - [Bare tool invocation](bare-tool-invocation.md) — run pytest/pip/query by bare name; the project venv is already active
