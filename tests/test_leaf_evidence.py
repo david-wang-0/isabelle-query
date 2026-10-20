@@ -11,6 +11,10 @@ than deciding: an entry with evidence is live for the `-r` cascade, as a
 Hand-computed for the fixture: `headline` is uncited and stated as a
 corollary, so `helper` (cited only by it) must not cascade; `scaffold` is a
 plain uncited lemma, so `helper2` (cited only by it) cascades at depth 1.
+
+`doc` evidence is a fact antiquotation naming the entry, which the citation
+graph deliberately does not count.  It is scoped as a citation is: `Other`
+does not import `Base`, so its `@{thm unseen}` names some other `unseen`.
 """
 
 import contextlib
@@ -97,6 +101,81 @@ class EvidencePerLeaf(unittest.TestCase):
         for flag in ("--evidence", "--implicit"):
             ns = p.parse_args(["unused", flag, "hide"])
             self.assertEqual(cli._flags_from_ns(ns).evidence, "hide")
+
+
+BASE = """\
+theory Base
+  imports Main
+begin
+
+lemma shown: "True \\<or> False"
+  by simp
+
+lemma cart_one: "True \\<or> True"
+  by simp
+
+lemma unseen: "False \\<longrightarrow> False"
+  by simp
+
+end
+"""
+
+DOC = """\
+theory Doc
+  imports Base
+begin
+
+text \\<open>The result: @{thm [display] shown(1)}, and \\<^thm>\\<open>Base.cart_one\\<close>,
+  and @{lemma "True" by simp}.\\<close>
+
+end
+"""
+
+OTHER = """\
+theory Other
+  imports Main
+begin
+
+text \\<open>@{thm unseen}\\<close>
+
+end
+"""
+
+
+class DocEvidence(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        d = Path(self._tmp.name)
+        for name, text in (("Base", BASE), ("Doc", DOC), ("Other", OTHER)):
+            (d / f"{name}.thy").write_text(text, encoding="utf-8")
+        (d / "ROOT").write_text("session S = HOL +\n  theories Doc Other\n",
+                                encoding="utf-8")
+        cli._ROOT_OVERRIDE = d
+        self.sections = cli.load_index()
+
+    def tearDown(self):
+        cli._ROOT_OVERRIDE = None
+        self._tmp.cleanup()
+
+    def rows(self, **kw):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            commands.cmd_unused(self.sections, CmdFlags(**kw))
+        return {ln.split()[1]: " ".join(ln.split())
+                for ln in buf.getvalue().splitlines() if "lines)" in ln}
+
+    def test_a_visible_mention_is_evidence(self):
+        rows = self.rows()
+        self.assertEqual(sorted(rows), ["cart_one", "shown", "unseen"])
+        self.assertTrue(rows["shown"].endswith("[evidence: doc]"))
+        self.assertTrue(rows["cart_one"].endswith("[evidence: doc]"))
+        self.assertNotIn("evidence", rows["unseen"])
+
+    def test_name_reach_counts_the_unscoped_mention(self):
+        # The control: without the closure rule, `Other`'s mention lands.
+        self.assertTrue(self.rows(reach="name")["unseen"]
+                        .endswith("[evidence: doc]"))
 
 
 if __name__ == "__main__":

@@ -765,6 +765,44 @@ def site_filter(sections: list[TheorySection], name: str,
     return lambda theory: vis.sees(theory, name)
 
 
+# A fact antiquotation: `@{thm foo}`, `@{thm [display] foo bar}`, `@{thms
+# foo}`, the style forms, and the cartouche spelling `\<^thm>‹foo›`.  Not
+# `@{lemma "P" by simp}`, which states a proposition rather than naming one.
+_AT_ANTIQ_RE = re.compile(
+    r"@\{\s*(?:thm|thms|thm_style|named_thms)\b([^}]*)\}")
+_CART_ANTIQ_RE = re.compile(
+    r"\\<\^(?:thm|thms)>\s*(?:\\<open>|‹)(.*?)(?:\\<close>|›)", re.S)
+_ANTIQ_ATTRS_RE = re.compile(r"\[[^\]]*\]")
+_ANTIQ_NAME_RE = re.compile(r"[A-Za-z][\w'.]*")
+
+
+def doc_mentions(sections: list[TheorySection]) -> dict[str, set[str]]:
+    r"""``{name: the theories naming it in a fact antiquotation}``
+    [leaf-evidence].
+
+    The citation graph strips these on purpose (`antiq_re` below): a name
+    shown in a document is not a proof that uses it.  It is evidence that the
+    author means it to stay, though, which is what `unused` reports — a
+    result printed in the paper the theory renders is not dead code.  The raw
+    source is read, so an ML `@{thm foo}` counts too, and that use is real.
+
+    A mention is reduced to the name it points at: `foo(2)` and `Thy.foo`
+    are `foo`, the graph's node.  Which declaration it can mean is the
+    caller's question (:meth:`_Visibility.sees`)."""
+    out: dict[str, set[str]] = {}
+    for sec in sections:
+        text = "\n".join(sec.source())
+        if "thm" not in text:
+            continue
+        bodies = [m.group(1) for m in _AT_ANTIQ_RE.finditer(text)]
+        bodies += [m.group(1) for m in _CART_ANTIQ_RE.finditer(text)]
+        for body in bodies:
+            for n in _ANTIQ_NAME_RE.findall(_ANTIQ_ATTRS_RE.sub(" ", body)):
+                bare = n.split("(", 1)[0].rsplit(".", 1)[-1]
+                out.setdefault(bare, set()).add(sec.theory)
+    return out
+
+
 def _build_call_graph(sections: list[TheorySection],
                       drop_upto: int = _DROP_NAMES_UPTO,
                       derived: bool = False,

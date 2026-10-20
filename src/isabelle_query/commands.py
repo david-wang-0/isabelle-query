@@ -2126,7 +2126,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     # (#22) — so the entries are live for the cascade, as `--keep` is, and
     # under `mark` listed again with what was found, since "zero citations,
     # stated as a corollary" is a different follow-up from a bare lemma.
-    evidence = {n: ev for n, ev in _evidence(sections).items()
+    evidence = {n: ev for n, ev in _evidence(sections, flags.reach).items()
                 if n in graph.all_names and n not in keep}
     marks = evidence if flags.evidence == "mark" else {}
 
@@ -2156,13 +2156,16 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     _render_unused(unused_entries, flags, flags.recursive, marks)
 
 
-def _evidence(sections: list[TheorySection]) -> dict[str, list[str]]:
+def _evidence(sections: list[TheorySection], reach: str = "closure"
+              ) -> dict[str, list[str]]:
     """``{name: its evidence}`` for every entry carrying some, in the order
     `unused` prints it [leaf-evidence]:
 
         keyword   `theorem` / `corollary` / `proposition` (`_RESULT_TAGS`)
         implicit  the declaring attributes of its own header (`simp`)
                   [implicit-use]
+        doc       a fact antiquotation names it (`@{thm foo}`) in a theory
+                  that can see it (:func:`graph.doc_mentions`)
 
     Graph nodes are names, so a name declared twice carries the evidence
     of every declaration."""
@@ -2176,6 +2179,17 @@ def _evidence(sections: list[TheorySection]) -> dict[str, list[str]]:
             if ev:
                 have = out.setdefault(e.name, [])
                 have += [x for x in ev if x not in have]
+    # Scoped like a citation: `@{thm foo}` in a theory that cannot see this
+    # project's `foo` names some other `foo`.  The visibility index is built
+    # only when some antiquotation names a declared entry.
+    mentions = _graph.doc_mentions(sections)
+    declared = {e.name for sec in sections for e in sec.entries}
+    mentions = {n: ts for n, ts in mentions.items() if n in declared}
+    if mentions:
+        vis = _graph._Visibility(sections, reach)
+        for n, theories in mentions.items():
+            if any(vis.sees(t, n) for t in sorted(theories)):
+                out.setdefault(n, []).append("doc")
     return out
 
 
