@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from isabelle_query.graph import _Visibility, _entry_by_name, site_filter
-from isabelle_query.model import Entry, TheorySection
+from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection
 from isabelle_query.parsing import (
     ISA_MARKUP,
     LETTER_SYMS,
@@ -1282,7 +1282,7 @@ def find_code_equations(sections: list[TheorySection], name: str
         if _spells(token, name):
             return True
         got = by_name.get(token)
-        if got is None or got[1].tag not in ("LEMMA", "THEOREM"):
+        if got is None or got[1].tag not in _GOAL_TAGS:
             return False
         sec = sec_by_name.get(token)
         live = sec.live_source() if sec is not None else []

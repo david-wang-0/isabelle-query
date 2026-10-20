@@ -21,6 +21,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 from isabelle_query import cli  # noqa: E402
+from isabelle_query.model import _GOAL_TAGS  # noqa: E402
 from isabelle_query.premises import statement_of  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
@@ -45,7 +46,7 @@ def main() -> None:
         except Exception:  # noqa: BLE001
             continue
         for e in sec.entries:
-            if e.tag not in ("LEMMA", "THEOREM") or not e.thy_line:
+            if e.tag not in _GOAL_TAGS or not e.thy_line:
                 continue
             n += 1
             t0 = time.perf_counter()

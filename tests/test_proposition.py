@@ -14,9 +14,9 @@ entry above it: `compute_spans` sets `thy_end` from the next entry's
 fix: 1,700 propositions over 11,604 theories, owning 6,798 lines of proof text
 that were either uncounted or billed to the wrong entry.
 
-The tag is `LEMMA`, riding with `corollary` rather than with `theorem`.  The
-LEMMA/THEOREM split is presentational — it feeds `summary`'s two counts — and
-has no counterpart in Isabelle, where all four are one command.
+The tag is `PROPOSITION`, the word the author wrote [goal-tags].  All four
+are one command to Isabelle, so the tag carries no logical meaning; it keeps
+the author's choice, which is what a dead-code audit reads (#22).
 """
 
 import os
@@ -77,10 +77,8 @@ class PropositionIsADeclaration(unittest.TestCase):
     def test_it_is_indexed_in_source_order(self):
         self.assertEqual(names(self.sec), ["above", "mid", "below"])
 
-    def test_it_tags_as_a_lemma(self):
-        # Not THEOREM: `corollary` is declared on Pure.thy's same line and maps
-        # here, and the split is query's presentation rather than Isabelle's.
-        self.assertEqual(tags_by_name(self.sec)["mid"], "LEMMA")
+    def test_it_keeps_its_own_tag(self):
+        self.assertEqual(tags_by_name(self.sec)["mid"], "PROPOSITION")
 
     def test_it_starts_where_it_is_written(self):
         self.assertEqual(self.by_name["mid"].thy_line, 8)

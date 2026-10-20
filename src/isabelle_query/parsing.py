@@ -37,7 +37,7 @@ from isabelle_layout import (
     parse_root_sessions,
     session_theories,
 )
-from isabelle_query.model import Entry, TheorySection, blank_all
+from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection, blank_all
 
 # `(?=\s|$)` (a token boundary), not a consumed `\s`, so a keyword standing
 # ALONE on its line — the "name on a following line" form — still matches.
@@ -51,15 +51,15 @@ TAG_MAP = {
     "definition": "DEF", "abbreviation": "ABBREV",
     "function": "FUN", "fun": "FUN", "primrec": "FUN",
     "inductive_set": "INDSET", "inductive": "IND",
-    # `proposition` is `lemma` under another display string: Pure declares
-    # `theorem` `lemma` `corollary` `proposition` together on one line as
-    # `thy_goal_stmt` (Pure.thy:54) and registers all four through the same
-    # combinator, differing only in the word they print (Pure.thy:574-577).
-    # It rides with `corollary` — from that same line — rather than with
-    # `theorem`, since the LEMMA/THEOREM split here is presentational
-    # (`summary`'s two counts) and has no counterpart in Isabelle.
-    "lemma": "LEMMA", "corollary": "LEMMA", "proposition": "LEMMA",
-    "theorem": "THEOREM",
+    # Pure declares `theorem` `lemma` `corollary` `proposition` together on
+    # one line as `thy_goal_stmt` (Pure.thy:54) and registers all four
+    # through the same combinator, differing only in the word they print
+    # (Pure.thy:574-577).  So the four tags carry no Isabelle meaning — they
+    # record the word the author chose, and that choice is the signal: a
+    # `corollary` folded into LEMMA could not be told from scaffolding by a
+    # dead-code audit (#22) [goal-tags].  `model._GOAL_TAGS` is the family.
+    "lemma": "LEMMA", "theorem": "THEOREM",
+    "corollary": "COROLLARY", "proposition": "PROPOSITION",
     # `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
     # no statement and no proof, but a citable fact all the same, and the
     # names on its right-hand side are what it cites.  `theorems` is the same
@@ -128,7 +128,7 @@ def _route_for(keyword: str, tag: str) -> str:
         return "target"
     if tag in ("DATATYPE", "TYPE", "RECORD"):
         return "typedecl"
-    if tag in ("LEMMA", "THEOREM"):
+    if tag in _GOAL_TAGS:
         return "goal"
     if tag == "LEMMAS":
         return "facts"

@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from isabelle_query.model import Entry, TheorySection
+from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection
 from isabelle_query.parsing import _balanced_end, attr_heads
 
 # Isar statement elements (`Pure.thy`, `Parse_Spec.statement`).
@@ -335,8 +335,8 @@ def read_statement(text: str) -> Statement | None:
 
 
 def statement_of(sec: TheorySection, e: Entry) -> Statement | None:
-    """The parsed statement of a LEMMA/THEOREM entry, else None."""
-    if e.tag not in ("LEMMA", "THEOREM") or not e.thy_line:
+    """The parsed statement of a goal entry (`lemma`, `theorem`, ...), else None."""
+    if e.tag not in _GOAL_TAGS or not e.thy_line:
         return None
     live = sec.live_source()
     # `decl_end_line` stops at a blank inside the statement, where the proof

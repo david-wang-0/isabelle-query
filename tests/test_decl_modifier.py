@@ -117,8 +117,8 @@ class TheModifiedDeclarationIsAnEntry(Fixture):
         show = self.out(commands.cmd_show, "helper", CmdFlags())
         self.assertIn("--- helper (LEMMA, private) — Priv.thy", show)
         outline = self.out(commands.cmd_outline, "Priv", CmdFlags())
-        self.assertIn("LEMMA    private helper  (10..12", outline)
-        self.assertIn("LEMMA    qualified qual_lemma", outline)
+        self.assertIn("LEMMA       private helper  (10..12", outline)
+        self.assertIn("LEMMA       qualified qual_lemma", outline)
 
 
 class EveryEntryOfTheCommand(unittest.TestCase):

@@ -33,6 +33,7 @@ from isabelle_query.model import (
     _BINDING_KINDS,
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
+    _RESULT_TAGS,
     label_chain,
 )
 from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern, implicitly_used
@@ -124,10 +125,13 @@ def _fail_subject(what: str) -> None:
 
 
 def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
-    """(#definitions, #lemmas, #theorems) in a section — the D/L/T columns."""
+    """(#definitions, #lemmas, #theorems) in a section — the D/L/T columns.
+
+    T counts every goal keyword that announces a result (`theorem`,
+    `corollary`, `proposition`); L is `lemma`."""
     d = sum(1 for e in sec.entries if e.tag in _DEFINITION_TAGS)
     lem = sum(1 for e in sec.entries if e.tag == "LEMMA")
-    thm = sum(1 for e in sec.entries if e.tag == "THEOREM")
+    thm = sum(1 for e in sec.entries if e.tag in _RESULT_TAGS)
     return d, lem, thm
 
 
@@ -157,7 +161,7 @@ def cmd_summary(sections: list[TheorySection], *,
     for sec in sections:
         defs = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
         lemmas = [e for e in sec.entries if e.tag == "LEMMA"]
-        thms = [e for e in sec.entries if e.tag == "THEOREM"]
+        thms = [e for e in sec.entries if e.tag in _RESULT_TAGS]
 
         key_names: list[str] = []
         for e in defs:
@@ -898,7 +902,7 @@ def cmd_outline(sections: list[TheorySection], theory: str,
             e: Entry = payload  # type: ignore[assignment]
             size = e.line_count
             mod = f"{e.visibility} " if e.visibility else ""
-            print(f"        {e.tag:<8} {mod}{e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
+            print(f"        {e.tag:<11} {mod}{e.name}  ({e.src_start}..{e.thy_end}, {size} lines)")
 
 
 def _find_callers(sections: list[TheorySection], name: str,
@@ -2037,12 +2041,12 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
     else:
         print(f"{total} unused entries (zero callers{marked}):\n")
 
-    print(f"{'Tag':<8}  {'Name':<42}  Theory  (span)")
-    print(f"{'-' * 8:<8}  {'-' * 42:<42}  ------")
+    print(f"{'Tag':<11}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 11:<11}  {'-' * 42:<42}  ------")
     for theory, e, depth in entries:
         size = e.line_count
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
-        print(f"{e.tag:<8}  {e.name:<42}  {theory}  "
+        print(f"{e.tag:<11}  {e.name:<42}  {theory}  "
               f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}"
               f"{_implicit_mark(marks, e.name)}")
 
@@ -2069,14 +2073,14 @@ def _render_forest(sections: list[TheorySection],
     n_marked = sum(1 for r, *_ in forest if (marks or {}).get(r))
     marked = f", {n_marked} of them implicitly used" if n_marked else ""
     print(f"{len(forest)} unused roots{marked}:\n")
-    print(f"  {'Tag':<8s}  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
+    print(f"  {'Tag':<11s}  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
           f"{'Total':>5s}  {'Lines':>6s}  Theory")
-    print(f"  {'-' * 8:<8s}  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
+    print(f"  {'-' * 11:<11s}  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
           f"{'-' * 5:>5s}  {'-' * 6:>6s}  ------")
     for root, ee, el, te, tl in forest:
         thy, e = by_name[root] if root in by_name else ("?", None)
         tag = e.tag if e is not None else "?"
-        print(f"  {tag:<8s}  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  "
+        print(f"  {tag:<11s}  {root:<42s}  {ee:>5d}  {el:>6d}  {te:>5d}  "
               f"{tl:>6d}  {thy}{_implicit_mark(marks, root)}")
 
 
@@ -2491,11 +2495,11 @@ def cmd_largest(sections: list[TheorySection], top: int = 20) -> None:
     shown = rows[:top]
     labels = locus_labels(sections)
     print(f"Top {len(shown)} largest entries:\n")
-    print(f"{'Lines':>6}  {'Tag':<8}  {'Name':<42}  Theory  (span)")
-    print(f"{'-' * 6:>6}  {'-' * 8:<8}  {'-' * 42:<42}  ------")
+    print(f"{'Lines':>6}  {'Tag':<11}  {'Name':<42}  Theory  (span)")
+    print(f"{'-' * 6:>6}  {'-' * 11:<11}  {'-' * 42:<42}  ------")
     for size, e, s in shown:
         theory = labels.get(s.path, s.theory)
-        print(f"{size:>6}  {e.tag:<8}  {e.name:<42}  {theory}  ({e.src_start}..{e.thy_end})")
+        print(f"{size:>6}  {e.tag:<11}  {e.name:<42}  {theory}  ({e.src_start}..{e.thy_end})")
 
 
 # --- machine-readable graph export [graph-export] --------------------------
