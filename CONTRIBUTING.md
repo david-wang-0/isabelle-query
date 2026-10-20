@@ -200,7 +200,7 @@ cannot map is not a missing feature but a hole, and a hole prunes
 
 **Four names are supported: `parse_theory`, `parse_root`, `Entry`,
 `TheorySection`.** They carry the same promise as the CLI — a change that
-breaks them takes the **minor** version slot, never a patch. Everything else in
+breaks them takes the **major** version slot (SemVer, from 1.0.0). Everything else in
 the package is internal and may move in any release.
 
 Adding a fifth is a decision, not a convenience. `tests/test_api_surface.py`

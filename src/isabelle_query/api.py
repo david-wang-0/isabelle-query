@@ -2,8 +2,8 @@
 
 Everything else in the package is internal and moves without notice.  These
 four names do not: they follow the same policy as the CLI, so a change that
-breaks them takes the **minor** version slot (0.x semver — see the release
-notes in `pyproject.toml`'s bump commit), never a patch.
+breaks them takes the **major** version slot (SemVer, from 1.0.0; see the
+release notes in `pyproject.toml`'s bump commit).
 
     from isabelle_query.api import parse_theory, parse_root, Entry, TheorySection
 

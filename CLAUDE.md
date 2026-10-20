@@ -115,11 +115,11 @@ matter every session:
 
 ## Release status
 
-The released version tracks `pyproject.toml` (currently **0.9.9**). Versioning is
-alpha, and 0.7.0 is where the policy tightened: a **breaking change now takes
-the minor slot** (0.x semver — 0.6.x → 0.7.0), rather than riding a patch bump
-as it did while the CLI was moving weekly. Patch bumps stay additive. Switch to
-major-for-breaking once the CLI settles.
+The released version tracks `pyproject.toml` (currently **1.0.0**). From 1.0.0
+versioning is **SemVer proper**: a breaking change to the CLI contract or the
+`api` surface takes the **major** slot, an addition the minor, a fix the patch.
+Before 1.0.0 it was alpha: from 0.7.0 a breaking change took the minor slot,
+and before that it rode a patch bump while the CLI moved weekly.
 
 There is no changelog, by the same reasoning that keeps design decisions in
 commit messages. **Release notes are the version-bump commit's message**, and

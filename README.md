@@ -247,9 +247,9 @@ for e in sec.entries:
 
 `isabelle_query.api` exports exactly four names — `parse_theory`, `parse_root`,
 `Entry`, `TheorySection` — and **they follow the same policy as the CLI: a
-change that breaks them takes the minor version slot, never a patch.** Nothing
-else in the package is supported; import from `isabelle_query.parsing` and a
-patch release may move it.
+change that breaks them takes the major version slot.** Nothing else in the
+package is supported; import from `isabelle_query.parsing` and any release may
+move it.
 
 Four rather than the dozen functions that look public, because their results
 are already fields on the two objects, and the hard part is the order the
