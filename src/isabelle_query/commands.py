@@ -80,6 +80,9 @@ from isabelle_query.render import (
 # `README.md`'s exit-status table.
 EXIT_UNRESOLVED = 1
 
+# The project's keep file, read by `unused` from the root [keep-file].
+KEEP_FILE = ".query-keep"
+
 
 # The last call graph built, for the subject loop [graph-once].  `callers -r A
 # B C`, `callees A B C` and `refs A B C` each built the whole graph once per
@@ -2118,6 +2121,8 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
         if unknown:
             print(f"warning: --keep names not found in call graph: "
                   f"{', '.join(sorted(unknown))}", file=sys.stderr)
+    if flags.keep_file:
+        keep |= read_keep_file(Path(flags.keep_file).expanduser(), sections)
 
     # Evidence that an uncited entry is meant to stay [leaf-evidence]: the
     # word it was stated with, or a tool its own header handed it to
@@ -2154,6 +2159,54 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
     _render_unused(unused_entries, flags, flags.recursive, marks)
+
+
+def read_keep_file(path: Path, sections: list[TheorySection]) -> set[str]:
+    """The names a keep file keeps [keep-file].
+
+    One entry per line, ``THEORY NAME [NOTE...]``, split on whitespace so
+    that tabs and aligned spaces both work; a line whose first non-blank is
+    ``#`` is a comment, and so is a blank one::
+
+        # results kept for independent interest
+        Hierarchy   time_hierarchy_strong   the form with weaker hypotheses
+        DTH/Pad.thy pad_mono
+
+    THEORY is a theory name, a label, or a path relative to the file, as
+    `theory` takes it.  The point of naming it at all is that the file
+    records a decision about one declaration: a name the theory does not
+    declare is a stale line, and a warning on stderr says which (`unused`
+    still runs), where a bare `--keep NAME` could only miss.  The NOTE is
+    for the reader of the file, and of the commit that adds the line.
+
+    Graph nodes are names, so a kept name keeps every declaration of it, as
+    `--keep` does."""
+    kept: set[str] = set()
+
+    def warn(n: int, msg: str) -> None:
+        print(f"warning: {path}:{n}: {msg}", file=sys.stderr)
+
+    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            warn(n, "expected THEORY NAME [NOTE]")
+            continue
+        thy, name = parts[0], parts[1]
+        if thy.endswith(".thy") or "/" in thy:
+            here = path.parent / thy
+            if here.is_file():
+                thy = str(here)
+        sec = _resolve_theory(sections, thy)
+        if sec is None:
+            warn(n, f"no theory {parts[0]!r}")
+        elif not any(e.name == name for e in sec.entries):
+            warn(n, f"{sec.theory} declares no {name!r}")
+        else:
+            kept.add(name)
+    return kept
 
 
 def _evidence(sections: list[TheorySection], reach: str = "closure"

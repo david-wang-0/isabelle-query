@@ -140,6 +140,7 @@ from isabelle_query.render import (  # noqa: F401  (re-exported for the facade)
 # `cli._proof_blocks` / `cli._owner_field` references keep resolving.
 from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade)
     EXIT_UNRESOLVED,
+    KEEP_FILE,
     _STDIN_NAME,
     _STDIN_PATH,
     _STDIN_SENTINEL,
@@ -338,6 +339,7 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
     f.evidence = getattr(ns, "evidence", "mark")
+    f.keep_file = getattr(ns, "keep_file", None)
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
@@ -929,7 +931,16 @@ def _run_unused(ns: argparse.Namespace) -> None:
         if files:
             _usage_error("unused: PATH arguments need --locals; entry-level "
                          "`unused` is corpus-wide, scope it with -R")
-        cmd_unused(_load_sections(ns), flags)
+        sections = _load_sections(ns)
+        if flags.keep_file is not None:
+            if not Path(flags.keep_file).expanduser().is_file():
+                _usage_error(f"unused: {flags.keep_file}: no such keep file "
+                             "(given to --keep-file)")
+        else:
+            default = active_t_dir() / KEEP_FILE
+            if default.is_file():
+                flags.keep_file = str(default)
+        cmd_unused(sections, flags)
         return
     if flags.roots:
         _usage_error("unused: --locals does not take --roots")
@@ -1552,6 +1563,15 @@ def _build_parser() -> argparse.ArgumentParser:
                         "unused, and stop the cascade at them).  Repeatable, "
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
+    p.add_argument("--keep-file", metavar="PATH",
+                   help="read more names to keep from PATH, default "
+                        f"`{KEEP_FILE}` in the root when it exists.  One "
+                        "entry per line, `THEORY NAME [NOTE...]`, separated "
+                        "by whitespace; THEORY is a name or a path relative "
+                        "to the file, NOTE is free text, `#` starts a "
+                        "comment line.  The names act as --keep does, so a "
+                        "result kept for independent interest is decided "
+                        "once, with its reason")
     p.add_argument("--evidence", "--implicit", dest="evidence",
                    choices=("mark", "hide"), default="mark",
                    help="an uncited entry may still be meant to stay, and "
@@ -1559,7 +1579,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "keyword it was stated with (`theorem`, `corollary`, "
                         "`proposition`), a declaring attribute on its own "
                         "header that hands it to a tool (`[simp]`, `[intro]`, "
-                        "`[code]`, a named_theorems name).  "
+                        "`[code]`, a named_theorems name), a document "
+                        "antiquotation naming it (`@{thm foo}`: `doc`).  "
                         "Such entries stop the -r cascade, like --keep; "
                         "`mark` (default) still lists them, tagged "
                         "`[evidence: corollary, simp]`, `hide` drops them, "

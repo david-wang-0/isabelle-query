@@ -497,6 +497,7 @@ class CmdFlags:
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
+    keep_file: str | None = None  # --keep-file / `.query-keep` [keep-file]
     evidence: str = "mark"       # --evidence mark|hide (unused) [leaf-evidence]
     external: bool = False       # --external (callers: skip defining theory)
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
