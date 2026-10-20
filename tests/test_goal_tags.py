@@ -7,6 +7,10 @@ tag records the author's choice, which is all that tells them apart.
 
 `summary`'s T column counts the three that announce a result; L is `lemma`.
 Every goal tag still reads as a goal: it has a statement, it is citable.
+
+A goal command a theory header declares (`AOT_theorem :: thy_goal`) is
+`GOAL`: its kind says it has a proof, not which of the two it is, so
+`summary` counts it in neither column and says so in a footnote.
 """
 
 import contextlib
@@ -79,6 +83,48 @@ class GoalTags(unittest.TestCase):
                 .splitlines() if ln[:1].isupper() and ".." in ln]
         self.assertEqual(rows, [["THEOREM", "main_t"], ["COROLLARY", "cor_c"],
                                 ["PROPOSITION", "prop_p"]])
+
+
+CUSTOM = """\
+theory Cust
+  imports Main
+  keywords "my_thm" :: thy_goal
+begin
+
+lemma base_l: "True"
+  by simp
+
+my_thm cust_g: "True"
+  by (rule base_l)
+
+end
+"""
+
+
+class HeaderDeclaredGoal(unittest.TestCase):
+
+    def setUp(self):
+        self.sec = section_from(CUSTOM, theory="Cust")
+
+    def test_it_is_a_goal_not_a_theorem(self):
+        self.assertEqual(tags_by_name(self.sec),
+                         {"base_l": "LEMMA", "cust_g": "GOAL"})
+
+    def test_summary_counts_it_in_a_footnote(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            commands.cmd_summary([self.sec])
+        out = buf.getvalue().splitlines()
+        self.assertIn("| Cust | 12 | 0 | 1 | 0 | base_l |", out)
+        self.assertEqual(out[-1], "1 entry is a goal of a header-declared "
+                                  "command (tag GOAL), counted in neither L "
+                                  "nor T.")
+
+    def test_no_footnote_without_one(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            commands.cmd_summary([section_from(GOALS, theory="Goals")])
+        self.assertNotIn("GOAL", buf.getvalue())
 
 
 if __name__ == "__main__":

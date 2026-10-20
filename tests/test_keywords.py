@@ -42,9 +42,9 @@ class ScanKeywordBlock(unittest.TestCase):
         return scan(hdr)
 
     def test_kind_to_family(self):
-        # thy_goal* -> THEOREM (proof-bearing), thy_defn/thy_decl* -> DEF
-        self.assertEqual(self._scan('keywords "g" :: thy_goal'), {"g": "THEOREM"})
-        self.assertEqual(self._scan('keywords "s" :: thy_goal_stmt'), {"s": "THEOREM"})
+        # thy_goal* -> GOAL (proof-bearing), thy_defn/thy_decl* -> DEF
+        self.assertEqual(self._scan('keywords "g" :: thy_goal'), {"g": "GOAL"})
+        self.assertEqual(self._scan('keywords "s" :: thy_goal_stmt'), {"s": "GOAL"})
         self.assertEqual(self._scan('keywords "d" :: thy_defn'), {"d": "DEF"})
         self.assertEqual(self._scan('keywords "c" :: thy_decl'), {"c": "DEF"})
         self.assertEqual(self._scan('keywords "b" :: thy_decl_block'), {"b": "DEF"})
@@ -69,13 +69,13 @@ class ScanKeywordBlock(unittest.TestCase):
         # `ensures`/`returns`/`variant` are syntax of program_spec, not commands
         got = self._scan('keywords "ensures"\n     and "returns" "variant"\n'
                          '     and "program_spec" :: thy_goal')
-        self.assertEqual(got, {"program_spec": "THEOREM"})
+        self.assertEqual(got, {"program_spec": "GOAL"})
 
     def test_tag_value_is_not_a_name(self):
         # the `% "proof"` tag value must not be captured as a command name
         self.assertEqual(self._scan('keywords "@qed" :: prf_block % "proof"'), {})
         self.assertEqual(self._scan('keywords "g" :: thy_goal % "proof"'),
-                         {"g": "THEOREM"})
+                         {"g": "GOAL"})
 
     def test_glued_colon_kind(self):
         self.assertEqual(self._scan('keywords "named_rules"::thy_decl'),
@@ -96,7 +96,7 @@ AOT_theorem "foo:1": \<open>p \<rightarrow> p\<close>
   by simp
 end
 '''
-        self.assertEqual(entries_of(snippet), [("THEOREM", "foo:1")])
+        self.assertEqual(entries_of(snippet), [("GOAL", "foo:1")])
 
     def test_decl_command_bare_name(self):
         snippet = r'''theory T imports Main
@@ -130,8 +130,8 @@ AOT_theorem "bar:2": \<open>q\<close> by simp
 end
 '''
         ents = cli.extract_entries(snippet.splitlines(),
-                                   custom={"AOT_theorem": "THEOREM"})
-        self.assertEqual([(e.tag, e.name) for e in ents], [("THEOREM", "bar:2")])
+                                   custom={"AOT_theorem": "GOAL"})
+        self.assertEqual([(e.tag, e.name) for e in ents], [("GOAL", "bar:2")])
 
     def test_unknown_command_stays_unrecognised(self):
         snippet = r'''theory T imports Main begin

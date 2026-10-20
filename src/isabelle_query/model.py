@@ -420,7 +420,13 @@ _DEFINITION_TAGS = frozenset(
 # they are one command under four display strings.  The tag keeps the string
 # the author wrote all the same, because the author chose it: `theorem` and
 # `corollary` are how a development marks the results it is *for* (#22).
-_GOAL_TAGS = frozenset({"LEMMA", "THEOREM", "COROLLARY", "PROPOSITION"})
+#
+# `GOAL` is a goal command a theory header declares (`AOT_theorem`,
+# `tts_lemma`, `sepref_thm` :: thy_goal).  Its kind says it has a proof and
+# nothing about the role of what it proves, and reading the role off the
+# command's name would be a guess, so it is neither a lemma nor a result.
+_GOAL_TAGS = frozenset({"LEMMA", "THEOREM", "COROLLARY", "PROPOSITION",
+                        "GOAL"})
 # The goal keywords that announce a result rather than a step towards one —
 # `summary`'s T column, and the `keyword` evidence `unused` reports on a leaf.
 _RESULT_TAGS = frozenset({"THEOREM", "COROLLARY", "PROPOSITION"})

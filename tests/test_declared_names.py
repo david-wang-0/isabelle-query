@@ -233,7 +233,7 @@ definition d :: "nat"
         # AOT's `AOT_register_type_constraints Individual: ... and
         # Proposition: ...` separates type-constraint CATEGORIES with `and`,
         # not constants.  A custom command's grammar is its own; the tag gate
-        # excludes it, since a custom keyword only ever maps to DEF/THEOREM.
+        # excludes it, since a custom keyword only ever maps to DEF/GOAL.
         src = ('theory T imports Main\n'
                '  keywords "AOT_register_type_constraints" :: thy_decl\n'
                'begin\n'

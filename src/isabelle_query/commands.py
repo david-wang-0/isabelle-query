@@ -135,6 +135,20 @@ def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
     return d, lem, thm
 
 
+def _goal_note(sections: list[TheorySection]) -> None:
+    """The footnote for `GOAL` entries, which L and T leave out.
+
+    A header-declared goal command (`AOT_theorem`, `tts_lemma`) proves
+    something, but its kind does not say whether a lemma or a result, so it
+    is counted in neither column [goal-tags].  A footnote rather than a G
+    column, since almost every theory has none."""
+    n = sum(1 for sec in sections for e in sec.entries if e.tag == "GOAL")
+    if n:
+        what = "entry is a goal" if n == 1 else "entries are goals"
+        print(f"\n{n:,} {what} of a header-declared command (tag GOAL), "
+              f"counted in neither L nor T.")
+
+
 def cmd_summary(sections: list[TheorySection], *,
                 by_session: bool = False,
                 verbose: bool = False,
@@ -181,6 +195,7 @@ def cmd_summary(sections: list[TheorySection], *,
 
         print(f"| {sec.theory} | {sec.thy_lines} | "
               f"{len(defs)} | {len(lemmas)} | {len(thms)} | {exports} |")
+    _goal_note(sections)
 
 
 def _summary_aggregate(sections: list[TheorySection], *,
@@ -224,8 +239,8 @@ def _summary_aggregate(sections: list[TheorySection], *,
         return
 
     print("Per-session aggregate — `Src` is summed `.thy` line counts "
-          "(`wc -l`-comparable), `D`/`L`/`T` are definition / lemma / theorem "
-          "counts.\n")
+          "(`wc -l`-comparable), `D`/`L`/`T` are definition / lemma / result "
+          "(theorem, corollary, proposition) counts.\n")
 
     if verbose:
         for name, secs in groups.items():
@@ -237,6 +252,7 @@ def _summary_aggregate(sections: list[TheorySection], *,
                 d, lem, thm = _tag_counts(sec)
                 print(f"| {sec.theory} | {sec.thy_lines} | {d} | {lem} | {thm} |")
             print()
+        _goal_note(sections)
         return
 
     print("| Session | Thy | Src | D | L | T |")
@@ -252,6 +268,7 @@ def _summary_aggregate(sections: list[TheorySection], *,
         print(f"| {name} | {len(secs)} | {g_src} | {g_d} | {g_l} | {g_t} |")
     print(f"| **TOTAL** | {tot_thy} | {tot_src} | "
           f"{tot_d} | {tot_l} | {tot_t} |")
+    _goal_note(sections)
 
 
 def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection | None:

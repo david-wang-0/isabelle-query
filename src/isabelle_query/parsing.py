@@ -97,10 +97,14 @@ TAG_MAP = {
 # up.  (The built-in `function` is the common `thy_goal_defn`, but it is handled
 # by DECL_RE as a `FUN` definition — like `fun` — so its constant lands in
 # `defs`; the trailing `by`/`termination` proof falls inside the def body span.)
+#
+# A goal kind maps to `GOAL`, not `THEOREM` [goal-tags]: the kind says the
+# command proves something, not whether `tts_lemma` states a lemma or a
+# result, and only the built-in keywords carry the author's word for that.
 _KIND_FAMILY = {
-    "thy_goal": "THEOREM",
-    "thy_goal_stmt": "THEOREM",
-    "thy_goal_defn": "THEOREM",
+    "thy_goal": "GOAL",
+    "thy_goal_stmt": "GOAL",
+    "thy_goal_defn": "GOAL",
     "thy_defn": "DEF",
     "thy_decl": "DEF",
     "thy_decl_block": "DEF",
@@ -119,7 +123,7 @@ def _route_for(keyword: str, tag: str) -> str:
     """Which extract_entries branch handles a command with this tag.
 
     Derived from the tag (not a second keyword table) so built-in and custom
-    commands route uniformly: a custom `thy_goal` command (tag THEOREM) takes
+    commands route uniformly: a custom `thy_goal` command (tag GOAL) takes
     the same `goal` branch as `theorem`, a custom `thy_decl`/`thy_defn` (tag
     DEF) the same `def` branch as `definition`."""
     if keyword == "axiomatization":
@@ -418,7 +422,7 @@ def _field_continues(outer: list[str], live: list[str], i: int) -> bool:
 # of particular Isabelle commands rather than of definitional syntax at large:
 # `definition` and `abbreviation` do not take one.  The gate also excludes
 # custom commands by construction — `_KIND_FAMILY` only ever maps a declared
-# keyword to DEF or THEOREM — and that matters: AOT's `AOT_register_type_
+# keyword to DEF or GOAL — and that matters: AOT's `AOT_register_type_
 # constraints Individual: ... and Proposition: ...` reads as a sibling list,
 # but its `and`s separate type-constraint categories, not constants.  A custom
 # command's grammar is its own, so it must not be guessed at.
