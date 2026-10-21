@@ -582,13 +582,25 @@ class _Visibility:
         # default because the bulk call graph has no such nodes: its name set
         # is entries only, and giving its visibility a wider declared set than
         # its node set would change nothing it reports while costing a pass.
+        #
+        # ``public_in`` is the same map without the `private` declarations
+        # [decl-modifier].  Isabelle hides a private name outside the block
+        # that declares it, under any spelling, so from another theory only
+        # the public ones can be meant.  Within the declaring theory the
+        # block is not checked: citing a private name after its block ends is
+        # an error, so valid source never does it.  `qualified` needs no
+        # entry here: outside its theory it is reachable only as `Thy.name`,
+        # which the closure rule already scopes — the citation scan reads
+        # that spelling's `name` and asks about it like any other.
         self.declared_in: dict[str, set[str]] = {}
+        self.public_in: dict[str, set[str]] = {}
         for sec in sections:
             for e in sec.entries:
-                self.declared_in.setdefault(e.name, set()).add(sec.theory)
-                if bound_names:
-                    for n in e.bound_names:
-                        self.declared_in.setdefault(n, set()).add(sec.theory)
+                names = [e.name] + (e.bound_names if bound_names else [])
+                for n in names:
+                    self.declared_in.setdefault(n, set()).add(sec.theory)
+                    if e.visibility != "private":
+                        self.public_in.setdefault(n, set()).add(sec.theory)
 
     def _read_imports(self, theory: str) -> list[str] | None:
         """The in-project imports of EVERY section of this name, unioned, or
@@ -663,22 +675,33 @@ class _Visibility:
 
         All of ``decls`` under ``mode="name"``, or when some closure cannot
         be read, or when none is visible (the edge was kept on an unknown
-        closure) — the rule may only drop where it is confident.
+        closure) — the rule may only drop where it is confident.  Less only
+        the other theories' `private` declarations in the last two cases,
+        since that rule reads no header.
         """
         if self.mode != "closure":
             return decls
+        theories = list(theories)
+        # A private declaration is named only from its own theory
+        # [decl-modifier].  That rule does not depend on reading a header,
+        # so it applies even where the closure below cannot — unless it
+        # leaves nothing, which means the edge was kept for some other
+        # reason and dropping every row would be the guess.
+        pool = [d for d in decls
+                if d[1].visibility != "private" or d[0].theory in theories]
+        pool = pool or decls
         best: dict[int, int] = {}
         for t in theories:
             depths = self.depths(t)
             if depths is None:
-                return decls
-            for i, (sec, _e) in enumerate(decls):
+                return pool
+            for i, (sec, _e) in enumerate(pool):
                 d = depths.get(sec.theory)
                 if d is not None and d < best.get(i, d + 1):
                     best[i] = d
         if not best:
-            return decls
-        return [decls[i] for i in sorted(best, key=lambda i: (best[i], i))]
+            return pool
+        return [pool[i] for i in sorted(best, key=lambda i: (best[i], i))]
 
     def sees(self, theory: str, name: str) -> bool:
         """May a site in ``theory`` be naming the project's ``name``?"""
@@ -689,10 +712,13 @@ class _Visibility:
             return True                 # declared nowhere: nothing to scope to
         if theory in decl:
             return True                 # the fast path, and the common one
+        public = self.public_in.get(name)
+        if not public:
+            return False                # private wherever declared, not here
         reach = self.depths(theory)
         if reach is None:
             return True                 # unknown closure: do not drop an edge
-        return not decl.isdisjoint(reach)
+        return not public.isdisjoint(reach)
 
 
 def site_filter(sections: list[TheorySection], name: str,
@@ -737,6 +763,44 @@ def site_filter(sections: list[TheorySection], name: str,
         return lambda theory: True
     vis = _Visibility(sections, reach, bound_names=True)
     return lambda theory: vis.sees(theory, name)
+
+
+# A fact antiquotation: `@{thm foo}`, `@{thm [display] foo bar}`, `@{thms
+# foo}`, the style forms, and the cartouche spelling `\<^thm>‹foo›`.  Not
+# `@{lemma "P" by simp}`, which states a proposition rather than naming one.
+_AT_ANTIQ_RE = re.compile(
+    r"@\{\s*(?:thm|thms|thm_style|named_thms)\b([^}]*)\}")
+_CART_ANTIQ_RE = re.compile(
+    r"\\<\^(?:thm|thms)>\s*(?:\\<open>|‹)(.*?)(?:\\<close>|›)", re.S)
+_ANTIQ_ATTRS_RE = re.compile(r"\[[^\]]*\]")
+_ANTIQ_NAME_RE = re.compile(r"[A-Za-z][\w'.]*")
+
+
+def doc_mentions(sections: list[TheorySection]) -> dict[str, set[str]]:
+    r"""``{name: the theories naming it in a fact antiquotation}``
+    [leaf-evidence].
+
+    The citation graph strips these on purpose (`antiq_re` below): a name
+    shown in a document is not a proof that uses it.  It is evidence that the
+    author means it to stay, though, which is what `unused` reports — a
+    result printed in the paper the theory renders is not dead code.  The raw
+    source is read, so an ML `@{thm foo}` counts too, and that use is real.
+
+    A mention is reduced to the name it points at: `foo(2)` and `Thy.foo`
+    are `foo`, the graph's node.  Which declaration it can mean is the
+    caller's question (:meth:`_Visibility.sees`)."""
+    out: dict[str, set[str]] = {}
+    for sec in sections:
+        text = "\n".join(sec.source())
+        if "thm" not in text:
+            continue
+        bodies = [m.group(1) for m in _AT_ANTIQ_RE.finditer(text)]
+        bodies += [m.group(1) for m in _CART_ANTIQ_RE.finditer(text)]
+        for body in bodies:
+            for n in _ANTIQ_NAME_RE.findall(_ANTIQ_ATTRS_RE.sub(" ", body)):
+                bare = n.split("(", 1)[0].rsplit(".", 1)[-1]
+                out.setdefault(bare, set()).add(sec.theory)
+    return out
 
 
 def _build_call_graph(sections: list[TheorySection],

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from isabelle_query.model import (
     _ANNOTATION_KINDS,
+    _GOAL_TAGS,
     CmdFlags,
     Entry,
     TheorySection,
@@ -249,7 +250,8 @@ def _statement_text(sec: TheorySection, entry: Entry) -> str:
 def _entry_header(sec: TheorySection, entry: Entry,
                   rank: tuple[int, int] | None = None) -> str:
     pos = f"[{rank[0]} of {rank[1]}] " if rank else ""
-    return (f"--- {entry.name} ({entry.tag}) — {sec.theory}.thy "
+    tag = f"{entry.tag}, {entry.visibility}" if entry.visibility else entry.tag
+    return (f"--- {entry.name} ({tag}) — {sec.theory}.thy "
             f"{pos}{_format_extent(entry)} ---")
 
 
@@ -270,7 +272,7 @@ def render_premises(sec: TheorySection, entry: Entry,
     out = [_entry_header(sec, entry, rank)]
     st = statement_of(sec, entry)
     if st is None:
-        if entry.tag in ("LEMMA", "THEOREM"):
+        if entry.tag in _GOAL_TAGS:
             out.append("  (statement not recognised; see --statement)")
         else:
             out.append(f"  (no goal statement: a {entry.tag})")

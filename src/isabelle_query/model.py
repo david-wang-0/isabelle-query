@@ -10,7 +10,8 @@ without risking a cycle.
   everywhere).
 * :class:`CmdFlags` — the uniform flag bundle threaded from the CLI into each
   command function.
-* The tag frozensets (:data:`_DEFINITION_TAGS`, :data:`_CITABLE_TAGS`) and the
+* The tag frozensets (:data:`_DEFINITION_TAGS`, :data:`_GOAL_TAGS`,
+  :data:`_RESULT_TAGS`, :data:`_CITABLE_TAGS`) and the
   call-graph short-name floor (:data:`_DROP_NAMES_UPTO`) — membership lists
   named once here so they can't drift between the call sites that share them.
 * :func:`theory_labels` / :func:`locus_labels` — the name a theory prints
@@ -71,7 +72,7 @@ def blank_all(lines: list[str],
 
 @dataclass
 class Entry:
-    tag: str            # DEF, FUN, LEMMA, THEOREM, DATATYPE, TYPE, RECORD, AXIOM
+    tag: str            # DEF, FUN, LEMMA, THEOREM, COROLLARY, DATATYPE, ... AXIOM
     name: str           # identifier
     text: str           # legacy pre-formatted text (for `theory` dump)
     theory: str = ""
@@ -153,6 +154,14 @@ class Entry:
         # text sits, `(in foo)` says where the declaration goes regardless of
         # where it sits, and Isabelle lets the two disagree.  Both are kept;
         # `target` below decides.
+    attrs: tuple[str, ...] = ()
+        # The attribute names on this declaration's own name, `("simp",)` for
+        # `lemma foo [simp]:` [implicit-use].  Facts and fact bindings only.
+    visibility: str = ""
+        # `private` / `qualified` written before the command, '' for neither
+        # [decl-modifier].  A private name is visible only inside the local
+        # theory block that declares it; a qualified one, outside that block,
+        # only under its theory-qualified spelling.
 
     @property
     def target(self) -> str:
@@ -405,6 +414,23 @@ class CallGraph:
 _DEFINITION_TAGS = frozenset(
     {"DEF", "ABBREV", "FUN", "DATATYPE", "RECORD", "TYPE"})
 
+# The goal commands: a statement, proved on the spot [goal-tags].  Pure
+# declares `theorem lemma corollary proposition :: thy_goal_stmt` on one line
+# (Pure.thy:54) and registers the four through one combinator, so to Isabelle
+# they are one command under four display strings.  The tag keeps the string
+# the author wrote all the same, because the author chose it: `theorem` and
+# `corollary` are how a development marks the results it is *for* (#22).
+#
+# `GOAL` is a goal command a theory header declares (`AOT_theorem`,
+# `tts_lemma`, `sepref_thm` :: thy_goal).  Its kind says it has a proof and
+# nothing about the role of what it proves, and reading the role off the
+# command's name would be a guess, so it is neither a lemma nor a result.
+_GOAL_TAGS = frozenset({"LEMMA", "THEOREM", "COROLLARY", "PROPOSITION",
+                        "GOAL"})
+# The goal keywords that announce a result rather than a step towards one —
+# `summary`'s T column, and the `keyword` evidence `unused` reports on a leaf.
+_RESULT_TAGS = frozenset({"THEOREM", "COROLLARY", "PROPOSITION"})
+
 # The three parts of an entry a marginal note can be talking about, in source
 # order.  An entry is: the declaration line, then its statement, then (for a
 # fact) its proof — so a note's line number relative to `thy_line` and
@@ -421,7 +447,7 @@ _DEFINITION_TAGS = frozenset(
 #
 # Ordered, so a display can iterate them in the order they appear in source.
 _ANNOTATION_KINDS = ("decl", "statement", "proof")
-_CITABLE_TAGS = frozenset({"LEMMA", "THEOREM", "LEMMAS", "FUN", "DEF", "ABBREV"})
+_CITABLE_TAGS = _GOAL_TAGS | {"LEMMAS", "FUN", "DEF", "ABBREV"}
 
 # The kinds of extra name an `Entry` may bind (see `Entry.bindings`), each with
 # the phrasing a command uses to explain the resolution to the reader.  They
@@ -471,6 +497,8 @@ class CmdFlags:
     by_theory: bool = False      # --by-theory (unused)
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
+    keep_file: str | None = None  # --keep-file / `.query-keep` [keep-file]
+    evidence: str = "mark"       # --evidence mark|hide (unused) [leaf-evidence]
     external: bool = False       # --external (callers: skip defining theory)
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
     # --reach: "closure" attributes a citation only to declarations the citing

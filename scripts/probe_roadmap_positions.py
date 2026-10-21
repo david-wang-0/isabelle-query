@@ -24,6 +24,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 from isabelle_query import cli, parsing  # noqa: E402
+from isabelle_query.model import _GOAL_TAGS  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 120
@@ -81,7 +82,7 @@ for ent in sorted(d for d in AFP.iterdir() if d.is_dir())[:LIMIT]:
                 # notes are dropped for the wrong reason.
                 proofless_tags[e.tag] += 1
                 note("entry has no proof_line", thy_path.stem, line_no, lines, e)
-                if e.tag in ("LEMMA", "THEOREM"):
+                if e.tag in _GOAL_TAGS:
                     # The parser-gap subset: a fact WITH a proof whose
                     # `proof_line` was never found.  Small enough to read.
                     note(f"no proof_line but tag={e.tag}", thy_path.stem,

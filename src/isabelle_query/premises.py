@@ -30,8 +30,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from isabelle_query.model import Entry, TheorySection
-from isabelle_query.parsing import _balanced_end
+from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection
+from isabelle_query.parsing import _balanced_end, attr_heads
 
 # Isar statement elements (`Pure.thy`, `Parse_Spec.statement`).
 _ELEMENTS = frozenset({"fixes", "constrains", "assumes", "defines", "notes",
@@ -52,6 +52,7 @@ class Premise:
     cite: str     # `assms(2)` / `that(1)`; "" when there is no such name
     label: str    # the premise's own label, `wf` or `wf(2)`; "" if none
     text: str     # the proposition, delimiters stripped, whitespace collapsed
+    attrs: tuple[str, ...] = ()   # the label's attributes: `simp` in `a[simp]:`
 
 
 @dataclass
@@ -217,15 +218,15 @@ def _split_lbrakk(p: str) -> list[str]:
 # --- the statement ---------------------------------------------------------
 
 def _groups(toks, i, stop):
-    """`(label, [terms])` groups separated by `and`, from token `i` up to the
-    first token `stop(tok)` accepts.  Returns `(groups, next index)`."""
-    groups: list[tuple[str, list[str]]] = []
-    label, terms = "", []
+    """`(label, attrs, [terms])` groups separated by `and`, from token `i` up
+    to the first token `stop(tok)` accepts.  Returns `(groups, next index)`."""
+    groups: list[tuple[str, tuple[str, ...], list[str]]] = []
+    label, attrs, terms = "", (), []
     while i < len(toks) and not stop(toks[i]):
         kind, text = toks[i]
         if kind == "word" and text == "and":
-            groups.append((label, terms))
-            label, terms = "", []
+            groups.append((label, attrs, terms))
+            label, attrs, terms = "", (), []
         elif kind == "word":
             # `name [attrs]? :` labels the group; any other word is a
             # proposition written bare -- `shows False`, `assumes trans` --
@@ -235,14 +236,16 @@ def _groups(toks, i, stop):
                 j += 1
             if not terms and j < len(toks) and toks[j] == ("punct", ":"):
                 label = text
+                if j > i + 1:
+                    attrs = attr_heads(toks[i + 1][1][1:-1])
                 i = j
             else:
                 terms.append(text)
         elif kind == "term":
             terms.append(_collapse(text))
         i += 1
-    groups.append((label, terms))
-    return [g for g in groups if g[1]], i
+    groups.append((label, attrs, terms))
+    return [g for g in groups if g[2]], i
 
 
 def _is_proof(tok) -> bool:
@@ -275,7 +278,7 @@ def read_statement(text: str) -> Statement | None:
 
     def add(kind, groups):
         nonlocal assms, that
-        for label, terms in groups:
+        for label, attrs, terms in groups:
             for k, t in enumerate(terms, start=1):
                 lab = (label if len(terms) == 1 or not label
                        else f"{label}({k})")
@@ -287,7 +290,7 @@ def read_statement(text: str) -> Statement | None:
                     cite = f"that({that})"
                 else:
                     cite = ""
-                st.premises.append(Premise(kind, cite, lab, t))
+                st.premises.append(Premise(kind, cite, lab, t, attrs))
 
     def at_element(tok) -> bool:
         return (tok[0] == "word" and tok[1] in _ELEMENTS) or _is_proof(tok)
@@ -300,7 +303,7 @@ def read_statement(text: str) -> Statement | None:
             if kw in ("assumes", "defines", "shows"):
                 groups, i = _groups(toks, i, at_element)
                 if kw == "shows":
-                    shows += [t for _l, ts in groups for t in ts]
+                    shows += [t for _l, _a, ts in groups for t in ts]
                 else:
                     add(kw, groups)
             elif kw == "obtains":
@@ -316,7 +319,7 @@ def read_statement(text: str) -> Statement | None:
         def short_stop(tok) -> bool:
             return _is_proof(tok) or tok in (("word", "if"), ("word", "for"))
         groups, i = _groups(toks, i, short_stop)
-        shows = [t for _l, ts in groups for t in ts]
+        shows = [t for _l, _a, ts in groups for t in ts]
         if i < len(toks) and toks[i] == ("word", "if"):
             groups, i = _groups(toks, i + 1, short_stop)
             add("if", groups)
@@ -332,8 +335,8 @@ def read_statement(text: str) -> Statement | None:
 
 
 def statement_of(sec: TheorySection, e: Entry) -> Statement | None:
-    """The parsed statement of a LEMMA/THEOREM entry, else None."""
-    if e.tag not in ("LEMMA", "THEOREM") or not e.thy_line:
+    """The parsed statement of a goal entry (`lemma`, `theorem`, ...), else None."""
+    if e.tag not in _GOAL_TAGS or not e.thy_line:
         return None
     live = sec.live_source()
     # `decl_end_line` stops at a blank inside the statement, where the proof

@@ -37,7 +37,7 @@ from isabelle_layout import (
     parse_root_sessions,
     session_theories,
 )
-from isabelle_query.model import Entry, TheorySection, blank_all
+from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection, blank_all
 
 # `(?=\s|$)` (a token boundary), not a consumed `\s`, so a keyword standing
 # ALONE on its line — the "name on a following line" form — still matches.
@@ -51,15 +51,15 @@ TAG_MAP = {
     "definition": "DEF", "abbreviation": "ABBREV",
     "function": "FUN", "fun": "FUN", "primrec": "FUN",
     "inductive_set": "INDSET", "inductive": "IND",
-    # `proposition` is `lemma` under another display string: Pure declares
-    # `theorem` `lemma` `corollary` `proposition` together on one line as
-    # `thy_goal_stmt` (Pure.thy:54) and registers all four through the same
-    # combinator, differing only in the word they print (Pure.thy:574-577).
-    # It rides with `corollary` — from that same line — rather than with
-    # `theorem`, since the LEMMA/THEOREM split here is presentational
-    # (`summary`'s two counts) and has no counterpart in Isabelle.
-    "lemma": "LEMMA", "corollary": "LEMMA", "proposition": "LEMMA",
-    "theorem": "THEOREM",
+    # Pure declares `theorem` `lemma` `corollary` `proposition` together on
+    # one line as `thy_goal_stmt` (Pure.thy:54) and registers all four
+    # through the same combinator, differing only in the word they print
+    # (Pure.thy:574-577).  So the four tags carry no Isabelle meaning — they
+    # record the word the author chose, and that choice is the signal: a
+    # `corollary` folded into LEMMA could not be told from scaffolding by a
+    # dead-code audit (#22) [goal-tags].  `model._GOAL_TAGS` is the family.
+    "lemma": "LEMMA", "theorem": "THEOREM",
+    "corollary": "COROLLARY", "proposition": "PROPOSITION",
     # `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
     # no statement and no proof, but a citable fact all the same, and the
     # names on its right-hand side are what it cites.  `theorems` is the same
@@ -97,10 +97,14 @@ TAG_MAP = {
 # up.  (The built-in `function` is the common `thy_goal_defn`, but it is handled
 # by DECL_RE as a `FUN` definition — like `fun` — so its constant lands in
 # `defs`; the trailing `by`/`termination` proof falls inside the def body span.)
+#
+# A goal kind maps to `GOAL`, not `THEOREM` [goal-tags]: the kind says the
+# command proves something, not whether `tts_lemma` states a lemma or a
+# result, and only the built-in keywords carry the author's word for that.
 _KIND_FAMILY = {
-    "thy_goal": "THEOREM",
-    "thy_goal_stmt": "THEOREM",
-    "thy_goal_defn": "THEOREM",
+    "thy_goal": "GOAL",
+    "thy_goal_stmt": "GOAL",
+    "thy_goal_defn": "GOAL",
     "thy_defn": "DEF",
     "thy_decl": "DEF",
     "thy_decl_block": "DEF",
@@ -119,7 +123,7 @@ def _route_for(keyword: str, tag: str) -> str:
     """Which extract_entries branch handles a command with this tag.
 
     Derived from the tag (not a second keyword table) so built-in and custom
-    commands route uniformly: a custom `thy_goal` command (tag THEOREM) takes
+    commands route uniformly: a custom `thy_goal` command (tag GOAL) takes
     the same `goal` branch as `theorem`, a custom `thy_decl`/`thy_defn` (tag
     DEF) the same `def` branch as `definition`."""
     if keyword == "axiomatization":
@@ -128,7 +132,7 @@ def _route_for(keyword: str, tag: str) -> str:
         return "target"
     if tag in ("DATATYPE", "TYPE", "RECORD"):
         return "typedecl"
-    if tag in ("LEMMA", "THEOREM"):
+    if tag in _GOAL_TAGS:
         return "goal"
     if tag == "LEMMAS":
         return "facts"
@@ -418,7 +422,7 @@ def _field_continues(outer: list[str], live: list[str], i: int) -> bool:
 # of particular Isabelle commands rather than of definitional syntax at large:
 # `definition` and `abbreviation` do not take one.  The gate also excludes
 # custom commands by construction — `_KIND_FAMILY` only ever maps a declared
-# keyword to DEF or THEOREM — and that matters: AOT's `AOT_register_type_
+# keyword to DEF or GOAL — and that matters: AOT's `AOT_register_type_
 # constraints Individual: ... and Proposition: ...` reads as a sibling list,
 # but its `and`s separate type-constraint categories, not constants.  A custom
 # command's grammar is its own, so it must not be guessed at.
@@ -1072,6 +1076,66 @@ def _parse_name(text_after_tag: str) -> str:
                       require_label=True)
 
 
+# Attributes that change a fact rather than declare it into a rule set
+# [implicit-use].  A fact carrying only these is as uncited as a bare one;
+# any OTHER attribute — `simp`, `intro`, `code`, `induct`, a `named_theorems`
+# name — hands the fact to a tool that uses it without citing it.  Shared by
+# `unused` (a declaration's own header) and `unused --locals` (a `have`'s).
+TRANSFORMING_ATTRS = frozenset({
+    "rule_format", "symmetric", "THEN", "OF", "of", "where", "unfolded",
+    "folded", "simplified", "abs_def", "elim_format", "rotated", "consumes",
+    "case_names", "format", "standard", "untagged", "no_vars", "to_pred",
+    "to_set", "atomize", "rulify", "transferred", "param"})
+
+_ATTR_HEAD_RE = re.compile(r"[A-Za-z_][\w.']*")
+_HEADER_NAME_RE = re.compile(r'(?:"[^"]*"|[^\s\[:"]+)\s*')
+
+
+def attr_heads(block: str) -> tuple[str, ...]:
+    """The attribute names in ``[a, b x, c!]`` (brackets excluded): the head
+    word of each comma-separated item, ignoring commas nested in brackets,
+    parentheses or quotes.  ``intro!`` is `intro`."""
+    items, depth, quote, cur = [], 0, "", []
+    for ch in block:
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch == '"':
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            items.append("".join(cur))
+            cur = []
+            continue
+        cur.append(ch)
+    items.append("".join(cur))
+    heads = (_ATTR_HEAD_RE.match(it.strip()) for it in items)
+    return tuple(m.group(0) for m in heads if m)
+
+
+def _header_attrs(text_after_tag: str) -> tuple[str, ...]:
+    """The attributes on a declaration's own name — `simp`, `intro` in
+    ``lemma foo [simp, intro!]: ...`` — or () when there are none."""
+    s = _strip_decl_prefix(text_after_tag.strip(), typevars=False)
+    m = _HEADER_NAME_RE.match(s)
+    if not m or m.end() >= len(s) or s[m.end()] != "[":
+        return ()
+    depth = 0
+    for j in range(m.end(), len(s)):
+        depth += {"[": 1, "]": -1}.get(s[j], 0)
+        if depth == 0:
+            return attr_heads(s[m.end() + 1:j])
+    return ()
+
+
+def implicitly_used(e: Entry) -> list[str]:
+    """The attributes by which *e* is used without being cited: its own
+    header's, less the transforming ones [implicit-use]."""
+    return [a for a in e.attrs if a not in TRANSFORMING_ATTRS]
+
+
 def _parse_typedecl_name(text_after_tag: str) -> str:
     r"""Parse a type_synonym / datatype / record's name, skipping any
     leading modifier (\<open>(discs_sels)\<close>) and type-argument list
@@ -1273,7 +1337,25 @@ def _match_decl_at(outer_line: str, table: dict[str, str]
     stripped = outer_line.lstrip()
     if not stripped:
         return None, 0
+    mm = _MODIFIER_RE.match(stripped)
+    if mm:
+        stripped = stripped[mm.end():]
     return _match_decl(stripped, table), len(outer_line) - len(stripped)
+
+
+# `private` / `qualified` before a declaring command [decl-modifier].  Pure.thy
+# declares both as `before_command` keywords: they qualify the command that
+# follows, so `private lemma helper` IS a `lemma`.  Read as part of the line
+# they were not, and since a declaration ends at the next one recognised, the
+# private lemma's lines were charged to the entry above — a `sorry` in one was
+# reported against its fully proved neighbour.
+_MODIFIER_RE = re.compile(r"(private|qualified)\s+")
+
+
+def _modifier_at(outer_line: str) -> str:
+    """The `private` / `qualified` written before this line's command, or ''."""
+    mm = _MODIFIER_RE.match(outer_line.lstrip())
+    return mm.group(1) if mm else ""
 
 
 # A decl keyword may stand alone on its line with the name on a *following*
@@ -2103,6 +2185,17 @@ def extract_entries(lines: list[str],
     skip = _line_mask(len(lines),
                       list(extract_text_blocks(lines)) + list(nonisar_ranges))
 
+    # The modifier belongs to every entry ONE command mints — `private lemmas
+    # a = x and b = y` makes both private, and the second starts on a later
+    # line than the modifier — so it is applied when the next command is
+    # matched (and once more at the end), to everything appended since.
+    modifier, mod_from = "", 0
+
+    def stamp() -> None:
+        if modifier:
+            for e in entries[mod_from:]:
+                e.visibility = modifier
+
     while i < len(lines):
         line = lines[i]
         # No line-level mask here: the outer view already blanks comments, ML
@@ -2116,6 +2209,8 @@ def extract_entries(lines: list[str],
             i += 1
             continue
 
+        stamp()
+        modifier, mod_from = _modifier_at(outer[i]), len(entries)
         keyword, tag, route = md
         # The keyword occupies the same columns in `outer` as in `line` — the
         # views are length-preserving — so the raw text after it starts here.
@@ -2270,7 +2365,9 @@ def extract_entries(lines: list[str],
                     + [f"  {ln.strip()}" for ln in lines[first:last]
                        if ln.strip()])
                 entries.append(Entry(tag, name, text, thy_line=first,
-                                     decl_end_line=last))
+                                     decl_end_line=last,
+                                     attrs=_header_attrs(
+                                         re.sub(r"^\s*and\s+", "", head))))
                 # `(in foo)` is written once, on the command line, and
                 # `_attach_targets` reads an entry's own first line.
                 mt = _IN_TARGET_RE.search(outer[decl_line - 1])
@@ -2376,11 +2473,13 @@ def extract_entries(lines: list[str],
                                  thy_line=decl_line,
                                  decl_end_line=decl_end_line,
                                  proof_line=proof_line,
-                                 bindings=[(c, "conjunct") for c in conjuncts]))
+                                 bindings=[(c, "conjunct") for c in conjuncts],
+                                 attrs=_header_attrs(rest)))
             continue
 
         i += 1
 
+    stamp()
     # A post-pass rather than threading through five Entry constructions: the
     # block chain is a property of the line an entry starts on, so it can be
     # read off once the entries exist and their start lines are known.

@@ -29,10 +29,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "src"))
 
 from isabelle_query import cli, parsing  # noqa: E402
+from isabelle_query.model import _GOAL_TAGS  # noqa: E402
 
 AFP = Path.home() / "repos" / "afp" / "thys"
 LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 120
-FACT_TAGS = {"LEMMA", "THEOREM", "COROLLARY"}
+FACT_TAGS = _GOAL_TAGS
 
 n_facts = n_missing = 0
 causes: Counter = Counter()

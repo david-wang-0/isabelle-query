@@ -140,6 +140,7 @@ from isabelle_query.render import (  # noqa: F401  (re-exported for the facade)
 # `cli._proof_blocks` / `cli._owner_field` references keep resolving.
 from isabelle_query.commands import (  # noqa: F401  (re-exported for the facade)
     EXIT_UNRESOLVED,
+    KEEP_FILE,
     _STDIN_NAME,
     _STDIN_PATH,
     _STDIN_SENTINEL,
@@ -337,6 +338,8 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     keep_args = getattr(ns, "keep", None) or []
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
+    f.evidence = getattr(ns, "evidence", "mark")
+    f.keep_file = getattr(ns, "keep_file", None)
     f.external = getattr(ns, "external", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
@@ -928,15 +931,26 @@ def _run_unused(ns: argparse.Namespace) -> None:
         if files:
             _usage_error("unused: PATH arguments need --locals; entry-level "
                          "`unused` is corpus-wide, scope it with -R")
-        cmd_unused(_load_sections(ns), flags)
+        sections = _load_sections(ns)
+        if flags.keep_file is not None:
+            if not Path(flags.keep_file).expanduser().is_file():
+                _usage_error(f"unused: {flags.keep_file}: no such keep file "
+                             "(given to --keep-file)")
+        else:
+            default = active_t_dir() / KEEP_FILE
+            if default.is_file():
+                flags.keep_file = str(default)
+        cmd_unused(sections, flags)
         return
-    if flags.recursive or flags.roots:
-        _usage_error("unused: --locals takes neither -r nor --roots")
+    if flags.roots:
+        _usage_error("unused: --locals does not take --roots")
     if not files:
         cmd_unused_locals(load_index(), flags)
         return
     sections, windows = _locals_selection(files)
-    cmd_unused_locals(sections, flags, windows)
+    # `-r` follows a dead premise to its callers, which may be anywhere.
+    cmd_unused_locals(sections, flags, windows,
+                      load_index() if flags.recursive else None)
 
 
 def _locals_selection(files: list[str]
@@ -1536,7 +1550,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("unused", help="list entries with zero callers")
     _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
-                   help="cascade: include entries whose callers are all unused")
+                   help="cascade: include entries whose callers are all "
+                        "unused.  With --locals: include a caller's `assumes` "
+                        "label read only to discharge an unread premise by "
+                        "`[OF ...]` position, tagged with the premise it fed")
     p.add_argument("--by-theory", action="store_true",
                    help="group by theory with line counts")
     p.add_argument("--roots", action="store_true",
@@ -1546,10 +1563,36 @@ def _build_parser() -> argparse.ArgumentParser:
                         "unused, and stop the cascade at them).  Repeatable, "
                         "or pass a comma-separated list.  Use for AFP-headline "
                         "theorems and other intentional zero-caller entries.")
+    p.add_argument("--keep-file", metavar="PATH",
+                   help="read more names to keep from PATH, default "
+                        f"`{KEEP_FILE}` in the root when it exists.  One "
+                        "entry per line, `THEORY NAME [NOTE...]`, separated "
+                        "by whitespace; THEORY is a name or a path relative "
+                        "to the file, NOTE is free text, `#` starts a "
+                        "comment line.  The names act as --keep does, so a "
+                        "result kept for independent interest is decided "
+                        "once, with its reason")
+    p.add_argument("--evidence", "--implicit", dest="evidence",
+                   choices=("mark", "hide"), default="mark",
+                   help="an uncited entry may still be meant to stay, and "
+                        "the evidence for it is listed per entry: the "
+                        "keyword it was stated with (`theorem`, `corollary`, "
+                        "`proposition`), a declaring attribute on its own "
+                        "header that hands it to a tool (`[simp]`, `[intro]`, "
+                        "`[code]`, a named_theorems name), a document "
+                        "antiquotation naming it (`@{thm foo}`: `doc`).  "
+                        "Such entries stop the -r cascade, like --keep; "
+                        "`mark` (default) still lists them, tagged "
+                        "`[evidence: corollary, simp]`, `hide` drops them, "
+                        "leaving only the entries with none.  (`--implicit` "
+                        "is the 0.9.9 spelling.)")
     p.add_argument("--locals", action="store_true",
                    help="one level down: proof-local names (`have NAME:`, "
                         "`obtain ... where NAME:`, `note NAME =`, `define`, "
-                        "`let ?NAME`) that nothing in their scope reads.  "
+                        "`let ?NAME`, and the statement's own `assumes "
+                        "NAME:` / `if NAME:`) that nothing in their scope "
+                        "reads; a premise cited through `assms` / `that` is "
+                        "read.  "
                         "PATHs narrow it, as a file, `THY:A..B` / `THY:LINE` "
                         "(the proofs that span touches) or `THY:ENTRY`.  "
                         "CANDIDATES, not a delete list: a fact used through a "
