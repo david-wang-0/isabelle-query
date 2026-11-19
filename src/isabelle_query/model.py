@@ -25,6 +25,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeVar
 
 
 def _blank_spans(line: str, spans: list[tuple[int, int]]) -> str:
@@ -100,6 +101,15 @@ class Entry:
     preamble: tuple[int, int] | None = None
         # (start, end) of the `text \<open>...\<close>` block immediately
         # preceding this entry, if one exists within ~3 blank lines.
+    preamble_follows_heading: bool = False
+        # A heading lies above the preamble with no other entry or proof in
+        # between, so the `text` may introduce the section rather than
+        # document this entry.  `cut_span` still starts at the preamble; a
+        # tool that moves or deletes the entry should ask here, not guess.
+        # The other reading is `cut_span and (thy_line, cut_span[1])`: the
+        # end never precedes `thy_line`, so it is the same span from the
+        # declaration on, `None` in the same cases [preamble-choice].
+        # Set by `_mark_preambles_under_headings` [preamble-heading].
     annotations: list[tuple[int, str, str]] = field(default_factory=list)
         # (line_no, content, kind) for every `\<comment> \<open>...\<close>`
         # marginal note inside this entry's span [thy_line .. thy_end], tagged
@@ -203,9 +213,15 @@ class Entry:
 
     shares_line: bool = False
         # Another entry's line span meets this one's: two declarations written
-        # on one line (`consts F G`, a one-line `axiomatization`), or a body
-        # ending on the line the next declaration starts.  Lines cannot
+        # on one line (`consts F G`, a one-line `axiomatization`, `by simp
+        # lemma b`), or a body ending on the line the next declaration starts.  Lines cannot
         # separate them, so `cut_span` is None.  Set by `_mark_shared_lines`.
+
+    runs_into_next: bool = False
+        # The next declaration starts mid-line on a line this entry's own
+        # text reaches (`by simp lemma b: ...`), so this entry's span runs
+        # through that line and both entries have `shares_line` set.  Set by
+        # `extract_entries` [midline-decl].
 
     def _line_cut(self) -> tuple[int, int]:
         """`cut_span` before the shared-line check: the extent alone."""
@@ -290,6 +306,12 @@ class TheorySection:
         # when its spans cover every non-blank character, whereas a line that
         # merely ENDS in a comment appears only here.  Consumed by
         # `live_source`.
+    unread_spans: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
+        # The part of `nonisar_spans` Isabelle never reads [antiq-comment]:
+        # `(* ... *)` comments and the bodies of `\<^cancel>`, `\<^latex>` and
+        # `\<^marker>`.  An antiquotation there is not checked; one in an ML
+        # body or a `\<comment>` note is.  Only the tokenizer can tell them
+        # apart (`parsing._scan_nonisar_spans`).
     inner_spans: dict[int, list[tuple[int, int]]] = field(default_factory=dict)
         # Everything that is NOT outer syntax, at character granularity:
         # `nonisar_spans` PLUS the `"..."` terms and live cartouches that scan
@@ -316,6 +338,13 @@ class TheorySection:
         # the build's own first-declaration-wins dedup).  Consumed by
         # `summary --by-session` to roll theory-level counts up to the
         # session / corpus level.
+    proof_owners: list[Entry] = field(default_factory=list)
+        # Commands that carry a proof but are not goal entries — `instance`,
+        # `sublocale`, `termination`, `typedef`, `notepad`, ... — kept OUT of
+        # `entries`, so no verb but `shape` sees them [proof-owners].  Each is
+        # an `Entry` tagged with its command keyword (`INSTANCE`), named when
+        # the command declares a name and `?` otherwise, with `proof_line` /
+        # `body_end_line` set as for an entry.  See `parsing.PROOF_OWNERS`.
     line_window: tuple[int, int | None] | None = None
         # Optional inclusive 1-indexed [lo, hi] line window from a grep
         # `PATH:A..B` positional, set by `_load_sections(windows=True)`.
@@ -425,8 +454,12 @@ _DEFINITION_TAGS = frozenset(
 # `tts_lemma`, `sepref_thm` :: thy_goal).  Its kind says it has a proof and
 # nothing about the role of what it proves, and reading the role off the
 # command's name would be a guess, so it is neither a lemma nor a result.
+#
+# `SCHEMATIC` is `schematic_goal`, the fifth `thy_goal_stmt` (Pure.thy:55):
+# the same combinator with the `schematic` flag, so the proof may instantiate
+# the statement's `?x` — a term synthesised by proving, not a result (#23).
 _GOAL_TAGS = frozenset({"LEMMA", "THEOREM", "COROLLARY", "PROPOSITION",
-                        "GOAL"})
+                        "SCHEMATIC", "GOAL"})
 # The goal keywords that announce a result rather than a step towards one —
 # `summary`'s T column, and the `keyword` evidence `unused` reports on a leaf.
 _RESULT_TAGS = frozenset({"THEOREM", "COROLLARY", "PROPOSITION"})
@@ -498,8 +531,13 @@ class CmdFlags:
     roots: bool = False          # --roots (unused)
     keep: frozenset[str] = frozenset()  # --keep (unused: live roots)
     keep_file: str | None = None  # --keep-file / `.query-keep` [keep-file]
+    # --assume-deleted / --assume-deleted-file (unused) [assume-deleted]
+    assume_deleted: frozenset[str] = frozenset()
+    assume_deleted_file: str | None = None
     evidence: str = "mark"       # --evidence mark|hide (unused) [leaf-evidence]
+    spans: bool = False          # --spans (unused --locals) [local-spans]
     external: bool = False       # --external (callers: skip defining theory)
+    antiquotations: bool = False  # --antiquotations (callers) [doc-antiq]
     drop_names_upto: int = _DROP_NAMES_UPTO  # --drop-names-upto (call graph)
     # --reach: "closure" attributes a citation only to declarations the citing
     # theory can SEE; "name" is the old name-only matching, kept so a
@@ -635,3 +673,94 @@ def locus_labels(sections: "Iterable[TheorySection]") -> dict[Path, str]:
     sections = list(sections)
     labels = theory_labels(sections)
     return {sec.path: labels[sec.path.resolve()] for sec in sections}
+
+
+T = TypeVar("T")   # a section, or a (theory, path) pair from a ROOT walk
+
+
+def theory_candidates(theories: "Iterable[T]", name: str, *,
+                      guess: bool = True) -> "list[T]":
+    r"""Every theory ``name`` designates, from the first tier that has one
+    [theory-candidates].  The first is the one the CLI reads a locus as.
+
+    *theories* are anything with a ``path`` and a ``theory`` (a
+    :class:`TheorySection`, or a name and path read from a ROOT walk), in
+    load order, one per file.  The tiers, tried in order rather than chosen
+    between, because a discovered theory NAME may itself contain a
+    separator: a ROOT can address a theory in a subdirectory by path
+    (``theories "LK/Propositional"`` — the grammar has no per-theory ``in``
+    clause), and branching on ``"/"`` alone once made such a name
+    unresolvable, so ``summary`` printed a row that passing back gave "not
+    found".  For a ``name`` with a separator or a ``.thy`` suffix:
+
+    1. **path** — the theory at that resolved path, so symlinks and
+       relative or absolute spellings land on one theory;
+    2. **exact name** — a path-spelled theory NAME.  Before the stem: with
+       a `Propositional` also present, the stem would capture
+       `LK/Propositional`;
+    3. **label** — the suffix :func:`theory_labels` prints, matched against
+       the same :func:`label_chain`, so the two cannot drift [label-depth].
+       Only a unique hit: nineteen AFP theories are called `Examples`, and
+       a `beta/Examples` that fell to the stem would land on
+       `alpha/Examples`, silently [disambig-names];
+    4. **stem** — so `path/to/Foo.thy` still finds theory `Foo`.  A guess:
+       only with ``guess``.
+
+    A bare name has only the exact-name tier here.  The CLI adds a
+    case-insensitive one after it (`commands._resolve_theory`).
+
+    The stem tier and the case-insensitive one are a reader's conveniences,
+    and a tool that writes should not inherit them: `gamma/Unique`, a label
+    of no theory, would come back as the one `alpha/Unique`, and an editor
+    would write there.  Neither is needed to read back what query printed —
+    a label resolves in the first three tiers by construction — so
+    ``guess=False`` (`api.resolve_theories`) stops after the label.
+
+    A tier can hold several theories — a bare name over a corpus, where the
+    CLI would have printed a label — and all of them are returned: the CLI
+    reads the first, and a caller that edits can refuse instead.
+    """
+    return _TheoryIndex(theories).candidates(name, guess=guess)
+
+
+class _TheoryIndex:
+    """*theories* indexed for :func:`theory_candidates`, for a caller with
+    many names to resolve (`api.resolve_theories`).  Scanning per name
+    resolves every path again, twice: over the AFP's 9,910 theories that is
+    20,000 syscalls a name.  The paths and chains are taken once, and only
+    when a name with a separator first needs them."""
+
+    def __init__(self, theories: "Iterable[T]") -> None:
+        self.theories = list(theories)
+        self.by_name: dict[str, list] = {}
+        for t in self.theories:
+            self.by_name.setdefault(t.theory, []).append(t)
+        self._by_path: dict[Path, list] | None = None
+        self._by_leaf: dict[str, list] = {}
+
+    def _index_paths(self) -> None:
+        self._by_path = {}
+        for t in self.theories:
+            self._by_path.setdefault(t.path.resolve(), []).append(t)
+            chain = label_chain(t)
+            self._by_leaf.setdefault(chain[-1], []).append((chain, t))
+
+    def candidates(self, name: str, *, guess: bool = True) -> list:
+        if not (name.endswith(".thy") or "/" in name):
+            return list(self.by_name.get(name, ()))
+        if self._by_path is None:
+            self._index_paths()
+        try:
+            target = Path(name).resolve()
+        except OSError:
+            target = None
+        if target is not None and target in self._by_path:
+            return list(self._by_path[target])
+        if name in self.by_name:
+            return list(self.by_name[name])
+        want = tuple(Path(name).with_suffix("").parts)
+        hits = [t for chain, t in self._by_leaf.get(want[-1], ()) if
+                chain[-len(want):] == want] if want else []
+        if len(hits) == 1:
+            return hits
+        return list(self.by_name.get(Path(name).stem, ())) if guess else []

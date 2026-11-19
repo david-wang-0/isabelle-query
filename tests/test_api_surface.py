@@ -2,12 +2,13 @@ r"""Every name `isabelle_query.api` promises must still be there [span-api].
 
 The reciprocal of `test_layout_surface.py`.  That file pins the ten
 `isabelle-layout` names query reaches for, so an upstream removal fails here
-rather than in a user's traceback; this one pins the four names query offers
+rather than in a user's traceback; this one pins the five names query offers
 *downstream*, for the same reason pointed the other way.  Exporting a name is
 the obligation — the README paragraph is only the notice — and without a test
 the obligation is a comment that a refactor can quietly overrule.
 
-**The surface is deliberately four names, not the dozen that look public.**
+**The surface is deliberately a handful of names, not the dozen that look
+public.**
 Issue #10 asked for ten line-scanners plus `_attach_preambles` and
 `_proof_extent`; their results are already fields on `Entry` and
 `TheorySection`, so the second class below pins those FIELDS.  That is the real
@@ -32,9 +33,15 @@ from pathlib import Path
 
 from isabelle_query import api
 
-# The four exported names, and what each has to be.
+# The exported names, and what each has to be.  `resolve_theories`
+# reads a locus's THEORY as the CLI does (#34) [theory-candidates].  The
+# name scanner and the keyword test are #42's [api-names] [api-keywords].
 SURFACE = [("parse_theory", "callable"), ("parse_root", "callable"),
-           ("Entry", "class"), ("TheorySection", "class")]
+           ("resolve_theories", "callable"),
+           ("Entry", "class"), ("TheorySection", "class"),
+           ("name_occurrences", "callable"), ("scan_names", "callable"),
+           ("NameOccurrence", "class"), ("is_keyword", "callable"),
+           ("active_keywords", "callable")]
 
 # Fields a consumer of the spans depends on.  Named here rather than left to
 # `Entry`'s definition, so removing one is a deliberate act: these are the
@@ -47,6 +54,7 @@ ENTRY_SPAN_FIELDS = [
     "body_end_line",   # last line of the proof body
     "thy_end",         # last line of the entry's span
     "preamble",        # (start, end) of the leading `text` block, or None
+    "preamble_follows_heading",  # it may introduce the section instead
     "shares_line",     # another entry's lines meet this one's: no cut_span
 ]
 # Derived, not stored — `src_start` is the preamble start when there is one and
@@ -364,16 +372,26 @@ class ImportingThePackageStaysFree(unittest.TestCase):
 
 
 class TheModuleDagStillHolds(unittest.TestCase):
-    """`api` imports only from `model` and `parsing` — a leaf on the DAG."""
+    """`api` imports only from `model`, `parsing` and `lexicon` — a leaf on
+    the DAG — and `lexicon` only from `model` and the generated tables."""
+
+    def imports_of(self, module):
+        import ast
+        src = Path(importlib.import_module(module).__file__)
+        return {n.module for n in ast.walk(ast.parse(src.read_text()))
+                if isinstance(n, ast.ImportFrom) and n.module
+                and n.module.startswith("isabelle_query")}
 
     def test_api_imports_stay_below_it(self):
-        import ast
-        src = Path(importlib.import_module("isabelle_query.api").__file__)
-        allowed = {"isabelle_query.model", "isabelle_query.parsing"}
-        found = {n.module for n in ast.walk(ast.parse(src.read_text()))
-                 if isinstance(n, ast.ImportFrom) and n.module
-                 and n.module.startswith("isabelle_query")}
-        self.assertEqual(found - allowed, set())
+        allowed = {"isabelle_query.model", "isabelle_query.parsing",
+                   "isabelle_query.lexicon"}
+        self.assertEqual(self.imports_of("isabelle_query.api") - allowed,
+                         set())
+
+    def test_lexicon_imports_stay_below_it(self):
+        allowed = {"isabelle_query", "isabelle_query.model"}
+        self.assertEqual(self.imports_of("isabelle_query.lexicon") - allowed,
+                         set())
 
 
 if __name__ == "__main__":

@@ -134,11 +134,11 @@ class _Root(unittest.TestCase):
 
     def run_cli(self, *argv):
         """(stdout, exit status) of `unused ARGV`."""
-        ns = cli._build_parser().parse_args(["unused", *argv])
         out, code = io.StringIO(), 0
         with contextlib.redirect_stdout(out), \
                 contextlib.redirect_stderr(io.StringIO()):
             try:
+                ns = cli._parse_argv(["unused", *argv])
                 ns.func(ns)
             except SystemExit as e:
                 code = e.code
@@ -267,6 +267,254 @@ class Corners(_Root):
         # Every lemma but the last reads its binding.  In the last, the second
         # `e` shadows the first, so the first cannot be reached by any reader.
         self.assertEqual(self.unread(), [(47, "e", "obtain", "dup_label")])
+
+
+# Facts read by STATEMENT, not name (issue #27) [fact-method].  Hand-read:
+# `by fact` (9) reads the premise `flag_alphabet`; `(fact | …)+` (17) reads
+# `rd'`; `fact u` (25) reads `u` alone, so `v` stays unread; `‹(1::nat) = 1›`
+# (33) reads `p`, whose statement is split over two lines, and not `q`.  A
+# goal's labels bind after its method: line 39's `a` cites line 38's, and
+# `own`'s `by fact` (45) cannot read `own` itself.
+FACTS = r'''theory Facts
+  imports Main
+begin
+
+lemma by_statement:
+  assumes flag_alphabet: "x \<in> {0, 3::nat}"
+  shows "x \<in> {0, 3::nat}"
+proof -
+  have flag_symbol: "x \<in> {0, 3::nat}" by fact
+  show ?thesis using flag_symbol by simp
+qed
+
+lemma combinator: "True"
+proof -
+  have rd': "True" by simp
+  have lap: "True"
+    by (rule TrueI) (fact | rule refl)+
+  show ?thesis using lap by simp
+qed
+
+lemma with_argument: "True"
+proof -
+  have u: "True" by simp
+  have v: "True" by simp
+  show ?thesis by (fact u)
+qed
+
+lemma literal: "True"
+proof -
+  have p: "(1::nat) =
+    1" by simp
+  have q: "(2::nat) = 2" by simp
+  show ?thesis using \<open>(1::nat) = 1\<close> by simp
+qed
+
+lemma method_reads_the_old_label: "True"
+proof -
+  have a: "True" by simp
+  have a: "True" by (simp add: a)
+  show ?thesis using a by simp
+qed
+
+lemma own_fact_method: "True"
+proof -
+  have own: "True" by fact
+  show ?thesis by simp
+qed
+
+end
+'''
+
+
+class ReadByStatement(_Root):
+    THEORIES = {"Facts": FACTS}
+
+    def test_exactly_the_hand_read_rows(self):
+        self.assertEqual(self.unread(), [
+            (24, "v", "have", "with_argument"),
+            (32, "q", "have", "literal"),
+            (45, "own", "have", "own_fact_method"),
+        ])
+
+
+# A cartouche of method text cites facts (#30) [method-cartouche]: `read` (7)
+# in `use … in ‹simp add: read›`, `work` (16) where the `use` wraps a line,
+# `f` (24) through a bare `‹fact›`, `h` (30) in an Eisbach `⇒ ‹rule h›`.  A
+# literal fact still reads by statement: `‹True›` (37) reads `lit` (36).
+# Hand-read, only `dead` (9) is unread.
+METHOD_TEXT = r'''theory Methods
+  imports Main
+begin
+
+lemma use_in: "True \<and> True"
+proof -
+  have read: "True" by simp
+  have used: "True" by simp
+  have dead: "True" by simp
+  show ?thesis by (rule conjI) (use used in \<open>simp add: read\<close>)
+qed
+
+lemma wrapped: "True"
+proof -
+  have cursor: "True" by simp
+  have work: "True" by simp
+  show ?thesis
+    by (use cursor in
+        \<open>simp_all add: work [symmetric]\<close>)
+qed
+
+lemma bare_fact: "True"
+proof -
+  have f: "True" by simp
+  show ?thesis by (use TrueI in \<open>fact\<close>)
+qed
+
+lemma eisbach: "True"
+proof -
+  have h: "True" by simp
+  show ?thesis by (match conclusion in "True" \<Rightarrow> \<open>rule h\<close>)
+qed
+
+lemma literal_fact: "True"
+proof -
+  have lit: "True" by simp
+  show ?thesis by (rule \<open>True\<close>)
+qed
+
+end
+'''
+
+
+class ReadInMethodText(_Root):
+    THEORIES = {"Methods": METHOD_TEXT}
+
+    def test_exactly_the_hand_read_rows(self):
+        self.assertEqual(self.unread(), [(9, "dead", "have", "use_in")])
+
+
+# The lines that bind each name (issue #27) [local-spans].  Hand-read, every
+# binding unread (an unlabelled `have` sits before each `moreover` / `then`
+# so that neither reads a labelled fact):
+#   a 7..8, its `by` on the next line;  b, c share line 9;  d, e are two
+#   clauses of line 10;  f runs 11..14, from its `from` to `qed simp_all`;
+#   g's `obtain` also fixes `x`;  i shares 17 with `moreover`;  j runs from
+#   its `then` (19) to 20;  k is 21;  m, n are one `define` (22);  p is a
+#   statement premise.
+SPANS = r'''theory Spans
+  imports Main
+begin
+
+lemma spans: "True"
+proof -
+  have a: "True"
+    by simp
+  have b: "True" by simp have c: "True" by simp
+  have d: "True" and e: "True" by simp
+  from TrueI have f: "True"
+  proof -
+    show ?thesis by simp
+  qed simp_all
+  obtain x :: nat where g: "x = x" by simp
+  have "True" by simp
+  moreover have i: "True" by simp
+  have "True" by simp
+  then
+    have j: "True" by simp
+  note k = TrueI
+  define m n where "m = (0::nat)" and "n = (1::nat)"
+  have "x = x" by simp
+  show ?thesis by simp
+qed
+
+lemma premise: assumes p: "True" shows "True"
+  by simp
+
+end
+'''
+
+
+class Spans(_Root):
+    THEORIES = {"Spans": SPANS}
+
+    def test_exactly_the_hand_read_spans(self):
+        out, code = self.run_cli("--locals", "--spans")
+        rows = [ln.split(None, 4) for ln in out.splitlines()]
+        self.assertEqual(code, 0)
+        self.assertEqual([(r[1], r[4]) for r in rows], [
+            ("a", "Spans:7..8"),
+            ("b", "shares-line Spans:9..9"),
+            ("c", "shares-line Spans:9..9"),
+            ("d", "clause-of Spans:10..10"),
+            ("e", "clause-of Spans:10..10"),
+            ("f", "Spans:11..14"),
+            ("g", "binds-vars Spans:15..15"),
+            ("i", "shares-line Spans:17..17"),
+            ("j", "Spans:19..20"),
+            ("k", "Spans:21..21"),
+            ("m", "clause-of Spans:22..22"),
+            ("n", "clause-of Spans:22..22"),
+            ("p", "premise"),
+        ])
+
+    def test_a_span_is_the_locus_grammar(self):
+        # `lines` takes the span as printed: it is input as well as output.
+        out, _ = self.run_cli("--locals", "--spans")
+        span = out.splitlines()[5].split()[-1]
+        self.assertEqual(span, "Spans:11..14")
+        self.assertIsNotNone(cli._parse_locus(span))
+
+    def test_a_one_line_lemma_does_not_read_its_own_label(self):
+        # The proof line is read whole, statement and all; the statement's
+        # `p:` declares `p` and must not count as its reader.
+        self.THEORIES = {"One": 'theory One imports Main begin\n'
+                         'lemma t: assumes p: "True" shows "True" by simp\n'
+                         'end\n'}
+        self.tearDown()
+        self.setUp()
+        self.assertEqual(self.unread(), [(2, "p", "assumes", "t")])
+
+    def test_spans_need_locals(self):
+        self.assertEqual(self.run_cli("--spans")[1], 2)
+
+    def test_without_the_flag_the_rows_are_unchanged(self):
+        out, _ = self.run_cli("--locals")
+        self.assertEqual(out.splitlines()[0].split(),
+                         ["Spans:7", "a", "have", "spans"])
+
+
+class Views(_Root):
+    """`unused [entries|facts|assumptions]` (issue #27) [unused-views]: the
+    analysis is the positional view, and `--locals` stays as `facts`."""
+    THEORIES = {"Spans": SPANS}
+
+    def test_facts_is_locals(self):
+        self.assertEqual(self.run_cli("facts"), self.run_cli("--locals"))
+        self.assertEqual(self.run_cli("--locals", "facts"),
+                         self.run_cli("--locals"))
+
+    def test_assumptions_is_the_premises(self):
+        out, code = self.run_cli("assumptions", "--spans")
+        self.assertEqual((code, [ln.split()[1:] for ln in out.splitlines()]),
+                         (0, [["p", "assumes", "premise", "premise"]]))
+
+    def test_entries_is_the_default(self):
+        self.assertEqual(self.run_cli("entries", "-c"), self.run_cli("-c"))
+
+    def test_a_view_takes_paths(self):
+        path = str(self.dir / "Spans.thy")
+        out, code = self.run_cli("facts", "-c", f"{path}:premise")
+        self.assertEqual((out, code), ("1\n", 0))
+
+    def test_entries_takes_no_paths(self):
+        self.assertEqual(self.run_cli("entries", "Spans")[1], 2)
+
+    def test_locals_is_not_entries(self):
+        self.assertEqual(self.run_cli("--locals", "entries")[1], 2)
+
+    def test_only_the_first_positional_is_a_view(self):
+        # `facts` second is a PATH, and there is no such theory.
+        self.assertNotEqual(self.run_cli("facts", "facts")[1], 0)
 
 
 EXTENT = r'''theory Extent

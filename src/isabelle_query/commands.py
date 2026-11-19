@@ -34,7 +34,7 @@ from isabelle_query.model import (
     _CITABLE_TAGS,
     _DEFINITION_TAGS,
     _RESULT_TAGS,
-    label_chain,
+    theory_candidates,
 )
 from isabelle_query.parsing import ISA_SYMBOL, _isa_word_pattern, implicitly_used
 from isabelle_query.graph import (
@@ -57,7 +57,7 @@ from isabelle_query.graph import (
 from isabelle_query import graph as _graph
 from isabelle_query import sites as _sites
 from isabelle_query.proof_locals import (
-    LocalBinding, premise_cascade, unread_locals)
+    PREMISE_KINDS, LocalBinding, premise_cascade, span_text, unread_locals)
 from isabelle_query.render import (
     _emit_matches,
     _format_extent,
@@ -79,6 +79,9 @@ from isabelle_query.render import (
 # because those are the distinctions a caller has to make.  Documented in
 # `README.md`'s exit-status table.
 EXIT_UNRESOLVED = 1
+# `unused --assume-deleted`: the answer is complete, and says that deleting
+# the set would break a citation from outside it [assume-deleted].
+EXIT_BLOCKED = 3
 
 # The project's keep file, read by `unused` from the root [keep-file].
 KEEP_FILE = ".query-keep"
@@ -138,18 +141,43 @@ def _tag_counts(sec: TheorySection) -> tuple[int, int, int]:
     return d, lem, thm
 
 
+def _counted(n: int, noun: str, plural: str = "") -> str:
+    """`n` and the noun agreeing with it: `1 unused root`, `2 unused roots`.
+    `plural` defaults to `noun + "s"`; give it for `entry` / `entries`."""
+    return f"{n} {noun if n == 1 else (plural or noun + 's')}"
+
+
+def _evidence_count(n_marked: int, total: int) -> str:
+    """The `, N of them with evidence` clause of an `unused` count line, or
+    `""` when no row carries evidence.  "1 of them" reads wrong after a
+    count of one, which is the one row, so that case says `, with evidence`."""
+    if not n_marked:
+        return ""
+    return ", with evidence" if total == 1 else f", {n_marked} of them with evidence"
+
+
+# The goal tags L and T leave out, each with the footnote that says why.
+_FOOTNOTED_GOALS = (
+    ("SCHEMATIC", "schematic goal", "schematic goals",
+     "(`schematic_goal`, tag SCHEMATIC)"),
+    ("GOAL", "goal", "goals", "of a header-declared command (tag GOAL)"),
+)
+
+
 def _goal_note(sections: list[TheorySection]) -> None:
-    """The footnote for `GOAL` entries, which L and T leave out.
+    """The footnotes for the goal entries L and T leave out.
 
     A header-declared goal command (`AOT_theorem`, `tts_lemma`) proves
     something, but its kind does not say whether a lemma or a result, so it
-    is counted in neither column [goal-tags].  A footnote rather than a G
-    column, since almost every theory has none."""
-    n = sum(1 for sec in sections for e in sec.entries if e.tag == "GOAL")
-    if n:
-        what = "entry is a goal" if n == 1 else "entries are goals"
-        print(f"\n{n:,} {what} of a header-declared command (tag GOAL), "
-              f"counted in neither L nor T.")
+    is counted in neither column [goal-tags].  A `schematic_goal` is neither
+    either: its proof synthesises a term (#23).  Footnotes rather than
+    columns, since almost every theory has none."""
+    tags = Counter(e.tag for sec in sections for e in sec.entries)
+    for tag, one, many, why in _FOOTNOTED_GOALS:
+        n = tags[tag]
+        if n:
+            what = f"entry is a {one}" if n == 1 else f"entries are {many}"
+            print(f"\n{n:,} {what} {why}, counted in neither L nor T.")
 
 
 def cmd_summary(sections: list[TheorySection], *,
@@ -275,74 +303,21 @@ def _summary_aggregate(sections: list[TheorySection], *,
 
 
 def _resolve_theory(sections: list[TheorySection], name: str) -> TheorySection | None:
-    """Resolve a theory by path or by name.
+    """Resolve a theory by path, name or label: the first of
+    :func:`model.theory_candidates`, which holds the tiers and is the same
+    reader `api.resolve_theories` exports [theory-candidates].
 
-    Two argument forms, so callers can paste either a file path or a
-    bare theory name:
-
-      - **Path form** — the argument carries a path separator or a
-        ``.thy`` suffix (e.g. ``sub/Foo.thy``).
-        Matched against each section's resolved path, so symlinks and
-        relative/absolute spellings all land on the same section.
-      - **Name form** — a bare theory name (e.g.
-        ``Foo``), matched against the section's theory
-        name (exact, then case-insensitive).  This is the convenience
-        spelling: the name is looked up among the sections already
-        discovered through ``isabelle_layout``'s ROOT-walking routines.
-
-    The two forms are tried in that order rather than chosen between, because
-    a discovered theory NAME may itself contain a separator: a ROOT can
-    address a theory in a subdirectory by path (``theories "LK/Propositional"``
-    — the grammar has no per-theory ``in`` clause), and discovery carries it
-    under that spelling.  Branching on ``"/"`` alone made such a name
-    unresolvable, so ``summary`` printed a row, ``theory``'s "Known theories"
-    listed it, and passing it back gave "not found" — the tool disagreeing
-    with its own output, and a hole in the round-trip the locus grammar rests
-    on.
+    Two argument forms, so callers can paste either a file path or a bare
+    theory name.  A bare name that matches no theory exactly is then tried
+    case-insensitively, a convenience of the CLI's alone: a tool that
+    writes through the library should not land on `foo` when it asked for
+    `Foo`.
     """
+    hits = theory_candidates(sections, name)
+    if hits:
+        return hits[0]
     if name.endswith(".thy") or "/" in name:
-        try:
-            target = Path(name).resolve()
-        except OSError:
-            target = None
-        if target is not None:
-            for s in sections:
-                if s.path.resolve() == target:
-                    return s
-        # Before the stem fallback: the whole argument may be a path-spelled
-        # theory NAME.  Exact-first matters — with a `Propositional` section
-        # also present, the stem would otherwise capture `LK/Propositional`.
-        for s in sections:
-            if s.theory == name:
-                return s
-        # A LABEL, as `render.theory_labels` emits: the shortest directory
-        # qualification that names one theory, matched here as a suffix — the
-        # exact inverse of how it was built [disambig-names].  Without this the
-        # emitter's half is worse than useless: nineteen AFP theories are
-        # called `Examples`, and `beta/Examples` would fall to the stem
-        # fallback and resolve to `alpha/Examples`, silently and confidently.
-        # A label that looks paste-able and lands on a DIFFERENT theory is a
-        # worse answer than a bare ambiguous name, which at least reads as
-        # ambiguous.  Only a unique hit counts; anything else falls through.
-        # Matched against `label_chain` — the exact tuple `theory_labels`
-        # builds the label out of, so the two cannot drift [label-depth].
-        # (On disk the name is the stem, since Isabelle requires it; a
-        # buffer-parsed section is where they part company.)
-        want = tuple(Path(name).with_suffix("").parts)
-        hits = [s for s in sections
-                if label_chain(s)[-len(want):] == want]
-        if len(hits) == 1:
-            return hits[0]
-        # Path that doesn't match a known section: fall back to its
-        # stem so `path/to/Foo.thy` still resolves to theory `Foo`.
-        stem = Path(name).stem
-        for s in sections:
-            if s.theory == stem:
-                return s
         return None
-    for s in sections:
-        if s.theory == name:
-            return s
     for s in sections:
         if s.theory.lower() == name.lower():
             return s
@@ -658,15 +633,17 @@ def cmd_defs(sections: list[TheorySection], theory: str,
         _fail_subject(f"no theory '{theory}'")
         return
     matches = [e for e in sec.entries if e.tag in _DEFINITION_TAGS]
-    if not matches:
-        print(f"No definitions found in '{sec.theory}'.")
-        return
+    # Before the empty guard [count-mode-zero]: no definitions is the count
+    # 0, and in `--names` an empty list.
     if flags.mode == "count":
         print(len(matches))
         return
     if flags.mode == "names":
         for e in matches:
             print(_format_name_line(sec, e))
+        return
+    if not matches:
+        print(f"No definitions found in '{sec.theory}'.")
         return
     for e in matches:
         print(render_entry(sec, e))
@@ -1016,8 +993,78 @@ def _find_callers(sections: list[TheorySection], name: str,
             # A name shared with a proof method earns its mention positionally.
             if shadowed and not _shadowed_uses_on_line(line, {name}):
                 continue
+            # Above this file's own declaration it names another [decl-order].
+            if not admits.at(sec, line_no):
+                continue
             results.append((sec, line_no, raw[line_no_0].rstrip()))
     return results
+
+
+def _find_antiq_callers(sections: list[TheorySection], name: str,
+                        external: bool = False, reach: str = "closure",
+                        ) -> list[tuple[TheorySection, int, str]]:
+    r"""Where an antiquotation names *name*: `callers --antiquotations`
+    [doc-antiq].
+
+    The rows :func:`_find_callers` leaves out on purpose, since a name shown
+    in a document is not a proof that uses it.  It is still a build
+    dependency: `@{const foo}` is checked when its theory is processed, so
+    deleting `foo`, or moving it out of reach, breaks that theory (#44).
+
+    The same rows as :func:`_find_callers` (section, line, raw text), the
+    line being where the antiquotation starts, one row per line.  Scoped as
+    those are: only theories that can see a declaration of *name*, and
+    under ``external`` none of the files that declare it.  The raw source is
+    read, as `unused`'s `doc` evidence reads it, so text, `\<comment>` notes
+    and ML all count, and a body may span lines.  A `(* ... *)` comment or
+    cancelled text does not: Isabelle never reads it [antiq-comment]."""
+    admits = _graph.site_filter(sections, name, reach)
+    if external:
+        def_paths = {p for p, m in _build_def_sites(sections, {name}).items()
+                     if m}
+    # The name space decides as well as the closure [antiq-namespace]:
+    # `@{const foo}` is no reference to `lemma foo`.  A name the project
+    # declares in no space is a token search, as plain `callers` is.
+    spaces_vis = _graph.space_visibility(sections, reach)
+    declared = spaces_vis.declares(name)
+    theories = frozenset(sec.theory for sec in sections)
+    results: list[tuple[TheorySection, int, str]] = []
+    for sec in sections:
+        if external and sec.path in def_paths:
+            continue
+        raw = sec.source()
+        text = "\n".join(raw)
+        if name not in text or not admits(sec.theory):
+            continue
+        seen: set[int] = set()
+        for kind, start, _end, body in _graph.doc_antiquotations(text):
+            spaces = _graph.antiquotation_names(kind, body, theories).get(name)
+            if spaces is None:
+                continue
+            line_no = text.count("\n", 0, start) + 1
+            if line_no in seen:
+                continue
+            # Never read by Isabelle, so no dependency [antiq-comment].
+            if line_no in sec.unread_spans and _graph.unchecked_at(
+                    sec, line_no, start - text.rfind("\n", 0, start) - 1):
+                continue
+            if (spaces_vis.names(name, spaces, sec, line_no) if declared
+                    else admits.at(sec, line_no)):
+                seen.add(line_no)
+                results.append((sec, line_no, raw[line_no - 1].rstrip()))
+    return results
+
+
+def _with_antiq_hits(sections: list[TheorySection], hits: list,
+                     antiq: list) -> tuple[list, set[tuple[Path, int]]]:
+    """Proof hits and antiquotation hits as one list, in source order, and
+    which of its (path, line) are antiquotation-only.  A line that is a
+    proof hit stays one row, a proof row."""
+    proof = {(s.path, ln) for s, ln, _t in hits}
+    extra = [h for h in antiq if (h[0].path, h[1]) not in proof]
+    order = {id(s): i for i, s in enumerate(sections)}
+    merged = sorted(hits + extra, key=lambda h: (order[id(h[0])], h[1]))
+    return merged, {(s.path, ln) for s, ln, _t in extra}
 
 
 Declarations = list[tuple[TheorySection, Entry]]
@@ -1570,24 +1617,28 @@ def cmd_codeqs(sections: list[TheorySection], name: str,
     _emit_sites(sections, rows, name, "code equation", flags)
 
 
-def _callers_tsv(sections: list[TheorySection], subject: str,
-                 flags: 'CmdFlags', rows: list,
-                 resolve: Callable[[str], Declarations] | None = None,
-                 ) -> None:
-    """`callers -f tsv`: one row per caller, each naming its subject [callers-tsv].
+def _edge_tsv(sections: list[TheorySection], subject: str,
+              flags: 'CmdFlags', rows: list,
+              resolve: Callable[[str], Declarations] | None = None,
+              ) -> None:
+    """`callers -f tsv` and `callees -f tsv`: one row per neighbour, each
+    naming its subject [callers-tsv] [callees-tsv].
 
-    Columns: subject, caller, tag, theory, session, depth, locus.  No header,
-    so several subjects concatenate into one table.  Issue #14: the block
-    output names its subject only when there are no callers, so a script had
-    to attribute blocks by position, and recovered each caller's SESSION by
-    globbing theory files -- a fact query already holds.
+    Columns: subject, neighbour (caller or callee), tag, theory, session,
+    depth, locus.  No header, so several subjects concatenate into one table,
+    and one parser reads both directions.  Issue #14: the block output names
+    its subject only when there are no callers, so a script had to attribute
+    blocks by position, and recovered each caller's SESSION by globbing theory
+    files -- a fact query already holds.  Issue #43 asked the same of
+    `callees`, whose text output a script could only scrape.
 
-    ``rows`` is ``(caller, depth, site)``: ``site`` is ``(section, line,
-    enclosing entry)`` for a located hit (plain `callers`, depth 1), or None
-    for a closure member
-    (`-r`), which is located at its declaration.  The theory is the locus
-    label, qualified only as far as it must be, so the locus pastes back into
-    `enclosing` like every other locus query prints.
+    ``rows`` is ``(neighbour, depth, site)``: ``site`` is ``(section, line,
+    enclosing entry[, tag])`` for a located hit (plain `callers`, depth 1),
+    the tag replacing the entry's (`ANTIQ`, [doc-antiq]) when given, or None
+    for a node located at its declaration: a `callers -r` closure member, and
+    every callee.  The theory is the locus label, qualified only as far as it
+    must be, so the locus pastes back into `enclosing` like every other locus
+    query prints.
 
     A citation no entry owns is tagged TOPLEVEL and named `THEORY:<toplevel>`
     in both modes, with its theory and session filled (issue #15).  Plain mode
@@ -1604,8 +1655,10 @@ def _callers_tsv(sections: list[TheorySection], subject: str,
     resolve = resolve or _first_wins(sections)
     for caller, depth, site in rows:
         if site is not None:
-            sec, line, encl = site
-            located = [(sec, line, encl.tag if encl else "TOPLEVEL")]
+            sec, line, encl, *kind = site
+            tag = (kind[0] if kind and kind[0] else
+                   encl.tag if encl else "TOPLEVEL")
+            located = [(sec, line, tag)]
         else:
             located = [(sec, e.thy_line, e.tag) for sec, e in resolve(caller)]
         if not located:
@@ -1661,7 +1714,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
                     for n, d in sorted(reachable.items(),
                                        key=lambda x: (x[1], x[0]))
                     if n != name]
-            _callers_tsv(sections, subject, flags, rows, resolve)
+            _edge_tsv(sections, subject, flags, rows, resolve)
             return
         reachable.pop(name, None)
         _render_graph_results(sections, reachable, "caller", name, flags,
@@ -1670,12 +1723,20 @@ def cmd_callers(sections: list[TheorySection], name: str,
 
     hits = _find_callers(sections, name, external=flags.external,
                          reach=flags.reach)
+    # Antiquotation rows [doc-antiq]: a build dependency, not a proof use,
+    # so opt-in and marked, and the default output stays as it was.
+    antiq: set[tuple[Path, int]] = set()
+    if flags.antiquotations:
+        hits, antiq = _with_antiq_hits(sections, hits, _find_antiq_callers(
+            sections, name, external=flags.external, reach=flags.reach))
     if tsv:
         rows = []
         for sec, line_no, _text in hits:
             encl = _enclosing_entry(sec, line_no)
-            rows.append((encl.name if encl else None, 1, (sec, line_no, encl)))
-        _callers_tsv(sections, subject, flags, rows)
+            kind = "ANTIQ" if (sec.path, line_no) in antiq else None
+            rows.append((encl.name if encl else None, 1,
+                         (sec, line_no, encl, kind)))
+        _edge_tsv(sections, subject, flags, rows)
         return
     if flags.mode == "count":
         print(len(hits))
@@ -1692,9 +1753,11 @@ def cmd_callers(sections: list[TheorySection], name: str,
     loc_w = max((len(loc) for loc in loci), default=0)
     decls = [(sec, e) for sec in sections for e in sec.entries
              if e.name == name or name in e.bound_names]
+    split = (f" ({len(antiq)} in antiquotations)"
+             if flags.antiquotations else "")
     if len(decls) < 2:
-        print(f"{len(hits)} caller(s) of {name}:\n")
-        _print_caller_rows(hits, loci, loc_w, flags)
+        print(f"{len(hits)} caller(s) of {name}{split}:\n")
+        _print_caller_rows(hits, loci, loc_w, flags, antiq)
         return
     # Declared more than once: group the sites by the declarations each can
     # see, so two unrelated `sim_tape`s are not one list [callee-attribution].
@@ -1710,7 +1773,7 @@ def cmd_callers(sections: list[TheorySection], name: str,
         sec, e = decls[i]
         return f"({e.tag}) — {labels.get(sec.path, sec.theory)} [L{e.thy_line}]"
 
-    print(f"{len(hits)} caller(s) of {name}, "
+    print(f"{len(hits)} caller(s) of {name}{split}, "
           f"which has {len(decls)} declarations:")
     for key in sorted(groups, key=lambda g: (len(g), g)):
         ks = groups[key]
@@ -1722,16 +1785,19 @@ def cmd_callers(sections: list[TheorySection], name: str,
                  f"{name}, any of {len(key)}: {shown}{more}")
         print(f"\n{which}: {len(ks)} caller(s)\n")
         _print_caller_rows([hits[k] for k in ks], [loci[k] for k in ks],
-                           loc_w, flags)
+                           loc_w, flags, antiq)
 
 
 def _print_caller_rows(hits: list, loci: list[str], loc_w: int,
-                       flags: 'CmdFlags') -> None:
-    """The located rows of `callers`, each with its owner and ``-A`` context."""
+                       flags: 'CmdFlags',
+                       antiq: set[tuple[Path, int]] | None = None) -> None:
+    """The located rows of `callers`, each with its owner and ``-A`` context.
+    A row in ``antiq`` is an antiquotation's, marked `[antiq]` [doc-antiq]."""
     n_after = max(0, flags.context)
     for (sec, line_no, text), loc in zip(hits, loci):
         encl = _enclosing_entry(sec, line_no)
-        print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {text.strip()}")
+        mark = "[antiq] " if antiq and (sec.path, line_no) in antiq else ""
+        print(f"  {loc:<{loc_w}}  {_owner_field(encl)}  {mark}{text.strip()}")
         if n_after > 0:
             src = sec.source()
             # 1-indexed line_no → 0-indexed slice start at line_no
@@ -1749,13 +1815,17 @@ def cmd_callees(sections: list[TheorySection], name: str,
     """Entry-level forward edge: the entries this entry references in
     its proof body (its callees).  Pairs with `cmd_callers` (reverse).
     Not to be confused with the theory-level `deps` / `uses` pair."""
+    tsv = flags.fmt == "tsv"
+    subject = name               # as typed: what a TSV row is attributed to
     graph = _call_graph(sections, flags)
     if name not in graph.all_names:
         bound = _resolve_binding(sections, name)
         if bound is not None:
             parent, how = bound
+            # A note, not an answer: in a table it would be a malformed row.
             print(f"# '{name}' is {how} {parent}; "
-                  f"reporting {parent}'s callees (shared proof body).")
+                  f"reporting {parent}'s callees (shared proof body).",
+                  file=sys.stderr if tsv else None)
             name = parent
         else:
             _fail_subject(f"'{name}' is not in the entry index")
@@ -1765,6 +1835,12 @@ def cmd_callees(sections: list[TheorySection], name: str,
     if flags.recursive:
         reachable = _bfs_depths(lambda n: graph.callees.get(n, set()), {name})
         reachable.pop(name, None)
+        if tsv:
+            _edge_tsv(sections, subject, flags,
+                      [(n, d, None) for n, d in sorted(
+                          reachable.items(), key=lambda x: (x[1], x[0]))],
+                      resolve)
+            return
         _render_graph_results(sections, reachable, "dependency", name, flags,
                               resolve)
         return
@@ -1779,6 +1855,10 @@ def cmd_callees(sections: list[TheorySection], name: str,
         own_theory = by_name.get(name, (None,))[0]
         used = {u for u in used
                 if all(sec.theory != own_theory for sec, _e in resolve(u))}
+    if tsv:
+        _edge_tsv(sections, subject, flags,
+                  [(u, 1, None) for u in sorted(used)], resolve)
+        return
     if flags.mode == "count":
         print(len(used))
         return
@@ -1899,7 +1979,17 @@ def _compute_unused_recursive(graph: CallGraph,
     depth 1 = became unused when depth-0 entries are removed, etc.
     """
     keep = keep or set()
-    unused: dict[str, int] = {n: 0 for n in _compute_unused(graph, keep)}
+    return _cascade(graph, keep,
+                    {n: 0 for n in _compute_unused(graph, keep)})
+
+
+def _cascade(graph: CallGraph, keep: set[str], unused: dict[str, int],
+             rounds: int | None = None) -> dict[str, int]:
+    """Grow `unused` (name → depth) to the fixed point, or by `rounds`
+    levels: a name joins when every one of its callers is in.  Names in
+    `keep` never do.  The seed is the caller's: the uncited entries for
+    `unused -r`, a deletion set for --assume-deleted [assume-deleted]."""
+    unused = dict(unused)
     depth = 1
     while True:
         # LEVEL-SYNCHRONISED: every test in this pass is against the frontier
@@ -1914,11 +2004,13 @@ def _compute_unused_recursive(graph: CallGraph,
         newly = [name for name in graph.all_names - frontier - keep
                  if (callers := graph.callers.get(name, set()))
                  and callers <= frontier]
-        if not newly:
+        if not newly or rounds == 0:
             return unused
         for name in newly:
             unused[name] = depth
         depth += 1
+        if rounds is not None:
+            rounds -= 1
 
 
 def _compute_forest(graph: CallGraph,
@@ -2011,12 +2103,26 @@ def _evidence_mark(marks: dict[str, list[str]] | None, name: str) -> str:
 
 def _render_unused(entries: list[tuple[str, Entry, int]],
                    flags: 'CmdFlags', recursive: bool,
-                   marks: dict[str, list[str]] | None = None) -> None:
-    """Shared rendering for unused and unused -r."""
+                   marks: dict[str, list[str]] | None = None,
+                   freed: set[str] | None = None,
+                   n_deleted: int = 0) -> None:
+    """Shared rendering for unused and unused -r.
+
+    Under --assume-deleted the rows are what deleting `n_deleted` entries
+    takes with it, and `freed` the names among them that `unused -r` does
+    not list today; their rows say `[freed]` [assume-deleted]."""
+
+    def freed_mark(name: str) -> str:
+        return "  [freed]" if freed is not None and name in freed else ""
+
     label = "transitively unused" if recursive else "unused"
     total = len(entries)
     n_marked = sum(1 for _, e, _ in entries if (marks or {}).get(e.name))
-    marked = f", {n_marked} of them with evidence" if n_marked else ""
+    marked = _evidence_count(n_marked, total)
+    if freed is not None:
+        n_freed = sum(1 for _, e, _ in entries if e.name in freed)
+        if n_freed:
+            marked = f", {n_freed} freed by the deletion{marked}"
 
     # Before the empty guard [count-mode-zero]: a project with nothing unused
     # has ZERO unused entries, and that is the answer a script wants — the one
@@ -2025,8 +2131,22 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         print(total)
         return
 
+    if flags.mode == "names":
+        # Span-free and headerless [unused-names]: an edit above an entry
+        # moves its span, and a before/after diff of the full listing then
+        # shows every row below the edit as removed and added again.  These
+        # rows change only when the answer does.
+        for theory, e, depth in entries:
+            depth_mark = (f"  [cascade depth {depth}]"
+                          if recursive and depth > 0 else "")
+            print(f"{e.tag:<11}  {e.name:<42}  {theory}{depth_mark}"
+                  f"{freed_mark(e.name)}{_evidence_mark(marks, e.name)}")
+        return
+
     if not entries:
-        print("No unused entries found.")
+        print(f"Deleting {_counted(n_deleted, 'entry', 'entries')} takes "
+              "nothing else with it." if n_deleted else
+              "No unused entries found.")
         return
 
     if flags.by_theory:
@@ -2037,7 +2157,8 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         total_lines = sum(
             e.line_count for es in theory_entries.values()
             for e, _ in es if e.thy_line > 0)
-        print(f"{total} {label} entries across {len(theory_entries)} theories "
+        print(f"{_counted(total, label + ' entry', label + ' entries')} "
+              f"across {_counted(len(theory_entries), 'theory', 'theories')} "
               f"({total_lines} source lines):\n")
         for theory, count in counts.most_common():
             tes = theory_entries[theory]
@@ -2049,17 +2170,27 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
             print(f"  {count:3d}  {theory:<30s}  {lines:5d} lines  {names}")
         return
 
-    if recursive:
+    if n_deleted:
+        direct = sum(1 for _, _, d in entries if d == 1)
+        total_lines = sum(e.line_count for _, e, _ in entries
+                          if e.thy_line > 0)
+        how = (f"{direct} cited only from the set + {total - direct} "
+               "cascading" if recursive else "cited only from the set")
+        print(f"Deleting {_counted(n_deleted, 'entry', 'entries')} takes "
+              f"{_counted(total, 'more', 'more')} with it ({how}, "
+              f"{total_lines} source lines{marked}):\n")
+    elif recursive:
         direct = sum(1 for _, _, d in entries if d == 0)
         cascade = total - direct
         total_lines = sum(
             e.line_count for _, e, _ in entries
             if e.thy_line > 0)
-        print(f"{total} {label} entries "
+        print(f"{_counted(total, label + ' entry', label + ' entries')} "
               f"({direct} direct + {cascade} cascading, "
               f"{total_lines} source lines{marked}):\n")
     else:
-        print(f"{total} unused entries (zero callers{marked}):\n")
+        print(f"{_counted(total, 'unused entry', 'unused entries')} "
+              f"(zero callers{marked}):\n")
 
     print(f"{'Tag':<11}  {'Name':<42}  Theory  (span)")
     print(f"{'-' * 11:<11}  {'-' * 42:<42}  ------")
@@ -2068,7 +2199,7 @@ def _render_unused(entries: list[tuple[str, Entry, int]],
         depth_mark = f"  [cascade depth {depth}]" if recursive and depth > 0 else ""
         print(f"{e.tag:<11}  {e.name:<42}  {theory}  "
               f"({e.src_start}..{e.thy_end}, {size} lines){depth_mark}"
-              f"{_evidence_mark(marks, e.name)}")
+              f"{freed_mark(e.name)}{_evidence_mark(marks, e.name)}")
 
 
 def _render_forest(sections: list[TheorySection],
@@ -2092,8 +2223,8 @@ def _render_forest(sections: list[TheorySection],
         return
 
     n_marked = sum(1 for r, *_ in forest if (marks or {}).get(r))
-    marked = f", {n_marked} of them with evidence" if n_marked else ""
-    print(f"{len(forest)} unused roots{marked}:\n")
+    marked = _evidence_count(n_marked, len(forest))
+    print(f"{_counted(len(forest), 'unused root')}{marked}:\n")
     print(f"  {'Tag':<11s}  {'Root':<42s}  {'Excl':>5s}  {'Lines':>6s}  "
           f"{'Total':>5s}  {'Lines':>6s}  Theory")
     print(f"  {'-' * 11:<11s}  {'-' * 42:<42s}  {'-' * 5:>5s}  {'-' * 6:>6s}  "
@@ -2134,6 +2265,7 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
     evidence = {n: ev for n, ev in _evidence(sections, flags.reach).items()
                 if n in graph.all_names and n not in keep}
     marks = evidence if flags.evidence == "mark" else {}
+    deleted = _deletion_set(sections, graph, flags)
 
     if flags.roots:
         # `mark` keeps the forest it always computed, tagging marked roots;
@@ -2144,12 +2276,23 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
         return
 
     live = keep | set(evidence)
-    if flags.recursive:
-        unused_map = _compute_unused_recursive(graph, live)
+    if flags.recursive or deleted:
+        everything = _compute_unused_recursive(graph, live)
+        everything.update(_dead_marked(graph, everything, marks, True))
+    freed: set[str] | None = None
+    blockers: list[tuple[str, str]] = []
+    if deleted:
+        # [assume-deleted]: what goes with the set, which of it `unused -r`
+        # does not list today, and the citations the deletion would break.
+        unused_map = _dragged(graph, live, marks, flags.recursive, deleted)
+        freed = set(unused_map) - set(everything)
+        blockers = [(d, c) for d in sorted(deleted)
+                    for c in sorted(graph.callers.get(d, set()) - deleted)]
+    elif flags.recursive:
+        unused_map = everything
     else:
         unused_map = {n: 0 for n in _compute_unused(graph, live)}
-    unused_map.update(_dead_marked(graph, unused_map, marks,
-                                   flags.recursive))
+        unused_map.update(_dead_marked(graph, unused_map, marks, False))
 
     unused_entries: list[tuple[str, Entry, int]] = []
     for sec in sections:
@@ -2158,7 +2301,17 @@ def cmd_unused(sections: list[TheorySection], flags: 'CmdFlags') -> None:
                 if e.name in unused_map:
                     unused_entries.append((sec.theory, e, unused_map[e.name]))
 
-    _render_unused(unused_entries, flags, flags.recursive, marks)
+    # Blockers go to stdout in the full listing, where they are part of the
+    # answer, and to stderr under -c and --names, whose stdout a script reads.
+    if blockers:
+        _render_blockers(sections, blockers, everything,
+                         sys.stderr if flags.mode in ("count", "names")
+                         else sys.stdout)
+    _render_unused(unused_entries, flags, flags.recursive, marks, freed,
+                   len(deleted))
+    if blockers:
+        sys.stdout.flush()
+        sys.exit(EXIT_BLOCKED)
 
 
 def read_keep_file(path: Path, sections: list[TheorySection]) -> set[str]:
@@ -2181,18 +2334,27 @@ def read_keep_file(path: Path, sections: list[TheorySection]) -> set[str]:
 
     Graph nodes are names, so a kept name keeps every declaration of it, as
     `--keep` does."""
-    kept: set[str] = set()
-
-    def warn(n: int, msg: str) -> None:
+    kept, problems = read_names_file(path, sections)
+    for n, msg in problems:
         print(f"warning: {path}:{n}: {msg}", file=sys.stderr)
+    return kept
 
+
+def read_names_file(path: Path, sections: list[TheorySection]
+                    ) -> tuple[set[str], list[tuple[int, str]]]:
+    """The names a `THEORY NAME [NOTE...]` file lists, and its stale lines
+    as ``(line number, message)``.  The format is `read_keep_file`'s; the
+    caller decides whether a stale line is a warning (a keep file) or an
+    error (a deletion set [assume-deleted])."""
+    names: set[str] = set()
+    problems: list[tuple[int, str]] = []
     for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split(None, 2)
         if len(parts) < 2:
-            warn(n, "expected THEORY NAME [NOTE]")
+            problems.append((n, "expected THEORY NAME [NOTE]"))
             continue
         thy, name = parts[0], parts[1]
         if thy.endswith(".thy") or "/" in thy:
@@ -2201,12 +2363,12 @@ def read_keep_file(path: Path, sections: list[TheorySection]) -> set[str]:
                 thy = str(here)
         sec = _resolve_theory(sections, thy)
         if sec is None:
-            warn(n, f"no theory {parts[0]!r}")
+            problems.append((n, f"no theory {parts[0]!r}"))
         elif not any(e.name == name for e in sec.entries):
-            warn(n, f"{sec.theory} declares no {name!r}")
+            problems.append((n, f"{sec.theory} declares no {name!r}"))
         else:
-            kept.add(name)
-    return kept
+            names.add(name)
+    return names, problems
 
 
 def _evidence(sections: list[TheorySection], reach: str = "closure"
@@ -2237,11 +2399,25 @@ def _evidence(sections: list[TheorySection], reach: str = "closure"
     # only when some antiquotation names a declared entry.
     mentions = _graph.doc_mentions(sections)
     declared = {e.name for sec in sections for e in sec.entries}
-    mentions = {n: ts for n, ts in mentions.items() if n in declared}
+    mentions = {n: at for n, at in mentions.items() if n in declared}
     if mentions:
-        vis = _graph._Visibility(sections, reach)
-        for n, theories in mentions.items():
-            if any(vis.sees(t, n) for t in sorted(theories)):
+        # Per name space as well [antiq-namespace]: `@{const foo}` is no
+        # evidence for `lemma foo`.
+        spaces_vis = _graph.space_visibility(sections, reach, bindings=False)
+        # In section order, so each theory's import closure is walked once
+        # and then served from the one-slot cache; name by name, the
+        # mentions jump between theories and miss it.
+        order = {id(sec): i for i, sec in enumerate(sections)}
+        checks = sorted(((order[id(sec)], line, n, sec, spaces)
+                         for n, at in mentions.items()
+                         for sec, line, spaces in at),
+                        key=lambda c: (c[0], c[1]))
+        found: set[str] = set()
+        for _i, line, n, sec, spaces in checks:
+            if n not in found and spaces_vis.names(n, spaces, sec, line):
+                found.add(n)
+        for n in mentions:            # in `mentions`' order, as before
+            if n in found:
                 out.setdefault(n, []).append("doc")
     return out
 
@@ -2255,29 +2431,99 @@ def _dead_marked(graph: CallGraph, dead: dict[str, int],
     Without `-r` that is the uncited ones.  With it, also those whose every
     citer is dead — but nothing cascades THROUGH them: an entry with evidence
     is still live for the entries it cites, which is the `--keep`
-    behaviour."""
+    behaviour.  That holds when the entry cited has evidence too (#41): a
+    headline theorem cited only by an uncited corollary is cited by a live
+    entry, so it is not listed, nor is anything below it.  `dead` holds
+    only entries without evidence, so one pass is the whole answer."""
     out: dict[str, int] = {}
-    changed = True
-    while changed:
-        changed = False
-        for n in marks:
-            if n in out:
-                continue
-            cs = graph.callers.get(n, set())
-            if not cs:
-                out[n] = 0
-            elif recursive and all(c in dead or c in out for c in cs):
-                out[n] = 1 + max(dead.get(c, out.get(c, 0)) for c in cs)
-            else:
-                continue
-            changed = True
+    for n in marks:
+        cs = graph.callers.get(n, set())
+        if not cs:
+            out[n] = 0
+        elif recursive and cs <= dead.keys():
+            out[n] = 1 + max(dead[c] for c in cs)
     return out
+
+
+def _dragged(graph: CallGraph, live: set[str],
+             marks: dict[str, list[str]], recursive: bool,
+             deleted: frozenset[str]) -> dict[str, int]:
+    """What deleting `deleted` takes with it, as ``{name: depth}``
+    [assume-deleted]: the entries every citer of which is deleted or itself
+    taken, at one more than their deepest citer.  The deleted names are the
+    seed, at depth 0, and are not in the result.
+
+    Nothing else counts as dead.  An entry also cited by an unused lemma
+    outside the set stays, since deleting it would break that lemma: the
+    answer is what can go WITH the set and nothing more, the set's
+    exclusive subtree.  Without `-r` it is one level.
+
+    A name in `deleted` is dead even if --keep, the keep file or its own
+    evidence would keep it, since naming it is the more specific decision.
+    An entry with evidence is listed, as `unused` lists it, but nothing
+    cascades through it."""
+    live = live - deleted
+    seed = {n: 0 for n in deleted}
+    out = _cascade(graph, live, seed, None if recursive else 1)
+    for n in marks:
+        cs = graph.callers.get(n, set())
+        if n not in deleted and cs and cs <= (out.keys() if recursive
+                                               else deleted):
+            out[n] = 1 + max(out[c] for c in cs)
+    for n in deleted:
+        out.pop(n, None)
+    return out
+
+
+def _deletion_set(sections: list[TheorySection], graph: CallGraph,
+                  flags: 'CmdFlags') -> frozenset[str]:
+    """The names --assume-deleted and --assume-deleted-file give, checked
+    [assume-deleted].
+
+    An unknown name is an error, not a warning as it is for --keep: a typo
+    in a deletion set would silently report a smaller cascade, which reads
+    exactly like a correct answer.  Each one is reported, stdout stays
+    empty, and the status is 1, as for any unresolved subject."""
+    names = set(flags.assume_deleted)
+    problems: list[str] = []
+    if flags.assume_deleted_file:
+        path = Path(flags.assume_deleted_file).expanduser()
+        listed, stale = read_names_file(path, sections)
+        names |= listed
+        problems += [f"{path}:{n}: {msg}" for n, msg in stale]
+    problems += [f"'{n}' is not in the entry index (given to --assume-deleted)"
+                 for n in sorted(set(flags.assume_deleted) - graph.all_names)]
+    if problems:
+        for msg in problems:
+            print(f"{_prog_name()}: {msg}", file=sys.stderr)
+        sys.exit(EXIT_UNRESOLVED)
+    return frozenset(names)
+
+
+def _render_blockers(sections: list[TheorySection],
+                     blockers: list[tuple[str, str]],
+                     dead: dict[str, int], stream) -> None:
+    """The citers outside a deletion set, one row per (deleted, citer)
+    pair [assume-deleted].  A citer that is itself in the answer is marked
+    `[unused]`: adding it to the set clears that row."""
+    by_name = _entry_by_name(sections)
+    w = max(len(d) for d, _ in blockers)
+    cw = max(len(c) for _, c in blockers)
+    n_names = len({d for d, _ in blockers})
+    print(f"{_counted(n_names, 'entry', 'entries')} to delete "
+          f"{'is' if n_names == 1 else 'are'} still cited from outside the "
+          f"set ({_counted(len(blockers), 'citation')}):\n", file=stream)
+    for d, c in blockers:
+        thy = by_name[c][0] if c in by_name else "?"
+        mark = "  [unused]" if c in dead else ""
+        print(f"  {d:<{w}}  cited by  {c:<{cw}}  {thy}{mark}", file=stream)
+    print(file=stream)
 
 
 def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',
                       windows: "dict[Path, list] | None" = None,
-                      everywhere: "list[TheorySection] | None" = None
-                      ) -> None:
+                      everywhere: "list[TheorySection] | None" = None,
+                      premises_only: bool = False) -> None:
     """``unused --locals``: proof-local names bound and never read (issue
     #12).  One row per binding — ``LOCUS NAME KIND ENTRY`` — in source order;
     the scan and its caveats are :mod:`isabelle_query.proof_locals`'.
@@ -2286,8 +2532,13 @@ def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',
     `assumes` label read only to discharge an unread premise by `[OF …]`
     position, with a fifth column naming the premise it fed.  The callers
     are searched for over *everywhere* (the project), not just the
-    selection."""
+    selection.
+
+    *premises_only* is the `assumptions` view [unused-views]: the statement
+    premises alone, the bindings whose removal reaches past the proof."""
     found = unread_locals(sections, windows, flags.keep)
+    if premises_only:
+        found = [(sec, b) for sec, b in found if b.kind in PREMISE_KINDS]
     rows: list[tuple[TheorySection, "LocalBinding", str]] = [
         (sec, b, "") for sec, b in found]
     if flags.recursive:
@@ -2303,20 +2554,24 @@ def cmd_unused_locals(sections: list[TheorySection], flags: 'CmdFlags',
     if flags.by_theory:
         counts = Counter(labels.get(sec.path, sec.theory)
                          for sec, _b, _v in rows)
-        print(f"{len(rows)} unread local names across {len(counts)} "
-              f"theories:\n")
+        print(f"{_counted(len(rows), 'unread local name')} across "
+              f"{_counted(len(counts), 'theory', 'theories')}:\n")
         for thy, n in counts.most_common():
             print(f"  {n:4d}  {thy}")
         return
-    cells = [(f"{labels.get(sec.path, sec.theory)}:{b.line}", b.name, b.kind,
-              b.entry, via) for sec, b, via in rows]
-    w0 = max(len(c[0]) for c in cells)
-    w1 = max(len(c[1]) for c in cells)
-    w2 = max(len(c[2]) for c in cells)
-    w3 = max(len(c[3]) for c in cells) if any(c[4] for c in cells) else 0
-    for locus, name, kind, entry, via in cells:
-        tail = f"{entry:<{w3}}  {via}" if via else entry
-        print(f"{locus:<{w0}}  {name:<{w1}}  {kind:<{w2}}  {tail}")
+    cells = []
+    for sec, b, via in rows:
+        label = labels.get(sec.path, sec.theory)
+        row = [f"{label}:{b.line}", b.name, b.kind, b.entry]
+        if flags.spans:
+            row.append(span_text(label, b))
+        cells.append(row + [via] if via else row)
+    # Every cell but a row's last is padded to the widest in its column.
+    widths = [max(len(c[k]) for c in cells if len(c) > k)
+              for k in range(max(len(c) for c in cells))]
+    for row in cells:
+        print("  ".join([f"{c:<{widths[k]}}" for k, c in enumerate(row[:-1])]
+                        + [row[-1]]))
 
 
 def _grep_sections(sections: list[TheorySection], pat: re.Pattern

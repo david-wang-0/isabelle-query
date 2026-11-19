@@ -339,8 +339,14 @@ def _flags_from_ns(ns: argparse.Namespace) -> CmdFlags:
     f.keep = frozenset(n for arg in keep_args
                        for n in arg.split(",") if n.strip())
     f.evidence = getattr(ns, "evidence", "mark")
+    f.spans = getattr(ns, "spans", False)
     f.keep_file = getattr(ns, "keep_file", None)
+    f.assume_deleted = frozenset(
+        n.strip() for arg in getattr(ns, "assume_deleted", None) or []
+        for n in arg.split(",") if n.strip())
+    f.assume_deleted_file = getattr(ns, "assume_deleted_file", None)
     f.external = getattr(ns, "external", False)
+    f.antiquotations = getattr(ns, "antiquotations", False)
     f.drop_names_upto = getattr(ns, "drop_names_upto", _DROP_NAMES_UPTO)
     f.reach = getattr(ns, "reach", "closure")
     f.sorts = getattr(ns, "sorts", False)
@@ -717,6 +723,21 @@ def _add_subject_list_arg(p: argparse.ArgumentParser, *, cmd: str,
     p.add_argument(dest, nargs="+", metavar=metavar, help=help_text)
 
 
+def _add_edge_format_flag(p: argparse.ArgumentParser, noun: str,
+                          locus: str) -> None:
+    """`-f tsv` for the two directions of the citation graph [callers-tsv]
+    [callees-tsv].  One spelling and one column list, so one parser reads
+    `callers` and `callees` alike; only the neighbour's noun and what its
+    locus points at differ."""
+    p.add_argument("-f", "--format", dest="out_format",
+                   choices=("text", "tsv"), default="text",
+                   help=f"tsv: one row per {noun}, every row naming its "
+                        f"subject, no header -- subject, {noun}, tag, "
+                        f"theory, session, depth, locus (locus: {locus}).  "
+                        "With -c, `subject<TAB>count`.  Several subjects "
+                        "make one table, not blocks")
+
+
 def _add_verbatim_flag(p: argparse.ArgumentParser) -> None:
     # `p` may be a parser or a mutually-exclusive group (both expose
     # add_argument), so `show` can pair this with `--statement` in one group.
@@ -855,10 +876,12 @@ def _run_summary(ns: argparse.Namespace) -> None:
                 totals_only=getattr(ns, "count", False))
 
 def _run_theory(ns: argparse.Namespace) -> None:
-    cmd_theory(_load_sections(ns), ns.name, _flags_from_ns(ns))
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "name", lambda secs, thy: cmd_theory(secs, thy, flags))
 
 def _run_defs(ns: argparse.Namespace) -> None:
-    cmd_defs(_load_sections(ns), ns.theory, _flags_from_ns(ns))
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "theory", lambda secs, thy: cmd_defs(secs, thy, flags))
 
 def _run_deps(ns: argparse.Namespace) -> None:
     _run_each(ns, "theory",
@@ -877,7 +900,8 @@ def _run_refs(ns: argparse.Namespace) -> None:
     _run_each(ns, "theory", lambda secs, thy: cmd_refs(secs, thy, flags))
 
 def _run_outline(ns: argparse.Namespace) -> None:
-    cmd_outline(_load_sections(ns), ns.theory, _flags_from_ns(ns))
+    flags = _flags_from_ns(ns)
+    _run_each(ns, "theory", lambda secs, thy: cmd_outline(secs, thy, flags))
 
 def _run_enclosing(ns: argparse.Namespace) -> None:
     # No PATH positionals: the FILE is baked into each FILE:LINE locus, so
@@ -905,12 +929,18 @@ def _run_show(ns: argparse.Namespace) -> None:
 
 def _run_callers(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
+    if flags.antiquotations and flags.recursive:
+        # The closure walks the citation graph, which has no antiquotation
+        # edges; ignoring the flag there would answer a different question.
+        _usage_error("callers: --antiquotations reports direct references "
+                     "only; it does not combine with -r")
     _run_each(ns, "name", lambda secs, n: cmd_callers(secs, n, flags),
               sep="" if flags.fmt == "tsv" else "\n")
 
 def _run_callees(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
-    _run_each(ns, "name", lambda secs, n: cmd_callees(secs, n, flags))
+    _run_each(ns, "name", lambda secs, n: cmd_callees(secs, n, flags),
+              sep="" if flags.fmt == "tsv" else "\n")
 
 # `THEORY:NAME` — an entry selector for `unused --locals`, the one place a PATH
 # may name an entry rather than a line window.
@@ -922,15 +952,51 @@ def _usage_error(msg: str) -> None:
     sys.exit(2)
 
 
+# `unused`'s views [unused-views]: dead entries over the citation graph, or
+# proof-local names, all of them or only the statement's premises.  A view
+# word is recognised only as the first positional; a theory spelled the same
+# is reached as `facts.thy` or by its path.
+_UNUSED_VIEWS = ("entries", "facts", "assumptions")
+
+
+def _unused_view(ns: argparse.Namespace, files: list[str]) -> str:
+    """The view `unused` was asked for, taking its word off *files*.
+    `--locals` is the 0.x spelling of `facts`."""
+    word = files.pop(0) if files and files[0] in _UNUSED_VIEWS else None
+    if ns.locals:
+        if word == "entries":
+            _usage_error("unused: --locals is the `facts` view, not "
+                         "`entries`")
+        return word or "facts"
+    return word or "entries"
+
+
 def _run_unused(ns: argparse.Namespace) -> None:
     flags = _flags_from_ns(ns)
     files = list(getattr(ns, "files", None) or [])
-    if not ns.locals:
+    view = _unused_view(ns, files)
+    ns.files = files      # without the view word, for `_load_sections`
+    if view == "entries":
         # Entry-level deadness is a question about the whole citation graph,
         # so it scopes with -R and never with a file subset (CONTRIBUTING.md).
         if files:
-            _usage_error("unused: PATH arguments need --locals; entry-level "
-                         "`unused` is corpus-wide, scope it with -R")
+            _usage_error("unused: PATH arguments need a proof-local view "
+                         "(`unused facts PATH`); `unused entries` is "
+                         "corpus-wide, scope it with -R")
+        if flags.spans:
+            _usage_error("unused: --spans needs a proof-local view "
+                         "(`unused facts --spans`)")
+        if flags.mode == "names" and (flags.by_theory or flags.roots):
+            _usage_error("unused: --names lists entries; it does not "
+                         "combine with --by-theory or --roots")
+        deleting = bool(flags.assume_deleted or flags.assume_deleted_file)
+        if deleting and flags.roots:
+            _usage_error("unused: --assume-deleted lists entries; it does "
+                         "not combine with --roots")
+        if flags.assume_deleted_file is not None and not Path(
+                flags.assume_deleted_file).expanduser().is_file():
+            _usage_error(f"unused: {flags.assume_deleted_file}: no such "
+                         "file (given to --assume-deleted-file)")
         sections = _load_sections(ns)
         if flags.keep_file is not None:
             if not Path(flags.keep_file).expanduser().is_file():
@@ -943,14 +1009,21 @@ def _run_unused(ns: argparse.Namespace) -> None:
         cmd_unused(sections, flags)
         return
     if flags.roots:
-        _usage_error("unused: --locals does not take --roots")
+        _usage_error(f"unused: the `{view}` view does not take --roots")
+    if flags.mode == "names":
+        _usage_error(f"unused: the `{view}` view does not take --names")
+    if flags.assume_deleted or flags.assume_deleted_file:
+        _usage_error(f"unused: the `{view}` view does not take "
+                     "--assume-deleted")
+    premises = view == "assumptions"
     if not files:
-        cmd_unused_locals(load_index(), flags)
+        cmd_unused_locals(load_index(), flags, premises_only=premises)
         return
     sections, windows = _locals_selection(files)
     # `-r` follows a dead premise to its callers, which may be anywhere.
     cmd_unused_locals(sections, flags, windows,
-                      load_index() if flags.recursive else None)
+                      load_index() if flags.recursive else None,
+                      premises_only=premises)
 
 
 def _locals_selection(files: list[str]
@@ -1111,56 +1184,86 @@ def _run_sorry(ns: argparse.Namespace) -> None:
     # sorry lists open goals in proofs — a theory concept; always syntax-aware.
     cmd_sorry(_load_sections(ns, parse="syntax"), getattr(ns, "count", False))
 
-def _lines_file_and_ranges(tokens: list[str]) -> tuple[str, list[str]]:
-    """Split `lines` positionals into ``(file_token, ranges)``.
+def _lines_groups(tokens: list[str]) -> list[tuple[str, list[str]]]:
+    """Split `lines` positionals into ``[(file_token, ranges), ...]``.
 
     Two accepted spellings, detected by whether the first token parses as a
     ``FILE:RANGE`` locus:
 
       * ``FILE RANGE...``        — ``lines Foo 1..10 20..30``  (the original)
-      * ``FILE:RANGE ...``       — ``lines Foo:1..10 Foo:20..30``
+      * ``FILE:RANGE ...``       — ``lines Foo:1..10 Bar:20..30``
 
     The colon form is the `enclosing` / grep locus grammar reused, so a span
-    printed elsewhere pastes straight in; its loci must name **one** file
-    (`cmd_lines` reads a single source).  Exits with a clear error on a
-    mixed or multi-file colon batch, or a bare ``FILE`` with no ranges.
+    printed elsewhere pastes straight in.  Its loci may name several files
+    [lines-files] (#33): a `--spans` or `callers` list spans files.  They
+    stay in the order given, one group per run of loci in one file.  The
+    space form is one file, since its ranges name none.  Exits with a clear
+    error on a mixed batch, or a bare ``FILE`` with no ranges.
     """
     if _parse_locus(tokens[0]) is not None:
-        loci = []
+        groups: list[tuple[str, list[str]]] = []
         for t in tokens:
             parsed = _parse_locus(t)
             if parsed is None:
                 print(f"ERROR: mixed `lines` forms — '{t}' is not FILE:RANGE",
                       file=sys.stderr)
                 sys.exit(2)
-            loci.append(parsed)
-        files = {f for f, _, _ in loci}
-        if len(files) > 1:
-            print(f"ERROR: `lines` reads one file, got: "
-                  f"{', '.join(sorted(files))}", file=sys.stderr)
-            sys.exit(2)
-        return loci[0][0], [
-            (f"{lo}.." if hi is None else f"{lo}..{hi}") for _, lo, hi in loci]
+            f, lo, hi = parsed
+            if not groups or groups[-1][0] != f:
+                groups.append((f, []))
+            groups[-1][1].append(f"{lo}.." if hi is None else f"{lo}..{hi}")
+        return groups
     if len(tokens) < 2:
         print("ERROR: `lines` needs at least one RANGE "
               "(`FILE RANGE...` or `FILE:RANGE ...`)", file=sys.stderr)
         sys.exit(2)
-    return tokens[0], tokens[1:]
+    return [(tokens[0], tokens[1:])]
 
 
 def _run_lines(ns: argparse.Namespace) -> None:
-    # lines is ignore-syntax: route the file token to its source through the
+    # lines is ignore-syntax: route each file token to its source through the
     # shared resolver (same `-`/path/name handling as the search family), then
-    # hand the raw lines to cmd_lines.  `_lines_file_and_ranges` accepts both
-    # the `FILE RANGE...` and colon-form `FILE:RANGE ...` spellings.
-    file_token, ranges = _lines_file_and_ranges(ns.args)
-    if file_token == _STDIN_SENTINEL:
-        src = _stdin_source()
-    else:
-        src = _resolve_file_source(file_token,
-                                   Path(file_token).expanduser().resolve(),
-                                   load_index)
-    cmd_lines(src.lines(), ranges)
+    # hand the raw lines to cmd_lines.  `_lines_groups` accepts both the
+    # `FILE RANGE...` and colon-form `FILE:RANGE ...` spellings.
+    groups = _lines_groups(ns.args)
+    # Every file is resolved before anything prints: a batch is all or
+    # nothing (CONTRIBUTING), and each unknown token is reported, not only
+    # the first.  The resolver exits on its own diagnostic; collect those.
+    sources: dict[str, list[str]] = {}
+    failed = False
+    index_cache: list[list[TheorySection]] = []
+
+    def get_index() -> list[TheorySection]:
+        # Parsed once, however many bare theory names the batch holds.
+        if not index_cache:
+            index_cache.append(load_index())
+        return index_cache[0]
+
+    for token, _ranges in groups:
+        if token in sources:
+            continue
+        if token == _STDIN_SENTINEL:
+            sources[token] = _stdin_source().lines()
+            continue
+        try:
+            sources[token] = _resolve_file_source(
+                token, Path(token).expanduser().resolve(),
+                get_index).lines()
+        except SystemExit as exc:
+            if exc.code != 1:
+                raise           # a root that cannot be read: exit 2
+            failed = True
+    if failed:
+        sys.exit(1)
+    # One file prints as it always has; several get a `head`-style header
+    # naming the file as typed, so it pastes back.
+    headed = len(sources) > 1
+    for i, (token, ranges) in enumerate(groups):
+        if i:
+            print("--")
+        if headed:
+            print(f"==> {token} <==")
+        cmd_lines(sources[token], ranges)
 
 
 # -- Parser construction ----------------------------------------------------
@@ -1275,7 +1378,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("theory",
                        help="show all entries for a theory "
                             "(--names for a terse namespace listing)")
-    p.add_argument("name", help="theory name")
+    _add_subject_list_arg(p, cmd="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
     _add_names_flag(p, "list the theory's namespace entries terse "
                        "(name, tag, line; no bodies) — one per line")
     _add_count_flag(p, "just print the entry count")
@@ -1288,7 +1392,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("defs",
                        help="list definitions in a theory "
                             "(--names for terse name listing)")
-    p.add_argument("theory", help="theory name")
+    _add_subject_list_arg(p, cmd="defs", dest="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
     _add_names_flag(p, "list definition names terse (name, tag, line)")
     _add_count_flag(p, "just print the definition count")
     p.set_defaults(func=_run_defs)
@@ -1350,7 +1455,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # outline
     p = sub.add_parser("outline", help="section structure with entries")
-    p.add_argument("theory", help="theory name")
+    _add_subject_list_arg(p, cmd="outline", dest="theory", metavar="THEORY",
+                          noun="theory name or .thy path")
     _add_comment_flags(p)
     _add_context_flag(p)
     p.set_defaults(func=_run_outline)
@@ -1469,13 +1575,21 @@ def _build_parser() -> argparse.ArgumentParser:
                         "own internal cross-references are noise).  Only "
                         "affects the non-recursive form; "
                         "transitive closure via -r ignores this flag.")
+    p.add_argument("--antiquotations", action="store_true",
+                   help="also report NAME where an antiquotation names it: "
+                        "`@{thm}`, `@{const}`, `@{term}`, `@{typ}` and the "
+                        "other kinds that name a declaration, in either "
+                        "spelling, in text, `\\<comment>` notes and ML alike, "
+                        "and in NAME's own name space (`@{const foo}` is no "
+                        "`lemma foo`).  Not in a `(* *)` comment, which "
+                        "Isabelle never reads.  Not a proof use, but checked "
+                        "when the "
+                        "theory is processed, so deleting or moving NAME "
+                        "breaks it.  Rows are marked `[antiq]`, tag `ANTIQ` "
+                        "under -f tsv.  Direct references only: not with -r")
     _add_reach_flag(p)
-    p.add_argument("-f", "--format", dest="out_format",
-                   choices=("text", "tsv"), default="text",
-                   help="tsv: one row per caller, every row naming its "
-                        "subject, no header -- subject, caller, tag, theory, "
-                        "session, depth, locus.  With -c, `subject<TAB>count`. "
-                        "Several subjects make one table, not blocks")
+    _add_edge_format_flag(p, "caller", "the caller's citing line; under -r "
+                          "its declaration")
     p.set_defaults(func=_run_callers)
 
     # callees
@@ -1495,6 +1609,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "non-recursive form; transitive closure via -r "
                         "ignores this flag.")
     _add_reach_flag(p)
+    _add_edge_format_flag(p, "callee", "the callee's declaration")
     p.set_defaults(func=_run_callees)
 
     # grep
@@ -1536,8 +1651,10 @@ def _build_parser() -> argparse.ArgumentParser:
                             "prefix (sandbox-friendly alternative to awk loops)")
     p.add_argument("args", nargs="+", metavar="FILE-or-RANGE",
                    help="either `FILE RANGE...` (`lines Foo 1..10 20..30`) or "
-                        "colon-form `FILE:RANGE ...` loci sharing one file "
-                        "(`lines Foo:1..10 Foo:20..30`) — the same `FILE:A..B` "
+                        "colon-form `FILE:RANGE ...` loci, from one file or "
+                        "several (`lines Foo:1..10 Bar:20..30`; several files "
+                        "print in the order given, each run under a "
+                        "`==> FILE <==` header) — the same `FILE:A..B` "
                         "grammar `enclosing` uses, so a span printed elsewhere "
                         "pastes straight in.  FILE is any text file, a bare "
                         "theory name (resolved to its .thy, like outline/show), "
@@ -1547,17 +1664,34 @@ def _build_parser() -> argparse.ArgumentParser:
                         "multiple ranges are `--`-separated in the output.")
     p.set_defaults(func=_run_lines)
 
-    p = sub.add_parser("unused", help="list entries with zero callers")
+    p = sub.add_parser(
+        "unused",
+        help="dead code, in one of three views: `entries` (default) with "
+             "zero callers; `facts`, the proof-local names a proof never "
+             "reads; `assumptions`, only the statement premises among them",
+        description="Views: `unused [entries]` lists entries nothing cites, "
+                    "over the whole citation graph (scope it with -R).  "
+                    "`unused facts [PATH...]` looks one level down, at the "
+                    "names a proof binds and never reads, including the "
+                    "statement's own `assumes` / `if` labels; "
+                    "`unused assumptions [PATH...]` keeps only those "
+                    "premises, since dropping one is a separate job that "
+                    "touches every caller.  `--locals` is `facts`.")
     _add_count_flag(p)
     p.add_argument("-r", "--recursive", action="store_true",
                    help="cascade: include entries whose callers are all "
-                        "unused.  With --locals: include a caller's `assumes` "
+                        "unused.  In the facts / assumptions views: include "
+                        "a caller's `assumes` "
                         "label read only to discharge an unread premise by "
                         "`[OF ...]` position, tagged with the premise it fed")
     p.add_argument("--by-theory", action="store_true",
                    help="group by theory with line counts")
     p.add_argument("--roots", action="store_true",
                    help="forest summary: each root with exclusive subtree size")
+    _add_names_flag(p, "entries view: the rows without their spans or "
+                       "the header, so that diffing two runs shows only "
+                       "entries whose status changed; an edit above an "
+                       "entry moves its span but not its row")
     p.add_argument("--keep", action="append", metavar="NAME[,NAME...]",
                    help="treat these names as live roots (never flag as "
                         "unused, and stop the cascade at them).  Repeatable, "
@@ -1572,6 +1706,23 @@ def _build_parser() -> argparse.ArgumentParser:
                         "comment line.  The names act as --keep does, so a "
                         "result kept for independent interest is decided "
                         "once, with its reason")
+    p.add_argument("--assume-deleted", action="append",
+                   metavar="NAME[,NAME...]",
+                   help="what-if: answer as though these entries were "
+                        "deleted.  They count as dead whatever cites them, "
+                        "--keep and evidence included, so with -r the "
+                        "cascade shows everything the deletion drags with "
+                        "it.  A row unused only because of the deletion is "
+                        "marked `[freed]`.  A citation from outside the set "
+                        "would break, so each one is listed first (on "
+                        "stderr under -c / --names) and the status is 3.  "
+                        "An unknown name exits 1.  Repeatable, or pass a "
+                        "comma-separated list")
+    p.add_argument("--assume-deleted-file", metavar="PATH",
+                   help="read more names to delete from PATH, in the "
+                        "--keep-file format (`THEORY NAME [NOTE...]`).  A "
+                        "line naming something its theory does not declare "
+                        "is an error here (exit 1), not a warning")
     p.add_argument("--evidence", "--implicit", dest="evidence",
                    choices=("mark", "hide"), default="mark",
                    help="an uncited entry may still be meant to stay, and "
@@ -1580,14 +1731,16 @@ def _build_parser() -> argparse.ArgumentParser:
                         "`proposition`), a declaring attribute on its own "
                         "header that hands it to a tool (`[simp]`, `[intro]`, "
                         "`[code]`, a named_theorems name), a document "
-                        "antiquotation naming it (`@{thm foo}`: `doc`).  "
+                        "antiquotation naming it (`@{thm foo}`, `@{const foo}`, "
+                        "`@{term \"foo x\"}`: `doc`).  "
                         "Such entries stop the -r cascade, like --keep; "
                         "`mark` (default) still lists them, tagged "
                         "`[evidence: corollary, simp]`, `hide` drops them, "
                         "leaving only the entries with none.  (`--implicit` "
                         "is the 0.9.9 spelling.)")
     p.add_argument("--locals", action="store_true",
-                   help="one level down: proof-local names (`have NAME:`, "
+                   help="the `facts` view, under its first name.  "
+                        "One level down: proof-local names (`have NAME:`, "
                         "`obtain ... where NAME:`, `note NAME =`, `define`, "
                         "`let ?NAME`, and the statement's own `assumes "
                         "NAME:` / `if NAME:`) that nothing in their scope "
@@ -1596,14 +1749,31 @@ def _build_parser() -> argparse.ArgumentParser:
                         "PATHs narrow it, as a file, `THY:A..B` / `THY:LINE` "
                         "(the proofs that span touches) or `THY:ENTRY`.  "
                         "CANDIDATES, not a delete list: a fact used through a "
-                        "bundle, by `case` position (`1(2)`), by its statement "
-                        "(`‹P›`) or by an `obtain`'s hand-written `that` is "
-                        "invisible to it; --keep names the deliberate ones.  A label whose fact "
-                        "is chained (`then`, `moreover`, ...) or declared "
-                        "(`[simp]`) is used, and never reported")
-    p.add_argument("files", nargs="*", metavar="PATH",
-                   help="with --locals only: the files, theories or "
-                        "`THY:A..B` / `THY:ENTRY` selections to scan "
+                        "bundle, by `case` position (`1(2)`), by a literal "
+                        "fact spelled otherwise than its statement or by an "
+                        "`obtain`'s hand-written `that` is invisible to it; "
+                        "--keep names the deliberate ones.  A label whose "
+                        "fact is chained (`then`, `moreover`, ...), declared "
+                        "(`[simp]`), in scope of a bare `fact` method or "
+                        "cited as `‹P›` is used, and never reported")
+    p.add_argument("--spans", action="store_true",
+                   help="facts / assumptions views only: a column giving "
+                        "the lines that "
+                        "bind each name, `THY:A..B` — its statement (from a "
+                        "leading `from`/`with`/`then`) to the end of its "
+                        "proof, a method after `qed` included — when deleting "
+                        "them removes that binding and nothing else.  "
+                        "Otherwise the span says why not: `clause-of` (one "
+                        "fact of a statement binding several), `shares-line` "
+                        "(another command is on its first or last line), "
+                        "`binds-vars` (an `obtain` whose variables may still "
+                        "be used), or `premise` alone (a statement premise; "
+                        "dropping it changes the statement and its callers)")
+    p.add_argument("files", nargs="*", metavar="[VIEW] PATH",
+                   help="VIEW is `entries` (default), `facts` or "
+                        "`assumptions`, first if given.  PATHs, in the "
+                        "facts / assumptions views only: the files, theories "
+                        "or `THY:A..B` / `THY:ENTRY` selections to scan "
                         "(default: the whole project)")
     _add_drop_names_flag(p)
     _add_reach_flag(p)
@@ -1978,10 +2148,28 @@ def _warn_committed_fallback(sess_infos) -> None:
           f"results.", file=sys.stderr)
 
 
+def _parse_argv(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse a command line.  `unused facts -c Foo` is the one shape plain
+    `parse_args` refuses: a view word and its PATHs are one `nargs="*"`
+    positional, and argparse cannot resume it after an option (CPython
+    #14191; `parse_intermixed_args` does not take subparsers).  So the words
+    left over there rejoin the PATH list; anything else left over is still
+    an error [unused-views]."""
+    parser = _build_parser()
+    ns, extra = parser.parse_known_args(argv)
+    if extra:
+        if (getattr(ns, "func", None) is _run_unused
+                and not any(a.startswith("-") for a in extra)):
+            ns.files = list(ns.files or []) + extra
+        else:
+            parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    return ns
+
+
 def main():
     global _ROOT_OVERRIDE
     parser = _build_parser()
-    ns = parser.parse_args()
+    ns = _parse_argv()
     if ns.root:
         # Checked here, before any command runs, because an explicit -R is an
         # assertion by the caller: they said this is a root, so if it is not

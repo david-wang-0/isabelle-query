@@ -24,25 +24,41 @@ once" count gets each of them wrong:
   after the block closes, and ``next`` starts a fresh branch.  The same label
   reused in two ``case`` branches is two bindings, each needing its own reader.
 * **Binding time.**  ``have a: "P" using a by simp`` cites the OLD ``a``: the
-  label is bound when the statement's proof finishes, not when it is written.
-  ``note`` / ``define`` / ``let`` bind at the end of their own command.
+  label is bound when the statement's proof finishes, not when it is written
+  — after the method of its ``by`` / ``qed`` too, so ``by (simp add: a)``
+  cites the old one as well.  ``note`` / ``define`` / ``let`` bind at the end
+  of their own command.
 * **``this``.**  A fact consumed by chaining (``then``, ``hence``, ``thus``,
   ``with``, ``moreover``, ``ultimately``, ``also``, ``finally``, or a written
   ``this``) is used although its name is not.  That label is redundant rather
   than dead, and the question here is about dead facts, so it is not reported.
+* **Statements** (issue #27).  A fact can be read with no name at all.  A
+  bare ``fact`` method (``by fact``, ``(fact | rule refl)+``) closes its goal
+  with ANY fact in scope whose statement matches, so it reads every one
+  visible there; ``fact a`` reads ``a`` alone.  A literal fact ``‹P›`` reads
+  the visible facts whose statement is written ``P``, whitespace aside.
 
 A labelled fact given a declaring attribute (``have s [simp]:``) is read by
 the rule set it joined and is never reported; a transforming attribute
 (``[rule_format]``, ``[symmetric]``) adds it to nothing and does not protect it.
 
+Each binding also records the lines that bind it [local-spans], for a caller
+that means to cut them: from its statement — or the ``from`` / ``with`` /
+``then`` leading into it — to the end of its proof, a method after ``qed``
+included.  ``span_text`` prints them, or the reason they cannot simply go:
+a clause of a statement binding several facts, a line shared with another
+command, an ``obtain`` that also fixes variables, a statement premise, or a
+proof the walk never saw close.
+
 The result is a list of CANDIDATES, not a delete list, because the errors run
 both ways.  A fact can be used where no scan of the proof sees its name —
 through a bundle cited under another name, by position (``case`` numbering
-such as ``1(2)``), by its statement (``using ‹P›``), or by an ``obtain`` whose
-hand-written ``that`` must match its supplier clause for clause — and is then
-reported although it is needed.  The other way, a token that merely spells the
-name (a same-named variable in outer syntax) counts as a reader, and a binding
-goes unreported.  Over the AFP, 3.1% of 241,176 bindings are reported.
+such as ``1(2)``), by a literal fact spelled otherwise than its statement
+(``‹x = 0›`` for ``"x = (0::nat)"``), or by an ``obtain`` whose hand-written
+``that`` must match its supplier clause for clause — and is then reported
+although it is needed.  The other way, a token that merely spells the name (a
+same-named variable in outer syntax) counts as a reader, and a binding goes
+unreported.  Over the AFP, 2.7% of 301,053 bindings are reported.
 """
 
 from __future__ import annotations
@@ -57,7 +73,8 @@ from isabelle_query.graph import (
     CLOSING_KEYWORDS, CONTEXT_KEYWORDS, GOAL_KEYWORDS, PLUMBING_KEYWORDS,
     _noise_spans)
 from isabelle_query.model import Entry, TheorySection
-from isabelle_query.parsing import LETTER_SYMS, TRANSFORMING_ATTRS
+from isabelle_query.parsing import (
+    LETTER_SYMS, SYM_IDENT, SYMBOLIC_KEYWORDS, TRANSFORMING_ATTRS)
 from isabelle_query.premises import statement_of
 
 # An identifier by Isabelle's own lexical rule (`Doc/Isar_Ref`, "letter"): an
@@ -72,11 +89,36 @@ _NAME = rf"{_LETTER}(?:{_LETTER}|[0-9_']|\\<\^sub>)*"
 # A dotted name is one token (`Suc.IH`, `assms(1)` reads as `assms`); `?x` is a
 # schematic abbreviation; the punctuation is what the grammar below looks at.
 # Any other symbol (`\<in>`, `\<^sup>`) is matched whole so its letters never
-# surface as a word, and then dropped (the `sym` group).
+# surface as a word, and then dropped (the `sym` group).  A numeral is a name
+# too [numeral-label]: Isar's `name` admits `nat`, so `assumes 1: "P"` binds
+# and `using 1` reads, as do case facts `1.prems` (#32).  So is a symbolic
+# identifier standing alone, `assumes *:` and `using * **` (#35), though a
+# keyword so spelled is not (:func:`_is_name`).  `.` is no symbolic
+# character, so `using *.` is `*` and the terminal proof `.` (#37), as `using
+# a.` is `a` and `.`.  This is the outer view, where a numeral in a term is
+# already blank.
 _TOKEN_RE = re.compile(
-    rf"(\?{_NAME})|({_NAME}(?:\.{_NAME})*)|(?P<sym>\\<\^?\w+>)"
+    rf"(\?{_NAME})|({_NAME}(?:\.{_NAME})*)|([0-9]+(?![\w'])(?:\.{_NAME})*)"
+    rf"|(?P<sym>\\<\^?\w+>)"
+    rf"|((?<![^\s(\[,;:]){SYM_IDENT}"
+    rf"(?:(?![^\s:()\[\],;])|(?=\.\.?(?!\S))))"
     rf"|(\.\.|::|[.{{}}()\[\]:=,])")
-_TERM_TOKEN_RE = re.compile(rf"\??{_NAME}|(?P<sym>\\<\^?\w+>)")
+_KEYWORD_ALT = "(?:" + "|".join(map(re.escape, SYMBOLIC_KEYWORDS)) + ")"
+# A symbolic name standing alone in a term may be method text's (`use x
+# in ‹simp add: * "**"›`, #35).  Read as a term it names nothing, and a read
+# only ever removes a candidate.
+_TERM_TOKEN_RE = re.compile(
+    rf"\??{_NAME}|(?P<sym>\\<\^?\w+>)"
+    rf"|(?<![^\s(\[,;:\"]){SYM_IDENT}(?=[\s)\],;\"\\]|\Z)")
+# A string is a name as well (`by (meson "2" foo)`, `using "14.prems"`,
+# `from "**"(4)`): Sledgehammer quotes the names that are not identifiers,
+# and over the AFP a symbolic label is cited quoted about as often as not.
+# Under a command that cites facts, one that is nothing but a name reads that
+# fact [numeral-label] — except as a term argument, `[of "i"]`, `[where x =
+# "t"]`, `rule_tac x = "t"`, where the outer text before it says so.
+_QUOTED_NAME_RE = re.compile(
+    rf"(?:{_NAME}|[0-9]+)(?:\.{_NAME})*|(?!{_KEYWORD_ALT}\Z){SYM_IDENT}")
+_TERM_ARG_BEFORE_RE = re.compile(r"(?:\[\s*(?:of|where)\b[^\[\]]*|=\s*)$")
 
 # Every word that starts a proof command.  Recognised only outside parentheses
 # and brackets, so a method's arguments (`proof (cases x)`) never read as one.
@@ -96,6 +138,47 @@ _THIS_RESETS = frozenset({"from", "with", "assume", "presume", "case", "next"})
 _GOAL_CMDS = frozenset({"have", "hence", "show", "thus", "obtain", "consider"})
 _LABELLED_GOALS = frozenset({"have", "hence", "obtain"})
 _TERMINATORS = frozenset({"by", "done", "sorry", "oops", ".", ".."})
+# Commands whose text names facts, so a cartouche there is a literal fact
+# (`using ‹P›`, `by (rule ‹P›)`) and not a statement.
+_FACT_CMDS = frozenset({"using", "from", "with", "unfolding", "note",
+                        "by", "apply", "apply_end", "proof", "qed"})
+# Commands that start a statement, and those that may lead into one from
+# the line above (`from x` / `then` / `with x`, then `have …`): a statement's
+# lines start at its lead [local-spans].
+_STMT_CMDS = frozenset({"have", "hence", "show", "thus", "obtain", "consider",
+                        "note", "let", "define"})
+_LEADS = frozenset({"from", "with", "then"})
+# Commands whose `and` separates two facts of one statement.
+_CLAUSE_CMDS = frozenset({"have", "hence", "show", "thus", "note", "let"})
+# Commands followed by a proof method.
+_METHOD_CMDS = frozenset({"by", "apply", "apply_end", "proof", "qed"})
+
+
+# What ends the outer text before a cartouche of method text, within a
+# method [method-cartouche]: `use x in ‹simp add: y›`, and Eisbach's
+# `match conclusion in "P" ⇒ ‹rule H›`.
+_METHOD_TEXT_BEFORE_RE = re.compile(
+    r"(?:(?<![\w'])in|\\<Rightarrow>|⇒|=>)\s*$")
+
+
+def _method_cartouche(outer: list[str], t: _Tok) -> bool:
+    """Whether the cartouche *t* in a method holds method text rather than a
+    literal fact: whether the outer text before it, on its line or the line
+    above, ends in `in` or `⇒`."""
+    ln, before = t.line, outer[t.line - 1][:t.col]
+    while not before.strip() and ln > 1:
+        ln -= 1
+        before = outer[ln - 1]
+    return bool(_METHOD_TEXT_BEFORE_RE.search(before))
+
+
+def _bare(live: str, end: int) -> bool:
+    """Whether the method name ending at *end* is given no argument: the line
+    ends there, or a combinator or bracket follows (`(fact | rule refl)+`),
+    or the cartouche of method text it is written in closes (`‹fact›`)."""
+    rest = live[end:].lstrip()
+    return (not rest or rest[0] in ")|;,+?]›"
+            or rest.startswith("\\<close>"))
 
 
 @dataclass
@@ -107,6 +190,18 @@ class LocalBinding:
     entry: str
     read: bool = False
     kept: bool = False   # declared into a rule set by one of its attributes
+    # What it states, each proposition whitespace-collapsed: a literal fact
+    # `‹P›` reads the fact whose statement is `P`, whatever its name.
+    stmts: list[str] = field(default_factory=list)
+    # The lines that bind it [local-spans]: its statement — from a `from` /
+    # `with` / `then` leading into it — to the end of its proof, a method
+    # after `qed` included.  0 for a statement premise, which has no lines
+    # of its own to cut.
+    start: int = 0
+    end: int = 0
+    clause: bool = False      # one of several facts one statement binds
+    shared: bool = False      # its first or last line holds another command
+    binds_vars: bool = False  # an `obtain` that also fixes variables
 
 
 @dataclass
@@ -115,6 +210,61 @@ class _Tok:
     col: int
     text: str
     inner: bool          # a name inside a term, not outer syntax
+    # A whole delimited term (`"…"` or a cartouche) rides in the stream too,
+    # at its opening delimiter, ahead of the names inside it: its collapsed
+    # text, and whether it is a cartouche — the only spelling of a literal
+    # fact.  None on every other token.
+    term: str | None = None
+    cartouche: bool = False
+
+
+_OPENERS = (("\"", "\""), ("\\<open>", "\\<close>"), ("‹", "›"))
+
+
+def _term_tokens(live: list[str], spans: dict[int, list[tuple[int, int]]],
+                 ln: int) -> list[_Tok]:
+    """The terms that OPEN on line *ln*, each read to its close however many
+    lines it runs.  *spans* are the parser's inner spans (`hi` exclusive); a
+    span at column 0 continuing a term from the line above is no opening."""
+    out: list[_Tok] = []
+    text = live[ln - 1]
+    for lo, hi in spans.get(ln, ()):
+        pair = next((p for p in _OPENERS if text.startswith(p[0], lo)), None)
+        if pair is None or (lo == 0 and _runs_on(live, spans, ln - 1)):
+            continue
+        parts = [text[lo:hi]]
+        k = ln
+        while (not _closed(parts[-1], k == ln) and hi >= len(live[k - 1])
+               and spans.get(k + 1) and spans[k + 1][0][0] == 0):
+            k += 1
+            hi = spans[k][0][1]
+            parts.append(live[k - 1][:hi])
+        body = " ".join(parts).strip()[len(pair[0]):]
+        if body.endswith(pair[1]):
+            body = body[:-len(pair[1])]
+        out.append(_Tok(ln, lo, "\x00", True, " ".join(body.split()),
+                        pair[0] != "\""))
+    return out
+
+
+def _closed(seg: str, opening: bool) -> bool:
+    """Whether a term's segment ends it: it ends with a closing delimiter
+    that is not its own opening one."""
+    seg = seg.rstrip()
+    return any(seg.endswith(c) and not (opening and seg == o)
+               for o, c in _OPENERS)
+
+
+def _runs_on(live: list[str], spans: dict[int, list[tuple[int, int]]],
+             ln: int) -> bool:
+    """Whether a term is still open at the end of line *ln*."""
+    sp = spans.get(ln)
+    if not sp or sp[-1][1] < len(live[ln - 1]):
+        return False
+    lo, hi = sp[-1]
+    seg = live[ln - 1][lo:hi]
+    return bool(seg.strip()) and not _closed(seg, any(
+        seg.startswith(o) for o, _c in _OPENERS))
 
 
 def _body_tokens(sec: TheorySection, entry: Entry) -> list[_Tok]:
@@ -135,7 +285,7 @@ def _body_tokens(sec: TheorySection, entry: Entry) -> list[_Tok]:
             continue
         outer, live = outer_src[ln - 1], live_src[ln - 1]
         start = 0
-        toks: list[_Tok] = []
+        toks = _term_tokens(live_src, sec.inner_spans, ln)
         for m in _TOKEN_RE.finditer(outer, start):
             if not m.group("sym"):
                 toks.append(_Tok(ln, m.start(), m.group(0), False))
@@ -149,14 +299,42 @@ def _body_tokens(sec: TheorySection, entry: Entry) -> list[_Tok]:
     return out
 
 
+_SYM_START = frozenset("!#$%&*+-/<=>?@^|~")
+
+
+def _after_quoted_name(toks: list[_Tok], i: int, live: list[str]) -> bool:
+    """Whether the `(` at *i* is glued to a quoted name, `"**"(4)`, so that
+    it opens a selection.  A string rides in the stream at its opening
+    quote, ahead of the names inside it, so look back past those."""
+    t = toks[i]
+    if live[t.line - 1][t.col - 1:t.col] != '"':
+        return False
+    q = i - 1
+    while q >= 0 and toks[q].inner and toks[q].term is None:
+        q -= 1
+    if q < 0 or toks[q].line != t.line:
+        return False
+    p = toks[q]
+    return (p.term is not None and not p.cartouche
+            and bool(_QUOTED_NAME_RE.fullmatch(p.term)))
+
+
 def _word_char(ch: str) -> bool:
     return ch.isalnum() or ch in "_'?"
 
 
 def _is_name(tok: str) -> bool:
     """A name token, as opposed to punctuation.  Not `isalpha()`: a name may
-    begin with a letter SYMBOL, and `define \\<epsilon> where` is common."""
-    return tok[0].isalpha() or tok[0] == "\\"
+    begin with a letter SYMBOL, and `define \\<epsilon> where` is common, be
+    a numeral (`assumes 1:`), or be a symbolic identifier (`assumes *:`)."""
+    return (tok[0].isalnum() or tok[0] == "\\"
+            or (tok[0] in _SYM_START and tok not in SYMBOLIC_KEYWORDS))
+
+
+def _is_var(tok: str) -> bool:
+    """A name a variable may have: not a numeral, which is a fact name only
+    (`define c (…) [80, 80]` fixes no `80`), nor a symbolic one."""
+    return _is_name(tok) and (tok[0].isalpha() or tok[0] == "\\")
 
 
 @dataclass
@@ -178,6 +356,36 @@ class _Walk:
         default_factory=list)        # bound at the end of this command
     this: list[LocalBinding] = field(default_factory=list)
     unfinished: bool = False         # a `sorry` / `oops` somewhere in it
+    # A goal's proof has ended (`by`, `qed`, `done`, …) but the method after
+    # it is still being read; its labels bind at the next command.
+    proved: bool = False
+    # Where the statement being read began, `(line, col)`; the bindings it
+    # has made so far; whether it binds several facts (`a: … and b: …`).
+    stmt_start: tuple[int, int] = (0, 0)
+    stmt: list[LocalBinding] = field(default_factory=list)
+    multi: bool = False
+
+    def made(self, b: LocalBinding, outer: list[str]) -> None:
+        """*b* is bound by the statement being read: give it its first line."""
+        ln, col = self.stmt_start
+        b.start = ln or b.line
+        b.shared = bool(ln and outer[ln - 1][:col].strip())
+        b.clause = self.multi
+        self.stmt.append(b)
+
+    def several(self) -> None:
+        """An `and` between clauses: the statement binds more than one."""
+        self.multi = True
+        for b in self.stmt:
+            b.clause = True
+
+    def ends(self, bindings, last: int, next_line: int) -> None:
+        """*bindings* end on line *last*; the next command starts on
+        *next_line*, which shares it when they are equal."""
+        for b in bindings:
+            if b.start:
+                b.end = last
+                b.shared = b.shared or next_line == last
 
     def read(self, key: tuple[str, str]) -> None:
         for scope in reversed(self.scopes):
@@ -185,6 +393,33 @@ class _Walk:
                 for b in scope[key]:
                     b.read = True
                 return
+
+    def _facts(self):
+        for scope in self.scopes:
+            for (kind, _name), group in scope.items():
+                if kind == "f":
+                    yield from group
+
+    def read_every_fact(self) -> None:
+        """A bare `fact` method: it closes its goal with any fact in the
+        context whose statement matches, so every visible one may be read."""
+        for b in self._facts():
+            b.read = True
+
+    def read_statement(self, text: str) -> None:
+        """A literal fact `‹P›`: whichever visible fact states `P`."""
+        for b in self._facts():
+            if text in b.stmts:
+                b.read = True
+
+    def settle(self, last: int, next_line: int) -> None:
+        """The method that closed a goal has been read: bind its labels now,
+        so `by (simp add: a)` in `have a: … by …` cites the OLD `a`.  The
+        goal's lines end with that method, on line *last*."""
+        if self.proved:
+            self.proved = False
+            self.ends(self.prove(), last, next_line)
+            self.close_subgoal()
 
     def read_this(self) -> None:
         for b in self.this:
@@ -207,27 +442,31 @@ class _Walk:
         if self.kinds[-1] == "subgoal":
             self.close()
 
-    def finish_command(self) -> None:
-        """Bind what `note` / `define` / `let` wrote, now that it is done."""
+    def finish_command(self, last: int, next_line: int) -> None:
+        """Bind what `note` / `define` / `let` wrote, now that it is done:
+        its lines end on *last*."""
         if not self.pending:
             return
         facts: list[LocalBinding] = []
         for key, group in self.pending:
             self.bind(key, group)
+            self.ends(group, last, next_line)
             if group and group[0].kind in ("note", "define"):
                 facts.extend(b for b in group if b not in facts)
         if facts:
             self.this = facts
         self.pending = []
 
-    def prove(self) -> None:
-        """The goal open at the current depth is proved: bind its labels."""
+    def prove(self) -> list[LocalBinding]:
+        """The goal open at the current depth is proved: bind its labels,
+        and return them."""
         done = self.goals.pop(len(self.scopes), None)
         if done is None:
-            return
+            return []
         for key, b in done:
             self.bind(key, [b])
         self.this = [b for _, b in done]
+        return self.this
 
 
 def _attr_words(toks: list[_Tok], i: int) -> tuple[set[str], int]:
@@ -272,6 +511,17 @@ def _label_at(toks: list[_Tok], i: int, sep: str
     return None
 
 
+def _stmts_at(toks: list[_Tok], i: int) -> list[str]:
+    """The propositions written from *i* on, up to the next outer token:
+    `"P" "Q"` after a label are both its statements."""
+    out: list[str] = []
+    while i < len(toks) and toks[i].inner:
+        if toks[i].term is not None:
+            out.append(toks[i].term)
+        i += 1
+    return out
+
+
 def scan_proof(sec: TheorySection, entry: Entry,
                ignore: frozenset[tuple[int, int]] = frozenset()
                ) -> list[LocalBinding]:
@@ -291,6 +541,7 @@ def scan_proof(sec: TheorySection, entry: Entry,
 # A statement premise as a binding [unread-assumes]: its kind, and the name
 # that reads every premise of that kind at once.
 _PREMISE_KINDS = {"assumes": ("assms", "prems"), "if": ("that",)}
+PREMISE_KINDS = frozenset(_PREMISE_KINDS)
 
 
 def _seed_premises(sec: TheorySection, entry: Entry, w: "_Walk") -> None:
@@ -326,6 +577,7 @@ def _seed_premises(sec: TheorySection, entry: Entry, w: "_Walk") -> None:
                 seen[base] = b
                 w.bindings.append(b)
                 w.bind(("f", base), [b])
+            b.stmts.append(p.text)
         if b is not None:
             for whole in _PREMISE_KINDS[p.kind]:
                 group = groups.setdefault(whole, [])
@@ -362,6 +614,7 @@ def _walk(sec: TheorySection, entry: Entry,
     walks the same structure for `body_end_line` [body-end-text]; over the AFP
     the two agree on all 297,954 proofs, and a test holds them together."""
     toks = _body_tokens(sec, entry)
+    live_src, outer_src = sec.live_source(), sec.outer_source()
     if ignore:
         # `(line, col)` of name tokens that do not count as reads: the
         # `-r` premise cascade asks whether a label is read ELSEWHERE.
@@ -370,12 +623,14 @@ def _walk(sec: TheorySection, entry: Entry,
     _seed_premises(sec, entry, w)
     cmd = ""
     nest = 0              # parentheses + brackets: no command starts inside
+    selection = 0         # the `nest` of a `name(…)` selection, or 0
     label_next = False    # the next token may be a label
     premises = False      # after `if` / `when`: labels local to the goal
     after_where = False
     variables = False     # names here are being bound, not read
     after_type = False    # after `::` in a variable list: a type, not a name
     define_group: list[LocalBinding] = []
+    obtain_vars = False   # this `obtain` fixes variables before `where`
     # Past the entry's own closing `by` / `qed`: its method is still read —
     # `by (auto simp: a)` is where a statement premise is most often cited —
     # up to the next command, which is the end of the proof.
@@ -383,30 +638,75 @@ def _walk(sec: TheorySection, entry: Entry,
     # `from x` / `assume` rebind `this` when they FINISH: the `this` in
     # `from this` is still the previous fact.
     this_stale = False
+    begun = False         # past the statement: a command has been read
+    # In a cartouche of method text (`use x in ‹simp add: y›`): its names
+    # cite facts as method text does, and are read as terms too, since a
+    # read only ever removes a candidate [method-cartouche].
+    method_text = False
     i = 0
     while i < len(toks):
         t = toks[i]
         s = t.text
+        if not t.inner:
+            method_text = False
         if s in ("sorry", "oops") and not t.inner:
             w.unfinished = True
+        if t.term is not None:
+            if (t.cartouche and cmd in _METHOD_CMDS
+                    and _method_cartouche(outer_src, t)):
+                method_text = True
+            elif t.cartouche and cmd in _FACT_CMDS:
+                w.read_statement(t.term)
+            elif (not t.cartouche and cmd in _FACT_CMDS
+                  and _QUOTED_NAME_RE.fullmatch(t.term)
+                  and not _TERM_ARG_BEFORE_RE.search(
+                      outer_src[t.line - 1][:t.col])):
+                w.read(("f", _unqualified(t.term)))
+            i += 1
+            continue
         if t.inner:
             if not variables:
                 w.read(("t", s))
+            if method_text:
+                if s == "this":
+                    w.read_this()
+                elif s == "fact" and _bare(live_src[t.line - 1],
+                                           t.col + len(s)):
+                    w.read_every_fact()
+                elif not s.startswith("?"):
+                    w.read(("f", _unqualified(s)))
             i += 1
             continue
         if s in "([":
             nest += 1
             label_next = False
+            # `1(2)`, `assms(1)`: a selection, whose numerals are indices.
+            # Glued to a command (`by(simp add: 1)`) it is a method.
+            p = toks[i - 1] if i else None
+            if (s == "(" and p is not None and not p.inner
+                    and p.line == t.line and p.col + len(p.text) == t.col
+                    and _is_name(p.text) and p.text not in _COMMANDS):
+                selection = nest
+            elif s == "(" and _after_quoted_name(toks, i, live_src):
+                selection = nest    # `"**"(4)`
             i += 1
             continue
         if s in ")]":
+            if nest == selection:
+                selection = 0
             nest = max(0, nest - 1)
+            i += 1
+            continue
+        if selection and s[0].isdigit():
             i += 1
             continue
         if nest == 0 and (s in _COMMANDS or s in ("{", "}", ".", "..")):
             if closing:
                 break
-            w.finish_command()
+            begun = True
+            last = toks[i - 1].line if i else t.line
+            w.settle(last, t.line)
+            w.finish_command(last, t.line)
             if this_stale:
                 w.this, this_stale = [], False
             if s in _CHAIN_READERS:
@@ -420,23 +720,25 @@ def _walk(sec: TheorySection, entry: Entry,
                     # Back at the entry's own goal: its outermost block closed.
                     # Asked before `close_subgoal`, which would also reach it.
                     if len(w.scopes) == 1:
-                        w.end, closing = t.line, True
+                        w.end, closing, cmd = t.line, True, s
                         i += 1
                         continue
-                    w.prove()
-                    w.close_subgoal()
+                    w.proved = True
             elif s == "next":
                 w.close()
                 w.open("proof")
             elif s in _TERMINATORS:
                 if len(w.scopes) == 1:
-                    w.end, closing = t.line, True
+                    w.end, closing, cmd = t.line, True, s
                     i += 1
                     continue
-                w.prove()
-                w.close_subgoal()
+                w.proved = True
             if s in _GOAL_CMDS:
                 w.goals[len(w.scopes)] = []
+            if (s in _STMT_CMDS or s in _LEADS) and cmd not in _LEADS:
+                w.stmt_start = (t.line, t.col)
+            if s in _STMT_CMDS:
+                w.stmt, w.multi, obtain_vars = [], False, False
             cmd = s
             label_next = s in ("have", "hence", "note", "let")
             premises = after_where = after_type = False
@@ -456,6 +758,10 @@ def _walk(sec: TheorySection, entry: Entry,
                 label_next = cmd in ("obtain", "define")
             else:   # and
                 after_type = False
+                if not (premises or variables) and (
+                        cmd in _CLAUSE_CMDS
+                        or (cmd in ("obtain", "define") and after_where)):
+                    w.several()
                 label_next = (cmd in ("have", "hence", "note", "let")
                               or (cmd in ("obtain", "define") and after_where))
             i += 1
@@ -464,6 +770,7 @@ def _walk(sec: TheorySection, entry: Entry,
             j = i + 1
             if j < len(toks) and toks[j].text == "=":
                 b = LocalBinding(s, "let", t.line, entry.name)
+                w.made(b, outer_src)
                 w.bindings.append(b)
                 w.pending.append((("t", s), [b]))
                 label_next = False
@@ -485,11 +792,14 @@ def _walk(sec: TheorySection, entry: Entry,
                 if premises:
                     continue
                 b = LocalBinding(name, cmd, t.line, entry.name,
-                                 kept=bool(attrs - TRANSFORMING_ATTRS))
+                                 kept=bool(attrs - TRANSFORMING_ATTRS),
+                                 stmts=_stmts_at(toks, after))
                 if cmd == "define":
                     # A `where` label is another handle on the definitions.
                     w.pending.append((("f", name), define_group))
                     continue
+                w.made(b, outer_src)
+                b.binds_vars = cmd == "obtain" and obtain_vars
                 w.bindings.append(b)
                 if cmd == "note":
                     w.pending.append((("f", name), [b]))
@@ -498,25 +808,55 @@ def _walk(sec: TheorySection, entry: Entry,
                         (("f", name), b))
                 continue
         if variables:
+            if (cmd == "obtain" and not after_where and not after_type
+                    and _is_var(s)):
+                obtain_vars = True
             # Only the names before `where`: a `for` after it binds a
             # parameter of the defining equation, not a new constant.
             if (cmd == "define" and not after_where and not after_type
-                    and _is_name(s)):
+                    and _is_var(s)):
                 b = LocalBinding(s, "define", t.line, entry.name)
+                w.made(b, outer_src)
                 w.bindings.append(b)
                 define_group.append(b)
+                if len(define_group) > 1:
+                    w.several()
                 w.pending.append((("t", s), [b]))
                 w.pending.append((("f", s + "_def"), [b]))
             i += 1
             continue
-        if s == "this":
+        if not begun:
+            # Still in the statement (`lemma t: assumes p: "P" shows … by
+            # simp` on one line): its words declare, and cite nothing local.
+            pass
+        elif s == "this":
             w.read_this()
+        elif (s == "fact" and cmd in _METHOD_CMDS
+              and _bare(live_src[t.line - 1], t.col + len(s))):
+            w.read_every_fact()
         elif s.startswith("?"):
             w.read(("t", s))
         elif _is_name(s):
             w.read(("f", _unqualified(s)))
         i += 1
     return w
+
+
+def span_text(label: str, b: LocalBinding) -> str:
+    """The `--spans` cell of *b*, its theory printed as *label*
+    [local-spans].  A bare `THY:A..B` is a delete span: removing those
+    lines removes the binding and nothing else.  Anything else says why
+    not, most binding reason first."""
+    if not b.start:
+        return "premise"
+    if not b.end:
+        return f"unclosed {label}:{b.start}"
+    span = f"{label}:{b.start}..{b.end}"
+    for tag, on in (("clause-of", b.clause), ("binds-vars", b.binds_vars),
+                    ("shares-line", b.shared)):
+        if on:
+            return f"{tag} {span}"
+    return span
 
 
 def _unqualified(name: str) -> str:

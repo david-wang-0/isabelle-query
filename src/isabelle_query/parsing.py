@@ -27,7 +27,7 @@ live where the tests reach it.
 from __future__ import annotations
 
 import re
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -43,9 +43,11 @@ from isabelle_query.model import _GOAL_TAGS, Entry, TheorySection, blank_all
 # ALONE on its line — the "name on a following line" form — still matches.
 # It stays a whole-word test (`definitions`/`inductively` do not match), and
 # being zero-width it leaves the `line[len(keyword):]` slicing untouched.
-DECL_RE = re.compile(
-    r"^(definition|abbreviation|function|fun|primrec|inductive_set|inductive|lemmas|theorems|lemma|corollary|proposition|theorem|axiomatization|datatype|type_synonym|record|locale|class)(?=\s|$)"
-)
+_DECL_WORDS = (r"definition|abbreviation|function|fun|primrec|inductive_set"
+               r"|inductive|lemmas|theorems|lemma|corollary|proposition"
+               r"|theorem|schematic_goal|axiomatization|datatype|type_synonym"
+               r"|record|locale|class")
+DECL_RE = re.compile(rf"^({_DECL_WORDS})(?=\s|$)")
 
 TAG_MAP = {
     "definition": "DEF", "abbreviation": "ABBREV",
@@ -60,6 +62,13 @@ TAG_MAP = {
     # dead-code audit (#22) [goal-tags].  `model._GOAL_TAGS` is the family.
     "lemma": "LEMMA", "theorem": "THEOREM",
     "corollary": "COROLLARY", "proposition": "PROPOSITION",
+    # `schematic_goal` is the fifth `thy_goal_stmt` (Pure.thy:55), registered
+    # through the same `theorem` combinator with the `schematic` flag set: a
+    # goal whose `?x` the proof instantiates, so the fact records a term the
+    # proof synthesised (#23).  Neither a lemma nor a result, so `summary`
+    # counts it in a footnote, as it does GOAL.  `SCHEMATIC`, not the
+    # keyword in full, fits the 11-column tag field.
+    "schematic_goal": "SCHEMATIC",
     # `lemmas a = b c` binds a new name to existing facts [lemmas-entries]:
     # no statement and no proof, but a citable fact all the same, and the
     # names on its right-hand side are what it cites.  `theorems` is the same
@@ -283,6 +292,18 @@ ISA_MARKUP = rf"\\<{_NOT_STRUCTURAL}\^?\w+>"
 ISA_WORD_CHAR = rf"(?:{ISA_SYMBOL}|[\w'])"
 ISA_NAME_CHAR = rf"(?:{ISA_MARKUP}|[\w'])"
 SYM_NAME_RE = re.compile(rf"((?:{ISA_MARKUP}|\w){ISA_NAME_CHAR}*)")
+# A symbolic identifier, which Isar's `name` admits as well (#35): a run of
+# `!#$%&*+-/<=>?@^_|~` (`Lexicon.scan_symid`), so `have *: "P"` labels a fact
+# `*`.  Over the Isabelle2025-2 AFP about 12,500 labels are spelled so, mostly
+# `*`, `**`, `***`, then `$`, `#`, `++` (`scripts/probe_symbolic_labels.py`).
+# It may not start with `_`, which a word already takes.
+SYM_IDENT = r"[!#$%&*+\-/<=>?@^|~][!#$%&*+\-/<=>?@^_|~]*"
+# Pure's symbolic keywords, and `=`.  The lexer takes a keyword over a
+# symbolic identifier of the same length, so these never name a fact: they
+# are method combinators (`(rule r)+`, `simp?`), a separator (`|`) or syntax
+# (`note a = b`).
+SYMBOLIC_KEYWORDS = frozenset({"!", "!!", "+", "<", "<=", "=", "==", "=>",
+                               "?", "|"})
 # Greek + variant **letter** symbols: these are identifier characters (a
 # `\<Gamma>` context, an `\<alpha>` ordinal), NOT operators — `shape`'s
 # tokeniser keeps `\<alpha>` as a bare `\<sym>` because `_is_name` gates on an
@@ -1776,6 +1797,7 @@ def _opens_ml_body(lines: list[str], i: int, pos: int) -> bool:
 
 def _scan_nonisar_spans(
         lines: list[str], want_inner: bool = True,
+        unread: "dict[int, list[tuple[int, int]]] | None" = None,
 ) -> tuple[list[list[tuple[int, int]]], dict[int, set[int]],
            list[list[tuple[int, int]]]]:
     r"""Per-line ``[(start_col, end_col)]`` half-open character spans that are
@@ -1793,6 +1815,14 @@ def _scan_nonisar_spans(
     citation that the call graph must keep.  Likewise a bare cartouche is left
     live — only the cartouche of an ML command is a body, and the command
     keyword decides that, exactly as `TEXT_OPEN_RE` decides it for `text`.
+
+    ``unread``, when given, also gets ``{line_no: [(lo, hi)]}`` for the spans
+    Isabelle never reads [antiq-comment]: a ``(* ... *)`` comment, and the
+    body of ``\<^cancel>``, ``\<^latex>`` and ``\<^marker>``.  An
+    antiquotation there is not checked, where one in an ML body or a
+    ``\<comment>`` note is.  Only this machine can tell them apart: inside an
+    ML body a line may begin with an ML comment's ``(*``, which the spans
+    alone cannot distinguish from a comment region starting.
     """
     spans: list[list[tuple[int, int]]] = [[] for _ in lines]
     # Columns at which a GENUINE `\<comment>` note opens, per 1-indexed line.
@@ -1820,6 +1850,7 @@ def _scan_nonisar_spans(
     start = -1   # column where the current noise region began on this line
     resume = "text"   # state to return to when the current marker cartouche ends
     resume_depth = 0  # ...and the nesting depth that state was at
+    dead = False      # is the current noise region one Isabelle never reads?
     for i, line in enumerate(lines):
         n = len(line)
         if state in _NOISE_STATES:
@@ -1832,20 +1863,21 @@ def _scan_nonisar_spans(
             was_text = state == "text"
             if state == "text":
                 if tok == "(*":
-                    state, depth, start = "comment", 1, pos
+                    state, depth, start, dead = "comment", 1, pos, True
                 elif tok == "{*":
-                    state, start = "verbatim", pos
+                    state, start, dead = "verbatim", pos, False
                 elif tok == '"':
                     state = "string"
                 elif tok.startswith(_REDACTING_MARKERS):
                     # `\<^cancel>` (deleted text) or `\<comment>` (a marginal
                     # note) plus the cartouche it owns — matched as one token.
                     state, depth, start = "cartouche", 1, pos
+                    dead = not tok.startswith(_MARGINAL)
                     if tok.startswith(_MARGINAL):
                         notes.setdefault(i + 1, set()).add(pos)
                 elif tok in _CART_OPEN:
                     if _opens_ml_body(lines, i, pos):  # ML body: redact it
-                        state, depth, start = "cartouche", 1, pos
+                        state, depth, start, dead = "cartouche", 1, pos, False
                     else:  # a term / prose cartouche: one token, but kept live
                         state, depth = "term", 1
                 # a stray `*)` / `*}` / `\<close>` in text is not a delimiter
@@ -1862,6 +1894,7 @@ def _scan_nonisar_spans(
                     # open a comment that swallows the proof.
                     state, resume, resume_depth = "cartouche", "string", depth
                     depth, start = 1, pos
+                    dead = not tok.startswith(_MARGINAL)
                     if tok.startswith(_MARGINAL):
                         notes.setdefault(i + 1, set()).add(pos)
             elif state == "comment":
@@ -1871,6 +1904,9 @@ def _scan_nonisar_spans(
                     depth -= 1
                     if depth <= 0:
                         spans[i].append((start, m.end()))
+                        if unread is not None:
+                            unread.setdefault(i + 1, []).append(
+                                (start, m.end()))
                         state, start = "text", -1
             elif state == "verbatim":
                 if tok == "*}":         # legacy verbatim does not nest
@@ -1896,6 +1932,7 @@ def _scan_nonisar_spans(
                     # would resume at the note's depth.
                     state, resume, resume_depth = "cartouche", "term", depth
                     depth, start = 1, pos
+                    dead = not tok.startswith(_MARGINAL)
                     if tok.startswith(_MARGINAL):
                         notes.setdefault(i + 1, set()).add(pos)
                 elif tok.endswith(_CART_OPEN):
@@ -1911,6 +1948,9 @@ def _scan_nonisar_spans(
                     depth -= 1
                     if depth <= 0:
                         spans[i].append((start, m.end()))
+                        if dead and unread is not None:
+                            unread.setdefault(i + 1, []).append(
+                                (start, m.end()))
                         state, start = resume, -1
                         depth, resume, resume_depth = resume_depth, "text", 0
             # The outer-syntax boundary, maintained in ONE place rather than a
@@ -1926,6 +1966,8 @@ def _scan_nonisar_spans(
                 inner_start = -1
         if state in _NOISE_STATES and 0 <= start < n:
             spans[i].append((start, n))
+            if dead and unread is not None:
+                unread.setdefault(i + 1, []).append((start, n))
         if want_inner and state != "text" and 0 <= inner_start < n:
             inner[i].append((inner_start, n))
         # Every state persists to the next line.  A ``"..."`` term routinely
@@ -1939,6 +1981,7 @@ def _scan_nonisar_spans(
 
 
 def scan_regions(lines: list[str], want_inner: bool = False,
+                 unread: "dict[int, list[tuple[int, int]]] | None" = None,
                  ) -> tuple[dict[int, list[tuple[int, int]]],
                             dict[int, set[int]],
                             dict[int, list[tuple[int, int]]],
@@ -1981,7 +2024,8 @@ def scan_regions(lines: list[str], want_inner: bool = False,
     if not want_inner and not any(_ANY_REGION_RE.search(ln) for ln in lines) \
             and not any(_leads_with_ml(ln) for ln in lines):
         return {}, {}, {}, bytearray(len(lines))
-    spans, notes, inner, open_at = _scan_nonisar_spans(lines, want_inner)
+    spans, notes, inner, open_at = _scan_nonisar_spans(lines, want_inner,
+                                                       unread)
     return ({i: sp for i, sp in enumerate(spans, 1) if sp},
             notes,
             {i: sp for i, sp in enumerate(inner, 1) if sp},
@@ -2196,7 +2240,58 @@ def extract_entries(lines: list[str],
             for e in entries[mod_from:]:
                 e.visibility = modifier
 
+    # Declarations that start mid-line [midline-decl].  A line holding one is
+    # cut there, so the entry before it reads only its own part.  Once that
+    # entry's scan has passed the line, the next part is revealed with the
+    # text before it blanked, which puts the keyword at command position.
+    # This works on copies: the caller's views stay whole, and so does what
+    # `_attach_targets` reads below.
+    whole = (lines, outer, live)
+    mids = _mid_decls(outer)
+    if mids:
+        lines, outer = list(lines), list(outer)
+        live = list(live) if live is not None else None
+        open_at = bytearray(open_at)
+        for ln, col in reversed(mids):
+            for view, src in zip((lines, outer, live), whole):
+                if view is not None:
+                    view[ln] = src[ln][:col]
+    mk = 0              # the next of `mids` to reveal
+    routed = 0          # len(entries) when the last command was dispatched
+    minted: list[tuple[int, int]] = []    # (entry index, line) of each reveal
+
+    def reveal() -> None:
+        nonlocal mk
+        ln, col = mids[mk]
+        same = [c for l2, c in mids if l2 == ln]
+        k = same.index(col)
+        stop = same[k + 1] if k + 1 < len(same) else None
+        before = whole[1][ln][same[k - 1] if k else 0:col]
+        # Lines cannot separate this declaration from what precedes it, so
+        # it has no cut span; nor has the entry before, when the text ahead
+        # of it is that entry's (`by simp lemma b`).
+        if entries and _continues_entry(before):
+            entries[-1].shares_line = entries[-1].runs_into_next = True
+        minted.append((len(entries), ln + 1))
+        for view, src in zip((lines, outer, live), whole):
+            if view is not None:
+                view[ln] = " " * col + src[ln][col:stop]
+        open_at[ln] = 0
+        mk += 1
+
     while i < len(lines):
+        if mk < len(mids) and mids[mk][0] < i:
+            # The last command's scan ran past the line a declaration starts
+            # on: what it read beyond that line is the declaration's.
+            ln = mids[mk][0] + 1
+            entries[routed:] = [e for e in entries[routed:] if e.thy_line <= ln]
+            for e in entries[routed:]:
+                e.decl_end_line = min(e.decl_end_line, ln)
+                if e.proof_line > ln:
+                    e.proof_line = 0
+            i = ln - 1
+            reveal()
+            continue
         line = lines[i]
         # No line-level mask here: the outer view already blanks comments, ML
         # bodies, cancelled text and `text`-block prose, so a declaration
@@ -2206,10 +2301,14 @@ def extract_entries(lines: list[str],
         # cannot: a line that is wholly PROSE versus one that is wholly TERM.
         md, indent = _match_decl_at(outer[i], table)
         if md is None:
+            if mk < len(mids) and mids[mk][0] == i:
+                reveal()
+                continue
             i += 1
             continue
 
         stamp()
+        routed = len(entries)
         modifier, mod_from = _modifier_at(outer[i]), len(entries)
         keyword, tag, route = md
         # The keyword occupies the same columns in `outer` as in `line` — the
@@ -2480,10 +2579,13 @@ def extract_entries(lines: list[str],
         i += 1
 
     stamp()
+    for k, ln in minted:
+        if k < len(entries) and entries[k].thy_line == ln:
+            entries[k].shares_line = True
     # A post-pass rather than threading through five Entry constructions: the
     # block chain is a property of the line an entry starts on, so it can be
     # read off once the entries exist and their start lines are known.
-    _attach_targets(entries, outer, live)
+    _attach_targets(entries, whole[1], whole[2])
     return entries
 
 
@@ -2516,7 +2618,50 @@ _SPAN_BOUNDARY_COMMANDS = frozenset({
 }) | _ML_BODY_COMMANDS | _ML_FILE_COMMANDS
 # Uppercase-initial too: the ML commands (`ML`, `ML_file`, `SML_file`) are
 # boundaries, and a lowercase-only anchor would never see them.
-_LEADING_CMD_RE = re.compile(r"^([A-Za-z][A-Za-z_0-9]*)")
+#
+# The word must END there [early-end].  Isabelle's lexer takes the longest
+# token, so `context.safe_unfolds`, `context'` and `context\<^sub>1` are names
+# and never the keyword `context` — a fact cited at the head of a line in a
+# `note` list ended the lemma there (Superposition_Soundness:400).  What
+# continues a name: a word character, `'`, a sub/superscript, a letter symbol,
+# or a `.` with another name part after it.  Not a bare `.`: `instance..` is
+# the keyword and then the `..` proof.  Not any symbol: `ML\<open>` is written
+# with no space.
+_LETTER_SYM = r"\\<(?:{})>".format(
+    "|".join(sorted(sym[2:-1] for sym in LETTER_SYMS)))
+_NAME_GOES_ON = (rf"[\w']|\\<\^su[bp]>|{_LETTER_SYM}"
+                 rf"|\.(?:[A-Za-z]|{_LETTER_SYM})")
+_LEADING_CMD_RE = re.compile(rf"^([A-Za-z][A-Za-z_0-9]*+)(?!{_NAME_GOES_ON})")
+
+# A declaration that does not start its line [midline-decl].  Isabelle reads a
+# command wherever a token starts, so `by simp lemma b: True` declares `b`
+# (`Simpl/Semantic:1666`), as do `text \<open>major\<close> lemma ...` and
+# three `abbreviation`s on one line (`CoCon/Prelim:16`): 36 AFP declarations
+# no line-start test sees (`scripts/probe_midline_decls.py`).  Built-in
+# keywords only: they are reserved in every theory, while the custom-command
+# table is a union over the whole root, where a command of one entry can be
+# a plain name in another.  Searched for in the outer view, so a keyword in a
+# term or a comment is already blank.
+
+
+def _prefix_trie(words: list[str]) -> str:
+    """A regex matching *words*, factored by shared prefix: `sre` tries an
+    alternation's branches one by one, and a factored one about once per
+    column.  Longest first where one word extends another (`lemmas`)."""
+    groups: dict[str, list[str]] = {}
+    for w in words:
+        groups.setdefault(w[:1], []).append(w[1:])
+    alts = [re.escape(h) + _prefix_trie(t)
+            for h, t in sorted(groups.items()) if h]
+    if not alts:
+        return ""
+    body = alts[0] if len(alts) == 1 else "(?:" + "|".join(alts) + ")"
+    return f"(?:{body})?" if "" in groups else body
+
+
+_DECL_WORD_RE = re.compile(_prefix_trie(_DECL_WORDS.split("|")))
+_TOKEN_BEFORE = frozenset(" \t)]}")
+_MODIFIER_BEFORE_RE = re.compile(r"(?:private|qualified)\s+$")
 
 
 def _structural_command_lines(
@@ -2742,6 +2887,160 @@ def _attach_targets(entries: list[Entry], outer: list[str],
                 e.in_target = mt.group(1)
 
 
+# Isabelle's proof-mode commands: every keyword Pure declares with a proof
+# kind (`prf_*`, `qed*`, `next_block`, Pure.thy:33-83; HOL adds none).
+# `shape` splits a line into steps at them [step-command]; here the first
+# command after a heading being one of them says the heading is inside a
+# proof [early-end].
+PROOF_COMMANDS = frozenset({
+    "have", "hence", "show", "thus", "obtain", "consider", "interpret",
+    "then", "from", "with", "note", "supply", "using", "unfolding",
+    "include", "including", "fix", "assume", "presume", "define", "let",
+    "write", "case", "also", "moreover", "finally", "ultimately",
+    "{", "}", "next", "proof", "qed", "by", "..", ".", "sorry",
+    "\\<proof>", "done", "oops", "apply", "apply_end", "defer", "prefer",
+    "back", "subgoal",
+})
+# Commands legal in a proof AND between declarations, so they tell nothing
+# about which one a heading sits in: the document commands, and every keyword
+# Pure and HOL declare `:: diag` (Isabelle2025-2, extracted from their
+# `keywords` sections).
+_EITHER_MODE = frozenset({
+    "text", "txt", "text_raw", "chapter", "section", "subsection",
+    "subsubsection", "paragraph", "subparagraph",
+    "ML_command", "ML_val", "class_deps", "compile_generated_files",
+    "export_generated_files", "find_consts", "find_theorems",
+    "find_unused_assms", "full_prf", "help", "locale_deps", "nitpick",
+    "nunchaku", "prf", "print_ML_antiquotations", "print_abbrevs",
+    "print_antiquotations", "print_attributes", "print_bnfs",
+    "print_bundles", "print_case_translations", "print_cases",
+    "print_claset", "print_classes", "print_codesetup", "print_coercions",
+    "print_commands", "print_context", "print_context_tracing",
+    "print_definitions", "print_defn_rules", "print_facts",
+    "print_induct_rules", "print_inductives", "print_interps",
+    "print_locale", "print_locales", "print_methods", "print_options",
+    "print_orders", "print_quot_maps", "print_quotconsts",
+    "print_quotients", "print_quotientsQ3", "print_quotmapsQ3",
+    "print_record", "print_rules", "print_simpset", "print_state",
+    "print_statement", "print_syntax", "print_term_bindings",
+    "print_theorems", "print_theory", "print_trans_rules", "prop",
+    "quickcheck", "scala_build_generated_files", "sledgehammer",
+    "smt_status", "solve_direct", "term", "thm", "thm_deps", "thm_oracles",
+    "thy_deps", "try", "try0", "typ", "unused_thms", "value", "values",
+    "welcome",
+})
+# Commands that begin no entry, so text before a mid-line declaration that
+# opens with one is not the previous entry's [midline-decl].
+_OTHER_COMMANDS = (_EITHER_MODE | _SPAN_BOUNDARY_COMMANDS
+                   | {"type_notation", "no_type_notation", "abbrevs"})
+
+
+def _mid_decls(outer: list[str]) -> list[tuple[int, int]]:
+    """``(line, column)``, both 0-indexed, of every declaration that starts
+    after the first token of its line [midline-decl], at its `private` /
+    `qualified` modifier if it has one.
+
+    One regex pass with the token test in Python on its hits.  The pattern
+    is the keywords alone, factored by prefix, so its start-character
+    prefilter skips most columns.  A lookbehind ahead of it defeats that
+    filter, and in a view that blanks terms to spaces it then tries every
+    keyword at nearly every column; that cost a third of the whole parse on
+    the AFP's largest theories.  This pass still costs about 6% of a
+    whole-AFP `summary` (`scripts/probe_summary_parts.py`)."""
+    text = "\n".join(outer)
+    hits: list[int] = []
+    for m in _DECL_WORD_RE.finditer(text):
+        k, end = m.span()
+        # A token (not `?fun`, `x.lemma` or `lemmas`), and not the first on
+        # its line.
+        if (k and text[k - 1] in _TOKEN_BEFORE
+                and (end == len(text) or text[end].isspace())):
+            bol = text.rfind("\n", 0, k) + 1
+            mm = _MODIFIER_BEFORE_RE.search(text, bol, k)
+            at = mm.start() if mm else k
+            if text[bol:at].strip():
+                hits.append(at)
+    if not hits:
+        return []
+    starts = [0]
+    for o in outer:
+        starts.append(starts[-1] + len(o) + 1)
+    found: list[tuple[int, int]] = []
+    for pos in sorted(set(hits)):
+        ln = bisect_right(starts, pos) - 1
+        found.append((ln, pos - starts[ln]))
+    return found
+
+
+def _continues_entry(segment: str) -> bool:
+    """Whether the outer text *segment*, which precedes a mid-line
+    declaration on its line, belongs to the entry before it: a proof's `by`
+    or `qed`, or a statement running on.  Not if it opens a command of its
+    own, such as `text`; a declaration there is an entry of its own, and
+    `_mark_shared_lines` already pairs two entries on one line."""
+    m = _FIRST_WORD_RE.match(segment.lstrip())
+    return not (m and m.group(0) in _OTHER_COMMANDS)
+
+
+# A command word, as the first token of an outer line: `proof(induct x)` is
+# `proof`.
+_FIRST_WORD_RE = re.compile(r"[A-Za-z][A-Za-z_0-9']*|\\<proof>|\.\.?|[{}]")
+
+
+def _proof_follows(outer: list[str], heading: int, limit: int) -> bool:
+    """Whether the first command after the heading on line *heading* that
+    tells the two modes apart is a proof command [early-end].  Between
+    declarations a heading is followed by a declaration; inside a proof, by
+    a proof command.  *outer* blanks the heading's title and every document
+    body, so their lines are skipped as blank."""
+    for ln in range(heading + 1, min(limit, len(outer)) + 1):
+        m = _FIRST_WORD_RE.match(outer[ln - 1].lstrip())
+        if m and m.group(0) not in _EITHER_MODE:
+            return m.group(0) in PROOF_COMMANDS
+    return False
+
+
+def _extend_past_headings(entries: list[Entry], lines: list[str],
+                          outer: list[str], headings: set[int],
+                          starts: list[int], stops: list[int]) -> None:
+    """Run an entry on past a heading inside its proof [early-end].
+
+    A heading is legal in proof mode, but `compute_spans` ends an entry at
+    the next heading, so a proof with one in its middle lost the rest
+    (Hales_Jewett:1196, 717 lines).  Walking every proof that a heading
+    bounds to see whether it has closed would cost 8% of all proof lines,
+    so one cheap test comes first: `_proof_follows`, the first command
+    after the heading.  Only then does the structure walk
+    (`_proof_close_line`, which `[body-end-text]` uses for the same
+    question) decide, and the entry is extended only where the walk SEES
+    the proof close beyond the heading and before the next entry.  Where it
+    cannot, nothing changes.
+
+    *starts* are the sorted first lines of entries (the next entry bounds
+    the walk); *stops* every sorted boundary, which the extended entry runs
+    up to, past where its proof closes."""
+    n = len(lines)
+    for e in entries:
+        if not e.proof_line or not e.thy_line or e.thy_end >= n:
+            continue
+        b = e.thy_end + 1
+        while b <= n and not lines[b - 1].strip():
+            b += 1
+        if b not in headings:
+            continue
+        k = bisect_right(starts, e.thy_line)
+        nxt = starts[k] - 1 if k < len(starts) else n
+        if b > nxt or not _proof_follows(outer, b, nxt):
+            continue
+        if _proof_close_line(outer, e.proof_line, e.thy_end):
+            continue
+        close = _proof_close_line(outer, e.proof_line, nxt)
+        if close <= e.thy_end:
+            continue
+        k = bisect_right(stops, close)
+        e.thy_end = min(stops[k] - 1 if k < len(stops) else n, nxt)
+
+
 def compute_spans(entries: list[Entry], section_lines: list[int],
                   total_lines: int) -> None:
     """Set thy_end on each entry to the line before the next entry-or-section.
@@ -2767,6 +3066,16 @@ def compute_spans(entries: list[Entry], section_lines: list[int],
         # start never reads as its end.
         idx = bisect_right(structural, e.thy_line)
         e.thy_end = (structural[idx] - 1) if idx < n else total_lines
+    # A declaration that starts mid-line after the previous entry's own text
+    # (`by simp lemma b`) leaves that line to both [midline-decl], so the
+    # previous entry runs through it rather than stopping short of its own
+    # `by`.
+    if any(e.runs_into_next for e in entries):
+        placed = sorted((e for e in entries if e.thy_line),
+                        key=lambda e: e.thy_line)
+        for a, b in zip(placed, placed[1:]):
+            if a.runs_into_next and a.thy_line < b.thy_line == a.thy_end + 1:
+                a.thy_end = b.thy_line
 
 
 def _attach_preambles(entries: list[Entry], lines: list[str],
@@ -2865,6 +3174,86 @@ def _attach_annotations(entries: list[Entry],
         e.annotations.append((cline, content, kind))
 
 
+# Commands that state and prove a goal but are not goal entries [proof-owners].
+# Every built-in command Pure and HOL declare with a goal kind (`thy_goal`,
+# `thy_goal_defn`) that is not already a goal entry, read off the keyword
+# declarations in Pure.thy and HOL's theories, plus `notepad`, which opens a
+# proof context without stating a goal.  The value says whether the command
+# declares a NAME a census record can carry (`typedef foo`, `function f`);
+# the rest are `?`.  `function` is also a `FUN` entry, but that entry is a
+# definition with no proof line, and its `by pat_completeness auto` was
+# measured by nothing.
+PROOF_OWNERS = {
+    "instance": False, "subclass": False, "interpretation": False,
+    "global_interpretation": False, "sublocale": False,
+    "termination": False, "function": True, "typedef": True,
+    "cpodef": True, "pcpodef": True, "lift_definition": True,
+    "quotient_type": True, "quotient_definition": False,
+    "specification": False, "code_pred": False, "free_constructors": False,
+    "old_rep_datatype": False, "bnf": False, "lift_bnf": False,
+    "functor": False, "corecursive": True, "primcorecursive": True,
+    "friend_of_corec": True, "spark_vc": True, "notepad": False,
+}
+# The first proof command of an owner's proof, in the outer view (terms and
+# comments blank): `instance proof`, `sublocale A < B by simp`, `instance ..`.
+_OWNER_PROOF_RE = re.compile(
+    r"(?<![\w'.])(?:proof|by|apply|using|unfolding)(?![\w'])"
+    r"|(?<![^\s])\.\.?(?![^\s])")
+# The declared name: the first identifier after the keyword, past a mode in
+# parentheses (`typedef (overloaded)`) and type parameters (`('a, 'b) t`).
+_OWNER_NAME_RE = re.compile(
+    r"\s*(?:\([^)]*\)\s*)*(?:'[\w']+\s+)?([A-Za-z][\w']*)")
+
+
+def extract_proof_owners(lines: list[str], outer_live: list[str],
+                         boundaries: list[int]) -> list[Entry]:
+    """The proof owners of one theory [proof-owners]: see `PROOF_OWNERS`.
+
+    ``outer_live`` has terms and comments blank, so a keyword is found only in
+    command position.  ``boundaries`` are the 1-indexed lines where something
+    else begins (entries, headings, structural commands); an owner's span runs
+    to the line before the next of them or of another owner.  A `notepad` runs
+    to its `end`.  An owner whose span holds no proof is dropped."""
+    found: list[tuple[int, str]] = []
+    for i, o in enumerate(outer_live):
+        m = _LEADING_CMD_RE.match(o.lstrip())
+        if m and m.group(1) in PROOF_OWNERS:
+            found.append((i + 1, m.group(1)))
+    stops = sorted(set(boundaries) | {ln for ln, _ in found})
+    owners: list[Entry] = []
+    for ln, kw in found:
+        col = outer_live[ln - 1].index(kw) + len(kw)
+        if kw == "notepad":
+            end = next((j + 1 for j in range(ln, len(outer_live))
+                        if _LEADING_CMD_RE.match(outer_live[j].lstrip())
+                        and _LEADING_CMD_RE.match(
+                            outer_live[j].lstrip()).group(1) == "end"),
+                       len(lines) + 1)
+            e = Entry("NOTEPAD", "?", lines[ln - 1].strip(), thy_line=ln,
+                      decl_end_line=ln, proof_line=ln)
+            e.thy_end = e.body_end_line = end - 1
+            owners.append(e)
+            continue
+        hi = next((s - 1 for s in stops if s > ln), len(lines))
+        proof_line = 0
+        for j in range(ln, hi + 1):
+            if _OWNER_PROOF_RE.search(outer_live[j - 1],
+                                      col if j == ln else 0):
+                proof_line = j
+                break
+        if not proof_line:
+            continue
+        name = "?"
+        if PROOF_OWNERS[kw]:
+            nm = _OWNER_NAME_RE.match(lines[ln - 1], col)
+            name = nm.group(1) if nm else "?"
+        e = Entry(kw.upper(), name, lines[ln - 1].strip(), thy_line=ln,
+                  decl_end_line=proof_line, proof_line=proof_line)
+        e.thy_end = hi
+        owners.append(e)
+    return owners
+
+
 def _parse_one(thy: str, thy_path: Path,
                lines: list[str] | None = None) -> TheorySection:
     """Parse a theory's source into a fully-populated TheorySection.
@@ -2882,8 +3271,9 @@ def _parse_one(thy: str, thy_path: Path,
     # (for `live_source`), the whole-noise lines derived from them (for the
     # line-granular masks), and the declaration scan, which must not read a
     # commented-out `definition` or an ML `fun` as an entry.
+    unread_spans: dict[int, list[tuple[int, int]]] = {}
     nonisar_spans, note_starts, inner_spans, open_at = scan_regions(
-        lines, want_inner=True)
+        lines, want_inner=True, unread=unread_spans)
     nonisar_ranges = extract_nonisar_ranges(lines, nonisar_spans)
     outer = blank_all(lines, inner_spans)
     entries = extract_entries(lines, nonisar_ranges=nonisar_ranges,
@@ -2902,11 +3292,17 @@ def _parse_one(thy: str, thy_path: Path,
     # uses as the boundary so a leading doc is charged to the entry it
     # documents (not the preceding one).  Roadmaps need the resulting thy_end.
     _attach_preambles(entries, lines, text_blocks)
-    compute_spans(entries,
-                  [s[2] for s in outline]
-                  + _structural_command_lines(
-                      lines, comment_ranges + nonisar_ranges, outer),
-                  len(lines))
+    heading_lines = [s[2] for s in outline]
+    structural = _structural_command_lines(
+        lines, comment_ranges + nonisar_ranges, outer)
+    compute_spans(entries, heading_lines + structural, len(lines))
+    # Terms AND comments blanked: block structure must not see a `qed` in a
+    # comment or a `.` in a term.
+    outer_live = blank_all(outer, nonisar_spans)
+    starts = sorted(e.src_start for e in entries if e.thy_line > 0)
+    stops = sorted(set(starts) | set(heading_lines) | set(structural))
+    _extend_past_headings(entries, lines, outer_live, set(heading_lines),
+                          starts, stops)
     _attach_annotations(entries, comment_lines)
     for e in entries:
         e.theory = thy
@@ -2920,9 +3316,6 @@ def _parse_one(thy: str, thy_path: Path,
     # would silently answer as if the theory had no comments at all.
     sec_for_extent = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                                    nonisar_ranges=nonisar_ranges)
-    # Terms AND comments blanked: the block structure `_proof_extent` reads
-    # must not see a `qed` in a comment or a `.` in a term.
-    outer_live = blank_all(outer, nonisar_spans)
     prose_body = _line_mask(len(lines), [(lo + 1, hi) for lo, hi in text_blocks
                                          if hi > lo])
     sec_for_extent._source_cache = lines
@@ -2933,13 +3326,28 @@ def _parse_one(thy: str, thy_path: Path,
         else:
             e.body_end_line = e.decl_end_line or e.thy_line
     _mark_shared_lines(entries)
+    owners = extract_proof_owners(
+        lines, outer_live,
+        [e.src_start for e in entries] + heading_lines + structural)
+    owner_starts = sorted(set(starts) | {o.thy_line for o in owners})
+    # Not a `notepad`: it runs to its `end`, and has no goal to close.
+    _extend_past_headings([o for o in owners if o.tag != "NOTEPAD"], lines,
+                          outer_live, set(heading_lines), owner_starts,
+                          sorted(set(stops) | set(owner_starts)))
+    for o in owners:
+        o.theory = thy
+        if o.tag != "NOTEPAD":
+            o.body_end_line = _proof_extent(sec_for_extent, o.proof_line,
+                                            o.thy_end, outer_live, prose_body)
+    _mark_preambles_under_headings(entries, owners, heading_spans)
     sec = TheorySection(thy, thy_path, entries, thy_lines=len(lines),
                         outline=outline, text_blocks=text_blocks,
                         heading_spans=heading_spans,
                         comment_ranges=comment_ranges,
                         nonisar_ranges=nonisar_ranges,
                         nonisar_spans=nonisar_spans,
-                        inner_spans=inner_spans)
+                        unread_spans=unread_spans,
+                        inner_spans=inner_spans, proof_owners=owners)
     if from_memory:
         # No disk path to lazily re-read (stdin); pin the source we already have.
         sec._source_cache = lines
@@ -2959,6 +3367,42 @@ def _mark_shared_lines(entries: list[Entry]) -> None:
     for a, b in zip(placed, placed[1:]):
         if a._line_cut()[1] >= b.src_start:
             a.shares_line = b.shares_line = True
+
+
+def _mark_preambles_under_headings(entries: list[Entry], owners: list[Entry],
+                                   heading_spans: list[tuple[int, int]]
+                                   ) -> None:
+    """Flag each preamble with a heading above it and no entry between
+    [preamble-heading] (#28).
+
+    Such a `text` may document the entry, or introduce the whole section, and
+    the source does not say which.  8,847 of the AFP's 32,002 preambles are
+    flagged, 6,445 of them with only blank lines between
+    (`scripts/probe_midline_decls.py`).  `cut_span` keeps the preamble, so a tool that
+    moves or deletes the entry can read this and ask rather than guess.
+
+    "Between" means any line of another entry or proof owner, from its
+    `src_start` to its body's end.  So a heading inside the previous entry's
+    proof does not count, and nor does one with an `instance` proof after
+    it."""
+    heads = sorted(end for _start, end in heading_spans)
+    if not heads:
+        return
+    spans = sorted((x.src_start, max(x.body_end_line, x.thy_line))
+                   for x in [*entries, *owners] if x.thy_line)
+    starts = [a for a, _b in spans]
+    reach = []                      # the furthest line spans[:k+1] reach
+    for _a, b in spans:
+        reach.append(max(b, reach[-1]) if reach else b)
+    for e in entries:
+        if not e.preamble:
+            continue
+        top = e.preamble[0]
+        k = bisect_left(heads, top) - 1
+        if k < 0:
+            continue
+        j = bisect_left(starts, top) - 1
+        e.preamble_follows_heading = j < 0 or reach[j] < heads[k]
 
 
 def _parse_plain(thy: str, path: Path,

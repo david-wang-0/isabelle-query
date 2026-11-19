@@ -40,10 +40,16 @@ from isabelle_query.model import (
     TheorySection,
     _CITABLE_TAGS,
     _DROP_NAMES_UPTO,
+    _GOAL_TAGS,
     locus_labels,
 )
 from isabelle_layout import parse_thy_imports
-from isabelle_query.parsing import ISA_SYMBOL, ISA_WORD_CHAR, _line_mask
+from isabelle_query.parsing import (
+    ISA_SYMBOL, ISA_WORD_CHAR, SYM_IDENT, SYM_NAME_RE, SYMBOLIC_KEYWORDS,
+    _line_mask)
+from isabelle_query.lexicon import (  # noqa: F401  (re-exported)
+    ANTIQ_OPTIONS_RE, FACT_ANTIQ_KINDS, FIRST_NAME_KINDS, NAME_ANTIQ_KINDS,
+    _brace_end, _cartouche_end, doc_antiquotations, unchecked_at)
 
 
 def _build_line_index(sections: list[TheorySection]
@@ -358,14 +364,16 @@ def _shadowed_uses_on_line(line: str, names: set[str],
     Everything else — `by simp`, `apply (auto simp: h)`, `[symmetric]` — is the
     method or attribute of that name doing its job, and mints no edge.
     """
-    cited, _ = _cited_facts_on_line(line)
+    # A cited `this` is Isar's current fact, whatever is declared under the
+    # name (Jinja's `definition this :: vname`): `from this` uses no entry.
+    cited = _cited_facts_on_line(line)[0] - {"this"}
     if derived:
         cited = cited | {n for n in names
                          if n + "_def" in cited or n + "_defs" in cited}
     used = names & cited
     rest = names - used
-    if rest and ('"' in line or "\\<open>" in line):
-        terms = " ".join(a or b for a, b in _PROP_TEXT_RE.findall(line))
+    if rest and ('"' in line or "`" in line or "\\<open>" in line):
+        terms = " ".join("".join(g) for g in _PROP_TEXT_RE.findall(line))
         if terms:
             used = used | (rest & set(_WORD_RE.findall(terms)))
     return used
@@ -544,8 +552,20 @@ class _Visibility:
     """
 
     def __init__(self, sections: list[TheorySection], mode: str = "closure",
-                 *, bound_names: bool = False, memo_closures: bool = False):
+                 *, bound_names: bool = False, memo_closures: bool = False,
+                 names_of: "Callable[[Entry], list[str]] | None" = None,
+                 share: "_Visibility | None" = None,
+                 maps: tuple | None = None):
+        """``names_of`` picks the names an entry declares, for a
+        visibility over one name space (:class:`SpaceVisibility`); by
+        default its own name, and its bindings under ``bound_names``.
+        ``share`` reuses another instance's theory index, imports memo and
+        closures, so a second view over the same sections reads no header
+        and walks no closure twice.  ``maps`` hands in ``(declared_in,
+        public_in, first)`` already built, for a caller that fills several
+        views in one pass over the entries (:class:`SpaceVisibility`)."""
         self.mode = mode
+        self._share = share
         # One closure at a time (the class docstring), unless the caller says
         # its walk ALTERNATES theories: the hierarchy walk behind
         # `instances -r` asks about the theory each edge is written in, in
@@ -554,8 +574,11 @@ class _Visibility:
         # longer than the request that asked for it.
         self._closures: dict[str, dict[str, int] | None] | None = (
             {} if memo_closures else None)
-        self.by_theory = _sections_by_theory(sections)
-        self._leaf = _leaf_index(self.by_theory)
+        if share is not None:
+            self.by_theory, self._leaf = share.by_theory, share._leaf
+        else:
+            self.by_theory = _sections_by_theory(sections)
+            self._leaf = _leaf_index(self.by_theory)
         # theory -> EVERY section of that name, not the last-wins one.  A
         # name is unique in a session and not in a corpus (461 AFP names are
         # shared by 1,219 theories), and this filter may only DROP, so the
@@ -563,11 +586,15 @@ class _Visibility:
         # while one section's imports standing for another's deletes real
         # citations [visibility-by-name].
         self._sections_of: dict[str, list[TheorySection]] = {}
-        for sec in sections:
-            self._sections_of.setdefault(sec.theory, []).append(sec)
+        if share is not None:
+            self._sections_of = share._sections_of
+        else:
+            for sec in sections:
+                self._sections_of.setdefault(sec.theory, []).append(sec)
         self._closure: tuple[str, dict[str, int] | None] | None = None
         # theory -> its in-project imports, read once; None = could not read.
-        self._imports: dict[str, list[str] | None] = {}
+        self._imports: dict[str, list[str] | None] = (
+            share._imports if share is not None else {})
         # name -> the theories declaring it.  A name declared NOWHERE is never
         # filtered: `sees` is asked about tokens the caller already believes
         # are citable, and inventing an answer for one the project does not
@@ -594,13 +621,25 @@ class _Visibility:
         # that spelling's `name` and asks about it like any other.
         self.declared_in: dict[str, set[str]] = {}
         self.public_in: dict[str, set[str]] = {}
+        # file -> {name: the first line declaring it there} [decl-order].
+        # Keyed by PATH, not theory name, because a name is not an identity
+        # over a corpus [name-is-not-identity]: the question is whether THIS
+        # file has declared the name by the line being read.
+        self._first: dict[Path, dict[str, int]] = {}
+        if maps is not None:
+            self.declared_in, self.public_in, self._first = maps
+            sections = ()
         for sec in sections:
+            first = self._first.setdefault(sec.path, {})
             for e in sec.entries:
-                names = [e.name] + (e.bound_names if bound_names else [])
+                names = (names_of(e) if names_of is not None else
+                         [e.name] + (e.bound_names if bound_names else []))
                 for n in names:
                     self.declared_in.setdefault(n, set()).add(sec.theory)
                     if e.visibility != "private":
                         self.public_in.setdefault(n, set()).add(sec.theory)
+                    if e.thy_line > 0 and e.thy_line < first.get(n, 1 << 30):
+                        first[n] = e.thy_line
 
     def _read_imports(self, theory: str) -> list[str] | None:
         """The in-project imports of EVERY section of this name, unioned, or
@@ -635,6 +674,8 @@ class _Visibility:
         """``{theory: 0}`` and each transitive in-project import at its
         shortest import depth, or None if any header on the walk could not be
         read — see the class docstring."""
+        if self._share is not None:
+            return self._share.depths(theory)
         if self._closures is not None and theory in self._closures:
             return self._closures[theory]
         if self._closure is not None and self._closure[0] == theory:
@@ -720,10 +761,54 @@ class _Visibility:
             return True                 # unknown closure: do not drop an edge
         return not public.isdisjoint(reach)
 
+    def lines_in(self, sec: TheorySection) -> dict[str, int]:
+        """``{name: first declaring line}`` for one file, the ``own`` that
+        :meth:`sees_at` reads.  Fetched once per section, so the per-site
+        test is a dict lookup."""
+        return self._first.get(sec.path, {})
+
+    def sees_at(self, theory: str, name: str, line: int,
+                own: dict[str, int]) -> bool:
+        """:meth:`sees`, for a site at ``line`` of the file whose
+        :meth:`lines_in` is ``own`` [decl-order].
+
+        Isabelle reads a theory top to bottom, so a declaration below the
+        site is not yet in scope there.  A site above its own file's `foo`
+        names some other `foo`, an import's, or none and fails to check.
+        Either way it does not name this one, and only a declaration in
+        another theory can keep the edge.  The graph has one node per name,
+        so when an import also declares `foo` the edge stays, and correctly:
+        it goes to `foo`.  What drops is the edge whose only candidate was
+        the declaration below.
+
+        A name declared in another file of the same theory name, and not in
+        this one, keeps :meth:`sees`'s answer: the names cannot be told
+        apart here, and the rule may only drop where it is sure."""
+        if self.mode != "closure":
+            return True
+        decl = self.declared_in.get(name)
+        if not decl:
+            return True
+        first = own.get(name)
+        if first is None:
+            if theory in decl:
+                return True
+            public = self.public_in.get(name)
+        elif first < line:
+            return True                 # declared above: the fast path
+        else:
+            public = (self.public_in.get(name) or set()) - {theory}
+        if not public:
+            return False
+        reach = self.depths(theory)
+        if reach is None:
+            return True
+        return not public.isdisjoint(reach)
+
 
 def site_filter(sections: list[TheorySection], name: str,
                 reach: str = "closure", *,
-                vis: "_Visibility | None" = None) -> Callable[[str], bool]:
+                vis: "_Visibility | None" = None) -> "_SiteFilter":
     """Which theories a single-name scan may report a hit for ``name`` in.
 
     The per-theory predicate behind `callers`, `instances` and `codeqs`: the
@@ -746,11 +831,9 @@ def site_filter(sections: list[TheorySection], name: str,
     `src/HOL` turned a 6 s request into 90 s.
     """
     if reach != "closure":
-        return lambda theory: True
+        return _SiteFilter(None, name)
     if vis is not None:
-        if name not in vis.declared_in:
-            return lambda theory: True
-        return lambda theory: vis.sees(theory, name)
+        return _SiteFilter(vis if name in vis.declared_in else None, name)
     declared = False
     for sec in sections:
         for e in sec.entries:
@@ -760,46 +843,288 @@ def site_filter(sections: list[TheorySection], name: str,
         if declared:
             break
     if not declared:
-        return lambda theory: True
-    vis = _Visibility(sections, reach, bound_names=True)
-    return lambda theory: vis.sees(theory, name)
+        return _SiteFilter(None, name)
+    return _SiteFilter(_Visibility(sections, reach, bound_names=True), name)
 
 
-# A fact antiquotation: `@{thm foo}`, `@{thm [display] foo bar}`, `@{thms
-# foo}`, the style forms, and the cartouche spelling `\<^thm>‹foo›`.  Not
-# `@{lemma "P" by simp}`, which states a proposition rather than naming one.
-_AT_ANTIQ_RE = re.compile(
-    r"@\{\s*(?:thm|thms|thm_style|named_thms)\b([^}]*)\}")
-_CART_ANTIQ_RE = re.compile(
-    r"\\<\^(?:thm|thms)>\s*(?:\\<open>|‹)(.*?)(?:\\<close>|›)", re.S)
+class _SiteFilter:
+    """What :func:`site_filter` returns: ``admits(theory)``, the per-theory
+    test a scan runs once per section, and ``admits.at(sec, line)``, the
+    per-site test for a scan that knows the line [decl-order].  A
+    declaration below the site in the same file is not yet in scope there
+    (:meth:`_Visibility.sees_at`).  ``vis`` None admits everything."""
+
+    __slots__ = ("vis", "name", "_sec", "_own")
+
+    def __init__(self, vis: "_Visibility | None", name: str):
+        self.vis, self.name = vis, name
+        self._sec: TheorySection | None = None
+        self._own: dict[str, int] = {}
+
+    def __call__(self, theory: str) -> bool:
+        return self.vis is None or self.vis.sees(theory, self.name)
+
+    def at(self, sec: TheorySection, line: int) -> bool:
+        if self.vis is None:
+            return True
+        if sec is not self._sec:
+            self._sec, self._own = sec, self.vis.lines_in(sec)
+        return self.vis.sees_at(sec.theory, self.name, line, self._own)
+
+
+# Isabelle's name spaces [antiq-namespace]: `definition foo` and `lemma foo`
+# can coexist, and `@{const foo}` can only mean the first.  Which entries
+# declare into each, by tag and by binding kind (`Entry.bindings`).  An
+# `axiomatization` declares constants and the facts about them, so `AXIOM`
+# is in both.  A locale or class with assumptions defines a predicate
+# constant of its own name (`@{term "M_ZF_library M"}`, `@{const
+# class.wqo}`), so both are constants as well as their own spaces.  A
+# locale's labelled elements (`assumes`, `defines`, `notes`) are facts; its
+# `fixes` are parameters and bind nothing here.
+FACT, CONST, TYPE, CLASS, LOCALE = "fact", "const", "type", "class", "locale"
+_SPACE_TAGS = {
+    FACT: _GOAL_TAGS | {"LEMMAS", "AXIOM"},
+    CONST: frozenset({"DEF", "FUN", "ABBREV", "IND", "INDSET", "AXIOM",
+                      "LOCALE", "CLASS"}),
+    TYPE: frozenset({"DATATYPE", "RECORD", "TYPE"}),
+    CLASS: frozenset({"CLASS"}),
+    LOCALE: frozenset({"LOCALE"}),
+}
+_SPACE_BINDINGS = {
+    FACT: frozenset({"conjunct", "rule", "note", "assumption", "definition"}),
+    CONST: frozenset({"sibling", "constructor", "discriminator", "selector",
+                      "field"}),
+}
+# The spaces each non-fact kind reads [antiq-kinds].  A term or proposition
+# names constants and, in its type annotations, types; a type names types
+# and, in its sort constraints, classes.  The `_name` forms and `const_syntax`
+# name one declaration, mostly from ML, where an antiquotation is evaluated
+# as surely as in a document.  `syntax_const` names a syntax-only constant,
+# which is never an entry, and `@{lemma "P" by m}` runs a proof whose
+# citations belong to the citation graph, so neither is read.
+_KIND_SPACES = {
+    "const": frozenset({CONST}),
+    "const_name": frozenset({CONST}),
+    "const_abbrev": frozenset({CONST}),
+    "const_syntax": frozenset({CONST}),
+    "Const": frozenset({CONST}),
+    "Const_": frozenset({CONST}),
+    "term": frozenset({CONST, TYPE}),
+    "prop": frozenset({CONST, TYPE}),
+    "term_type": frozenset({CONST, TYPE}),
+    "value": frozenset({CONST, TYPE}),
+    "typ": frozenset({TYPE, CLASS}),
+    "type": frozenset({TYPE}),
+    "type_name": frozenset({TYPE}),
+    "Type": frozenset({TYPE}),
+    "Type_": frozenset({TYPE}),
+    "class": frozenset({CLASS}),
+    "locale": frozenset({LOCALE}),
+}
+# Every kind the lexer finds is one this module reads.
+assert NAME_ANTIQ_KINDS == FACT_ANTIQ_KINDS | set(_KIND_SPACES)
+_FIRST_NAME_KINDS = FIRST_NAME_KINDS
+_CARTOUCHE_DELIM_RE = re.compile(r"\\<(?:open|close)>")
 _ANTIQ_ATTRS_RE = re.compile(r"\[[^\]]*\]")
 _ANTIQ_NAME_RE = re.compile(r"[A-Za-z][\w'.]*")
+_ANTIQ_OPTIONS_RE = ANTIQ_OPTIONS_RE
+# A fact a constant's or a type's declaration mints, spelled with a suffix:
+# `foo_def` is `definition foo`'s.  The dotted family (`foo.simps`,
+# `foo.induct`) is read from the prefix instead.
+_DERIVED_SUFFIXES = ("_defs", "_def")
+_CONST_OR_TYPE = frozenset({CONST, TYPE})
 
 
-def doc_mentions(sections: list[TheorySection]) -> dict[str, set[str]]:
-    r"""``{name: the theories naming it in a fact antiquotation}``
-    [leaf-evidence].
+# The same two tables inverted, for a pass that fills every space at once.
+_TAG_SPACES = {t: tuple(sp for sp, ts in _SPACE_TAGS.items() if t in ts)
+               for ts in _SPACE_TAGS.values() for t in ts}
+_BINDING_SPACES = {k: tuple(sp for sp, ks in _SPACE_BINDINGS.items()
+                            if k in ks)
+                   for ks in _SPACE_BINDINGS.values() for k in ks}
+
+
+def space_names(e: Entry, space: str, bindings: bool = True) -> list[str]:
+    """The names ``e`` declares in name space ``space`` [antiq-namespace]:
+    its own name when its tag declares into the space, and, with
+    ``bindings``, its bindings of the kinds that do."""
+    names = [e.name] if e.tag in _SPACE_TAGS[space] else []
+    kinds = _SPACE_BINDINGS.get(space) if bindings else None
+    if kinds:
+        names += [n for n, k in e.bindings if k in kinds]
+    return names
+
+
+def antiquotation_names(kind: str, body: str,
+                        theories: frozenset[str] = frozenset()
+                        ) -> dict[str, frozenset[str]]:
+    r"""``{name: the name spaces it may be in}`` for an antiquotation's
+    body, each name reduced to a graph node [doc-antiq] [antiq-namespace].
+
+    A fact antiquotation names a fact by its last component: `Thy.foo`,
+    `x.foo` and `foo(2)` are the fact `foo`, and attributes (`[OF bar]`)
+    are not read.  It may also name a fact that a constant's or a type's
+    declaration minted, and then it depends on that declaration: `foo_def`
+    on `definition foo`, and `foo.simps`, `foo.induct` on the `fun` or
+    `datatype foo` their prefix names.  So the prefix is read too, as the
+    citation graph's tokenizer reads it, unless it is one of ``theories``
+    (the `List` of `List.foo` names a theory).
+
+    Other kinds name what :data:`_KIND_SPACES` says, read with query's name
+    atom, `parsing.SYM_NAME_RE`, so `foo\<^sub>1` is not `foo`.  Every name
+    in a term counts, which over-reads a bound variable that shares a
+    constant's name: that errs towards keeping.  A type variable (`'a`) and
+    a schematic one (`?x`) name nothing."""
+    out: dict[str, set[str]] = {}
+    if kind in FACT_ANTIQ_KINDS:
+        for tok in _ANTIQ_NAME_RE.findall(_ANTIQ_ATTRS_RE.sub(" ", body)):
+            parts = [p for p in tok.split("(", 1)[0].split(".") if p]
+            if not parts:
+                continue
+            last = parts[-1]
+            out.setdefault(last, set()).add(FACT)
+            for suffix in _DERIVED_SUFFIXES:
+                if last.endswith(suffix) and len(last) > len(suffix):
+                    out.setdefault(last[:-len(suffix)], set()).update(
+                        _CONST_OR_TYPE)
+                    break
+            for p in parts[:-1]:
+                if p not in theories:
+                    out.setdefault(p, set()).update(_CONST_OR_TYPE)
+        return {n: frozenset(s) for n, s in out.items()}
+    spaces = _KIND_SPACES[kind]
+    body = _ANTIQ_OPTIONS_RE.sub(" ", body, count=1) \
+        if _ANTIQ_OPTIONS_RE.match(body) else body
+    # The cartouche delimiters are no name characters (`ISA_MARKUP` leaves
+    # them out), so the atom would read the `open` of `\<open>` as a word.
+    if "\\<" in body:
+        body = _CARTOUCHE_DELIM_RE.sub(" ", body)
+    names = (m.group(1) for m in SYM_NAME_RE.finditer(body)
+             if not m.group(1)[0].isdigit()
+             and body[m.start() - 1:m.start()] not in ("'", "?"))
+    if kind in _FIRST_NAME_KINDS:
+        first = next(names, None)
+        return {first: spaces} if first else {}
+    return {n: spaces for n in names}
+
+
+class SpaceVisibility:
+    """:class:`_Visibility` per name space [antiq-namespace]: may an
+    antiquotation at a line name the project's declaration of a name in one
+    of the spaces its kind reads?
+
+    One `_Visibility` per space, all filled in one pass over the entries and
+    sharing one theory index, imports memo and closure: the headers are
+    read and each closure walked once, not once per space.  A caller that
+    asks in section order gets each theory's closure from the one-slot
+    cache.
+
+    ``bindings`` counts what an entry binds (a constructor, a locale's
+    `assumes` label) as declared in its space, which a subject typed at
+    `callers` may be.  Off for `unused`'s evidence, whose rows are entries
+    under their own names: there `@{const False}` naming a constructor is
+    no evidence for a `lemma False`, though the graph's node is the name."""
+
+    def __init__(self, sections: list[TheorySection], reach: str = "closure",
+                 bindings: bool = True):
+        self.sections, self.reach, self.bindings = sections, reach, bindings
+        self._base = _Visibility(sections, reach)
+        self._own: dict[tuple[str, Path], dict[str, int]] = {}
+        # Every space's maps in ONE pass over the entries, not one per space:
+        # over the AFP a pass is ~0.6s, and five of them were a third of the
+        # whole evidence step.
+        maps = {sp: ({}, {}, {}) for sp in _SPACE_TAGS}
+        for sec in sections:
+            thy, path = sec.theory, sec.path
+            for e in sec.entries:
+                hits = [(sp, e.name) for sp in _TAG_SPACES.get(e.tag, ())]
+                if bindings and e.bindings:
+                    hits += [(sp, n) for n, k in e.bindings
+                             for sp in _BINDING_SPACES.get(k, ())]
+                for sp, n in hits:
+                    decl, pub, firsts = maps[sp]
+                    decl.setdefault(n, set()).add(thy)
+                    if e.visibility != "private":
+                        pub.setdefault(n, set()).add(thy)
+                    first = firsts.setdefault(path, {})
+                    if 0 < e.thy_line < first.get(n, 1 << 30):
+                        first[n] = e.thy_line
+        self._by_space = {sp: _Visibility(sections, reach, share=self._base,
+                                          maps=m)
+                          for sp, m in maps.items()}
+
+    def space(self, space: str) -> _Visibility:
+        return self._by_space[space]
+
+    def declares(self, name: str) -> bool:
+        """Does the project declare ``name`` in ANY space?"""
+        return name in self._base.declared_in
+
+    def names(self, name: str, spaces: frozenset[str],
+              sec: TheorySection, line: int) -> bool:
+        """Can an antiquotation at ``line`` of ``sec``, reading ``spaces``,
+        name the project's ``name``?  Only if one of those spaces declares
+        it, visibly from there (:meth:`_Visibility.sees_at`).  Always,
+        under ``reach="name"``: that is the switch back to name-only
+        matching, so it drops the space as well as the closure."""
+        if self.reach != "closure":
+            return True
+        for sp in spaces:
+            vis = self.space(sp)
+            if name not in vis.declared_in:
+                continue
+            key = (sp, sec.path)
+            own = self._own.get(key)
+            if own is None:
+                own = self._own[key] = vis.lines_in(sec)
+            if vis.sees_at(sec.theory, name, line, own):
+                return True
+        return False
+
+
+_SPACE_VIS: list = [None, None, None]     # (sections, (reach, bindings), it)
+
+
+def space_visibility(sections: list[TheorySection], reach: str = "closure",
+                     bindings: bool = True) -> SpaceVisibility:
+    """One :class:`SpaceVisibility` per request, not per subject: a batch
+    (`callers --antiquotations A B C`) asks about each name against the same
+    sections.  Held by identity, which `id` alone cannot promise."""
+    if _SPACE_VIS[0] is not sections or _SPACE_VIS[1] != (reach, bindings):
+        _SPACE_VIS[:] = [sections, (reach, bindings),
+                         SpaceVisibility(sections, reach, bindings)]
+    return _SPACE_VIS[2]
+
+
+def doc_mentions(sections: list[TheorySection]
+                 ) -> dict[str, list[tuple[TheorySection, int, frozenset[str]]]]:
+    r"""``{name: (section, line, spaces) of each antiquotation naming it}``
+    [leaf-evidence] [doc-antiq].
 
     The citation graph strips these on purpose (`antiq_re` below): a name
     shown in a document is not a proof that uses it.  It is evidence that the
     author means it to stay, though, which is what `unused` reports — a
-    result printed in the paper the theory renders is not dead code.  The raw
-    source is read, so an ML `@{thm foo}` counts too, and that use is real.
+    result printed in the paper the theory renders is not dead code — and
+    more than that for a constant: `@{const foo}` is checked when its theory
+    is processed, so deleting `foo` breaks the build (#44).  The raw source
+    is read, so an ML `@{term "foo"}` counts too, and that use is real.
 
-    A mention is reduced to the name it points at: `foo(2)` and `Thy.foo`
-    are `foo`, the graph's node.  Which declaration it can mean is the
-    caller's question (:meth:`_Visibility.sees`)."""
-    out: dict[str, set[str]] = {}
+    A mention is reduced to the names it points at, each with the name
+    spaces it may be in (:func:`antiquotation_names`).  Which declaration it
+    can mean is the caller's question (:meth:`SpaceVisibility.names`), and
+    the line is part of it: a mention above its own file's declaration
+    names another [decl-order].  One in a comment or cancelled text is
+    never checked, and is skipped (:func:`unchecked_at`)."""
+    theories = frozenset(sec.theory for sec in sections)
+    out: dict[str, list[tuple[TheorySection, int, frozenset[str]]]] = {}
     for sec in sections:
         text = "\n".join(sec.source())
-        if "thm" not in text:
-            continue
-        bodies = [m.group(1) for m in _AT_ANTIQ_RE.finditer(text)]
-        bodies += [m.group(1) for m in _CART_ANTIQ_RE.finditer(text)]
-        for body in bodies:
-            for n in _ANTIQ_NAME_RE.findall(_ANTIQ_ATTRS_RE.sub(" ", body)):
-                bare = n.split("(", 1)[0].rsplit(".", 1)[-1]
-                out.setdefault(bare, set()).add(sec.theory)
+        for kind, start, _e, body in doc_antiquotations(text):
+            line = text.count("\n", 0, start) + 1
+            if line in sec.unread_spans and unchecked_at(
+                    sec, line, start - text.rfind("\n", 0, start) - 1):
+                continue
+            for n, spaces in antiquotation_names(kind, body, theories).items():
+                out.setdefault(n, []).append((sec, line, spaces))
     return out
 
 
@@ -937,6 +1262,7 @@ def _build_call_graph(sections: list[TheorySection],
         t_ranges = text_ranges.get(sec.path, [])
         d_map = def_sites.get(sec.path, {})
         idx = line_index.get(sec.path, [])
+        own = vis.lines_in(sec)        # [decl-order]
         # Flatten the prose ranges into a 1-indexed line mask: a single O(1)
         # lookup per line replaces the old `any(line_no in r for r in t_ranges)`
         # rescan (~65M range tests at AFP scale).  Slice-assignment marks each
@@ -1005,7 +1331,7 @@ def _build_call_graph(sections: list[TheorySection],
                 # line, where `name_set` holds every name in the corpus.  The
                 # closure is cached for the theory being scanned, so the walk
                 # is paid once per theory and this is a set test.
-                if not vis.sees(sec.theory, name):
+                if not vis.sees_at(sec.theory, name, line_no, own):
                     continue
                 callers[name].add(caller_name)
                 callees.setdefault(caller_name, set()).add(name)
@@ -1199,15 +1525,17 @@ CLOSING_KEYWORDS = frozenset({
 _CITE_LIST_WORDS = frozenset({"from", "with", "using", "unfolding"})
 # A fact list runs until a goal/closing keyword (`from a have`, `using a by`) —
 # or until the *next* cite keyword, so a chain (`using X unfolding Y`) ends the
-# first list rather than swallowing `unfolding` as one of X's facts.
+# first list rather than swallowing `unfolding` as one of X's facts.  `and`
+# does not end it (#36): Isar reads a fact list as `and`-separated groups, so
+# `from a and b` is `from a b`.  `have A and B` is a goal's, after `have`.
 _FACT_LIST_STOP = (GOAL_KEYWORDS | CLOSING_KEYWORDS | _CITE_LIST_WORDS
-                   | {"proof", "and"})
+                   | {"proof"})
 
 # Methods whose *bare* (colon-free) arguments are fact names, not terms/flags:
-# `by (rule conjI)`, `by (metis a b)`, `by (unfold d)`.
+# `by (rule conjI)`, `by (metis a b)`, `by (unfold d)`, `by (smt (z3) a b)`.
 _RULE_METHODS = frozenset({
     "rule", "erule", "drule", "frule", "intro", "elim", "dest",
-    "metis", "meson", "subst", "unfold", "fold",
+    "metis", "meson", "smt", "subst", "unfold", "fold",
 })
 # Methods whose bare arguments are terms / flags / induction variables — never
 # facts.  A bare arg here is a *covered* non-fact, not an unclassifiable token.
@@ -1230,31 +1558,121 @@ _FACT_MARKER_WORDS = frozenset({
 # contributes no citation; see :func:`_consume_attr_block`.
 _ATTR_FACT_WORDS = frozenset({"OF", "THEN", "unfolded", "folded", "simplified"})
 
-# Strip quoted propositions and cartouches so their internal tokens are never
-# mistaken for cited facts (`have "using x" by ...` cites nothing from the term).
-_DQUOTE_STRIP_RE = re.compile(r'"[^"]*"')
-_CARTOUCHE_STRIP_RE = re.compile(r"\\<open>.*?\\<close>")
-# The same two regions, captured rather than blanked: the *term* text of a line.
-# A name occurring here is being used as a constant or in a statement, which is
-# a real use even when that name also happens to be a proof method.
-_PROP_TEXT_RE = re.compile(r'"([^"]*)"|\\<open>(.*?)\\<close>')
+# A string is a term (`have "using x" by ...` cites nothing from it) and is
+# skipped whole.  A cartouche or a backquoted string in a fact position is a
+# fact literal [fact-literal]: `from \<open>A\<close>` and `` from `A` `` cite
+# the fact whose proposition is `A`, exactly as `from a` cites it by name.
+# Each literal is one token, keyed by its text so the two spellings meet;
+# where it stands decides whether it cites (`using`, `simp add:`, `rule`,
+# `[OF ...]`) or not (`have`, `[of ...]`, `cases`).  Read as words, a
+# backquote's contents were once a list of names (`` `x < y` `` cited `x` and
+# `y`), and a cartouche's were blanked, citing nothing (#31).
+_LITERAL_OPEN_RE = re.compile(r'"|`|\\<open>|‹')
+_CARTOUCHE_EDGE_RE = re.compile(r"\\<open>|‹|\\<close>|›")
+# The term text of a line, captured: a name occurring here is being used as a
+# constant or in a statement, which is a real use even when that name also
+# happens to be a proof method.
+_PROP_TEXT_RE = re.compile(r'"([^"]*)"|`([^`]*)`|\\<open>(.*?)\\<close>')
 # Token stream for the fact walk: names (with internal dots for qualified
 # spellings), the `..` proof, and the structural chars that delimit method args.
 # `ISA_SYMBOL`, not the narrower name atom: this is a RUN scanner over source
 # the tokenizer has already redacted, so its job is to find where a token ends.
 # Narrowing it would split a stray `\<open>foo` and offer `open` as a candidate
 # fact — inventing an edge, which is the one thing this walk must not do.
+#
+# A symbolic identifier (`parsing.SYM_IDENT`) is a name too (#35): `have *:
+# "P"` labels a fact `*`, which `using *` cites.  A run counts only standing
+# alone, so `intro!:` and a selection's `2-` stay a word and some noise, and
+# never as a keyword: read as tokens, `(rule r)+` and `simp?` would start a
+# method of their own (:data:`_NOT_FACT_SYMBOLS`).
 _FACT_TOK_RE = re.compile(
-    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_SYMBOL}|[\w'.])*|[():,|\[\]]|:")
+    rf"\.\.|{ISA_WORD_CHAR}(?:{ISA_SYMBOL}|[\w'.])*"
+    rf"|(?<![^\s(\[,;:]){SYM_IDENT}(?![^\s:()\[\],;])"
+    r"|[():,|;\[\]]|:")
+# `|` is a keyword too, kept as the structural token that separates methods.
+_NOT_FACT_SYMBOLS = SYMBOLIC_KEYWORDS - {"|"}
 # Structural tokens that never name a fact.
-_STRUCTURAL = frozenset({"(", ")", "[", "]", "|", ",", ":", ".."})
+_STRUCTURAL = frozenset({"(", ")", "[", "]", "|", ",", ";", ":", ".."})
 
 
-def _strip_props(text: str) -> str:
-    """Blank out quoted / cartouche propositions so their tokens are not read as
-    cited facts."""
-    text = _DQUOTE_STRIP_RE.sub(" ", text)
-    return _CARTOUCHE_STRIP_RE.sub(" ", text)
+# A string holding nothing but a name: Sledgehammer quotes the names that
+# are not identifiers (`metis "*" "1"`), and over the AFP a symbolic label
+# is cited quoted about as often as not (#35).  It stands as a token with
+# its quotes, so an unknown method's quoted term keeps coverage as a
+# literal does, and :func:`_unquote` makes it the fact `*`.
+_QUOTED_FACT_RE = re.compile(
+    rf"{ISA_WORD_CHAR}(?:{ISA_SYMBOL}|[\w'.])*"
+    rf"|(?!(?:{'|'.join(map(re.escape, SYMBOLIC_KEYWORDS))})\Z){SYM_IDENT}")
+
+
+def _unquote(tok: str) -> str:
+    """The fact a token names: a quoted name without its quotes."""
+    return tok[1:-1] if tok[:1] == '"' else tok
+
+
+def _literal_key(text: str) -> str:
+    """The token a fact literal stands as: its proposition, whitespace
+    collapsed, between backquotes — never a name, so it cannot meet one."""
+    return "`" + " ".join(text.split()) + "`"
+
+
+def _fact_tokens(line: str) -> list[str]:
+    r"""The token stream of one proof line for the fact walk: strings
+    skipped, each fact literal one token (:func:`_literal_key`), and the rest
+    split by :data:`_FACT_TOK_RE`.
+
+    A cartouche is matched by depth, so a nested one is inside it.  One still
+    open when the line ends runs to the end: the command text is a single
+    line, and the rest of a proposition wrapped onto the next is not in it.
+
+    A selection is dropped (:func:`_drop_selections`): the fact is the name
+    before it."""
+    toks: list[str] = []
+    i = 0
+    while m := _LITERAL_OPEN_RE.search(line, i):
+        toks += _FACT_TOK_RE.findall(line, i, m.start())
+        opener, body = m.group(), m.end()
+        if opener in ("\\<open>", "‹"):
+            depth, end, close = 1, len(line), len(line)
+            for e in _CARTOUCHE_EDGE_RE.finditer(line, body):
+                depth += 1 if e.group() in ("\\<open>", "‹") else -1
+                if depth == 0:
+                    end, close = e.start(), e.end()
+                    break
+        else:
+            end = line.find(opener, body)
+            end = len(line) if end < 0 else end
+            close = min(end + 1, len(line))
+        if opener != '"':
+            toks.append(_literal_key(line[body:end]))
+        elif _QUOTED_FACT_RE.fullmatch(line[body:end]):
+            toks.append(line[m.start():close])      # `"*"`, `"1"`
+        i = close
+    toks += _FACT_TOK_RE.findall(line, i)
+    return _drop_selections([t for t in toks if t not in _NOT_FACT_SYMBOLS])
+
+
+def _drop_selections(toks: list[str]) -> list[str]:
+    """*toks* without its selections [fact-selection]: a parenthesis group
+    of numerals, `assms(1)`, `Suc.hyps (1, 3)`, `f(2-)` (the `-` is no
+    token).  Read as structure, its `(` ended a fact list, so `using
+    assms(1) foo` cited `assms` alone.  The same group after a method is
+    its premise count or occurrence list, `frule (1) r`, `subst (1 2) c`,
+    and dropping it keeps `r` and `c` that method's arguments."""
+    out: list[str] = []
+    i, n = 0, len(toks)
+    while i < n:
+        if toks[i] == "(":
+            j = i + 1
+            # A spaced range, `assms(2 - 7)`, has its `-` as a token (#35).
+            while j < n and (toks[j] in (",", "-") or toks[j][:1].isdigit()):
+                j += 1
+            if j > i + 1 and j < n and toks[j] == ")":
+                i = j + 1
+                continue
+        out.append(toks[i])
+        i += 1
+    return out
 
 
 def _looks_like_fact(tok: str) -> bool:
@@ -1272,6 +1690,7 @@ def _looks_like_fact(tok: str) -> bool:
     citation graph, this extractor only inspects fact-argument positions, so a
     single-char token there *is* a fact and no length floor applies.  The bare
     ``_`` is the term placeholder (`rule r[OF _ h]`), never a fact."""
+    tok = _unquote(tok)
     return (tok != "_" and tok not in _STRUCTURAL
             and not tok[:1].isdigit() and not tok.startswith("'"))
 
@@ -1284,23 +1703,23 @@ def _consume_attr_block(toks: list[str], i: int, facts: set[str]) -> int:
     ``symmetric``, a bare declaration) contributes nothing, so its inner tokens
     — bound variables, ``\<phi>``, ``and``, numerals — no longer leak as facts.
 
-    Returns the index just past the matching ``]``.  Nested brackets are tracked
-    by depth; a comma resets to the next attribute head; a ``NAME:`` sub-marker
-    (``[simplified add: f]``) is skipped so the marker word is not itself read as
-    a fact.
+    Returns the index just past the matching ``]``.  A nested block is a
+    fact's own attribute (``r[OF a[simplified] b]``), so its ``]`` resumes the
+    enclosing list rather than ending it (#36); a comma resets to the next
+    attribute head; a ``NAME:`` sub-marker (``[simplified add: f]``) is skipped
+    so the marker word is not itself read as a fact.
     """
     n = len(toks)
-    depth = 0
+    outer: list[bool] = []           # each enclosing block's `take`
     take = False                     # inside a fact-composing attribute
     while i < n:
         t = toks[i]
         if t == "[":
-            depth += 1
+            outer.append(take)
             take = False
         elif t == "]":
-            depth -= 1
-            take = False
-            if depth == 0:
+            take = outer.pop()
+            if not outer:
                 return i + 1
         elif t in _ATTR_FACT_WORDS:
             take = True
@@ -1308,7 +1727,7 @@ def _consume_attr_block(toks: list[str], i: int, facts: set[str]) -> int:
             take = False             # a fresh attribute head follows
         elif take and _looks_like_fact(t) \
                 and not (i + 1 < n and toks[i + 1] == ":"):
-            facts.add(t)
+            facts.add(_unquote(t))
         i += 1
     return i                         # unbalanced — consumed to end of line
 
@@ -1321,8 +1740,10 @@ def _cited_facts_on_line(line: str) -> tuple[set[str], bool]:
     the ``NAME:``-marked fact lists inside a method (``simp add: f g``), the bare
     arguments of a rule-style method (``rule r``, ``metis a b``), and the
     fact-composing attribute blocks (``[OF a]`` / ``[THEN t]`` /
-    ``[unfolded d]``).  Quoted propositions are stripped first, so a term that
-    merely *contains* a keyword is ignored.
+    ``[unfolded d]``).  A string is skipped, so a term that merely *contains*
+    a keyword is ignored; a cartouche or backquoted literal is one token, a
+    fact wherever a name would be (:func:`_fact_tokens`), keyed
+    `` `A` `` whichever way it was spelled.
 
     Two shapes that used to leak spurious tokens are handled exactly:
     a **chained cite keyword** (``using X unfolding Y``) ends the first fact
@@ -1336,12 +1757,16 @@ def _cited_facts_on_line(line: str) -> tuple[set[str], bool]:
     i.e. a shape whose arguments cannot be classified as facts-or-not.  The
     census sums this into a method-syntax coverage statistic.
     """
-    toks = _FACT_TOK_RE.findall(_strip_props(line))
+    toks = _fact_tokens(line)
     facts: set[str] = set()
     covered = True
     i, n = 0, len(toks)
     in_method = False       # inside a `by`/`apply` method expression
     cur_method: str | None = None
+    # The method each open parenthesis interrupted [metis-options]: a group
+    # may be a method's options, `metis (no_types, lifting) a b`, after
+    # which `a b` are still `metis`'s arguments.
+    outer_methods: list[str | None] = []
     while i < n:
         t = toks[i]
         # from / with / using / unfolding fact list (prefix or suffix).  Each
@@ -1357,14 +1782,15 @@ def _cited_facts_on_line(line: str) -> tuple[set[str], bool]:
                     continue
                 if tj in _STRUCTURAL:
                     break
-                if _looks_like_fact(tj):
-                    facts.add(tj)
+                if tj != "and" and _looks_like_fact(tj):
+                    facts.add(_unquote(tj))
                 j += 1
             i = j
             continue
         if t in ("by", "apply"):
             in_method = True
             cur_method = None
+            outer_methods = []
             i += 1
             continue
         if in_method:
@@ -1384,31 +1810,43 @@ def _cited_facts_on_line(line: str) -> tuple[set[str], bool]:
                     # form, where `simp` is not itself followed by `:`.
                     if tj in _FACT_MARKER_WORDS:
                         break
-                    if tj in CLOSING_KEYWORDS or tj in (")", "]", "|", ","):
+                    if tj in CLOSING_KEYWORDS or tj in (")", "]", "|", ",",
+                                                       ";"):
                         break                       # group close / separator
                     if tj == "[":
                         j = _consume_attr_block(toks, j, facts)
                         continue
                     if _looks_like_fact(tj):
-                        facts.add(tj)
+                        facts.add(_unquote(tj))
                     j += 1
                 i = j
                 continue
             if t in _STRUCTURAL:
-                if t in ("(", ")", "|", ","):
+                if t == "(":
+                    outer_methods.append(cur_method)
                     cur_method = None   # a fresh method head may follow
+                elif t == ")":
+                    cur_method = outer_methods.pop() if outer_methods \
+                        else None
+                elif t in ("|", ",", ";"):
+                    cur_method = None   # `a, b`, `a | b`, `a; b`
                 i += 1
                 continue
             if cur_method is None:
-                cur_method = t          # the method name
+                # The method name — never a literal.
+                if not t.startswith(("`", '"')):
+                    cur_method = t
                 i += 1
                 continue
             # A bare argument to the current method.
             if cur_method in _RULE_METHODS:
                 if _looks_like_fact(t):
-                    facts.add(t)
+                    facts.add(_unquote(t))
             elif cur_method in _TERM_ARG_METHODS:
                 pass                    # a term / flag, not a fact
+            elif t.startswith(("`", '"')):
+                pass                    # a literal or a quoted name: a
+                #                         term as like as a fact
             else:
                 covered = False         # unknown method with bare args
             i += 1

@@ -7,15 +7,16 @@ finding it again with `git log --grep`.
 Conventions for changing the tool (the CLI contract, verification habits) live
 in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
 
-- [ ] `[decl-commands]` Three fact-declaring commands are **not declarations**,
-      so `query` cannot see them and — worse — they do not bound the previous
-      entry either, so the lemma above them swallows their proof.  `DECL_RE`
-      now lists `lemmas|lemma|corollary|proposition|theorem` and stops.
+- [ ] `[decl-commands]` One fact-declaring command, `named_theorems`, is
+      **not a declaration**, so `query` cannot see it.  The others shipped;
+      unseen, each also failed to bound the entry above it, which swallowed
+      its proof.  `DECL_RE` now lists
+      `lemmas|theorems|lemma|corollary|proposition|theorem|schematic_goal`.
       Measured over **11,604 theories** (the whole AFP + HOL/FOL/ZF) by
       `scripts/probe_missing_decl_commands.py`, command position only:
 
           lemmas           SHIPPED     proposition      SHIPPED (v0.9.0)
-          named_theorems      696      schematic_goal     810
+          named_theorems      696      schematic_goal     SHIPPED (#23)
           private lemma     SHIPPED    qualified lemma    SHIPPED (issue #19)
 
       Those replace an earlier 60-entry reading (3,491 / 601 / 207 / 160 / 275 /
@@ -35,6 +36,8 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
       of proof text for `proposition`+`schematic_goal` and the realised census
       move was **+0.44% `n_steps`**, so the probe's estimate is worth trusting
       for `schematic_goal`'s remaining 0.18% rather than re-deriving.
+      **`schematic_goal` shipped as `SCHEMATIC` entries** (issue #23): 810 of
+      810 now indexed.
       **`lemmas` / `theorems` shipped as `LEMMAS` entries** (issue #16) —
       `git log --grep='\[lemmas-entries\]'`; 10,608 AFP entries.  `lemmas` had
       already bounded the entry above it, as one of `_SPAN_BOUNDARY_COMMANDS`.
@@ -44,58 +47,6 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
       no right-hand side (it touches `find` / `show` / `callers`, not
       `shape`); `schematic_goal` has a proof.  Worth splitting if they do not
       share a change.
-
-- [ ] `[proof-bearing-commands]` **(scope call, not a defect.)**  A command that
-      proves something but declares no fact — `instance`, `sublocale`,
-      `interpretation`, `subclass`, `termination`, `notepad` — is not an
-      `Entry`, has no `proof_line`, and its proof is invisible to every `shape`
-      verb.  Measured by `scripts/probe_proof_bearing_commands.py` over 687
-      theories: **11,300 proof commands, ~2% of the corpus**, 100% unscanned
-      for each of these owners.
-      That 687 is every theory with a built session database, so it cannot see
-      the AFP.  Re-measured where the code runs — `probe_unscanned_exposure.py`,
-      all **11,604 theories**, counting owning commands and the lines they own
-      rather than markup proof commands (a coarser unit, same denominator both
-      sides): **16,778 commands owning 58,516 proof lines, 1.58%** of all proof
-      text.  So the ~2% rate holds corpus-wide, and this is **4x the census
-      exposure of `[decl-commands]`'s 0.37%** — the two are worth comparing
-      before either ships, since both move the same published numbers.
-
-          interpretation dual: abstract_boolean_algebra ...  HOL/Boolean_Algebras:140
-            apply standard                     <- five proof commands,
-                 apply (rule disj_conj_distrib)    none of them measured
-                apply (rule conj_disj_distrib)
-               apply simp_all
-            done
-
-          instance                6,706   sublocale         1,444
-          subclass                  707   lift_definition     577
-          global_interpretation     574   interpretation      752
-          termination               194   notepad             160
-
-      Corpus-wide, as owning commands and the lines each owns — the shape of
-      the population, which the 687-theory proof-command counts above do not
-      show:
-
-          instance        4,156  12,889   3.1     subclass         673   1,909  2.8
-          lift_definition 3,565   9,247   2.6     termination      657   1,889  2.9
-          sublocale       3,560  12,441   3.5     global_interp    623   4,444  7.1
-          interpretation  3,431  14,614   4.3     notepad          113   1,083  9.6
-
-      The question is whether `shape` measures *proofs* or *proofs of facts*.
-      Today it is the second, by accident rather than by decision — the entry
-      model is a **declaration** index and `shape` rides on it.  Both readings
-      are defensible and the numbers differ by ~1.6%, so the answer belongs in a
-      commit message before any code moves.
-      **"`instance` is mostly one-liners, so the population is not shaped like
-      the lemma population" does not survive the corpus-wide read**: `instance`
-      is 25% of the occurrences, not the 59% the sample suggested, and the
-      lines-per-command column splits the population rather than unifying it —
-      `instance` 3.1 against `global_interpretation` 7.1 and `notepad` 9.6.
-      Whatever the aggregate distributions do, it is not one keyword's shape
-      driving it, so that argument needs remaking from these numbers before it
-      is leaned on.  Distinct from `[decl-commands]`, which is a defect in
-      the same probe's other half.
 
 - [ ] `[comment-newline]` A `\<comment>` may be separated from its cartouche
       by a newline.  Isabelle's `comment_prefix` allows any blanks between the
@@ -307,6 +258,80 @@ in `CONTRIBUTING.md`. Optional, unscheduled ideas live in [Maybe](dev/MAYBE.md).
       `graph` verb (serialise an adjacency) and `refs` (citation rollup)
       but over a different node set (files, not entries).  Record the
       need; don't build until the scope call is made.
+
+- [ ] `[shape-residue]` Known approximations left after 1.1.0, each
+      measured over the AFP and none yet worth its fix:
+      - `proof_tokens` counts raw tokens per line, so a glued `\<close>by`
+        moves when a line is re-wrapped: 13 of ~42k records under
+        `scripts/probe_layout_invariance.py`.
+      - 320 goals whose statement is not found (`bare = "unfound"`),
+        mostly Sledgehammer-style `obtain x :: "..."` whose quoted type
+        runs over several lines (`scripts/probe_unfound_residue.py`).
+      - A multi-label goal (`have a: "P" and b: "Q"`) records only its
+        first label in `Step.label`.
+      - `ASC_LB:asc_fault_domain_props`: a glued `"..."using` is missed by
+        the parser's inline-proof rule.
+      - 8 proofs the structure walk (`parsing._proof_close_line`) cannot
+        follow: a session's own proof command (`wlog`), `thm` / `term`
+        lines, `apply` followed by `proof`.  Their end is unknown, so
+        `unused facts --spans` says `unclosed` there; that is by design
+        [early-end], and `scripts/probe_early_end.py` lists them.
+
+- [ ] `[fact-methods]` Two fact-taking method shapes the fan-in walk
+      (`graph._cited_facts_on_line`) does not read, found measuring #35:
+      - `insert` and `fact` take facts but are not in `_RULE_METHODS`, so
+        `insert foo` and `by (fact foo)` cite nothing and mark the goal's
+        method coverage failed.  61 AFP lines with a symbolic label alone
+        (`insert *`, `fact *`); the named population is unmeasured.
+      - `only:` is not in `_FACT_MARKER_WORDS`, so `simp only: a b` cites
+        nothing, named or symbolic.
+      Each moves M5a, so measure it whole-AFP with
+      `scripts/probe_fact_literals.py` and `scripts/diff_census_fields.py`
+      before and after, as #35 did.
+
+- [ ] `[midline-decl]` What the mid-line declaration fix (#29) leaves.
+      Extent at AFP tag Isabelle2025-2 unless stated:
+      - Block structure is per line: an entry's `blocks` is the stack at
+        the start of its line, so in `locale zz begin definition "z = ()"`
+        the definition is not seen inside `zz`.  Two lines
+        (`Isabelle_C/C11-FrontEnd/examples/C2.thy:549`, `C3.thy:524`).
+        This predates #29, which only made such definitions entries.
+      - Custom commands are not recognised mid-line, by design: their
+        table is a union over the whole root, where a command of one entry
+        can be a plain name in another.  Not measured.
+      - When the text ahead of a mid-line declaration opens a command that
+        `_OTHER_COMMANDS` does not list (`hide_const ... lemma x`), the
+        entry before is also flagged and loses its cut span unnecessarily,
+        never gaining a wrong one.  No AFP case.
+      - Cost: the search is one regex pass per theory, about 6% of a
+        whole-AFP `summary` (7.4% before `_prefix_trie`, at load
+        average 2.7).  Re-measure on a quiet machine with
+        `scripts/probe_summary_parts.py`.
+      **No existing pass carries the search for free** (read, not timed).
+      The tokenizer (`_scan_nonisar_spans`) jumps between region delimiters
+      and never visits outer words; adding the keywords to `_SCAN_RE` would
+      slow every line, in the highest-risk code.  `_structural_command_lines`
+      reads first tokens only.  The one natural host is `_block_stacks`: the
+      same outer view, already walked positionally within a line.  Folding
+      `_mid_decls` into it, and giving a mid-line entry the stack at its
+      COLUMN rather than `stacks[thy_line - 1]`, fixes the first bullet and
+      makes two walks one.  Both read the whole outer view, so one scan up
+      front can feed both.  Do not expect it to buy the 6% back: the cost is
+      `_DECL_WORD_RE` matching itself, which a merged pass still runs, and
+      `_block_stacks` is cheap only because its `"begin" in line`
+      prefilter skips almost every line, a shortcut declaration keywords
+      would remove.  So frame it as a correctness fix, column-precise
+      blocks, and time it, rather than as a speedup.
+
+- [ ] `[name-atom]` query's internal name atom (`parsing.ISA_NAME_CHAR`,
+      `SYM_NAME_RE`) is looser than Isabelle's identifier rule, which
+      `lexicon.IDENT` now follows exactly (#42).  The internal atom takes any
+      `\<...>` symbol as a name character, so `A\<and>B` is one name, not
+      `A` and `B`, and `\<varepsilon>` counts as a letter although
+      `Symbol.kind` says it is not one.  Moving the 21 call sites onto
+      `lexicon.IDENT` would make query's own citations follow the rule it
+      now publishes.  It moves citation counts, so measure the edge diff
+      over the AFP (`scripts/probe_edge_dump.py`) before deciding.
 
 ## Open work from the Scala rewrite
 
